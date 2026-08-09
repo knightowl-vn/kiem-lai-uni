@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<body>
+
+	<nav th:fragment="navbar"
+		class="navbar navbar-dark bg-dark px-4 py-2 main-navbar">
+
+		<!-- Thương hiệu -->
+		<a class="navbar-brand flex-shrink-0" th:href="@{/home}"> Kiếm Lai
+			Universe </a>
+
+		<!-- Liên kết Wiki -->
+		<a class="navbar-wiki-link" th:href="@{/wiki}"> Wiki </a>
+
+		<!-- Tìm kiếm nhanh Wiki -->
+		<div class="navbar-wiki-search" id="navbarWikiSearch">
+
+			<form class="navbar-wiki-search-form" id="navbarWikiSearchForm"
+				method="get" th:action="@{/wiki}" role="search">
+
+				<label class="visually-hidden" for="navbarWikiKeyword"> Tìm
+					kiếm Wiki </label> <input id="navbarWikiKeyword"
+					class="navbar-wiki-search-input" type="search" name="keyword"
+					autocomplete="off" placeholder="Tìm kiếm nhân vật, địa danh..."
+					th:value="${param.keyword != null
+                        ? param.keyword[0]
+                        : ''}">
+
+				<button class="navbar-wiki-search-submit" type="submit"
+					aria-label="Gửi tìm kiếm">
+
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+							d="M10.5 4a6.5 6.5 0 1 0 0 13
+                             6.5 6.5 0 0 0 0-13Zm-8.5 6.5
+                             a8.5 8.5 0 1 1 15.15 5.3
+                             l4.52 4.53-1.42 1.41-4.52-4.52
+                             A8.5 8.5 0 0 1 2 10.5Z" />
+                </svg>
+
+				</button>
+
+			</form>
+
+			<button class="navbar-wiki-search-toggle" id="navbarWikiSearchToggle"
+				type="button" aria-label="Mở tìm kiếm Wiki"
+				aria-controls="navbarWikiSearchForm" aria-expanded="false">
+
+				<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+						d="M10.5 4a6.5 6.5 0 1 0 0 13
+                         6.5 6.5 0 0 0 0-13Zm-8.5 6.5
+                         a8.5 8.5 0 1 1 15.15 5.3
+                         l4.52 4.53-1.42 1.41-4.52-4.52
+                         A8.5 8.5 0 0 1 2 10.5Z" />
+            </svg>
+
+				<svg class="close-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+						d="m6.7 5.3 5.3 5.29
+                         5.3-5.3 1.4 1.42-5.29 5.3
+                         5.3 5.29-1.42 1.42-5.3-5.3
+                         -5.29 5.3-1.41-1.42
+                         5.29-5.3-5.3-5.29Z" />
+            </svg>
+
+			</button>
+
+		</div>
+
+		<!-- Menu tài khoản -->
+		<div class="navbar-account-area">
+
+			<!-- Chưa đăng nhập -->
+			<div sec:authorize="isAnonymous()" class="profile-menu">
+
+				<button class="profile-avatar-button" type="button"
+					aria-label="Mở menu tài khoản khách">
+					<img th:src="@{/images/default_avatar.jpg}"
+						src="/images/default_avatar.jpg" alt="Ảnh đại diện khách"
+						class="profile-avatar"
+						onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+				</button>
+
+				<div class="profile-dropdown">
+
+					<div class="profile-dropdown-header">
+						<strong>Khách</strong> <span>Chưa đăng nhập</span>
+					</div>
+
+					<div class="profile-dropdown-divider"></div>
+
+					<a th:href="@{/login}" class="profile-dropdown-item"> Đăng nhập
+					</a> <a th:href="@{/register}" class="profile-dropdown-item"> Đăng
+						ký </a>
+
+				</div>
+			</div>
+
+			<!-- Đã đăng nhập -->
+			<div sec:authorize="isAuthenticated()" class="profile-menu">
+
+				<button class="profile-avatar-button" type="button"
+					aria-label="Mở menu tài khoản">
+					<img
+						th:src="${currentUser != null
+                        and currentUser.avatarUrl != null
+                        and !currentUser.avatarUrl.isBlank()
+                        ? currentUser.avatarUrl
+                        : '/images/default_avatar.jpg'}"
+						src="/images/default_avatar.jpg" alt="Ảnh đại diện"
+						th:attr="referrerpolicy='no-referrer'" class="profile-avatar"
+						onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+				</button>
+
+				<div class="profile-dropdown">
+
+					<div class="profile-dropdown-header">
+
+						<strong
+							th:text="${currentUser != null
+                            and currentUser.displayName != null
+                            and !currentUser.displayName.isBlank()
+                            ? currentUser.displayName
+                            : 'Người dùng'}">
+							Người dùng </strong> <span
+							th:text="${currentUser != null
+                            and currentUser.email != null
+                            ? currentUser.email
+                            : #authentication.name}">
+							email@example.com </span>
+
+					</div>
+
+					<div class="profile-dropdown-divider"></div>
+
+					<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ
+						sơ </a>
+
+
+					<div class="profile-dropdown-divider"></div>
+
+					<div class="theme-section">
+						<div class="theme-section-title">GIAO DIỆN</div>
+
+						<div class="theme-toggle-row">
+							<div class="theme-toggle-label">
+								<i class="fa-solid fa-moon"></i> <span>Chế độ tối</span>
+							</div>
+
+							<label class="theme-switch"> <input type="checkbox"
+								id="themeToggleCheckbox" aria-label="Bật hoặc tắt chế độ tối">
+
+								<span class="theme-slider"></span>
+							</label>
+						</div>
+					</div>
+
+					<div class="profile-dropdown-divider"></div>
+
+					<form th:action="@{/logout}" method="post" class="m-0">
+						<button type="submit" class="profile-dropdown-item logout-button">
+							<i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Đăng
+							xuất
+						</button>
+					</form>
+
+				</div>
+			</div>
+
+		</div>
+		<script
+        th:src="@{/js/navbar-search.js}"
+        defer>
+</script>
+	</nav>
+
+</body>
+</html>

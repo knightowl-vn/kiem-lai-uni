@@ -1,0 +1,139 @@
+:root {
+    --page-bg: #f5f6f8;
+    --surface-bg: #ffffff;
+    --surface-secondary: #f1f3f5;
+
+    --text-primary: #212529;
+    --text-secondary: #6c757d;
+
+    --border-color: #e5e7eb;
+    --navbar-bg: #212529;
+    --input-bg: #ffffff;
+    --input-text: #212529;
+
+    --cover-start: #212529;
+    --cover-end: #495057;
+
+    --shadow-color: rgba(0, 0, 0, 0.12);
+}
+
+html[data-theme="dark"] {
+    --page-bg: #111315;
+    --surface-bg: #1d2024;
+    --surface-secondary: #292d32;
+
+    --text-primary: #f1f3f5;
+    --text-secondary: #adb5bd;
+
+    --border-color: #343a40;
+    --navbar-bg: #17191c;
+    --input-bg: #292d32;
+    --input-text: #f1f3f5;
+
+    --cover-start: #111315;
+    --cover-end: #30353b;
+
+    --shadow-color: rgba(0, 0, 0, 0.48);
+}
+
+html,
+body {
+    min-height: 100%;
+    background-color: var(--page-bg) !important;
+    color: var(--text-primary) !important;
+}
+
+body {
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.navbar {
+    background-color: var(--navbar-bg) !important;
+}
+
+.card,
+.profile-card,
+.profile-content,
+.modal-content,
+.profile-dropdown {
+    color: var(--text-primary);
+    background-color: var(--surface-bg) !important;
+}
+
+.profile-cover {
+    background: linear-gradient(
+        135deg,
+        var(--cover-start),
+        var(--cover-end)
+    ) !important;
+}
+
+.profile-card {
+    box-shadow: 0 14px 40px var(--shadow-color);
+}
+
+.profile-name,
+.profile-value,
+.profile-dropdown-header strong,
+.theme-toggle-label {
+    color: var(--text-primary) !important;
+}
+
+.profile-email,
+.profile-label,
+.profile-dropdown-header span,
+.theme-section-title,
+.text-muted {
+    color: var(--text-secondary) !important;
+}
+
+.profile-info-row,
+.profile-dropdown-divider,
+.dropdown-divider {
+    border-color: var(--border-color) !important;
+}
+
+.profile-dropdown-item {
+    color: var(--text-primary) !important;
+}
+
+.profile-dropdown-item:hover,
+.profile-dropdown-item:focus {
+    color: var(--text-primary) !important;
+    background-color: var(--surface-secondary) !important;
+}
+
+.profile-dropdown::before {
+    background-color: var(--surface-bg) !important;
+}
+
+.theme-toggle-row {
+    background-color: var(--surface-secondary) !important;
+}
+
+.form-control,
+.form-select,
+textarea {
+    color: var(--input-text) !important;
+    background-color: var(--input-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.form-control:focus,
+.form-select:focus,
+textarea:focus {
+    color: var(--input-text) !important;
+    background-color: var(--input-bg) !important;
+}
+
+html[data-theme="dark"] .btn-outline-secondary {
+    color: #d5d9dd;
+    border-color: #6c757d;
+}
+
+html[data-theme="dark"] .btn-outline-secondary:hover {
+    color: #ffffff;
+    background-color: #495057;
+}

@@ -1,0 +1,424 @@
+.profile-menu {
+    position: relative;
+    display: inline-block;
+    padding-bottom: 10px;
+    margin-bottom: -10px;
+}
+
+.profile-avatar-button {
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.profile-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.profile-menu:hover .profile-avatar {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.15);
+}
+
+.profile-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1050;
+    width: 240px;
+    padding: 10px 0;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    pointer-events: none;
+
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease,
+        visibility 0.18s ease;
+}
+
+.profile-menu:hover .profile-dropdown,
+.profile-menu:focus-within .profile-dropdown {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.profile-dropdown::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    right: 15px;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    border-left: 1px solid rgba(0, 0, 0, 0.08);
+    transform: rotate(45deg);
+}
+
+.profile-dropdown-header {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 16px 12px;
+}
+
+.profile-dropdown-header strong {
+    color: #212529;
+    font-size: 15px;
+}
+
+.profile-dropdown-header span {
+    margin-top: 3px;
+    color: #6c757d;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.profile-dropdown-divider {
+    height: 1px;
+    margin: 5px 0;
+    background: #eeeeee;
+}
+
+.profile-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    color: #212529;
+    font-size: 14px;
+    text-align: left;
+    text-decoration: none;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+.profile-dropdown-item:hover,
+.profile-dropdown-item:focus {
+    color: #000000;
+    background: #f3f4f6;
+}
+
+.logout-button {
+    color: #dc3545;
+}
+
+.logout-button:hover,
+.logout-button:focus {
+    color: #b02a37;
+    background: #fff1f2;
+}
+
+.theme-section {
+    padding: 10px 14px;
+}
+
+.theme-section-title {
+    margin-bottom: 8px;
+    color: var(--text-secondary, #8a8f98);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+}
+
+.theme-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 11px 12px;
+
+    background: var(--surface-secondary, #f4f4f4);
+    border-radius: 8px;
+}
+
+.theme-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    color: var(--text-primary, #212529);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.theme-toggle-label i {
+    width: 18px;
+    text-align: center;
+}
+
+.theme-switch {
+    position: relative;
+    display: inline-block;
+
+    width: 44px;
+    height: 24px;
+
+    margin: 0;
+}
+
+.theme-switch input {
+    width: 0;
+    height: 0;
+    opacity: 0;
+}
+
+.theme-slider {
+    position: absolute;
+    inset: 0;
+
+    background-color: #d7dce1;
+    border-radius: 999px;
+
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.theme-slider::before {
+    content: "";
+
+    position: absolute;
+    left: 3px;
+    bottom: 3px;
+
+    width: 18px;
+    height: 18px;
+
+    background-color: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+
+    transition: transform 0.2s ease;
+}
+
+.theme-switch input:checked + .theme-slider {
+    background-color: #212529;
+}
+
+.theme-switch input:checked + .theme-slider::before {
+    transform: translateX(20px);
+}
+
+.theme-switch input:focus-visible + .theme-slider {
+    outline: 3px solid rgba(13, 110, 253, 0.25);
+    outline-offset: 2px;
+}
+
+.password-mask {
+    letter-spacing: 3px;
+}
+
+.password-toggle-button {
+    min-width: 46px;
+}
+/* =========================================================
+   NAVBAR LAYOUT
+   ========================================================= */
+
+.main-navbar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    min-height: 60px;
+    z-index: 1050;
+}
+
+.navbar-wiki-link {
+    flex-shrink: 0;
+    color: rgba(255, 255, 255, 0.88);
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.18s ease;
+}
+
+.navbar-wiki-link:hover,
+.navbar-wiki-link:focus-visible {
+    color: #ffffff;
+}
+
+.navbar-account-area {
+    flex-shrink: 0;
+    margin-left: 0;
+}
+
+
+/* =========================================================
+   QUICK WIKI SEARCH
+   ========================================================= */
+
+.navbar-wiki-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 44px;
+    margin-left: auto;
+}
+
+.navbar-wiki-search-form {
+    display: flex;
+    align-items: center;
+    width: 0;
+    min-width: 0;
+    height: 42px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background-color: #212529;
+    transition:
+        width 0.25s ease,
+        opacity 0.18s ease,
+        border-color 0.18s ease;
+}
+
+.navbar-wiki-search.is-open .navbar-wiki-search-form {
+    width: min(420px, 42vw);
+    opacity: 1;
+    pointer-events: auto;
+    border-color: #495057;
+}
+
+.navbar-wiki-search-input {
+    min-width: 0;
+    flex: 1;
+    height: 100%;
+    padding: 0 12px;
+    color: #f8f9fa;
+    border: 0;
+    outline: 0;
+    background: transparent;
+}
+
+.navbar-wiki-search-input::placeholder {
+    color: #adb5bd;
+}
+
+.navbar-wiki-search-input::-webkit-search-cancel-button {
+    filter: invert(1);
+}
+
+.navbar-wiki-search-submit,
+.navbar-wiki-search-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    color: #f8f9fa;
+    border: 0;
+    border-radius: 8px;
+    background-color: transparent;
+    cursor: pointer;
+    transition:
+        color 0.18s ease,
+        background-color 0.18s ease;
+}
+
+.navbar-wiki-search-submit:hover,
+.navbar-wiki-search-toggle:hover,
+.navbar-wiki-search-submit:focus-visible,
+.navbar-wiki-search-toggle:focus-visible {
+    color: #ffffff;
+    background-color: #2b3035;
+}
+
+.navbar-wiki-search-submit svg,
+.navbar-wiki-search-toggle svg {
+    width: 21px;
+    height: 21px;
+    fill: currentColor;
+}
+
+.navbar-wiki-search-toggle .close-icon {
+    display: none;
+}
+
+.navbar-wiki-search.is-open
+.navbar-wiki-search-toggle
+.search-icon {
+    display: none;
+}
+
+.navbar-wiki-search.is-open
+.navbar-wiki-search-toggle
+.close-icon {
+    display: block;
+}
+
+
+/* =========================================================
+   MOBILE NAVBAR SEARCH
+   ========================================================= */
+
+@media (max-width: 767.98px) {
+
+    .main-navbar {
+        gap: 12px;
+        padding-left: 16px !important;
+        padding-right: 16px !important;
+    }
+
+    .navbar-brand {
+        max-width: 165px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .navbar-wiki-link {
+        display: none;
+    }
+
+    .navbar-wiki-search {
+        position: static;
+    }
+
+    .navbar-wiki-search-form {
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 12px;
+        right: 12px;
+        width: auto;
+        transform: translateY(-6px);
+        visibility: hidden;
+        opacity: 0;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+        transition:
+            opacity 0.18s ease,
+            transform 0.18s ease,
+            visibility 0.18s ease;
+    }
+
+    .navbar-wiki-search.is-open
+    .navbar-wiki-search-form {
+        width: auto;
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

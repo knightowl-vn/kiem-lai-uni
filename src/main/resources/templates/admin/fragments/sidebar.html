@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<body>
+
+	<aside class="admin-sidebar" th:fragment="sidebar(activeMenu)">
+
+		<div class="sidebar-brand">
+			<div class="brand-logo">KL</div>
+
+			<div>
+				<strong>Kiếm Lai</strong> <span>Quản trị hệ thống</span>
+			</div>
+		</div>
+
+		<nav class="sidebar-menu">
+
+			<a th:href="@{/admin/dashboard}" class="sidebar-link"
+				th:classappend="${activeMenu == 'dashboard'}
+                    ? ' active'
+                    : ''">
+
+				<span class="menu-icon">⌂</span> <span>Tổng quan</span>
+			</a> <a th:href="@{/admin/users}" class="sidebar-link"
+				th:classappend="${activeMenu == 'users'}
+                    ? ' active'
+                    : ''">
+
+				<span class="menu-icon">♙</span> <span>Người dùng</span>
+			</a> <a th:href="@{/admin/wiki/articles}" class="sidebar-link"
+				th:classappend="${activeMenu == 'wiki'}
+            ? ' active'
+            : ''">
+
+				<span class="menu-icon">▤</span> <span>Quản lý Wiki</span>
+			</a>
+
+			<div class="sidebar-divider"></div>
+
+			<a th:href="@{/home}" class="sidebar-link"> <span
+				class="menu-icon">↗</span> <span>Về trang chủ</span>
+			</a>
+
+			<form th:action="@{/logout}" method="post" class="sidebar-logout">
+
+				<button type="submit" class="sidebar-link logout-button">
+
+					<span class="menu-icon">⇥</span> <span>Đăng xuất</span>
+				</button>
+			</form>
+
+		</nav>
+
+		<div class="sidebar-user">
+			<div class="sidebar-user" th:if="${currentUser != null}">
+
+				<div class="sidebar-user-avatar">
+
+					<img
+						th:if="${currentUser.avatarUrl != null
+                    and !currentUser.avatarUrl.isBlank()}"
+						th:src="${currentUser.avatarUrl}"
+						th:attr="referrerpolicy='no-referrer'" alt="Avatar quản trị viên">
+
+					<img
+						th:unless="${currentUser.avatarUrl != null
+                    and !currentUser.avatarUrl.isBlank()}"
+						th:src="@{/images/default_avatar.jpg}" alt="Avatar mặc định">
+
+				</div>
+
+				<div class="sidebar-user-info">
+
+					<strong th:text="${currentUser.displayName}"> Quản trị
+						viên </strong> <span th:text="${currentUser.email}">
+						admin@example.com </span>
+
+				</div>
+			</div>
+		</div>
+
+	</aside>
+
+</body>
+</html>

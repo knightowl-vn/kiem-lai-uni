@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Kiếm Lai Universe - Trang chủ</title>
+<link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+<link
+	href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+	rel="stylesheet">
+
+<link rel="stylesheet" th:href="@{/css/theme.css}">
+
+<link rel="stylesheet" th:href="@{/css/navbar.css}">
+</head>
+
+<body>
+
+	<div th:replace="~{fragments/navbar :: navbar}"></div>
+
+	<main class="container text-center mt-5">
+		<h1 class="display-4">Chào mừng đến với Kiếm Lai Universe</h1>
+
+		<p class="lead text-muted">Nơi khám phá thế giới tu tiên, nhân vật
+			và cốt truyện đỉnh cao.</p>
+
+		<hr class="my-4">
+
+		<a sec:authorize="isAnonymous()" th:href="@{/register}"
+			class="btn btn-dark btn-lg"> Bắt đầu hành trình ngay </a> <a
+			sec:authorize="isAuthenticated()" th:href="@{/profile}"
+			class="btn btn-dark btn-lg"> Xem hồ sơ của tôi </a> <a
+			th:href="@{/wiki}" class="btn btn-outline-dark btn-lg"> Khám phá
+			Wiki </a>
+	</main>
+	<script th:src="@{/js/theme.js}"></script>
+</body>
+</html>

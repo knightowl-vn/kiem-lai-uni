@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html
+        lang="vi"
+        xmlns:th="http://www.thymeleaf.org">
+
+<body>
+
+<header
+        class="admin-header"
+        th:fragment="header(pageTitle)">
+
+    <div>
+        <h1 th:text="${pageTitle}">
+            Tổng quan
+        </h1>
+
+        <p>
+            Theo dõi và quản lý hoạt động của hệ thống
+        </p>
+    </div>
+
+    <div
+            class="header-actions"
+            th:if="${currentUser != null}">
+
+        <div class="admin-badge">
+            <span class="status-dot"></span>
+
+            <span
+                    th:text="${'ROLE_' + currentUser.role}">
+                ROLE_ADMIN
+            </span>
+        </div>
+
+        <div class="header-account">
+
+            <strong
+                    th:text="${currentUser.displayName}">
+                Quản trị viên
+            </strong>
+
+            <span
+                    th:text="${currentUser.role == 'SUPER_ADMIN'
+                        ? 'Super Admin'
+                        : currentUser.role == 'ADMIN'
+                        ? 'Quản trị viên'
+                        : 'Người dùng'}">
+                Quản trị viên
+            </span>
+
+        </div>
+    </div>
+
+</header>
+
+</body>
+</html>

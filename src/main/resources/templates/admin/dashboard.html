@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Dashboard | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+                admin/fragments/sidebar
+                :: sidebar(${activeMenu})
+            }">
+		</div>
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                    admin/fragments/header
+                    :: header(${pageTitle})
+                }">
+			</div>
+
+			<section class="dashboard-content">
+
+				<div class="welcome-panel">
+
+					<div>
+						<span class="welcome-label"> KIẾM LAI UNIVERSE </span>
+
+						<h2>
+							Chào mừng trở lại, <span th:text="${currentAdminDisplayName}">
+								Quản trị viên </span>
+						</h2>
+
+						<p>Đây là tình hình tổng quan của hệ thống trong thời điểm
+							hiện tại.</p>
+					</div>
+
+					<a th:href="@{/home}" class="secondary-button"> Xem website </a>
+
+				</div>
+
+				<section class="stats-grid">
+
+					<article class="stat-card">
+						<div class="stat-icon">♙</div>
+
+						<div class="stat-content">
+							<span>Tổng người dùng</span> <strong
+								th:text="${stats.totalUsers}"> 0 </strong> <small> <b
+								th:text="${stats.newUsersLast7Days}"> 0 </b> tài khoản mới trong
+								7 ngày
+							</small>
+						</div>
+					</article>
+
+					<article class="stat-card">
+						<div class="stat-icon">✓</div>
+
+						<div class="stat-content">
+							<span>Đang hoạt động</span> <strong
+								th:text="${stats.activeUsers}"> 0 </strong> <small> Tài
+								khoản trạng thái ACTIVE </small>
+						</div>
+					</article>
+
+					<article class="stat-card">
+						<div class="stat-icon">⊘</div>
+
+						<div class="stat-content">
+							<span>Đang bị khóa</span> <strong th:text="${stats.blockedUsers}">
+								0 </strong> <small> Tài khoản trạng thái BLOCKED </small>
+						</div>
+					</article>
+
+					<article class="stat-card">
+						<div class="stat-icon">♛</div>
+
+						<div class="stat-content">
+							<span>Quản trị viên</span> <strong th:text="${stats.adminUsers}">
+								0 </strong> <small> Tài khoản có quyền quản trị </small>
+						</div>
+					</article>
+
+				</section>
+
+				<section class="dashboard-grid">
+
+					<article class="panel provider-panel">
+
+						<div class="panel-header">
+							<div>
+								<h3>Phương thức đăng nhập</h3>
+
+								<p>Phân bố tài khoản trong hệ thống</p>
+							</div>
+						</div>
+
+						<div class="provider-list">
+
+							<div class="provider-item">
+								<div>
+									<span class="provider-icon"> L </span>
+
+									<div>
+										<strong>Local</strong> <small>Email và mật khẩu</small>
+									</div>
+								</div>
+
+								<b th:text="${stats.localUsers}"> 0 </b>
+							</div>
+
+							<div class="provider-item">
+								<div>
+									<span class="provider-icon"> G </span>
+
+									<div>
+										<strong>Google</strong> <small>Google OAuth2</small>
+									</div>
+								</div>
+
+								<b th:text="${stats.googleUsers}"> 0 </b>
+							</div>
+
+							<div class="provider-item">
+								<div>
+									<span class="provider-icon"> ? </span>
+
+									<div>
+										<strong>Chưa xác minh</strong> <small>Đang chờ kích
+											hoạt</small>
+									</div>
+								</div>
+
+								<b th:text="${stats.unverifiedUsers}"> 0 </b>
+							</div>
+
+						</div>
+
+					</article>
+
+					<article class="panel recent-users-panel">
+
+						<div class="panel-header">
+
+							<div>
+								<h3>Người dùng mới nhất</h3>
+
+								<p>Năm tài khoản đăng ký gần đây</p>
+							</div>
+
+							<a th:href="@{/admin/users}" class="text-link"> Xem tất cả </a>
+
+						</div>
+
+						<div class="empty-state" th:if="${#lists.isEmpty(recentUsers)}">
+
+							Chưa có người dùng nào.</div>
+
+						<div class="recent-user-list"
+							th:unless="${#lists.isEmpty(recentUsers)}">
+
+							<div class="recent-user" th:each="user : ${recentUsers}">
+
+								<div class="recent-user-avatar">
+
+									<img
+										th:if="${user.avatarUrl != null
+                                            and !user.avatarUrl.isBlank()}"
+										th:src="${user.avatarUrl}" alt="Avatar"> <span
+										th:unless="${user.avatarUrl != null
+                                            and !user.avatarUrl.isBlank()}"
+										th:text="${#strings.substring(
+                                            user.displayName,
+                                            0,
+                                            1
+                                        )}">
+										U </span>
+
+								</div>
+
+								<div class="recent-user-main">
+
+									<strong th:text="${user.displayName}"> Người dùng </strong> <span
+										th:text="${user.email}"> email@example.com </span>
+
+								</div>
+
+								<div class="recent-user-meta">
+
+									<span class="status-badge"
+										th:classappend="${user.status == 'ACTIVE'}
+                                            ? ' status-active'
+                                            : (${user.status == 'BLOCKED'}
+                                                ? ' status-blocked'
+                                                : ' status-pending')"
+										th:text="${user.status}"> ACTIVE </span> <small
+										th:text="${#temporals.format(
+                                            user.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+										01/08/2026 </small>
+
+								</div>
+
+							</div>
+
+						</div>
+
+					</article>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+</html>

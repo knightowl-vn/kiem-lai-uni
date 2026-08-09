@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Chi tiết người dùng | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/admin/user-detail.css}">
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+                admin/fragments/sidebar
+                :: sidebar(${activeMenu})
+            }">
+		</div>
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                    admin/fragments/header
+                    :: header(${pageTitle})
+                }">
+			</div>
+
+			<section class="user-detail-content">
+
+				<a th:href="@{/admin/users}" class="back-link"> ← Quay lại danh
+					sách </a>
+
+				<div class="alert alert-success" th:if="${successMessage}"
+					th:text="${successMessage}"></div>
+
+				<div class="alert alert-error" th:if="${errorMessage}"
+					th:text="${errorMessage}"></div>
+
+				<section class="profile-summary">
+
+					<div class="detail-avatar">
+
+						<img
+							th:if="${user.avatarUrl != null
+                                and !user.avatarUrl.isBlank()}"
+							th:src="${user.avatarUrl}" alt="Avatar"> <span
+							th:unless="${user.avatarUrl != null
+                                and !user.avatarUrl.isBlank()}"
+							th:text="${#strings.substring(
+                                user.displayName,
+                                0,
+                                1
+                            )}">
+							U </span>
+
+					</div>
+
+					<div class="profile-summary-main">
+
+						<div class="profile-title-row">
+
+							<div>
+								<h2 th:text="${user.displayName}">Người dùng</h2>
+
+								<p th:text="${user.email}">email@example.com</p>
+							</div>
+
+							<span class="status-badge"
+								th:classappend="${user.status == 'ACTIVE'}
+                                    ? ' status-active'
+                                    : (${user.status == 'BLOCKED'}
+                                        ? ' status-blocked'
+                                        : ' status-pending')"
+								th:text="${user.status}"> ACTIVE </span>
+
+						</div>
+
+						<p class="profile-bio"
+							th:text="${user.bio != null
+                                and !user.bio.isBlank()
+                                ? user.bio
+                                : 'Người dùng chưa cập nhật phần giới thiệu.'}">
+						</p>
+
+					</div>
+
+				</section>
+
+				<section class="detail-grid">
+
+					<article class="detail-panel">
+
+						<div class="panel-title">
+							<h3>Thông tin tài khoản</h3>
+							<p>Thông tin định danh và thời gian tạo</p>
+						</div>
+
+						<dl class="detail-list">
+
+							<div>
+								<dt>ID tài khoản</dt>
+								<dd th:text="${user.id}"></dd>
+							</div>
+
+							<div>
+								<dt>Email</dt>
+								<dd th:text="${user.email}"></dd>
+							</div>
+
+							<div>
+								<dt>Tên hiển thị</dt>
+								<dd th:text="${user.displayName}"></dd>
+							</div>
+
+							<div>
+								<dt>Ngày tạo</dt>
+								<dd
+									th:text="${#temporals.format(
+                                        user.createdAt,
+                                        'dd/MM/yyyy HH:mm'
+                                    )}">
+								</dd>
+							</div>
+
+							<div>
+								<dt>Cập nhật gần nhất</dt>
+								<dd
+									th:text="${#temporals.format(
+                                        user.updatedAt,
+                                        'dd/MM/yyyy HH:mm'
+                                    )}">
+								</dd>
+							</div>
+
+						</dl>
+
+					</article>
+
+					<article class="detail-panel">
+
+						<div class="panel-title">
+							<h3>Bảo mật và phân quyền</h3>
+							<p>Phương thức đăng nhập và quyền truy cập</p>
+						</div>
+
+						<dl class="detail-list">
+
+							<div>
+								<dt>Phương thức</dt>
+								<dd th:text="${user.authProvider}"></dd>
+							</div>
+
+							<div>
+								<dt>Mật khẩu local</dt>
+								<dd
+									th:text="${user.hasLocalPassword
+                                        ? 'Đã thiết lập'
+                                        : 'Chưa thiết lập'}">
+								</dd>
+							</div>
+
+							<div>
+								<dt>Quyền hiện tại</dt>
+								<dd th:text="${user.role}"></dd>
+							</div>
+
+							<div>
+								<dt>Trạng thái</dt>
+								<dd th:text="${user.status}"></dd>
+							</div>
+
+						</dl>
+
+					</article>
+
+				</section>
+
+				<section class="admin-actions-panel">
+
+					<div class="panel-title">
+						<h3>Thao tác quản trị</h3>
+						<p>Các thay đổi quyền và trạng thái sẽ ảnh hưởng đến khả năng
+							truy cập.</p>
+					</div>
+
+					<div class="action-grid">
+
+						<div class="action-card">
+
+							<div>
+								<h4>Trạng thái tài khoản</h4>
+
+								<p th:if="${user.status == 'ACTIVE'}">Khóa tài khoản để ngăn
+									đăng nhập mới.</p>
+
+								<p th:if="${user.status == 'BLOCKED'}">Mở khóa để tài khoản
+									có thể đăng nhập lại.</p>
+							</div>
+
+							<form
+								th:if="${canChangeStatus
+            and user.status == 'ACTIVE'}"
+								th:action="@{/admin/users/{id}/status(
+            id=${user.id}
+        )}"
+								method="post"
+								onsubmit="return confirm(
+            'Bạn có chắc muốn khóa tài khoản này?'
+        );">
+
+								<input type="hidden" name="status" value="BLOCKED">
+
+								<button type="submit" class="danger-button">Khóa tài
+									khoản</button>
+
+							</form>
+
+							<form
+								th:if="${canChangeStatus
+            and user.status == 'BLOCKED'}"
+								th:action="@{/admin/users/{id}/status(
+            id=${user.id}
+        )}"
+								method="post"
+								onsubmit="return confirm(
+            'Bạn có chắc muốn mở khóa tài khoản này?'
+        );">
+
+								<input type="hidden" name="status" value="ACTIVE">
+
+								<button type="submit" class="success-button">Mở khóa
+									tài khoản</button>
+
+							</form>
+							<p th:unless="${canChangeStatus}" class="text-muted">Bạn
+								không có quyền thay đổi trạng thái tài khoản này.</p>
+
+						</div>
+
+						<div class="action-card">
+
+							<div>
+								<h4>Quyền tài khoản</h4>
+
+								<p th:if="${user.role == 'USER'}">Cấp quyền truy cập
+									khu vực quản trị.</p>
+
+								<p th:if="${user.role == 'ADMIN'}">Hạ quyền tài khoản
+									về người dùng thường.</p>
+							</div>
+
+							<form
+								th:if="${canChangeRole
+            and user.role == 'USER'}"
+								th:action="@{/admin/users/{id}/role(
+            id=${user.id}
+        )}"
+								method="post"
+								onsubmit="return confirm(
+            'Bạn có chắc muốn cấp quyền ADMIN?'
+        );">
+
+								<input type="hidden" name="role" value="ADMIN">
+
+								<button type="submit" class="primary-action-button">
+									Nâng quyền Admin</button>
+
+							</form>
+
+							<form
+								th:if="${canChangeRole
+            and user.role == 'ADMIN'}"
+								th:action="@{/admin/users/{id}/role(
+            id=${user.id}
+        )}"
+								method="post"
+								onsubmit="return confirm(
+            'Bạn có chắc muốn hạ quyền về USER?'
+        );">
+
+								<input type="hidden" name="role" value="USER">
+
+								<button type="submit" class="warning-button">Hạ quyền
+									về User</button>
+
+							</form>
+							<p th:unless="${canChangeRole}" class="text-muted">Chỉ Super
+								Admin mới được thay đổi quyền tài khoản.</p>
+
+						</div>
+
+					</div>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+</html>

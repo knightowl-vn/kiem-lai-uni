@@ -1,0 +1,1377 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Hồ sơ cá nhân - Kiếm Lai Universe</title>
+<link
+        rel="icon"
+        type="image/png"
+        th:href="@{/images/favicon.png}">
+
+<link
+	href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+	rel="stylesheet">
+
+<link rel="stylesheet"
+	href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+<link rel="stylesheet"
+	href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
+
+<link rel="stylesheet" th:href="@{/css/theme.css}">
+
+<link rel="stylesheet" th:href="@{/css/navbar.css}">
+
+<style>
+/* =========================
+       PROFILE THEME VARIABLES
+       ========================= */
+:root {
+	--profile-page-bg: #f4f6f8;
+	--profile-card-bg: #ffffff;
+	--profile-header-start: #212529;
+	--profile-header-end: #495057;
+	--profile-text-main: #212529;
+	--profile-text-muted: #6c757d;
+	--profile-border: #eeeeee;
+	--profile-input-bg: #ffffff;
+	--profile-input-text: #212529;
+	--profile-input-border: #ced4da;
+	--profile-hover-bg: #f1f3f5;
+	--profile-icon-color: #495057;
+	--profile-avatar-border: #ffffff;
+	--profile-avatar-bg: #ffffff;
+	--profile-modal-bg: #ffffff;
+	--profile-shadow: 0 14px 40px rgba(0, 0, 0, 0.12);
+}
+
+/*
+     * Giữ cả ba selector để tương thích với theme.js.
+     */
+html[data-theme="dark"], html[data-bs-theme="dark"], body.dark-mode {
+	--profile-page-bg: #121416;
+	--profile-card-bg: #1d2125;
+	--profile-header-start: #111416;
+	--profile-header-end: #2b3035;
+	--profile-text-main: #f1f3f5;
+	--profile-text-muted: #a7afb7;
+	--profile-border: #343a40;
+	--profile-input-bg: #252a2f;
+	--profile-input-text: #f8f9fa;
+	--profile-input-border: #495057;
+	--profile-hover-bg: #2a3035;
+	--profile-icon-color: #c2c8ce;
+	--profile-avatar-border: #1d2125;
+	--profile-avatar-bg: #252a2f;
+	--profile-modal-bg: #1d2125;
+	--profile-shadow: 0 18px 45px rgba(0, 0, 0, 0.48);
+}
+
+/* =========================
+       PROFILE PAGE
+       ========================= */
+body {
+	background-color: var(--profile-page-bg);
+	color: var(--profile-text-main);
+	transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.profile-page {
+	min-height: calc(100vh - 58px);
+	background-color: var(--profile-page-bg);
+	color: var(--profile-text-main);
+	transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+/* =========================
+       PROFILE CARD
+       ========================= */
+.profile-card {
+	max-width: 780px;
+	margin: 0 auto;
+	border: 1px solid var(--profile-border);
+	border-radius: 18px;
+	overflow: hidden;
+	background-color: var(--profile-card-bg);
+	color: var(--profile-text-main);
+	box-shadow: var(--profile-shadow);
+	transition: background-color 0.25s ease, color 0.25s ease, border-color
+		0.25s ease;
+}
+
+.profile-cover {
+	height: 150px;
+	background: linear-gradient(135deg, var(--profile-header-start),
+		var(--profile-header-end));
+}
+
+.profile-content {
+	position: relative;
+	padding: 0 32px 32px;
+	background-color: var(--profile-card-bg);
+	color: var(--profile-text-main);
+}
+
+/* =========================
+       AVATAR
+       ========================= */
+.avatar-wrapper {
+	position: relative;
+	width: 136px;
+	height: 136px;
+	margin: -68px auto 0;
+}
+
+.profile-avatar-large {
+	width: 136px;
+	height: 136px;
+	border: 5px solid var(--profile-avatar-border);
+	border-radius: 50%;
+	object-fit: cover;
+	background-color: var(--profile-avatar-bg);
+	box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+	transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.avatar-edit-button {
+	position: absolute;
+	right: 4px;
+	bottom: 8px;
+	display: flex;
+	width: 38px;
+	height: 38px;
+	align-items: center;
+	justify-content: center;
+	border: 3px solid var(--profile-avatar-border);
+	border-radius: 50%;
+	color: #ffffff;
+	background-color: #212529;
+	cursor: pointer;
+	transition: transform 0.2s ease, border-color 0.25s ease;
+}
+
+.avatar-edit-button:hover {
+	transform: scale(1.08);
+}
+
+/* =========================
+       PROFILE TEXT
+       ========================= */
+.profile-name {
+	margin-top: 20px;
+	margin-bottom: 4px;
+	color: var(--profile-text-main);
+	font-weight: 700;
+}
+
+.profile-email {
+	margin-bottom: 24px;
+	color: var(--profile-text-muted);
+}
+
+.profile-info-row {
+	position: relative;
+	padding: 18px 46px 18px 0;
+	border-bottom: 1px solid var(--profile-border);
+	transition: border-color 0.25s ease;
+}
+
+.profile-info-row:last-child {
+	border-bottom: none;
+}
+
+.profile-label {
+	margin-bottom: 5px;
+	color: var(--profile-text-muted);
+	font-size: 14px;
+}
+
+.profile-value {
+	color: var(--profile-text-main);
+	font-weight: 500;
+	word-break: break-word;
+}
+
+/* =========================
+       EDIT BUTTONS
+       ========================= */
+.edit-icon-button {
+	position: absolute;
+	top: 50%;
+	right: 0;
+	width: 36px;
+	height: 36px;
+	border: none;
+	border-radius: 50%;
+	color: var(--profile-icon-color);
+	background-color: transparent;
+	transform: translateY(-50%);
+	transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.edit-icon-button:hover {
+	color: var(--profile-text-main);
+	background-color: var(--profile-hover-bg);
+}
+
+/* =========================
+       INLINE EDIT
+       ========================= */
+.inline-edit-form {
+	display: none;
+	margin-top: 10px;
+}
+
+.inline-edit-form.active {
+	display: block;
+}
+
+.inline-edit-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+/* =========================
+       INPUTS
+       ========================= */
+.profile-card .form-control, .profile-card .form-select, .modal-content .form-control,
+	.modal-content .form-select {
+	border-color: var(--profile-input-border);
+	background-color: var(--profile-input-bg);
+	color: var(--profile-input-text);
+}
+
+.profile-card .form-control:focus, .profile-card .form-select:focus,
+	.modal-content .form-control:focus, .modal-content .form-select:focus {
+	border-color: #6ea8fe;
+	background-color: var(--profile-input-bg);
+	color: var(--profile-input-text);
+	box-shadow: 0 0 0 0.2rem rgba(110, 168, 254, 0.2);
+}
+
+.profile-card .form-control::placeholder, .modal-content .form-control::placeholder
+	{
+	color: var(--profile-text-muted);
+	opacity: 1;
+}
+
+.form-text {
+	color: var(--profile-text-muted);
+}
+
+/* =========================
+       PASSWORD TOGGLE
+       ========================= */
+.password-toggle-button {
+	border-color: var(--profile-input-border);
+	color: var(--profile-icon-color);
+	background-color: var(--profile-input-bg);
+}
+
+.password-toggle-button:hover, .password-toggle-button:focus {
+	border-color: var(--profile-input-border);
+	color: var(--profile-text-main);
+	background-color: var(--profile-hover-bg);
+}
+
+/* =========================
+       MODALS
+       ========================= */
+.modal-content {
+	border: 1px solid var(--profile-border);
+	background-color: var(--profile-modal-bg);
+	color: var(--profile-text-main);
+}
+
+.modal-header, .modal-footer {
+	border-color: var(--profile-border);
+}
+
+.modal-title, .modal-content .form-label {
+	color: var(--profile-text-main);
+}
+
+html[data-theme="dark"] .modal-content .btn-close, html[data-bs-theme="dark"] .modal-content .btn-close,
+	body.dark-mode .modal-content .btn-close {
+	filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+/* =========================
+       CROPPER
+       ========================= */
+.crop-container {
+	width: 100%;
+	height: 500px;
+	overflow: hidden;
+	border-radius: 10px;
+	background-color: #111111;
+}
+
+.crop-container img {
+	display: block;
+	max-width: 100%;
+}
+
+.cropper-view-box, .cropper-face {
+	border-radius: 50%;
+}
+
+.avatar-action-menu {
+	min-width: 220px;
+}
+
+/* =========================
+       DROPDOWN MENU
+       ========================= */
+.dropdown-menu {
+	border-color: var(--profile-border);
+	background-color: var(--profile-card-bg);
+	color: var(--profile-text-main);
+}
+
+.dropdown-menu .dropdown-item {
+	color: var(--profile-text-main);
+}
+
+.dropdown-menu .dropdown-item:hover, .dropdown-menu .dropdown-item:focus
+	{
+	background-color: var(--profile-hover-bg);
+	color: var(--profile-text-main);
+}
+
+.dropdown-divider {
+	border-color: var(--profile-border);
+}
+
+.dropdown-menu .text-muted {
+	color: var(--profile-text-muted) !important;
+}
+
+/* =========================
+       BOOTSTRAP TEXT OVERRIDES
+       ========================= */
+.profile-card .text-muted, .modal-content .text-muted {
+	color: var(--profile-text-muted) !important;
+}
+
+/* =========================
+       RESPONSIVE
+       ========================= */
+@media ( max-width : 576px) {
+	.profile-content {
+		padding: 0 20px 24px;
+	}
+	.crop-container {
+		height: 380px;
+	}
+}
+</style>
+</head>
+
+<body>
+
+	<div th:replace="~{fragments/navbar :: navbar}"></div>
+
+	<main class="profile-page">
+		<div class="card profile-card">
+
+			<div class="profile-cover"></div>
+
+			<div class="profile-content">
+
+				<div class="text-center">
+
+					<div class="avatar-wrapper">
+
+						<img id="profileAvatar" class="profile-avatar-large"
+							alt="Ảnh đại diện"
+							th:src="${user.avatarUrl != null
+                and !user.avatarUrl.isBlank()
+                ? user.avatarUrl
+                : '/images/default_avatar.jpg'}"
+							src="/images/default_avatar.jpg" th:attr="referrerpolicy='no-referrer'"
+							onerror="this.onerror=null;
+                 this.src='/images/default_avatar.jpg';">
+
+						<div class="dropdown">
+
+							<button type="button" class="avatar-edit-button"
+								data-bs-toggle="dropdown" aria-expanded="false"
+								aria-label="Chỉnh sửa ảnh đại diện">
+								<i class="fa-solid fa-pen"></i>
+							</button>
+
+							<ul class="dropdown-menu avatar-action-menu">
+
+								<li>
+									<button type="button" class="dropdown-item"
+										id="chooseAvatarButton">
+										<i class="fa-solid fa-image me-2"></i> Cập nhật ảnh mới
+									</button>
+								</li>
+
+								<li
+									th:if="${user.avatarUrl != null and !user.avatarUrl.isBlank()}">
+									<hr class="dropdown-divider">
+								</li>
+
+								<li
+									th:if="${user.avatarUrl != null and !user.avatarUrl.isBlank()}">
+									<form th:action="@{/profile/avatar/delete}" method="post"
+										onsubmit="return confirm(
+                                        'Bạn có chắc muốn xóa ảnh đại diện không?'
+                                    )">
+										<button type="submit" class="dropdown-item text-danger">
+											<i class="fa-solid fa-trash me-2"></i> Xóa ảnh
+										</button>
+									</form>
+								</li>
+
+							</ul>
+						</div>
+
+						<form id="avatarUploadForm" th:action="@{/profile/avatar}"
+							method="post" enctype="multipart/form-data">
+							<input type="file" id="avatarFile"
+								accept="image/jpeg,image/png,image/webp" hidden> <input
+								type="file" id="croppedAvatarFile" name="avatarFile" hidden>
+						</form>
+
+					</div>
+
+					<h1 class="h3 profile-name" th:text="${user.displayName}">Tên
+						người dùng</h1>
+
+					<p class="profile-email" th:text="${user.email}">
+						email@example.com</p>
+				</div>
+
+				<div th:if="${successMessage}" class="alert alert-success mt-3"
+					th:text="${successMessage}">Cập nhật thành công</div>
+
+				<div th:if="${errorMessage}" class="alert alert-danger mt-3"
+					th:text="${errorMessage}">Có lỗi xảy ra</div>
+
+				<div class="mt-4">
+
+					<!-- Tên hiển thị -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Tên hiển thị</div>
+
+						<div id="displayNameValue" class="profile-value"
+							th:text="${user.displayName}">Tên người dùng</div>
+
+						<button type="button" class="edit-icon-button"
+							data-edit-target="displayNameEditForm"
+							aria-label="Chỉnh sửa tên hiển thị">
+							<i class="fa-solid fa-pen"></i>
+						</button>
+
+						<form id="displayNameEditForm" class="inline-edit-form"
+							th:action="@{/profile/display-name}" method="post">
+							<input type="text" name="displayName" class="form-control"
+								th:value="${user.displayName}" minlength="3" maxlength="50"
+								required>
+
+							<div class="inline-edit-actions">
+								<button type="submit" class="btn btn-dark btn-sm">Lưu</button>
+
+								<button type="button"
+									class="btn btn-outline-secondary btn-sm cancel-edit-button">
+									Hủy</button>
+							</div>
+							<div class="form-text">Tên hiển thị từ 3 đến 50 ký tự.</div>
+						</form>
+
+					</div>
+
+					<!-- Email -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Email</div>
+
+						<div class="profile-value" th:text="${user.email}">
+							email@example.com</div>
+
+					</div>
+
+					<!-- Mật khẩu -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Mật khẩu</div>
+
+						<div class="profile-value password-mask" th:if="${hasPassword}">
+							********</div>
+
+						<div class="profile-value text-muted" th:unless="${hasPassword}">
+							Chưa thiết lập mật khẩu</div>
+
+						<button type="button" class="edit-icon-button"
+							data-bs-toggle="modal"
+							th:attr="data-bs-target=${hasPassword}
+                ? '#changePasswordModal'
+                : '#createPasswordModal'"
+							th:title="${hasPassword}
+                ? 'Đổi mật khẩu'
+                : 'Tạo mật khẩu'">
+
+							<i class="fa-solid fa-pen"></i>
+						</button>
+
+					</div>
+
+					<!-- Trạng thái -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Trạng thái tài khoản</div>
+
+						<div>
+							<span th:if="${user.status == 'ACTIVE'}"
+								class="badge text-bg-success"> Đang hoạt động </span> <span
+								th:unless="${user.status == 'ACTIVE'}"
+								class="badge text-bg-secondary" th:text="${user.status}">
+								Trạng thái </span>
+						</div>
+
+					</div>
+
+					<!-- Bio -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Giới thiệu</div>
+
+						<div id="bioValue" class="profile-value"
+							th:text="${user.bio != null and !user.bio.isBlank()
+                            ? user.bio
+                            : 'Người dùng chưa thêm phần giới thiệu.'}">
+							Người dùng chưa thêm phần giới thiệu.</div>
+
+						<button type="button" class="edit-icon-button"
+							data-edit-target="bioEditForm" aria-label="Chỉnh sửa giới thiệu">
+							<i class="fa-solid fa-pen"></i>
+						</button>
+
+						<form id="bioEditForm" class="inline-edit-form"
+							th:action="@{/profile/bio}" method="post">
+							<textarea name="bio" class="form-control" maxlength="500"
+								rows="4" placeholder="Viết một vài dòng giới thiệu..."
+								th:text="${user.bio}"></textarea>
+
+							<div class="inline-edit-actions">
+								<button type="submit" class="btn btn-dark btn-sm">Lưu</button>
+
+								<button type="button"
+									class="btn btn-outline-secondary btn-sm cancel-edit-button">
+									Hủy</button>
+							</div>
+						</form>
+
+					</div>
+
+					<!-- Ngày tham gia -->
+					<div class="profile-info-row">
+
+						<div class="profile-label">Ngày tham gia</div>
+
+						<div class="profile-value"
+							th:text="${user.createdAt != null
+                            ? #temporals.format(user.createdAt, 'dd/MM/yyyy HH:mm')
+                            : 'Chưa xác định'}">
+							01/01/2026 10:00</div>
+
+					</div>
+
+				</div>
+
+				<div class="d-flex gap-2 mt-4">
+
+					<a th:href="@{/home}" class="btn btn-outline-secondary"> Quay
+						về trang chủ </a>
+
+					<form th:action="@{/logout}" method="post" class="ms-auto">
+						<button type="submit" class="btn btn-outline-danger">
+							Đăng xuất</button>
+					</form>
+
+				</div>
+
+			</div>
+		</div>
+	</main>
+
+	<!-- Modal crop avatar -->
+	<div class="modal fade" id="cropAvatarModal" tabindex="-1"
+		aria-hidden="true">
+		<div class="modal-dialog modal-lg modal-dialog-centered">
+			<div class="modal-content">
+
+				<div class="modal-header">
+
+					<h5 class="modal-title">Chọn vùng ảnh đại diện</h5>
+
+					<button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+
+				</div>
+
+				<div class="modal-body">
+
+					<div class="crop-container">
+						<img id="cropImage" alt="Ảnh cần cắt">
+					</div>
+
+					<div class="d-flex gap-2 mt-3">
+
+						<button type="button" id="zoomInButton"
+							class="btn btn-outline-secondary btn-sm">Phóng to</button>
+
+						<button type="button" id="zoomOutButton"
+							class="btn btn-outline-secondary btn-sm">Thu nhỏ</button>
+
+						<button type="button" id="resetCropButton"
+							class="btn btn-outline-secondary btn-sm">Đặt lại</button>
+
+					</div>
+
+				</div>
+
+				<div class="modal-footer">
+
+					<button type="button" class="btn btn-outline-secondary"
+						data-bs-dismiss="modal">Hủy</button>
+
+					<button type="button" id="confirmCropButton" class="btn btn-dark">
+						Cắt và tải lên</button>
+
+				</div>
+
+			</div>
+		</div>
+	</div>
+
+	<!-- Modal đổi mật khẩu: chỉ hiển thị khi tài khoản đã có mật khẩu -->
+	<div class="modal fade" id="changePasswordModal" tabindex="-1"
+		th:if="${hasPassword}" aria-labelledby="changePasswordModalLabel"
+		aria-hidden="true">
+
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content">
+
+				<div class="modal-header">
+					<h5 class="modal-title" id="changePasswordModalLabel">Đổi mật
+						khẩu</h5>
+
+					<button type="button" class="btn-close" data-bs-dismiss="modal"
+						aria-label="Đóng"></button>
+				</div>
+
+				<form th:action="@{/profile/password}" method="post"
+					id="changePasswordForm">
+
+					<div class="modal-body">
+
+						<div th:if="${passwordErrorMessage}" id="passwordServerError"
+							class="alert alert-danger" role="alert"
+							th:text="${passwordErrorMessage}">Đổi mật khẩu thất bại.</div>
+
+						<div id="passwordClientError" class="alert alert-danger d-none"
+							role="alert"></div>
+
+						<div class="mb-3">
+							<label for="currentPassword" class="form-label"> Mật khẩu
+								hiện tại </label>
+
+							<div class="input-group">
+								<input type="password" id="currentPassword"
+									name="currentPassword" class="form-control"
+									autocomplete="current-password" required>
+
+								<button type="button"
+									class="btn btn-outline-secondary password-toggle-button"
+									data-password-target="currentPassword"
+									aria-label="Hiện hoặc ẩn mật khẩu">
+
+									<i class="fa-regular fa-eye"></i>
+								</button>
+							</div>
+						</div>
+
+						<div class="mb-3">
+							<label for="newPassword" class="form-label"> Mật khẩu mới
+							</label>
+
+							<div class="input-group">
+								<input type="password" id="newPassword" name="newPassword"
+									class="form-control" minlength="8" maxlength="64"
+									autocomplete="new-password" required>
+
+								<button type="button"
+									class="btn btn-outline-secondary password-toggle-button"
+									data-password-target="newPassword"
+									aria-label="Hiện hoặc ẩn mật khẩu">
+
+									<i class="fa-regular fa-eye"></i>
+								</button>
+							</div>
+
+							<div class="form-text">Từ 8 đến 64 ký tự, gồm chữ hoa, chữ
+								thường và chữ số.</div>
+						</div>
+
+						<div class="mb-3">
+							<label for="confirmNewPassword" class="form-label"> Xác
+								nhận mật khẩu mới </label>
+
+							<div class="input-group">
+								<input type="password" id="confirmNewPassword"
+									name="confirmNewPassword" class="form-control" minlength="8"
+									maxlength="64" autocomplete="new-password" required>
+
+								<button type="button"
+									class="btn btn-outline-secondary password-toggle-button"
+									data-password-target="confirmNewPassword"
+									aria-label="Hiện hoặc ẩn mật khẩu">
+
+									<i class="fa-regular fa-eye"></i>
+								</button>
+							</div>
+						</div>
+
+					</div>
+
+					<div class="modal-footer">
+						<button type="button" class="btn btn-outline-secondary"
+							data-bs-dismiss="modal">Hủy</button>
+
+						<button type="submit" class="btn btn-dark">Lưu mật khẩu
+							mới</button>
+					</div>
+
+				</form>
+
+			</div>
+		</div>
+	</div>
+
+
+	<!-- Modal tạo mật khẩu: chỉ hiển thị khi tài khoản chưa có mật khẩu -->
+	<div class="modal fade" id="createPasswordModal" tabindex="-1"
+		th:unless="${hasPassword}" aria-labelledby="createPasswordModalLabel"
+		aria-hidden="true">
+
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content">
+
+				<div class="modal-header">
+					<h5 class="modal-title" id="createPasswordModalLabel">Tạo mật
+						khẩu</h5>
+
+					<button type="button" class="btn-close" data-bs-dismiss="modal"
+						aria-label="Đóng"></button>
+				</div>
+
+				<form th:action="@{/profile/password/create}" method="post"
+					id="createPasswordForm">
+
+					<div class="modal-body">
+
+						<div th:if="${createPasswordErrorMessage}"
+							id="createPasswordServerError" class="alert alert-danger"
+							role="alert" th:text="${createPasswordErrorMessage}">Tạo
+							mật khẩu thất bại.</div>
+
+						<div id="createPasswordClientError"
+							class="alert alert-danger d-none" role="alert"></div>
+
+						<p class="text-muted">Sau khi tạo mật khẩu, bạn có thể đăng
+							nhập bằng email và mật khẩu hoặc tiếp tục dùng Google.</p>
+
+						<div class="mb-3">
+							<label for="createNewPassword" class="form-label"> Mật
+								khẩu mới </label>
+
+							<div class="input-group">
+								<input type="password" id="createNewPassword" name="newPassword"
+									class="form-control" minlength="8" maxlength="64"
+									autocomplete="new-password" required>
+
+								<button type="button"
+									class="btn btn-outline-secondary password-toggle-button"
+									data-password-target="createNewPassword"
+									aria-label="Hiện hoặc ẩn mật khẩu">
+
+									<i class="fa-regular fa-eye"></i>
+								</button>
+							</div>
+
+							<div class="form-text">Từ 8 đến 64 ký tự, gồm chữ hoa, chữ
+								thường và chữ số.</div>
+						</div>
+
+						<div class="mb-3">
+							<label for="createConfirmPassword" class="form-label">
+								Xác nhận mật khẩu mới </label>
+
+							<div class="input-group">
+								<input type="password" id="createConfirmPassword"
+									name="confirmPassword" class="form-control" minlength="8"
+									maxlength="64" autocomplete="new-password" required>
+
+								<button type="button"
+									class="btn btn-outline-secondary password-toggle-button"
+									data-password-target="createConfirmPassword"
+									aria-label="Hiện hoặc ẩn mật khẩu">
+
+									<i class="fa-regular fa-eye"></i>
+								</button>
+							</div>
+						</div>
+
+					</div>
+
+					<div class="modal-footer">
+						<button type="button" class="btn btn-outline-secondary"
+							data-bs-dismiss="modal">Hủy</button>
+
+						<button type="submit" class="btn btn-dark">Tạo mật khẩu</button>
+					</div>
+
+				</form>
+
+			</div>
+		</div>
+	</div>
+
+	<script
+		src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js">
+		
+	</script>
+
+	<script
+		src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js">
+		
+	</script>
+
+	<script>
+		/*
+		 * =====================================================
+		 * CHỈNH SỬA INLINE: TÊN HIỂN THỊ VÀ BIO
+		 * =====================================================
+		 */
+		document.querySelectorAll("[data-edit-target]").forEach(
+				function(button) {
+					button.addEventListener("click", function() {
+						const targetId = button.dataset.editTarget;
+						const targetForm = document.getElementById(targetId);
+
+						if (!targetForm) {
+							return;
+						}
+
+						document.querySelectorAll(".inline-edit-form").forEach(
+								function(form) {
+									if (form !== targetForm) {
+										form.classList.remove("active");
+									}
+								});
+
+						targetForm.classList.toggle("active");
+					});
+				});
+
+		document.querySelectorAll(".cancel-edit-button").forEach(
+				function(button) {
+					button.addEventListener("click", function() {
+						const form = button.closest(".inline-edit-form");
+
+						if (form) {
+							form.classList.remove("active");
+						}
+					});
+				});
+
+		/*
+		 * =====================================================
+		 * CROP VÀ UPLOAD AVATAR
+		 * =====================================================
+		 */
+		const chooseAvatarButton = document
+				.getElementById("chooseAvatarButton");
+
+		const avatarFileInput = document.getElementById("avatarFile");
+
+		const croppedAvatarInput = document.getElementById("croppedAvatarFile");
+
+		const avatarUploadForm = document.getElementById("avatarUploadForm");
+
+		const cropImage = document.getElementById("cropImage");
+
+		const cropModalElement = document.getElementById("cropAvatarModal");
+
+		const confirmCropButton = document.getElementById("confirmCropButton");
+
+		const zoomInButton = document.getElementById("zoomInButton");
+
+		const zoomOutButton = document.getElementById("zoomOutButton");
+
+		const resetCropButton = document.getElementById("resetCropButton");
+
+		let cropper = null;
+		let selectedImageUrl = null;
+
+		/*
+		 * Chỉ khởi tạo nếu trang có đầy đủ thành phần avatar.
+		 */
+		if (chooseAvatarButton && avatarFileInput && croppedAvatarInput
+				&& avatarUploadForm && cropImage && cropModalElement
+				&& confirmCropButton) {
+			const cropModal = bootstrap.Modal
+					.getOrCreateInstance(cropModalElement);
+
+			/*
+			 * Bấm "Cập nhật ảnh mới"
+			 * → mở trình chọn file.
+			 */
+			chooseAvatarButton.addEventListener("click", function() {
+				avatarFileInput.click();
+			});
+
+			/*
+			 * Chọn file xong
+			 * → kiểm tra file
+			 * → tự động mở modal crop.
+			 */
+			avatarFileInput
+					.addEventListener(
+							"change",
+							function() {
+								const selectedFile = avatarFileInput.files[0];
+
+								if (!selectedFile) {
+									return;
+								}
+
+								const allowedTypes = [ "image/jpeg",
+										"image/png", "image/webp" ];
+
+								if (!allowedTypes.includes(selectedFile.type)) {
+									alert("Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP.");
+
+									avatarFileInput.value = "";
+									return;
+								}
+
+								if (selectedFile.size > 5 * 1024 * 1024) {
+									alert("Ảnh gốc không được vượt quá 5 MB.");
+
+									avatarFileInput.value = "";
+									return;
+								}
+
+								if (selectedImageUrl) {
+									URL.revokeObjectURL(selectedImageUrl);
+									selectedImageUrl = null;
+								}
+
+								selectedImageUrl = URL
+										.createObjectURL(selectedFile);
+
+								/*
+								 * Chỉ mở modal sau khi trình duyệt
+								 * đã giải mã ảnh thành công.
+								 */
+								cropImage.onload = function() {
+									cropModal.show();
+								};
+
+								/*
+								 * File có MIME hợp lệ nhưng dữ liệu ảnh
+								 * bị lỗi hoặc trình duyệt không hỗ trợ.
+								 */
+								cropImage.onerror = function() {
+									alert("Không thể đọc ảnh đã chọn. "
+											+ "Ảnh có thể bị lỗi hoặc không đúng định dạng JPG, PNG, WEBP.");
+
+									if (selectedImageUrl) {
+										URL.revokeObjectURL(selectedImageUrl);
+										selectedImageUrl = null;
+									}
+
+									cropImage.removeAttribute("src");
+									avatarFileInput.value = "";
+								};
+
+								cropImage.src = selectedImageUrl;
+							});
+
+			/*
+			 * Modal hiển thị xong mới khởi tạo Cropper.
+			 * Nếu tạo trước, kích thước ảnh có thể bị sai.
+			 */
+			cropModalElement.addEventListener("shown.bs.modal", function() {
+				if (cropper) {
+					cropper.destroy();
+				}
+
+				cropper = new Cropper(cropImage, {
+					aspectRatio : 1,
+					viewMode : 1,
+					dragMode : "move",
+					autoCropArea : 0.9,
+					responsive : true,
+					restore : false,
+					guides : true,
+					center : true,
+					highlight : false,
+					background : false,
+					movable : true,
+					zoomable : true,
+					zoomOnWheel : true,
+					scalable : false,
+					rotatable : false,
+					cropBoxMovable : true,
+					cropBoxResizable : true,
+					toggleDragModeOnDblclick : false
+				});
+			});
+
+			/*
+			 * Khi modal đóng:
+			 * - hủy Cropper cũ;
+			 * - reset input file;
+			 * - khôi phục nút upload.
+			 */
+			cropModalElement.addEventListener("hidden.bs.modal", function() {
+				if (cropper) {
+					cropper.destroy();
+					cropper = null;
+				}
+
+				cropImage.onload = null;
+				cropImage.onerror = null;
+
+				avatarFileInput.value = "";
+
+				confirmCropButton.disabled = false;
+				confirmCropButton.textContent = "Cắt và tải lên";
+			});
+
+			/*
+			 * Phóng to.
+			 */
+			if (zoomInButton) {
+				zoomInButton.addEventListener("click", function() {
+					if (cropper) {
+						cropper.zoom(0.1);
+					}
+				});
+			}
+
+			/*
+			 * Thu nhỏ.
+			 */
+			if (zoomOutButton) {
+				zoomOutButton.addEventListener("click", function() {
+					if (cropper) {
+						cropper.zoom(-0.1);
+					}
+				});
+			}
+
+			/*
+			 * Đặt lại vị trí và mức zoom.
+			 */
+			if (resetCropButton) {
+				resetCropButton.addEventListener("click", function() {
+					if (cropper) {
+						cropper.reset();
+					}
+				});
+			}
+
+			/*
+			 * Cắt ảnh thành 300 x 300
+			 * → tạo file WEBP
+			 * → đưa file vào input ẩn
+			 * → gửi form lên backend.
+			 */
+			confirmCropButton.addEventListener("click", function() {
+				if (!cropper) {
+					return;
+				}
+
+				confirmCropButton.disabled = true;
+				confirmCropButton.textContent = "Đang xử lý...";
+
+				const canvas = cropper.getCroppedCanvas({
+					width : 300,
+					height : 300,
+					imageSmoothingEnabled : true,
+					imageSmoothingQuality : "high",
+					fillColor : "#ffffff"
+				});
+
+				if (!canvas) {
+					alert("Không thể xử lý ảnh.");
+
+					confirmCropButton.disabled = false;
+					confirmCropButton.textContent = "Cắt và tải lên";
+
+					return;
+				}
+
+				canvas.toBlob(function(blob) {
+					if (!blob) {
+						alert("Không thể tạo ảnh đã cắt.");
+
+						confirmCropButton.disabled = false;
+
+						confirmCropButton.textContent = "Cắt và tải lên";
+
+						return;
+					}
+
+					const croppedFile = new File([ blob ], "avatar.webp", {
+						type : "image/webp",
+						lastModified : Date.now()
+					});
+
+					const dataTransfer = new DataTransfer();
+
+					dataTransfer.items.add(croppedFile);
+
+					croppedAvatarInput.files = dataTransfer.files;
+
+					/*
+					 * Gửi POST /profile/avatar.
+					 */
+					avatarUploadForm.submit();
+				}, "image/webp", 0.9);
+			});
+		}
+
+		/*
+		 * Giải phóng URL tạm khi rời trang.
+		 */
+		window.addEventListener("beforeunload", function() {
+			if (selectedImageUrl) {
+				URL.revokeObjectURL(selectedImageUrl);
+			}
+		});
+	</script>
+
+	<script>
+		const changePasswordForm = document
+				.getElementById("changePasswordForm");
+
+		const changePasswordModalElement = document
+				.getElementById("changePasswordModal");
+
+		const currentPasswordInput = document.getElementById("currentPassword");
+
+		const newPasswordInput = document.getElementById("newPassword");
+
+		const confirmNewPasswordInput = document
+				.getElementById("confirmNewPassword");
+
+		const passwordClientError = document
+				.getElementById("passwordClientError");
+
+		const passwordServerError = document
+				.getElementById("passwordServerError");
+
+		[ currentPasswordInput, newPasswordInput, confirmNewPasswordInput ]
+				.forEach(function(input) {
+					if (!input) {
+						return;
+					}
+
+					input.addEventListener("input", function() {
+						clearPasswordErrors();
+					});
+				});
+
+		function showClientPasswordError(message) {
+			if (passwordServerError) {
+				passwordServerError.classList.add("d-none");
+			}
+
+			if (!passwordClientError) {
+				alert(message);
+				return;
+			}
+
+			passwordClientError.textContent = message;
+			passwordClientError.classList.remove("d-none");
+		}
+
+		function clearPasswordErrors() {
+			if (passwordClientError) {
+				passwordClientError.textContent = "";
+				passwordClientError.classList.add("d-none");
+			}
+
+			if (passwordServerError) {
+				passwordServerError.classList.add("d-none");
+			}
+		}
+		/*
+		 * Dùng event delegation.
+		 * Cách này vẫn hoạt động khi modal được đóng/mở lại.
+		 */
+		document.addEventListener("click", function(event) {
+			const toggleButton = event.target
+					.closest(".password-toggle-button");
+
+			if (!toggleButton) {
+				return;
+			}
+
+			event.preventDefault();
+
+			const targetId = toggleButton.dataset.passwordTarget;
+
+			const passwordInput = document.getElementById(targetId);
+
+			const icon = toggleButton.querySelector("i");
+
+			if (!passwordInput || !icon) {
+				return;
+			}
+
+			const isCurrentlyHidden = passwordInput.type === "password";
+
+			passwordInput.type = isCurrentlyHidden ? "text" : "password";
+
+			icon.className = isCurrentlyHidden ? "fa-regular fa-eye-slash"
+					: "fa-regular fa-eye";
+
+			toggleButton.setAttribute("aria-label",
+					isCurrentlyHidden ? "Ẩn mật khẩu" : "Hiện mật khẩu");
+		});
+
+		if (changePasswordForm && currentPasswordInput && newPasswordInput
+				&& confirmNewPasswordInput) {
+			changePasswordForm
+					.addEventListener(
+							"submit",
+							function(event) {
+								clearPasswordErrors();
+
+								const currentPassword = currentPasswordInput.value;
+
+								const newPassword = newPasswordInput.value;
+
+								const confirmPassword = confirmNewPasswordInput.value;
+
+								if (!currentPassword) {
+									event.preventDefault();
+
+									showClientPasswordError("Vui lòng nhập mật khẩu hiện tại.");
+									return;
+								}
+
+								if (newPassword.length < 8) {
+									event.preventDefault();
+
+									showClientPasswordError("Mật khẩu mới phải có ít nhất 8 ký tự.");
+									return;
+								}
+
+								if (newPassword.length > 64) {
+									event.preventDefault();
+
+									showClientPasswordError("Mật khẩu mới không được vượt quá 64 ký tự.");
+									return;
+								}
+
+								if (newPassword !== confirmPassword) {
+									event.preventDefault();
+
+									showClientPasswordError("Mật khẩu xác nhận không khớp.");
+									return;
+								}
+
+								const hasUppercase = /[A-Z]/.test(newPassword);
+
+								const hasLowercase = /[a-z]/.test(newPassword);
+
+								const hasDigit = /\d/.test(newPassword);
+
+								if (!hasUppercase || !hasLowercase || !hasDigit) {
+									event.preventDefault();
+
+									showClientPasswordError("Mật khẩu phải có ít nhất một chữ hoa, "
+											+ "một chữ thường và một chữ số.");
+									return;
+								}
+							});
+		}
+
+		function resetPasswordVisibility() {
+			document.querySelectorAll(".password-toggle-button").forEach(
+					function(button) {
+						const targetId = button.dataset.passwordTarget;
+
+						const input = document.getElementById(targetId);
+
+						const icon = button.querySelector("i");
+
+						if (input) {
+							input.type = "password";
+						}
+
+						if (icon) {
+							icon.className = "fa-regular fa-eye";
+						}
+
+						button.setAttribute("aria-label", "Hiện mật khẩu");
+					});
+		}
+
+		/*
+		 * Chỉ reset khi người dùng tự đóng modal.
+		 * Sau redirect, trình duyệt đã tạo trang mới nên form vốn đã sạch.
+		 */
+		if (changePasswordModalElement) {
+			changePasswordModalElement.addEventListener("hidden.bs.modal",
+					function() {
+						if (changePasswordForm) {
+							changePasswordForm.reset();
+						}
+
+						clearPasswordErrors();
+						resetPasswordVisibility();
+					});
+		}
+	</script>
+	<script th:if="${openPasswordModal}">
+		const passwordModalElement = document
+				.getElementById("changePasswordModal");
+
+		if (passwordModalElement) {
+			const passwordModal = bootstrap.Modal
+					.getOrCreateInstance(passwordModalElement);
+
+			passwordModal.show();
+		}
+	</script>
+
+	<script th:if="${openCreatePasswordModal}">
+		const createPasswordModalElement = document
+				.getElementById("createPasswordModal");
+
+		if (createPasswordModalElement) {
+			bootstrap.Modal.getOrCreateInstance(createPasswordModalElement)
+					.show();
+		}
+	</script>
+
+	<script th:src="@{/js/theme.js}"></script>
+</body>
+</html>

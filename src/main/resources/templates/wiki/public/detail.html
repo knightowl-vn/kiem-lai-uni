@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title th:text="${article.title + ' - Kiếm Lai Wiki'}">Chi tiết
+	Wiki</title>
+
+<link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+<link
+	href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+	rel="stylesheet">
+
+<link rel="stylesheet" th:href="@{/css/theme.css}">
+
+<link rel="stylesheet" th:href="@{/css/navbar.css}">
+
+<link rel="stylesheet" th:href="@{/css/wiki/wiki.css}">
+
+</head>
+
+<body>
+
+	<div th:replace="~{fragments/navbar :: navbar}"></div>
+
+	<main class="container py-5">
+
+		<div class="mb-4">
+
+			<a th:href="@{/wiki}" class="text-decoration-none"> ← Quay lại
+				Wiki </a>
+
+		</div>
+
+		<article class="card border-0 shadow-sm">
+
+			<div class="card-body p-4 p-lg-5">
+
+				<!-- ========================= -->
+				<!-- ARTICLE HEADER            -->
+				<!-- ========================= -->
+
+				<header class="border-bottom pb-4 mb-4">
+
+					<span class="badge text-bg-secondary mb-3"
+						th:text="${#strings.replace(
+                            article.articleType,
+                            '_',
+                            ' '
+                        )}">
+						CHARACTER </span>
+
+					<h1 class="display-5 fw-semibold" th:text="${article.title}">
+						Trần Bình An</h1>
+
+					<p
+						th:if="${article.summary != null
+        and !#strings.isEmpty(#strings.trim(article.summary))}"
+						class="lead text-body-secondary mb-3" th:text="${article.summary}">
+						Nhân vật chính của Kiếm Lai.</p>
+
+					<div class="small text-body-secondary">
+
+						<span> Xuất bản: <span th:text="${article.publishedAt}">
+								2026-08-06T09:00:00Z </span>
+						</span> <span class="mx-2"> • </span> <span> Cập nhật: <span
+							th:text="${article.updatedAt}"> 2026-08-06T10:00:00Z </span>
+						</span>
+
+					</div>
+
+				</header>
+
+				<!-- ========================= -->
+				<!-- TABLE OF CONTENTS         -->
+				<!-- ========================= -->
+
+				<nav class="wiki-table-of-contents" aria-label="Mục lục bài viết"
+					th:if="${!#lists.isEmpty(
+                        renderedContent.tableOfContents
+                    )}">
+
+					<div class="wiki-toc-header">
+
+						<h2>Mục lục</h2>
+
+					</div>
+
+					<ol class="wiki-toc-list">
+
+						<li th:each="tocItem : ${renderedContent.tableOfContents}"
+							th:classappend="${
+                                tocItem.level == 3
+                                ? ' wiki-toc-level-3'
+                                : ' wiki-toc-level-2'
+                            }">
+
+							<a th:href="${'#' + tocItem.anchor}" th:text="${tocItem.title}">
+								Tổng quan </a>
+
+						</li>
+
+					</ol>
+
+				</nav>
+
+				<!-- ========================= -->
+				<!-- ARTICLE CONTENT           -->
+				<!-- ========================= -->
+
+				<!--
+                renderedContent.html được tạo bởi
+                WikiMarkdownRenderer.
+
+                Raw HTML trong Markdown đã bị escape,
+                URL nguy hiểm đã được sanitize.
+
+                Không được đổi thành:
+                th:utext="${article.content}"
+
+                vì article.content là source Markdown
+                chưa qua renderer.
+            -->
+				<section class="wiki-article-content"
+					th:utext="${renderedContent.html}">Nội dung chi tiết của
+					bài Wiki.</section>
+
+			</div>
+
+		</article>
+
+	</main>
+
+	<script th:src="@{/js/theme.js}"></script>
+
+</body>
+</html>

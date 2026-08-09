@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Quản lý người dùng | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/admin/users.css}">
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+                admin/fragments/sidebar
+                :: sidebar(${activeMenu})
+            }">
+		</div>
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                    admin/fragments/header
+                    :: header(${pageTitle})
+                }">
+			</div>
+
+			<section class="users-content">
+
+				<div class="users-heading">
+
+					<div>
+						<h2>Danh sách người dùng</h2>
+
+						<p>Tìm kiếm và quản lý các tài khoản trong hệ thống.</p>
+					</div>
+
+					<span class="total-user-badge"> Tổng: <strong
+						th:text="${usersPage.totalElements}"> 0 </strong>
+					</span>
+
+				</div>
+
+				<form method="get" th:action="@{/admin/users}" class="filter-panel">
+
+					<div class="search-field">
+
+						<label for="keyword"> Tìm kiếm </label> <input id="keyword"
+							name="keyword" type="search" th:value="${keyword}"
+							placeholder="Tên hiển thị hoặc email">
+
+					</div>
+
+					<div class="filter-field">
+
+						<label for="status"> Trạng thái </label> <select id="status"
+							name="status">
+
+							<option value="ALL" th:selected="${statusFilter == 'ALL'}">
+								Tất cả trạng thái</option>
+
+							<option value="ACTIVE" th:selected="${statusFilter == 'ACTIVE'}">
+								Đang hoạt động</option>
+
+							<option value="BLOCKED"
+								th:selected="${statusFilter == 'BLOCKED'}">Đang bị khóa
+							</option>
+
+							<option value="UNVERIFIED"
+								th:selected="${statusFilter == 'UNVERIFIED'}">Chưa xác
+								minh</option>
+
+						</select>
+
+					</div>
+
+					<div class="filter-field">
+
+						<label for="role"> Quyền </label> <select id="role" name="role">
+
+							<option value="ALL" th:selected="${roleFilter == 'ALL'}">
+								Tất cả quyền</option>
+
+							<option value="USER" th:selected="${roleFilter == 'USER'}">
+								Người dùng</option>
+
+							<option value="ADMIN" th:selected="${roleFilter == 'ADMIN'}">
+								Quản trị viên</option>
+							<option value="SUPER_ADMIN"
+								th:selected="${roleFilter == 'SUPER_ADMIN'}">Super
+								Admin</option>
+
+						</select>
+
+					</div>
+
+					<div class="filter-field">
+
+						<label for="provider"> Đăng nhập </label> <select id="provider"
+							name="provider">
+
+							<option value="ALL" th:selected="${providerFilter == 'ALL'}">
+								Tất cả phương thức</option>
+
+							<option value="LOCAL" th:selected="${providerFilter == 'LOCAL'}">
+								Email và mật khẩu</option>
+
+							<option value="GOOGLE"
+								th:selected="${providerFilter == 'GOOGLE'}">Google</option>
+
+						</select>
+
+					</div>
+
+					<input type="hidden" name="size" th:value="${pageSize}">
+
+					<div class="filter-actions">
+
+						<button type="submit" class="primary-button">Tìm kiếm</button>
+
+						<a th:href="@{/admin/users}" class="reset-button"> Đặt lại </a>
+
+					</div>
+
+				</form>
+
+				<article class="users-table-panel">
+
+					<div class="empty-users" th:if="${#lists.isEmpty(users)}">
+
+						<strong> Không tìm thấy người dùng </strong> <span> Hãy thử
+							thay đổi từ khóa hoặc bộ lọc. </span>
+
+					</div>
+
+					<div class="table-wrapper" th:unless="${#lists.isEmpty(users)}">
+
+						<table class="users-table">
+
+							<thead>
+								<tr>
+									<th>Người dùng</th>
+									<th>Phương thức</th>
+									<th>Quyền</th>
+									<th>Trạng thái</th>
+									<th>Ngày tạo</th>
+									<th>Thao tác</th>
+								</tr>
+							</thead>
+
+							<tbody>
+
+								<tr th:each="user : ${users}">
+
+									<td>
+
+										<div class="user-cell">
+
+											<div class="table-avatar">
+
+												<img
+													th:if="${user.avatarUrl != null
+                                                    and !user.avatarUrl.isBlank()}"
+													th:src="${user.avatarUrl}" alt="Avatar"> <span
+													th:unless="${user.avatarUrl != null
+                                                    and !user.avatarUrl.isBlank()}"
+													th:text="${#strings.substring(
+                                                    user.displayName,
+                                                    0,
+                                                    1
+                                                )}">
+													U </span>
+
+											</div>
+
+											<div class="user-identity">
+
+												<strong th:text="${user.displayName}"> Người dùng </strong>
+
+												<span th:text="${user.email}"> email@example.com </span>
+
+											</div>
+
+										</div>
+
+									</td>
+
+									<td><span class="provider-badge"
+										th:classappend="${user.authProvider == 'GOOGLE'}
+                                            ? ' provider-google'
+                                            : ' provider-local'"
+										th:text="${user.authProvider}"> LOCAL </span></td>
+
+									<td><span class="role-badge"
+										th:classappend="${user.role == 'USER'}
+            								? ' role-user'
+            								: ' role-admin'"
+										th:text="${user.role}"> USER </span></td>
+
+									<td><span class="status-badge"
+										th:classappend="${user.status == 'ACTIVE'}
+                                            ? ' status-active'
+                                            : (${user.status == 'BLOCKED'}
+                                                ? ' status-blocked'
+                                                : ' status-pending')"
+										th:text="${user.status}"> ACTIVE </span></td>
+
+									<td><time
+											th:text="${#temporals.format(
+                                            user.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+											02/08/2026 08:00 </time></td>
+									<td class="action-cell"><a
+										th:href="@{/admin/users/{id}(id=${user.id})}"
+										class="view-detail-button"> Xem chi tiết </a></td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+
+					<div class="pagination-bar" th:if="${usersPage.totalPages > 0}">
+
+						<div class="pagination-summary">
+
+							Trang <strong th:text="${usersPage.number + 1}"> 1 </strong> trên
+
+							<strong th:text="${usersPage.totalPages}"> 1 </strong> · <span
+								th:text="${usersPage.totalElements}"> 0 </span> người dùng
+
+						</div>
+
+						<div class="pagination-actions">
+
+							<a class="page-button"
+								th:classappend="${usersPage.first}
+                                    ? ' disabled'
+                                    : ''"
+								th:href="${usersPage.first}
+                                    ? '#'
+                                    : @{/admin/users(
+                                        keyword=${keyword},
+                                        status=${statusFilter},
+                                        role=${roleFilter},
+                                        provider=${providerFilter},
+                                        size=${pageSize},
+                                        page=${usersPage.number - 1}
+                                    )}">
+
+								Trước </a> <span class="current-page"> <span
+								th:text="${usersPage.number + 1}"> 1 </span>
+							</span> <a class="page-button"
+								th:classappend="${usersPage.last}
+                                    ? ' disabled'
+                                    : ''"
+								th:href="${usersPage.last}
+                                    ? '#'
+                                    : @{/admin/users(
+                                        keyword=${keyword},
+                                        status=${statusFilter},
+                                        role=${roleFilter},
+                                        provider=${providerFilter},
+                                        size=${pageSize},
+                                        page=${usersPage.number + 1}
+                                    )}">
+
+								Sau </a>
+
+						</div>
+
+					</div>
+
+				</article>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+</html>

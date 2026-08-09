@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Quản lý Wiki | Kiếm Lai Universe</title>
+
+<!--
+        dashboard.css hiện chứa layout chung:
+        sidebar, header, admin-main và biến màu.
+    -->
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/wiki/admin.css}">
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+                admin/fragments/sidebar
+                :: sidebar(${activeMenu})
+            }">
+		</div>
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                    admin/fragments/header
+                    :: header(${pageTitle})
+                }">
+			</div>
+
+			<section class="dashboard-content">
+
+				<div th:if="${successMessage != null}"
+					class="wiki-admin-success-message" th:text="${successMessage}">
+					Thao tác thành công.</div>
+
+				<!-- Tiêu đề khu vực -->
+				<div class="wiki-admin-heading">
+
+					<div>
+						<span class="wiki-admin-eyebrow"> WIKI MODULE </span>
+
+						<h2>Danh sách bài viết</h2>
+
+						<p>Quản lý bản nháp, bài đã xuất bản và bài đã lưu trữ.</p>
+					</div>
+
+					<a th:href="@{/admin/wiki/articles/new}"
+						class="wiki-admin-primary-button"> + Tạo bài mới </a>
+
+				</div>
+
+				<!-- Bộ lọc -->
+				<section class="wiki-admin-filter-panel">
+
+					<form method="get" th:action="@{/admin/wiki/articles}"
+						class="wiki-admin-filter-form">
+
+						<div class="wiki-admin-field keyword-field">
+
+							<label for="wikiAdminKeyword"> Tìm kiếm </label> <input
+								id="wikiAdminKeyword" type="search" name="keyword"
+								placeholder="Tiêu đề hoặc slug..." th:value="${keyword}">
+
+						</div>
+
+						<div class="wiki-admin-field">
+
+							<label for="wikiAdminType"> Loại bài </label> <select
+								id="wikiAdminType" name="type">
+
+								<option value="">Tất cả loại</option>
+
+								<option th:each="type : ${articleTypes}"
+									th:value="${type.name()}" th:selected="${selectedType == type}"
+									th:text="${#strings.replace(
+                                        type.name(),
+                                        '_',
+                                        ' '
+                                    )}">
+									CHARACTER</option>
+
+							</select>
+
+						</div>
+
+						<div class="wiki-admin-field">
+
+							<label for="wikiAdminStatus"> Trạng thái </label> <select
+								id="wikiAdminStatus" name="status">
+
+								<option value="">Tất cả trạng thái</option>
+
+								<option th:each="status : ${articleStatuses}"
+									th:value="${status.name()}"
+									th:selected="${selectedStatus == status}"
+									th:text="${status.name()}">DRAFT</option>
+
+							</select>
+
+						</div>
+
+						<div class="wiki-admin-filter-actions">
+
+							<button type="submit" class="wiki-admin-primary-button">
+								Lọc kết quả</button>
+
+							<a th:href="@{/admin/wiki/articles}"
+								class="wiki-admin-secondary-button"> Đặt lại </a>
+
+						</div>
+
+					</form>
+
+				</section>
+
+				<!-- Tổng số kết quả -->
+				<div class="wiki-admin-result-summary">
+
+					<span> Tìm thấy <strong
+						th:text="${articlePage.totalElements}"> 0 </strong> bài viết
+					</span> <span> Trang <strong th:text="${articlePage.page + 1}">
+							1 </strong> / <strong
+						th:text="${articlePage.totalPages == 0
+                                ? 1
+                                : articlePage.totalPages}">
+							1 </strong>
+					</span>
+
+				</div>
+
+				<!-- Trạng thái rỗng -->
+				<section th:if="${articlePage.items.isEmpty()}"
+					class="wiki-admin-empty-state">
+
+					<div class="wiki-admin-empty-icon">▤</div>
+
+					<h3>Chưa có bài Wiki phù hợp</h3>
+
+					<p>Chưa có bài viết hoặc không có bài nào khớp với bộ lọc.</p>
+
+					<a th:href="@{/admin/wiki/articles}"
+						class="wiki-admin-secondary-button"> Xem toàn bộ </a>
+
+				</section>
+
+				<!-- Bảng bài viết -->
+				<section th:unless="${articlePage.items.isEmpty()}"
+					class="wiki-admin-table-panel">
+
+					<div class="wiki-admin-table-wrapper">
+
+						<table class="wiki-admin-table">
+
+							<thead>
+								<tr>
+									<th>Bài viết</th>
+									<th>Loại</th>
+									<th>Trạng thái</th>
+									<th>Cập nhật</th>
+									<th>Phiên bản</th>
+								</tr>
+							</thead>
+
+							<tbody>
+
+								<tr th:each="article : ${articlePage.items}">
+
+									<td>
+										<div class="wiki-admin-article-cell">
+
+											<strong th:text="${article.title}"> Trần Bình An </strong> <span
+												th:text="${article.slug}"> tran-binh-an </span>
+
+										</div>
+									</td>
+
+									<td><span class="wiki-admin-type-badge"
+										th:text="${#strings.replace(
+                                            article.articleType,
+                                            '_',
+                                            ' '
+                                        )}">
+											CHARACTER </span></td>
+
+									<td><span class="wiki-admin-status-badge"
+										th:classappend="${article.status == 'PUBLISHED'}
+                                            ? ' is-published'
+                                            : (${article.status == 'ARCHIVED'}
+                                                ? ' is-archived'
+                                                : ' is-draft')"
+										th:text="${article.status}"> DRAFT </span></td>
+
+									<td><span th:if="${article.updatedAt != null}"
+										th:text="${#temporals.format(
+                                            article.updatedAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+											07/08/2026 09:00 </span> <span
+										th:unless="${article.updatedAt != null}"
+										class="wiki-admin-muted"> Chưa cập nhật </span></td>
+
+									<td><span class="wiki-admin-version"
+										th:text="${'v' + article.aggregateVersion}"> v1 </span></td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+
+				</section>
+
+				<!-- Phân trang -->
+				<nav th:if="${articlePage.totalPages > 1}"
+					class="wiki-admin-pagination" aria-label="Phân trang bài Wiki">
+
+					<a th:if="${!articlePage.first}" class="wiki-admin-page-button"
+						th:href="@{/admin/wiki/articles(
+                            keyword=${keyword},
+                            type=${selectedType == null
+                                ? ''
+                                : selectedType.name()},
+                            status=${selectedStatus == null
+                                ? ''
+                                : selectedStatus.name()},
+                            page=${articlePage.page - 1},
+                            size=${articlePage.size}
+                        )}">
+						← Trang trước </a> <span> Trang <strong
+						th:text="${articlePage.page + 1}"> 1 </strong> / <strong
+						th:text="${articlePage.totalPages}"> 1 </strong>
+					</span> <a th:if="${!articlePage.last}" class="wiki-admin-page-button"
+						th:href="@{/admin/wiki/articles(
+                            keyword=${keyword},
+                            type=${selectedType == null
+                                ? ''
+                                : selectedType.name()},
+                            status=${selectedStatus == null
+                                ? ''
+                                : selectedStatus.name()},
+                            page=${articlePage.page + 1},
+                            size=${articlePage.size}
+                        )}">
+						Trang sau → </a>
+
+				</nav>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+</html>
