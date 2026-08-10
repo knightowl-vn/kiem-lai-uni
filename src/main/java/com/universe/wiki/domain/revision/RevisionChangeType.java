@@ -27,6 +27,12 @@ public enum RevisionChangeType {
      * Xuất bản bài viết lần đầu.
      */
     PUBLISH,
+    
+    /**
+     * Gỡ xuất bản bài viết.
+     */
+    
+    UNPUBLISH,
 
     /**
      * Cập nhật nội dung của bài viết đã xuất bản.

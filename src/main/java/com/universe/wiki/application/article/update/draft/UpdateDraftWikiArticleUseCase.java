@@ -25,158 +25,79 @@ import java.util.UUID;
 @Service
 public class UpdateDraftWikiArticleUseCase {
 
-    private final WikiArticleRepositoryPort
-            articleRepositoryPort;
+	private final WikiArticleRepositoryPort articleRepositoryPort;
 
-    private final WikiArticleRevisionRepositoryPort
-            revisionRepositoryPort;
+	private final WikiArticleRevisionRepositoryPort revisionRepositoryPort;
 
-    private final SlugGeneratorPort
-            slugGeneratorPort;
+	private final SlugGeneratorPort slugGeneratorPort;
 
-    private final IdGeneratorPort
-            idGeneratorPort;
+	private final IdGeneratorPort idGeneratorPort;
 
-    private final ClockPort
-            clockPort;
+	private final ClockPort clockPort;
 
-    public UpdateDraftWikiArticleUseCase(
-            WikiArticleRepositoryPort articleRepositoryPort,
-            WikiArticleRevisionRepositoryPort revisionRepositoryPort,
-            SlugGeneratorPort slugGeneratorPort,
-            IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
-    ) {
-        this.articleRepositoryPort =
-                articleRepositoryPort;
+	public UpdateDraftWikiArticleUseCase(WikiArticleRepositoryPort articleRepositoryPort,
+			WikiArticleRevisionRepositoryPort revisionRepositoryPort, SlugGeneratorPort slugGeneratorPort,
+			IdGeneratorPort idGeneratorPort, ClockPort clockPort) {
+		this.articleRepositoryPort = articleRepositoryPort;
 
-        this.revisionRepositoryPort =
-                revisionRepositoryPort;
+		this.revisionRepositoryPort = revisionRepositoryPort;
 
-        this.slugGeneratorPort =
-                slugGeneratorPort;
+		this.slugGeneratorPort = slugGeneratorPort;
 
-        this.idGeneratorPort =
-                idGeneratorPort;
+		this.idGeneratorPort = idGeneratorPort;
 
-        this.clockPort =
-                clockPort;
-    }
+		this.clockPort = clockPort;
+	}
 
-    @Transactional
-    public WikiArticleDTO execute(
-            UpdateDraftWikiArticleCommand command
-    ) {
-        Objects.requireNonNull(
-                command,
-                "Update draft wiki article command "
-                        + "không được để trống."
-        );
+	@Transactional
+	public WikiArticleDTO execute(UpdateDraftWikiArticleCommand command) {
+		Objects.requireNonNull(command, "Update draft wiki article command " + "không được để trống.");
 
-        WikiArticle article =
-                findArticle(
-                        command.articleId()
-                );
+		WikiArticle article = findArticle(command.articleId());
 
-        Slug newSlug =
-                slugGeneratorPort.generate(
-                        command.title()
-                );
+		Slug newSlug = slugGeneratorPort.generate(command.title());
 
-        ensureSlugAvailable(
-                article,
-                command.articleType(),
-                newSlug
-        );
+		ensureSlugAvailable(article, command.articleType(), newSlug);
 
-        Instant now =
-                clockPort.now();
+		Instant now = clockPort.now();
 
-        article.updateDraft(
-                command.title(),
-                newSlug,
-                command.articleType(),
-                command.summary(),
-                command.content(),
-                command.actorId(),
-                now
-        );
+		boolean changed = article.updateDraft(command.title(), newSlug, command.articleType(), command.summary(),
+				command.content(), command.actorId(), now);
 
-        articleRepositoryPort.save(
-                article
-        );
+		if (!changed) {
+			return WikiArticleDTOMapper.toDTO(article);
+		}
 
-        saveRevision(
-                article,
-                command.editSummary()
-        );
+		articleRepositoryPort.save(article);
 
-        return WikiArticleDTOMapper.toDTO(
-                article
-        );
-    }
+		saveRevision(article, command.editSummary());
 
-    private WikiArticle findArticle(
-            UUID articleId
-    ) {
-        return articleRepositoryPort
-                .findById(articleId)
-                .orElseThrow(() ->
-                        new WikiArticleNotFoundException(
-                                articleId
-                        )
-                );
-    }
+		return WikiArticleDTOMapper.toDTO(article);
+	}
 
-    private void ensureSlugAvailable(
-            WikiArticle currentArticle,
-            com.universe.wiki.domain.article.ArticleType
-                    articleType,
-            Slug slug
-    ) {
-        Optional<WikiArticle> existingArticle =
-                articleRepositoryPort
-                        .findByArticleTypeAndSlug(
-                                articleType,
-                                slug
-                        );
+	private WikiArticle findArticle(UUID articleId) {
+		return articleRepositoryPort.findById(articleId).orElseThrow(() -> new WikiArticleNotFoundException(articleId));
+	}
 
-        boolean belongsToAnotherArticle =
-                existingArticle.isPresent()
-                        && !existingArticle
-                        .orElseThrow()
-                        .getId()
-                        .equals(
-                                currentArticle.getId()
-                        );
+	private void ensureSlugAvailable(WikiArticle currentArticle,
+			com.universe.wiki.domain.article.ArticleType articleType, Slug slug) {
+		Optional<WikiArticle> existingArticle = articleRepositoryPort.findByArticleTypeAndSlug(articleType, slug);
 
-        if (belongsToAnotherArticle) {
-            throw new ArticleSlugAlreadyExistsException(
-                    "Slug bài viết đã tồn tại trong loại "
-                            + articleType.name()
-                            + ": "
-                            + slug.value()
-            );
-        }
-    }
+		boolean belongsToAnotherArticle = existingArticle.isPresent()
+				&& !existingArticle.orElseThrow().getId().equals(currentArticle.getId());
 
-    private void saveRevision(
-            WikiArticle article,
-            String editSummary
-    ) {
-        UUID revisionId =
-                idGeneratorPort.generate();
+		if (belongsToAnotherArticle) {
+			throw new ArticleSlugAlreadyExistsException(
+					"Slug bài viết đã tồn tại trong loại " + articleType.name() + ": " + slug.value());
+		}
+	}
 
-        WikiArticleRevision revision =
-                WikiArticleRevision.createSnapshot(
-                        revisionId,
-                        article,
-                        RevisionChangeType.UPDATE_DRAFT,
-                        editSummary
-                );
+	private void saveRevision(WikiArticle article, String editSummary) {
+		UUID revisionId = idGeneratorPort.generate();
 
-        revisionRepositoryPort.save(
-                revision
-        );
-    }
+		WikiArticleRevision revision = WikiArticleRevision.createSnapshot(revisionId, article,
+				RevisionChangeType.UPDATE_DRAFT, editSummary);
+
+		revisionRepositoryPort.save(revision);
+	}
 }

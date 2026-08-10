@@ -1,11 +1,16 @@
 package com.universe.wiki.entry.admin;
 
+import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailQuery;
+import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailUseCase;
 import com.universe.wiki.application.article.query.list
         .ListWikiArticlesQuery;
 import com.universe.wiki.application.article.query.list
         .ListWikiArticlesUseCase;
 import com.universe.wiki.application.article.template
         .WikiArticleContentTemplateProvider;
+import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailUseCase;
+import com.universe.wiki.application.revision.query.list.ListWikiArticleRevisionsUseCase;
+import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.contracts.dto
         .WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto
@@ -14,6 +19,7 @@ import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.entry.admin.form
         .CreateWikiArticleForm;
+import com.universe.wiki.entry.admin.form.EditWikiArticleForm;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +34,7 @@ import org.springframework.ui.ExtendedModelMap;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -67,19 +74,34 @@ class AdminWikiArticlePageControllerTest {
     @Mock
     private WikiArticleContentTemplateProvider
             contentTemplateProvider;
+    
+    @Mock
+    private GetWikiArticleDetailUseCase
+            getWikiArticleDetailUseCase;
+    
+    @Mock
+    private ListWikiArticleRevisionsUseCase
+            listWikiArticleRevisionsUseCase;
+
+    @Mock
+    private GetWikiArticleRevisionDetailUseCase
+            getWikiArticleRevisionDetailUseCase;
 
     private AdminWikiArticlePageController
             controller;
 
     @BeforeEach
     void setUp() {
+
         controller =
                 new AdminWikiArticlePageController(
                         listWikiArticlesUseCase,
-                        contentTemplateProvider
+                        contentTemplateProvider,
+                        getWikiArticleDetailUseCase,
+                        listWikiArticleRevisionsUseCase,
+                        getWikiArticleRevisionDetailUseCase
                 );
     }
-
     /*
      * =====================================================
      * LIST PAGE
@@ -110,6 +132,9 @@ class AdminWikiArticlePageControllerTest {
 
         ExtendedModelMap model =
                 new ExtendedModelMap();
+        MockHttpServletResponse response =
+                new MockHttpServletResponse();
+
 
         String viewName =
                 controller.listPage(
@@ -118,7 +143,8 @@ class AdminWikiArticlePageControllerTest {
                         "published",
                         0,
                         20,
-                        model
+                        model, 
+                        response
                 );
 
         assertThat(viewName)
@@ -240,6 +266,9 @@ class AdminWikiArticlePageControllerTest {
 
         ExtendedModelMap model =
                 new ExtendedModelMap();
+        MockHttpServletResponse response =
+                new MockHttpServletResponse();
+
 
         String viewName =
                 controller.listPage(
@@ -248,7 +277,8 @@ class AdminWikiArticlePageControllerTest {
                         "",
                         0,
                         20,
-                        model
+                        model,
+                        response
                 );
 
         assertThat(viewName)
@@ -273,7 +303,8 @@ class AdminWikiArticlePageControllerTest {
                         "selectedStatus"
                 )
         ).isNull();
-
+        
+        
         verify(listWikiArticlesUseCase)
                 .execute(
                         new ListWikiArticlesQuery(
@@ -293,6 +324,9 @@ class AdminWikiArticlePageControllerTest {
     void shouldRejectInvalidArticleType() {
         ExtendedModelMap model =
                 new ExtendedModelMap();
+        MockHttpServletResponse response =
+                new MockHttpServletResponse();
+
 
         assertThatThrownBy(() ->
                 controller.listPage(
@@ -301,7 +335,8 @@ class AdminWikiArticlePageControllerTest {
                         null,
                         0,
                         20,
-                        model
+                        model, 
+                        response
                 )
         )
                 .isInstanceOf(
@@ -378,6 +413,342 @@ class AdminWikiArticlePageControllerTest {
         ).isEqualTo(
                 "wiki"
         );
+    }
+    
+    
+    /*
+     * =====================================================
+     * DETAIL PAGE
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName(
+            "Hiển thị trang chi tiết bài Wiki"
+    )
+    void shouldShowWikiArticleDetailPage() {
+
+        WikiArticleDTO article =
+                createDraftArticleDTO();
+
+
+        when(
+                getWikiArticleDetailUseCase.execute(
+                        new GetWikiArticleDetailQuery(
+                                ARTICLE_ID
+                        )
+                )
+        ).thenReturn(
+                article
+        );
+
+
+        ExtendedModelMap model =
+                new ExtendedModelMap();
+
+
+        String viewName =
+                controller.detailPage(
+                        ARTICLE_ID,
+                        model
+                );
+
+
+        assertThat(viewName)
+                .isEqualTo(
+                        "admin/wiki/detail"
+                );
+
+
+        assertThat(
+                model.getAttribute(
+                        "article"
+                )
+        ).isEqualTo(
+                article
+        );
+
+
+        assertThat(
+                model.getAttribute(
+                        "pageTitle"
+                )
+        ).isEqualTo(
+                "Chi tiết bài Wiki"
+        );
+
+
+        assertThat(
+                model.getAttribute(
+                        "activeMenu"
+                )
+        ).isEqualTo(
+                "wiki"
+        );
+
+
+        verify(
+                getWikiArticleDetailUseCase
+        ).execute(
+                new GetWikiArticleDetailQuery(
+                        ARTICLE_ID
+                )
+        );
+    }
+
+
+    /*
+     * =====================================================
+     * EDIT DRAFT PAGE
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName(
+            "Hiển thị trang chỉnh sửa bài Wiki DRAFT"
+    )
+    void shouldShowEditDraftWikiArticlePage() {
+
+        WikiArticleDTO article =
+                createDraftArticleDTO();
+
+
+        when(
+                getWikiArticleDetailUseCase.execute(
+                        new GetWikiArticleDetailQuery(
+                                ARTICLE_ID
+                        )
+                )
+        ).thenReturn(
+                article
+        );
+
+
+        ExtendedModelMap model =
+                new ExtendedModelMap();
+
+
+        String viewName =
+                controller.editPage(
+                        ARTICLE_ID,
+                        model
+                );
+
+
+        assertThat(viewName)
+                .isEqualTo(
+                        "admin/wiki/edit"
+                );
+
+
+        assertThat(
+                model.getAttribute(
+                        "article"
+                )
+        ).isEqualTo(
+                article
+        );
+
+
+        assertThat(
+                model.getAttribute(
+                        "draft"
+                )
+        ).isEqualTo(
+                true
+        );
+
+
+        EditWikiArticleForm form =
+                (EditWikiArticleForm)
+                        model.getAttribute(
+                                "form"
+                        );
+
+
+        assertThat(form)
+                .isNotNull();
+
+
+        assertThat(
+                form.getTitle()
+        ).isEqualTo(
+                "Trần Bình An"
+        );
+
+
+        assertThat(
+                form.getArticleType()
+        ).isEqualTo(
+                ArticleType.CHARACTER
+        );
+
+
+        assertThat(
+                form.getSummary()
+        ).isEqualTo(
+                "Nhân vật chính của Kiếm Lai."
+        );
+
+
+        assertThat(
+                form.getContent()
+        ).isEqualTo(
+                "Nội dung bài viết."
+        );
+
+
+        ArticleType[] articleTypes =
+                (ArticleType[])
+                        model.getAttribute(
+                                "articleTypes"
+                        );
+
+
+        assertThat(articleTypes)
+                .containsExactly(
+                        ArticleType.values()
+                );
+
+
+        assertThat(
+                model.getAttribute(
+                        "pageTitle"
+                )
+        ).isEqualTo(
+                "Chỉnh sửa bài Wiki"
+        );
+    }
+
+
+    /*
+     * =====================================================
+     * EDIT PUBLISHED PAGE
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName(
+            "Hiển thị trang chỉnh sửa bài Wiki PUBLISHED ở chế độ hạn chế"
+    )
+    void shouldShowEditPublishedWikiArticlePage() {
+
+        WikiArticleDTO article =
+                createPublishedArticleDTO();
+
+
+        when(
+                getWikiArticleDetailUseCase.execute(
+                        new GetWikiArticleDetailQuery(
+                                ARTICLE_ID
+                        )
+                )
+        ).thenReturn(
+                article
+        );
+
+
+        ExtendedModelMap model =
+                new ExtendedModelMap();
+
+
+        String viewName =
+                controller.editPage(
+                        ARTICLE_ID,
+                        model
+                );
+
+
+        assertThat(viewName)
+                .isEqualTo(
+                        "admin/wiki/edit"
+                );
+
+
+        assertThat(
+                model.getAttribute(
+                        "draft"
+                )
+        ).isEqualTo(
+                false
+        );
+
+
+        EditWikiArticleForm form =
+                (EditWikiArticleForm)
+                        model.getAttribute(
+                                "form"
+                        );
+
+
+        assertThat(form)
+                .isNotNull();
+
+
+        assertThat(
+                form.getTitle()
+        ).isEqualTo(
+                "Trần Bình An"
+        );
+
+
+        assertThat(
+                form.getArticleType()
+        ).isEqualTo(
+                ArticleType.CHARACTER
+        );
+
+
+        assertThat(
+                form.getSummary()
+        ).isEqualTo(
+                "Nhân vật chính của Kiếm Lai."
+        );
+
+
+        assertThat(
+                form.getContent()
+        ).isEqualTo(
+                "Nội dung bài viết."
+        );
+    }
+
+
+    /*
+     * =====================================================
+     * EDIT ARCHIVED PAGE
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName(
+            "Không mở trang chỉnh sửa trực tiếp cho bài Wiki ARCHIVED"
+    )
+    void shouldRejectEditArchivedWikiArticlePage() {
+
+        when(
+                getWikiArticleDetailUseCase.execute(
+                        new GetWikiArticleDetailQuery(
+                                ARTICLE_ID
+                        )
+                )
+        ).thenReturn(
+                createArchivedArticleDTO()
+        );
+
+
+        assertThatThrownBy(() ->
+                controller.editPage(
+                        ARTICLE_ID,
+                        new ExtendedModelMap()
+                )
+        )
+                .isInstanceOf(
+                        IllegalStateException.class
+                )
+                .hasMessage(
+                        "Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp."
+                );
     }
 
     /*
@@ -469,6 +840,77 @@ class AdminWikiArticlePageControllerTest {
                 1,
                 true,
                 true
+        );
+    }
+    
+    private WikiArticleDTO createDraftArticleDTO() {
+
+        return new WikiArticleDTO(
+                ARTICLE_ID,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Nhân vật chính của Kiếm Lai.",
+                "Nội dung bài viết.",
+                "DRAFT",
+                ADMIN_ID,
+                ADMIN_ID,
+                null,
+                null,
+                CREATED_AT,
+                UPDATED_AT,
+                null,
+                null,
+                1L,
+                1L
+        );
+    }
+
+
+    private WikiArticleDTO createPublishedArticleDTO() {
+
+        return new WikiArticleDTO(
+                ARTICLE_ID,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Nhân vật chính của Kiếm Lai.",
+                "Nội dung bài viết.",
+                "PUBLISHED",
+                ADMIN_ID,
+                ADMIN_ID,
+                ADMIN_ID,
+                null,
+                CREATED_AT,
+                UPDATED_AT,
+                UPDATED_AT,
+                null,
+                2L,
+                1L
+        );
+    }
+
+
+    private WikiArticleDTO createArchivedArticleDTO() {
+
+        return new WikiArticleDTO(
+                ARTICLE_ID,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Nhân vật chính của Kiếm Lai.",
+                "Nội dung bài viết.",
+                "ARCHIVED",
+                ADMIN_ID,
+                ADMIN_ID,
+                ADMIN_ID,
+                ADMIN_ID,
+                CREATED_AT,
+                UPDATED_AT,
+                UPDATED_AT,
+                UPDATED_AT,
+                3L,
+                1L
         );
     }
 }

@@ -1,0 +1,113 @@
+<section class="dashboard-content">
+
+    <div class="wiki-admin-create-heading">
+
+        <div>
+
+            <a
+                th:href="@{/admin/wiki/articles}"
+                class="wiki-admin-back-link">
+                ← Quay lại danh sách
+            </a>
+
+            <span class="wiki-admin-eyebrow">
+                WIKI MODULE
+            </span>
+
+            <h2 th:text="${article.title}">
+                Trần Bình An
+            </h2>
+
+            <p>
+                Chi tiết bài viết trong hệ thống quản trị.
+            </p>
+
+        </div>
+
+
+        <div class="wiki-admin-form-actions">
+
+            <a
+                th:if="${article.status == 'DRAFT'
+                        or article.status == 'PUBLISHED'}"
+                th:href="@{/admin/wiki/articles/{id}/edit(
+                    id=${article.id}
+                )}"
+                class="wiki-admin-primary-button">
+
+                Chỉnh sửa
+
+            </a>
+
+        </div>
+
+    </div>
+
+
+    <section class="wiki-admin-form-panel">
+
+        <div class="wiki-admin-detail-grid">
+
+            <div>
+                <strong>Trạng thái</strong>
+                <p th:text="${article.status}">
+                    DRAFT
+                </p>
+            </div>
+
+            <div>
+                <strong>Loại bài</strong>
+                <p th:text="${article.articleType}">
+                    CHARACTER
+                </p>
+            </div>
+
+            <div>
+                <strong>Slug</strong>
+                <p th:text="${article.slug}">
+                    tran-binh-an
+                </p>
+            </div>
+
+            <div>
+                <strong>Cập nhật</strong>
+
+                <p
+                    th:text="${#temporals.format(
+                        article.updatedAt,
+                        'dd/MM/yyyy HH:mm'
+                    )}">
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div class="wiki-admin-form-group">
+
+            <label>Tóm tắt</label>
+
+            <p
+                th:text="${#strings.isEmpty(article.summary)
+                    ? 'Chưa có tóm tắt.'
+                    : article.summary}">
+            </p>
+
+        </div>
+
+
+        <div class="wiki-admin-form-group">
+
+            <label>Nội dung Markdown</label>
+
+            <pre
+                class="wiki-admin-detail-content"
+                th:text="${article.content}">
+            </pre>
+
+        </div>
+
+    </section>
+
+</section>

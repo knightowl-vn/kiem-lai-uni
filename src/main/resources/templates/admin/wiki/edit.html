@@ -1,0 +1,630 @@
+<div class="admin-layout">
+
+	<!-- ================================================= -->
+	<!-- SIDEBAR                                           -->
+	<!-- ================================================= -->
+
+	<div
+		th:replace="~{
+            admin/fragments/sidebar
+            :: sidebar(${activeMenu})
+        }">
+	</div>
+
+
+	<main class="admin-main">
+
+		<!-- ================================================= -->
+		<!-- HEADER                                            -->
+		<!-- ================================================= -->
+
+		<div
+			th:replace="~{
+                admin/fragments/header
+                :: header(${pageTitle})
+            }">
+		</div>
+
+
+		<section class="dashboard-content">
+
+			<!-- ================================================= -->
+			<!-- PAGE HEADING                                       -->
+			<!-- ================================================= -->
+
+			<div class="wiki-admin-create-heading">
+
+				<div>
+
+					<a
+						th:href="@{/admin/wiki/articles/{id}(
+                            id=${article.id}
+                        )}"
+						class="wiki-admin-back-link">
+						← Quay lại chi tiết
+					</a>
+
+					<span class="wiki-admin-eyebrow">
+						WIKI MODULE
+					</span>
+
+					<h2>
+						Chỉnh sửa bài viết
+					</h2>
+
+					<p th:if="${draft}">
+						Bài viết hiện đang là bản nháp. Bạn có thể chỉnh sửa toàn bộ
+						thông tin của bài viết.
+					</p>
+
+					<p th:unless="${draft}">
+						Bài viết đã được xuất bản. Bạn có thể cập nhật phần tóm tắt
+						và nội dung của bài viết.
+					</p>
+
+				</div>
+
+			</div>
+
+
+			<!-- ================================================= -->
+			<!-- EDIT FORM                                         -->
+			<!-- ================================================= -->
+
+			<section class="wiki-admin-form-panel">
+
+				<form
+					method="post"
+					th:action="@{/admin/wiki/articles/{id}/update(
+                        id=${article.id}
+                    )}"
+					th:object="${form}"
+					class="wiki-admin-create-form">
+
+
+					<!-- ================================================= -->
+					<!-- CSRF DATA FOR IMAGE UPLOAD                         -->
+					<!-- ================================================= -->
+
+					<div
+						id="wikiCsrf"
+						th:data-token="${_csrf.token}"
+						th:data-header="${_csrf.headerName}"
+						hidden>
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- ERROR                                              -->
+					<!-- ================================================= -->
+
+					<div
+						th:if="${errorMessage != null}"
+						class="wiki-admin-form-error"
+						th:text="${errorMessage}">
+						Có lỗi xảy ra.
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- CURRENT STATUS                                     -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-create-note">
+
+						<strong>
+							Trạng thái hiện tại:
+						</strong>
+
+						<span
+							th:text="${article.status}">
+							DRAFT
+						</span>
+
+						<p th:if="${draft}">
+							Việc lưu thay đổi sẽ giữ bài viết ở trạng thái bản nháp.
+							Khi hoàn thiện, bạn có thể xuất bản từ menu quản lý bài viết.
+						</p>
+
+						<p th:unless="${draft}">
+							Việc lưu thay đổi không gỡ bài viết khỏi Wiki công khai.
+							Bài viết vẫn giữ trạng thái đã xuất bản.
+						</p>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- TITLE                                              -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-group">
+
+						<label for="wikiTitle">
+
+							Tiêu đề bài viết
+
+							<span
+								th:if="${draft}"
+								class="required-marker">
+								*
+							</span>
+
+						</label>
+
+
+						<!-- DRAFT: được phép sửa -->
+
+						<input
+							th:if="${draft}"
+							id="wikiTitle"
+							type="text"
+							th:field="*{title}"
+							maxlength="255"
+							autocomplete="off"
+							placeholder="Ví dụ: Trần Bình An"
+							required>
+
+
+						<!-- PUBLISHED: chỉ đọc -->
+
+						<input
+							th:unless="${draft}"
+							id="wikiTitle"
+							type="text"
+							th:value="${article.title}"
+							readonly
+							class="wiki-admin-readonly-field">
+
+
+						<small th:if="${draft}">
+							Nếu đổi tiêu đề, slug mới sẽ được hệ thống tự động tạo.
+						</small>
+
+						<small th:unless="${draft}">
+							Tiêu đề không được thay đổi trực tiếp khi bài viết đang
+							được xuất bản.
+						</small>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- ARTICLE TYPE                                       -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-group">
+
+						<label for="wikiArticleType">
+
+							Loại nội dung
+
+							<span
+								th:if="${draft}"
+								class="required-marker">
+								*
+							</span>
+
+						</label>
+
+
+						<!-- DRAFT: được phép đổi loại -->
+
+						<select
+							th:if="${draft}"
+							id="wikiArticleType"
+							th:field="*{articleType}"
+							required>
+
+							<option
+								th:each="type : ${articleTypes}"
+								th:value="${type.name()}"
+								th:text="${#strings.replace(
+                                    type.name(),
+                                    '_',
+                                    ' '
+                                )}">
+								CHARACTER
+							</option>
+
+						</select>
+
+
+						<!--
+						    PUBLISHED:
+						    Hiển thị select nhưng khóa lại.
+
+						    Giữ id="wikiArticleType"
+						    để admin-content-template.js vẫn có thể đọc
+						    ArticleType hiện tại.
+						-->
+
+						<select
+							th:unless="${draft}"
+							id="wikiArticleType"
+							disabled>
+
+							<option
+								th:each="type : ${articleTypes}"
+								th:value="${type.name()}"
+								th:text="${#strings.replace(
+                                    type.name(),
+                                    '_',
+                                    ' '
+                                )}"
+								th:selected="${type.name() == article.articleType}">
+								CHARACTER
+							</option>
+
+						</select>
+
+
+						<!--
+						    Select disabled không được browser submit.
+						    Hidden field giữ articleType trong EditWikiArticleForm.
+						-->
+
+						<input
+							th:unless="${draft}"
+							type="hidden"
+							th:field="*{articleType}">
+
+
+						<small th:if="${draft}">
+							Loại bài có thể ảnh hưởng tới URL và cách phân loại trong Wiki.
+						</small>
+
+						<small th:unless="${draft}">
+							Loại bài không được thay đổi trực tiếp khi bài viết đang
+							được xuất bản.
+						</small>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- SUMMARY                                            -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-group">
+
+						<label for="wikiSummary">
+							Tóm tắt
+						</label>
+
+						<textarea
+							id="wikiSummary"
+							th:field="*{summary}"
+							rows="4"
+							maxlength="1000"
+							placeholder="Tóm tắt ngắn về bài viết..."></textarea>
+
+						<small>
+							Tóm tắt được dùng trong danh sách và kết quả tìm kiếm Wiki.
+							Có thể để trống.
+						</small>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- CONTENT                                            -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-group">
+
+						<div class="wiki-admin-content-header">
+
+							<div>
+
+								<label for="wikiContent">
+									Nội dung
+								</label>
+
+								<small>
+									Nội dung hỗ trợ Markdown có cấu trúc.
+								</small>
+
+							</div>
+
+
+							<button
+								id="applyContentTemplate"
+								type="button"
+								class="wiki-admin-secondary-button">
+								Áp dụng mẫu
+							</button>
+
+						</div>
+
+
+						<div class="wiki-admin-template-help">
+							Mẫu chỉ là cấu trúc gợi ý. Nếu áp dụng mẫu khi đang chỉnh sửa,
+							hãy kiểm tra nội dung hiện tại trước khi thay thế.
+						</div>
+
+
+						<!-- ================================================= -->
+						<!-- MARKDOWN TOOLBAR                                   -->
+						<!-- ================================================= -->
+
+						<div
+							class="wiki-markdown-toolbar"
+							role="toolbar"
+							aria-label="Công cụ soạn thảo Markdown">
+
+
+							<!-- UNDO / REDO -->
+
+							<div class="wiki-markdown-toolbar-group">
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="undo"
+									title="Hoàn tác (Ctrl+Z)"
+									aria-label="Hoàn tác">
+									↶
+								</button>
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="redo"
+									title="Làm lại (Ctrl+Y)"
+									aria-label="Làm lại">
+									↷
+								</button>
+
+							</div>
+
+
+							<div class="wiki-markdown-toolbar-divider"></div>
+
+
+							<!-- HEADINGS -->
+
+							<div class="wiki-markdown-toolbar-group">
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="h2"
+									title="Đề mục chính">
+									H2
+								</button>
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="h3"
+									title="Đề mục con">
+									H3
+								</button>
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="h4"
+									title="Đề mục chi tiết">
+									H4
+								</button>
+
+							</div>
+
+
+							<div class="wiki-markdown-toolbar-divider"></div>
+
+
+							<!-- INLINE FORMAT -->
+
+							<div class="wiki-markdown-toolbar-group">
+
+								<button
+									type="button"
+									class="
+                                        wiki-markdown-tool
+                                        wiki-markdown-tool-bold
+                                    "
+									data-markdown-action="bold"
+									title="In đậm (Ctrl+B)">
+									B
+								</button>
+
+								<button
+									type="button"
+									class="
+                                        wiki-markdown-tool
+                                        wiki-markdown-tool-italic
+                                    "
+									data-markdown-action="italic"
+									title="In nghiêng (Ctrl+I)">
+									I
+								</button>
+
+							</div>
+
+
+							<div class="wiki-markdown-toolbar-divider"></div>
+
+
+							<!-- INSERT / BLOCK -->
+
+							<div class="wiki-markdown-toolbar-group">
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="link"
+									title="Chèn liên kết (Ctrl+K)">
+									Link
+								</button>
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="quote"
+									title="Trích dẫn">
+									Quote
+								</button>
+
+								<button
+									type="button"
+									class="wiki-markdown-tool"
+									data-markdown-action="list"
+									title="Danh sách">
+									List
+								</button>
+
+							</div>
+
+
+							<div class="wiki-markdown-toolbar-divider"></div>
+
+
+							<!-- IMAGE -->
+
+							<button
+								id="wikiImageButton"
+								type="button"
+								class="wiki-markdown-tool"
+								title="Chèn ảnh">
+								Ảnh
+							</button>
+
+							<input
+								id="wikiImageFileInput"
+								type="file"
+								accept="image/jpeg,image/png,image/webp"
+								hidden>
+
+						</div>
+
+
+						<!-- ================================================= -->
+						<!-- EDITOR                                             -->
+						<!-- ================================================= -->
+
+						<textarea
+							id="wikiContent"
+							th:field="*{content}"
+							rows="24"
+							placeholder="Nhập nội dung bài Wiki..."></textarea>
+
+
+						<div class="wiki-admin-markdown-help">
+
+							<span>
+								<strong>##</strong>
+								Đề mục chính
+							</span>
+
+							<span>
+								<strong>###</strong>
+								Đề mục con
+							</span>
+
+							<span>
+								<strong>####</strong>
+								Đề mục chi tiết
+							</span>
+
+						</div>
+
+
+						<small th:if="${draft}">
+							Bản nháp có thể lưu khi nội dung chưa hoàn thiện.
+						</small>
+
+						<small th:unless="${draft}">
+							Bài đã xuất bản phải tiếp tục có nội dung hợp lệ sau khi cập nhật.
+						</small>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- EDIT SUMMARY                                       -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-group">
+
+						<label for="wikiEditSummary">
+							Ghi chú chỉnh sửa
+						</label>
+
+						<input
+							id="wikiEditSummary"
+							type="text"
+							th:field="*{editSummary}"
+							maxlength="255"
+							placeholder="Ví dụ: Bổ sung phần tu hành và năng lực">
+
+
+						<small>
+							Ghi chú này sẽ xuất hiện trong lịch sử chỉnh sửa.
+						</small>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- VERSION INFO                                       -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-create-note">
+
+						<strong>
+							Phiên bản nội dung
+						</strong>
+
+						<p>
+							Một phiên bản mới chỉ được tạo khi dữ liệu bài viết thực sự
+							thay đổi. Nếu bạn bấm lưu mà không sửa gì, hệ thống sẽ không
+							tăng phiên bản nội dung.
+						</p>
+
+					</div>
+
+
+					<!-- ================================================= -->
+					<!-- ACTIONS                                            -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-form-actions">
+
+						<a
+							th:href="@{/admin/wiki/articles/{id}(
+                                id=${article.id}
+                            )}"
+							class="wiki-admin-secondary-button">
+							Hủy
+						</a>
+
+
+						<button
+							type="submit"
+							class="wiki-admin-primary-button">
+							Lưu thay đổi
+						</button>
+
+					</div>
+
+				</form>
+
+			</section>
+
+		</section>
+
+	</main>
+
+</div>
+
+
+<!-- ===================================================== -->
+<!-- JAVASCRIPT                                            -->
+<!-- ===================================================== -->
+
+<script th:src="@{/js/wiki/admin-content-template.js}"></script>
+
+<script th:src="@{/js/wiki/admin-markdown-editor.js}"></script>

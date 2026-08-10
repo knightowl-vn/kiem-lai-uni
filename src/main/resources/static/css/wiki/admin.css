@@ -153,21 +153,25 @@
    ========================================================= */
 
 .wiki-admin-table-panel {
-    overflow: hidden;
+    overflow: visible;
+
     border: 1px solid var(--border);
     border-radius: 16px;
+
     background: var(--surface);
+
     box-shadow: var(--shadow);
 }
 
 .wiki-admin-table-wrapper {
-    overflow-x: auto;
+    overflow-x: visible;
 }
 
 .wiki-admin-table {
     width: 100%;
-    min-width: 760px;
+    min-width: 960px;
     border-collapse: collapse;
+
 }
 
 .wiki-admin-table th,
@@ -325,6 +329,9 @@
 
     .wiki-admin-filter-actions {
         grid-column: 1 / -1;
+    }
+    .wiki-admin-table-wrapper {
+        overflow-x: auto;
     }
 }
 
@@ -665,4 +672,227 @@
 
     border-top-left-radius: 0;
     border-top-right-radius: 0;
+}
+
+/* =========================================================
+   ARTICLE ACTION DROPDOWN
+   ========================================================= */
+
+.wiki-admin-actions-column {
+    width: 135px;
+}
+
+.wiki-admin-actions-cell {
+    position: relative;
+    overflow: visible;
+}
+
+
+/* =========================================================
+   MENU CONTAINER
+   ========================================================= */
+
+.wiki-admin-action-menu {
+    position: relative;
+    display: inline-block;
+}
+
+
+/* =========================================================
+   TRIGGER
+   ========================================================= */
+
+.wiki-admin-action-menu-trigger {
+    min-width: 105px;
+    height: 34px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 9px;
+
+    padding: 0 11px;
+
+    border: 1px solid var(--border);
+    border-radius: 8px;
+
+    background: var(--surface);
+    color: var(--text-primary);
+
+    font: inherit;
+    font-size: 10px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition:
+        border-color 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.wiki-admin-action-menu-trigger:hover,
+.wiki-admin-action-menu:focus-within
+.wiki-admin-action-menu-trigger {
+    border-color: var(--primary);
+    color: var(--primary);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(93, 77, 168, 0.08);
+}
+
+
+.wiki-admin-action-menu-chevron {
+    color: var(--text-secondary);
+    font-size: 10px;
+
+    transition:
+        transform 0.15s ease;
+}
+
+
+/* =========================================================
+   DROPDOWN
+   ========================================================= */
+
+.wiki-admin-action-dropdown {
+    position: absolute;
+
+    top: calc(100% + 6px);
+    right: 0;
+
+    z-index: 100;
+
+    min-width: 165px;
+
+    padding: 6px;
+
+    border: 1px solid var(--border);
+    border-radius: 10px;
+
+    background: var(--surface);
+
+    box-shadow:
+        0 12px 30px
+        rgba(20, 21, 31, 0.14);
+
+    opacity: 0;
+    visibility: hidden;
+
+    transform:
+        translateY(-4px);
+
+    pointer-events: none;
+
+    transition:
+        opacity 0.15s ease,
+        visibility 0.15s ease,
+        transform 0.15s ease;
+}
+
+
+/*
+ * Hover bằng chuột
+ * hoặc focus bằng keyboard đều mở menu.
+ */
+.wiki-admin-action-menu:hover
+.wiki-admin-action-dropdown,
+.wiki-admin-action-menu:focus-within
+.wiki-admin-action-dropdown {
+    opacity: 1;
+    visibility: visible;
+
+    transform:
+        translateY(0);
+
+    pointer-events: auto;
+}
+
+
+.wiki-admin-action-menu:hover
+.wiki-admin-action-menu-chevron,
+.wiki-admin-action-menu:focus-within
+.wiki-admin-action-menu-chevron {
+    transform:
+        rotate(180deg);
+}
+
+
+/* =========================================================
+   MENU ITEM
+   ========================================================= */
+
+.wiki-admin-action-dropdown-form {
+    display: block;
+    margin: 0;
+}
+
+
+.wiki-admin-dropdown-item {
+    width: 100%;
+    min-height: 36px;
+
+    display: flex;
+    align-items: center;
+    gap: 9px;
+
+    padding: 0 10px;
+
+    border: 0;
+    border-radius: 7px;
+
+    background: transparent;
+    color: var(--text-primary);
+
+    text-align: left;
+
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+
+    cursor: pointer;
+
+    transition:
+        background 0.12s ease,
+        color 0.12s ease;
+}
+
+
+.wiki-admin-dropdown-item:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
+
+.wiki-admin-dropdown-icon {
+    width: 18px;
+
+    display: inline-flex;
+    justify-content: center;
+
+    color: var(--text-secondary);
+}
+
+
+/* Delete */
+
+.wiki-admin-dropdown-item.is-danger {
+    color: var(--danger);
+}
+
+.wiki-admin-dropdown-item.is-danger:hover {
+    background: var(--danger-light);
+    color: var(--danger);
+}
+
+
+.wiki-admin-dropdown-item {
+    text-decoration: none;
+}
+
+.wiki-admin-dropdown-separator {
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--border);
 }

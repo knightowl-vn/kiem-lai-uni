@@ -1,0 +1,298 @@
+<div class="admin-layout">
+
+	<div
+		th:replace="~{
+            admin/fragments/sidebar
+            :: sidebar(${activeMenu})
+        }">
+	</div>
+
+	<main class="admin-main">
+
+		<div
+			th:replace="~{
+                admin/fragments/header
+                :: header(${pageTitle})
+            }">
+		</div>
+
+
+		<section class="dashboard-content">
+
+			<div class="wiki-admin-create-heading">
+
+				<div>
+
+					<a
+						th:href="@{/admin/wiki/articles/{id}(
+                            id=${article.id}
+                        )}"
+						class="wiki-admin-back-link">
+
+						← Quay lại chi tiết
+
+					</a>
+
+
+					<span class="wiki-admin-eyebrow">
+						WIKI MODULE
+					</span>
+
+
+					<h2>
+						Lịch sử phiên bản
+					</h2>
+
+
+					<p>
+						Lịch sử thay đổi của bài
+						<strong th:text="${article.title}">
+							Trần Bình An
+						</strong>
+					</p>
+
+				</div>
+
+			</div>
+
+
+			<!-- ========================================== -->
+			<!-- EMPTY                                      -->
+			<!-- ========================================== -->
+
+			<section
+				th:if="${revisionPage.items.isEmpty()}"
+				class="wiki-admin-form-panel">
+
+				<p>
+					Bài viết chưa có lịch sử phiên bản.
+				</p>
+
+			</section>
+
+
+			<!-- ========================================== -->
+			<!-- REVISION TABLE                             -->
+			<!-- ========================================== -->
+
+			<section
+				th:unless="${revisionPage.items.isEmpty()}"
+				class="wiki-admin-table-panel">
+
+				<div class="wiki-admin-table-wrapper">
+
+					<table class="wiki-admin-table">
+
+						<thead>
+
+							<tr>
+
+								<th>Revision</th>
+
+								<th>Thay đổi</th>
+
+								<th>Trạng thái</th>
+
+								<th>Ghi chú</th>
+
+								<th>Thời gian</th>
+
+								<th>Thao tác</th>
+
+							</tr>
+
+						</thead>
+
+
+						<tbody>
+
+							<tr
+								th:each="revision : ${revisionPage.items}">
+
+								<!-- REVISION NUMBER -->
+
+								<td>
+
+									<strong
+										th:text="${'#' + revision.revisionNumber}">
+										#1
+									</strong>
+
+								</td>
+
+
+								<!-- CHANGE TYPE -->
+
+								<td>
+
+									<span
+										th:text="${#strings.replace(
+                                            revision.changeType,
+                                            '_',
+                                            ' '
+                                        )}">
+
+										CREATE DRAFT
+
+									</span>
+
+								</td>
+
+
+								<!-- STATUS -->
+
+								<td>
+
+									<span
+										class="wiki-admin-status-badge"
+										th:classappend="${revision.status == 'PUBLISHED'}
+                                            ? ' is-published'
+                                            : (${revision.status == 'ARCHIVED'}
+                                                ? ' is-archived'
+                                                : ' is-draft')"
+										th:text="${revision.status}">
+
+										DRAFT
+
+									</span>
+
+								</td>
+
+
+								<!-- EDIT SUMMARY -->
+
+								<td>
+
+									<span
+										th:if="${revision.editSummary != null
+                                            and !#strings.isEmpty(
+                                                revision.editSummary
+                                            )}"
+										th:text="${revision.editSummary}">
+
+										Tạo bản nháp đầu tiên
+
+									</span>
+
+
+									<span
+										th:unless="${revision.editSummary != null
+                                            and !#strings.isEmpty(
+                                                revision.editSummary
+                                            )}"
+										class="wiki-admin-muted">
+
+										Không có ghi chú
+
+									</span>
+
+								</td>
+
+
+								<!-- CREATED AT -->
+
+								<td>
+
+									<span
+										th:if="${revision.createdAt != null}"
+										th:text="${#temporals.format(
+                                            revision.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+
+										10/08/2026 16:00
+
+									</span>
+
+								</td>
+
+
+								<!-- ACTION -->
+
+								<td>
+
+									<a
+										th:href="@{/admin/wiki/articles/{id}/revisions/{revisionNumber}(
+                                            id=${article.id},
+                                            revisionNumber=${revision.revisionNumber}
+                                        )}"
+										class="wiki-admin-secondary-button">
+
+										Xem
+
+									</a>
+
+								</td>
+
+							</tr>
+
+						</tbody>
+
+					</table>
+
+				</div>
+
+			</section>
+
+
+			<!-- ========================================== -->
+			<!-- PAGINATION                                 -->
+			<!-- ========================================== -->
+
+			<nav
+				th:if="${revisionPage.totalPages > 1}"
+				class="wiki-admin-pagination">
+
+				<a
+					th:if="${!revisionPage.first}"
+					th:href="@{/admin/wiki/articles/{id}/revisions(
+                        id=${article.id},
+                        page=${revisionPage.page - 1},
+                        size=${revisionPage.size}
+                    )}"
+					class="wiki-admin-page-button">
+
+					← Trang trước
+
+				</a>
+
+
+				<span>
+
+					Trang
+
+					<strong
+						th:text="${revisionPage.page + 1}">
+						1
+					</strong>
+
+					/
+
+					<strong
+						th:text="${revisionPage.totalPages}">
+						1
+					</strong>
+
+				</span>
+
+
+				<a
+					th:if="${!revisionPage.last}"
+					th:href="@{/admin/wiki/articles/{id}/revisions(
+                        id=${article.id},
+                        page=${revisionPage.page + 1},
+                        size=${revisionPage.size}
+                    )}"
+					class="wiki-admin-page-button">
+
+					Trang sau →
+
+				</a>
+
+			</nav>
+
+		</section>
+
+	</main>
+
+</div>

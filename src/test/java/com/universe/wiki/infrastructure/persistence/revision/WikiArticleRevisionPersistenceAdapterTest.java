@@ -100,6 +100,9 @@ class WikiArticleRevisionPersistenceAdapterTest {
 
         assertThat(entity.getRevisionNumber())
                 .isEqualTo(1L);
+        
+        assertThat(entity.getContentVersion())
+        .isEqualTo(1L);
 
         assertThat(entity.getTitle())
                 .isEqualTo("Trần Bình An");
@@ -228,6 +231,7 @@ class WikiArticleRevisionPersistenceAdapterTest {
                 REVISION_ID,
                 ARTICLE_ID,
                 1L,
+                1L,
                 "Trần Bình An",
                 new Slug(
                         "tran-binh-an"
@@ -256,6 +260,8 @@ class WikiArticleRevisionPersistenceAdapterTest {
         );
 
         entity.setRevisionNumber(1L);
+        
+        entity.setContentVersion(1L);
 
         entity.setTitle(
                 "Trần Bình An"

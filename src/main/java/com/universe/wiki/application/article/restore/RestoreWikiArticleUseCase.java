@@ -5,6 +5,7 @@ import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
 import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsException;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiArticleRevisionAlreadyCurrentException;
 import com.universe.wiki.application.exceptions.WikiArticleRevisionNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
@@ -92,6 +93,13 @@ public class RestoreWikiArticleUseCase {
                         articleId,
                         command.sourceRevisionNumber()
                 );
+
+
+        ensureSourceRevisionIsNotCurrentContent(
+                article,
+                sourceRevision
+        );
+
 
         ensureSlugAvailable(
                 article,
@@ -221,5 +229,19 @@ public class RestoreWikiArticleUseCase {
         }
 
         return editSummary.trim();
+    }
+    
+    private void ensureSourceRevisionIsNotCurrentContent(
+            WikiArticle article,
+            WikiArticleRevision sourceRevision
+    ) {
+        if (
+                article.getContentVersion()
+                == sourceRevision.contentVersion()
+        ) {
+            throw new WikiArticleRevisionAlreadyCurrentException(
+                    article.getContentVersion()
+            );
+        }
     }
 }

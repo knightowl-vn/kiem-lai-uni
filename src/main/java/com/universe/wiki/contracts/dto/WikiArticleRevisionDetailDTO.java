@@ -10,6 +10,7 @@ public record WikiArticleRevisionDetailDTO(
         UUID id,
         UUID articleId,
         long revisionNumber,
+        long contentVersion,
         String title,
         String slug,
         String articleType,

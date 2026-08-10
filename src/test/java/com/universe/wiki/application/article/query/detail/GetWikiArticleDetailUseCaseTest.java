@@ -175,7 +175,8 @@ class GetWikiArticleDetailUseCaseTest {
                 CREATED_AT,
                 CREATED_AT,
                 null,
-                3L
+                3L,
+                1L
         );
     }
 }

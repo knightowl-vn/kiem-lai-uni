@@ -24,6 +24,7 @@ public record WikiArticleDTO(
         Instant updatedAt,
         Instant publishedAt,
         Instant archivedAt,
-        long aggregateVersion
+        long aggregateVersion,
+        long contentVersion
 ) {
 }

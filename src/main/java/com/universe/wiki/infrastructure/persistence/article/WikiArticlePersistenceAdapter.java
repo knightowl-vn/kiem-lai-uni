@@ -113,6 +113,21 @@ public class WikiArticlePersistenceAdapter
                 entity
         );
     }
+    
+    @Override
+    public void deleteById(
+            UUID articleId
+    ) {
+        if (articleId == null) {
+            throw new IllegalArgumentException(
+                    "Article ID không được để trống."
+            );
+        }
+
+        repository.deleteById(
+                articleId.toString()
+        );
+    }
 
     private void mapToEntity(
             WikiArticle article,
@@ -171,6 +186,10 @@ public class WikiArticlePersistenceAdapter
         entity.setAggregateVersion(
                 article.getAggregateVersion()
         );
+        
+        entity.setContentVersion(
+                article.getContentVersion()
+        );
 
         entity.setCreatedAt(
                 article.getCreatedAt()
@@ -224,7 +243,8 @@ public class WikiArticlePersistenceAdapter
                 entity.getUpdatedAt(),
                 entity.getPublishedAt(),
                 entity.getArchivedAt(),
-                entity.getAggregateVersion()
+                entity.getAggregateVersion(),
+                entity.getContentVersion()
         );
     }
 

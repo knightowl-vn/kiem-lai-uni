@@ -1,15 +1,31 @@
-package com.universe.wiki.application.article.update.published;
+package com.universe.wiki.application.article.unpublish;
 
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
-import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
-import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
-import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
-import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
-import com.universe.wiki.contracts.dto.WikiArticleDTO;
-import com.universe.wiki.domain.article.WikiArticle;
-import com.universe.wiki.domain.revision.RevisionChangeType;
-import com.universe.wiki.domain.revision.WikiArticleRevision;
+
+import com.universe.wiki.application.article.common
+        .WikiArticleDTOMapper;
+
+import com.universe.wiki.application.exceptions
+        .WikiArticleNotFoundException;
+
+import com.universe.wiki.application.ports
+        .WikiArticleRepositoryPort;
+
+import com.universe.wiki.application.ports
+        .WikiArticleRevisionRepositoryPort;
+
+import com.universe.wiki.contracts.dto
+        .WikiArticleDTO;
+
+import com.universe.wiki.domain.article
+        .WikiArticle;
+
+import com.universe.wiki.domain.revision
+        .RevisionChangeType;
+
+import com.universe.wiki.domain.revision
+        .WikiArticleRevision;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +35,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Service
-public class UpdatePublishedWikiArticleUseCase {
+public class UnpublishWikiArticleUseCase {
 
-    private static final String DEFAULT_EDIT_SUMMARY =
-            "Cập nhật nội dung bài viết đã xuất bản";
+    private static final String
+            DEFAULT_EDIT_SUMMARY =
+            "Gỡ xuất bản bài viết";
 
     private final WikiArticleRepositoryPort
             articleRepositoryPort;
@@ -36,7 +53,7 @@ public class UpdatePublishedWikiArticleUseCase {
     private final ClockPort
             clockPort;
 
-    public UpdatePublishedWikiArticleUseCase(
+    public UnpublishWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
             IdGeneratorPort idGeneratorPort,
@@ -57,12 +74,11 @@ public class UpdatePublishedWikiArticleUseCase {
 
     @Transactional
     public WikiArticleDTO execute(
-            UpdatePublishedWikiArticleCommand command
+            UnpublishWikiArticleCommand command
     ) {
         Objects.requireNonNull(
                 command,
-                "Update published wiki article command "
-                        + "không được để trống."
+                "Unpublish wiki article command không được để trống."
         );
 
         UUID articleId =
@@ -73,7 +89,9 @@ public class UpdatePublishedWikiArticleUseCase {
 
         WikiArticle article =
                 articleRepositoryPort
-                        .findById(articleId)
+                        .findById(
+                                articleId
+                        )
                         .orElseThrow(() ->
                                 new WikiArticleNotFoundException(
                                         articleId
@@ -83,19 +101,10 @@ public class UpdatePublishedWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
-        boolean changed =
-                article.updatePublishedContent(
-                        command.summary(),
-                        command.content(),
-                        command.actorId(),
-                        now
-                );
-
-        if (!changed) {
-            return WikiArticleDTOMapper.toDTO(
-                    article
-            );
-        }
+        article.unpublish(
+                command.actorId(),
+                now
+        );
 
         articleRepositoryPort.save(
                 article
@@ -124,7 +133,7 @@ public class UpdatePublishedWikiArticleUseCase {
                 WikiArticleRevision.createSnapshot(
                         revisionId,
                         article,
-                        RevisionChangeType.UPDATE_PUBLISHED,
+                        RevisionChangeType.UNPUBLISH,
                         editSummary
                 );
 
@@ -136,9 +145,10 @@ public class UpdatePublishedWikiArticleUseCase {
     private String resolveEditSummary(
             String editSummary
     ) {
-        if (editSummary == null
-                || editSummary.isBlank()) {
-
+        if (
+                editSummary == null
+                || editSummary.isBlank()
+        ) {
             return DEFAULT_EDIT_SUMMARY;
         }
 
