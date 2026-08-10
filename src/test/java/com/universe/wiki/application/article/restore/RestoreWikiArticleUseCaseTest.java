@@ -370,31 +370,248 @@ class RestoreWikiArticleUseCaseTest {
 	}
 
 	@Test
-	@DisplayName("Từ chối khôi phục revision có content version đang được sử dụng")
+	@DisplayName(
+	        "Từ chối khôi phục revision có content version đang được sử dụng"
+	)
 	void shouldRejectRestoringCurrentContentVersion() {
 
-		WikiArticle currentArticle = createArchivedArticle();
+	    /*
+	     * Dùng DRAFT, vì:
+	     *
+	     * DRAFT/PUBLISHED + cùng contentVersion
+	     * -> phải từ chối Restore.
+	     *
+	     * ARCHIVED là ngoại lệ và được phép Restore.
+	     */
+	    WikiArticle currentArticle =
+	            WikiArticle.createDraft(
+	                    ARTICLE_ID,
+	                    "Trần Bình An hiện tại",
+	                    new Slug(
+	                            "tran-binh-an-hien-tai"
+	                    ),
+	                    ArticleType.CHARACTER,
+	                    ADMIN_ID,
+	                    CREATED_AT
+	            );
 
-		WikiArticleRevision currentRevision = WikiArticleRevision.createSnapshot(SOURCE_REVISION_ID, currentArticle,
-				RevisionChangeType.ARCHIVE, "Snapshot nội dung hiện tại");
 
-		long revisionNumber = currentRevision.revisionNumber();
+	    currentArticle.updateDraft(
+	            "Trần Bình An hiện tại",
+	            new Slug(
+	                    "tran-binh-an-hien-tai"
+	            ),
+	            ArticleType.CHARACTER,
+	            "Tóm tắt hiện tại.",
+	            "Nội dung hiện tại.",
+	            ADMIN_ID,
+	            CREATED_AT.plusSeconds(60)
+	    );
 
-		when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(currentArticle));
 
-		when(revisionRepositoryPort.findByArticleIdAndRevisionNumber(ARTICLE_ID, revisionNumber))
-				.thenReturn(Optional.of(currentRevision));
+	    WikiArticleRevision currentRevision =
+	            WikiArticleRevision.createSnapshot(
+	                    SOURCE_REVISION_ID,
+	                    currentArticle,
+	                    RevisionChangeType.UPDATE_DRAFT,
+	                    "Snapshot nội dung hiện tại"
+	            );
 
-		RestoreWikiArticleCommand command = new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber,
-				"Thử restore phiên bản hiện tại", ADMIN_ID);
 
-		assertThatThrownBy(() -> restoreUseCase.execute(command))
-				.isInstanceOf(WikiArticleRevisionAlreadyCurrentException.class)
-				.hasMessage("Phiên bản nội dung v" + currentArticle.getContentVersion()
-						+ " đang được bài viết sử dụng. " + "Chỉ có thể khôi phục một phiên bản nội dung khác.");
+	    long revisionNumber =
+	            currentRevision.revisionNumber();
 
-		verify(articleRepositoryPort, never()).save(any(WikiArticle.class));
 
-		verify(revisionRepositoryPort, never()).save(any(WikiArticleRevision.class));
+	    when(
+	            articleRepositoryPort.findById(
+	                    ARTICLE_ID
+	            )
+	    ).thenReturn(
+	            Optional.of(
+	                    currentArticle
+	            )
+	    );
+
+
+	    when(
+	            revisionRepositoryPort
+	                    .findByArticleIdAndRevisionNumber(
+	                            ARTICLE_ID,
+	                            revisionNumber
+	                    )
+	    ).thenReturn(
+	            Optional.of(
+	                    currentRevision
+	            )
+	    );
+
+
+	    RestoreWikiArticleCommand command =
+	            new RestoreWikiArticleCommand(
+	                    ARTICLE_ID,
+	                    revisionNumber,
+	                    "Thử restore phiên bản hiện tại",
+	                    ADMIN_ID
+	            );
+
+
+	    assertThatThrownBy(() ->
+	            restoreUseCase.execute(
+	                    command
+	            )
+	    )
+	            .isInstanceOf(
+	                    WikiArticleRevisionAlreadyCurrentException.class
+	            )
+	            .hasMessage(
+	                    "Phiên bản nội dung v"
+	                            + currentArticle.getContentVersion()
+	                            + " đang được bài viết sử dụng. "
+	                            + "Chỉ có thể khôi phục một phiên bản nội dung khác."
+	            );
+
+
+	    verify(
+	            articleRepositoryPort,
+	            never()
+	    ).save(
+	            any(WikiArticle.class)
+	    );
+
+
+	    verify(
+	            revisionRepositoryPort,
+	            never()
+	    ).save(
+	            any(WikiArticleRevision.class)
+	    );
+
+
+	    /*
+	     * Guard phải chặn trước khi cần Clock.
+	     */
+	    verify(
+	            clockPort,
+	            never()
+	    ).now();
+
+
+	    verify(
+	            idGeneratorPort,
+	            never()
+	    ).generate();
+	}
+	
+	@Test
+	@DisplayName(
+	        "Cho phép khôi phục revision hiện tại khi bài Wiki đang ARCHIVED"
+	)
+	void shouldAllowRestoringCurrentContentVersionWhenArchived() {
+
+	    WikiArticle archivedArticle =
+	            createArchivedArticle();
+
+
+	    WikiArticleRevision currentRevision =
+	            WikiArticleRevision.createSnapshot(
+	                    SOURCE_REVISION_ID,
+	                    archivedArticle,
+	                    RevisionChangeType.ARCHIVE,
+	                    "Lưu trữ bài viết"
+	            );
+
+
+	    long currentContentVersion =
+	            archivedArticle.getContentVersion();
+
+
+	    when(
+	            articleRepositoryPort.findById(
+	                    ARTICLE_ID
+	            )
+	    ).thenReturn(
+	            Optional.of(
+	                    archivedArticle
+	            )
+	    );
+
+
+	    when(
+	            revisionRepositoryPort
+	                    .findByArticleIdAndRevisionNumber(
+	                            ARTICLE_ID,
+	                            currentRevision.revisionNumber()
+	                    )
+	    ).thenReturn(
+	            Optional.of(
+	                    currentRevision
+	            )
+	    );
+
+
+	    when(
+	            articleRepositoryPort
+	                    .findByArticleTypeAndSlug(
+	                            currentRevision.articleType(),
+	                            currentRevision.slug()
+	                    )
+	    ).thenReturn(
+	            Optional.of(
+	                    archivedArticle
+	            )
+	    );
+
+
+	    when(
+	            idGeneratorPort.generate()
+	    ).thenReturn(
+	            NEW_REVISION_ID
+	    );
+
+
+	    when(
+	            clockPort.now()
+	    ).thenReturn(
+	            RESTORED_AT
+	    );
+
+
+	    WikiArticleDTO result =
+	            restoreUseCase.execute(
+	                    new RestoreWikiArticleCommand(
+	                            ARTICLE_ID,
+	                            currentRevision.revisionNumber(),
+	                            null,
+	                            ADMIN_ID
+	                    )
+	            );
+
+
+	    assertThat(result.status())
+	            .isEqualTo("DRAFT");
+
+
+	    /*
+	     * Nội dung không đổi nên contentVersion
+	     * phải được giữ nguyên.
+	     */
+	    assertThat(result.contentVersion())
+	            .isEqualTo(
+	                    currentContentVersion
+	            );
+
+
+	    verify(
+	            articleRepositoryPort
+	    ).save(
+	            archivedArticle
+	    );
+
+
+	    verify(
+	            revisionRepositoryPort
+	    ).save(
+	            any(WikiArticleRevision.class)
+	    );
 	}
 }

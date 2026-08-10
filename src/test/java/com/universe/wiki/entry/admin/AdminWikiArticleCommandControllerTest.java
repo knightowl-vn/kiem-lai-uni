@@ -916,6 +916,76 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
 	}
+	
+	@Test
+	@DisplayName(
+	        "Publish không hợp lệ phải quay lại danh sách và hiển thị lỗi"
+	)
+	void shouldRedirectWithErrorMessageWhenPublishFails() {
+
+	    prepareAuthenticatedAdmin();
+
+
+	    when(
+	            publishWikiArticleUseCase.execute(
+	                    new PublishWikiArticleCommand(
+	                            ARTICLE_ID,
+	                            null,
+	                            ADMIN_ID
+	                    )
+	            )
+	    ).thenThrow(
+	            new IllegalStateException(
+	                    "Bài viết phải có nội dung trước khi xuất bản."
+	            )
+	    );
+
+
+	    RedirectAttributesModelMap redirectAttributes =
+	            new RedirectAttributesModelMap();
+
+
+	    String result =
+	            controller.publishArticle(
+	                    ARTICLE_ID,
+	                    authentication,
+	                    redirectAttributes
+	            );
+
+
+	    assertThat(result)
+	            .isEqualTo(
+	                    "redirect:/admin/wiki/articles"
+	            );
+
+
+	    assertThat(
+	            redirectAttributes
+	                    .getFlashAttributes()
+	                    .get("errorMessage")
+	    ).isEqualTo(
+	            "Không thể xuất bản bài Wiki. "
+	                    + "Bài viết phải có nội dung trước khi xuất bản."
+	    );
+
+
+	    assertThat(
+	            redirectAttributes
+	                    .getFlashAttributes()
+	                    .get("successMessage")
+	    ).isNull();
+
+
+	    verify(
+	            publishWikiArticleUseCase
+	    ).execute(
+	            new PublishWikiArticleCommand(
+	                    ARTICLE_ID,
+	                    null,
+	                    ADMIN_ID
+	            )
+	    );
+	}
 
 	private void prepareAuthenticatedAdmin() {
 		when(authentication.getName()).thenReturn(ADMIN_EMAIL);

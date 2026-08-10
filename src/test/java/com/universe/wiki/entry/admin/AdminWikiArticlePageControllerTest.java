@@ -232,6 +232,31 @@ class AdminWikiArticlePageControllerTest {
                                 20
                         )
                 );
+        assertThat(
+                response.getHeader(
+                        "Cache-Control"
+                )
+        ).isEqualTo(
+                "no-store, no-cache, must-revalidate, max-age=0"
+        );
+
+
+        assertThat(
+                response.getHeader(
+                        "Pragma"
+                )
+        ).isEqualTo(
+                "no-cache"
+        );
+
+
+        assertThat(
+                response.getDateHeader(
+                        "Expires"
+                )
+        ).isEqualTo(
+                0L
+        );
     }
 
     @Test

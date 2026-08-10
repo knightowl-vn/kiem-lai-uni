@@ -40,32 +40,16 @@
 						th:href="@{/admin/wiki/articles/{id}/revisions(
                             id=${article.id}
                         )}"
-						class="wiki-admin-back-link">
-
-						← Quay lại lịch sử
-
-					</a>
+						class="wiki-admin-back-link"> ← Quay lại lịch sử </a> <span
+						class="wiki-admin-eyebrow"> WIKI MODULE </span>
 
 
-					<span class="wiki-admin-eyebrow">
-						WIKI MODULE
-					</span>
+					<h2 th:text="${'Revision #' + revision.revisionNumber}">
+
+						Revision #1</h2>
 
 
-					<h2
-						th:text="${'Revision #' + revision.revisionNumber}">
-
-						Revision #1
-
-					</h2>
-
-
-					<p
-						th:text="${revision.title}">
-
-						Trần Bình An
-
-					</p>
+					<p th:text="${revision.title}">Trần Bình An</p>
 
 				</div>
 
@@ -83,14 +67,8 @@
 				<!-- BACKEND ERROR                                     -->
 				<!-- ================================================= -->
 
-				<div
-					th:if="${errorMessage != null}"
-					class="wiki-admin-form-error"
-					th:text="${errorMessage}">
-
-					Có lỗi xảy ra.
-
-				</div>
+				<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
+					th:text="${errorMessage}">Có lỗi xảy ra.</div>
 
 
 				<!-- ================================================= -->
@@ -104,16 +82,9 @@
 
 					<div>
 
-						<strong>
-							Revision
-						</strong>
+						<strong> Revision </strong>
 
-						<p
-							th:text="${'#' + revision.revisionNumber}">
-
-							#1
-
-						</p>
+						<p th:text="${'#' + revision.revisionNumber}">#1</p>
 
 					</div>
 
@@ -122,16 +93,9 @@
 
 					<div>
 
-						<strong>
-							Phiên bản nội dung
-						</strong>
+						<strong> Phiên bản nội dung </strong>
 
-						<p
-							th:text="${'v' + revision.contentVersion}">
-
-							v1
-
-						</p>
+						<p th:text="${'v' + revision.contentVersion}">v1</p>
 
 					</div>
 
@@ -140,9 +104,7 @@
 
 					<div>
 
-						<strong>
-							Loại thay đổi
-						</strong>
+						<strong> Loại thay đổi </strong>
 
 						<p
 							th:text="${#strings.replace(
@@ -151,9 +113,7 @@
                                 ' '
                             )}">
 
-							UPDATE DRAFT
-
-						</p>
+							UPDATE DRAFT</p>
 
 					</div>
 
@@ -162,16 +122,9 @@
 
 					<div>
 
-						<strong>
-							Trạng thái
-						</strong>
+						<strong> Trạng thái </strong>
 
-						<p
-							th:text="${revision.status}">
-
-							DRAFT
-
-						</p>
+						<p th:text="${revision.status}">DRAFT</p>
 
 					</div>
 
@@ -180,16 +133,9 @@
 
 					<div>
 
-						<strong>
-							Loại bài
-						</strong>
+						<strong> Loại bài </strong>
 
-						<p
-							th:text="${revision.articleType}">
-
-							CHARACTER
-
-						</p>
+						<p th:text="${revision.articleType}">CHARACTER</p>
 
 					</div>
 
@@ -198,16 +144,9 @@
 
 					<div>
 
-						<strong>
-							Slug
-						</strong>
+						<strong> Slug </strong>
 
-						<p
-							th:text="${revision.slug}">
-
-							tran-binh-an
-
-						</p>
+						<p th:text="${revision.slug}">tran-binh-an</p>
 
 					</div>
 
@@ -216,20 +155,15 @@
 
 					<div>
 
-						<strong>
-							Thời gian
-						</strong>
+						<strong> Thời gian </strong>
 
-						<p
-							th:if="${revision.createdAt != null}"
+						<p th:if="${revision.createdAt != null}"
 							th:text="${#temporals.format(
                                 revision.createdAt,
                                 'dd/MM/yyyy HH:mm'
                             )}">
 
-							10/08/2026 17:30
-
-						</p>
+							10/08/2026 17:30</p>
 
 					</div>
 
@@ -242,9 +176,7 @@
 
 				<div class="wiki-admin-form-group">
 
-					<label>
-						Ghi chú chỉnh sửa
-					</label>
+					<label> Ghi chú chỉnh sửa </label>
 
 					<p
 						th:text="${#strings.isEmpty(
@@ -253,9 +185,7 @@
                             ? 'Không có ghi chú.'
                             : revision.editSummary}">
 
-						Không có ghi chú.
-
-					</p>
+						Không có ghi chú.</p>
 
 				</div>
 
@@ -266,9 +196,7 @@
 
 				<div class="wiki-admin-form-group">
 
-					<label>
-						Tóm tắt tại revision này
-					</label>
+					<label> Tóm tắt tại revision này </label>
 
 					<p
 						th:text="${#strings.isEmpty(
@@ -277,9 +205,7 @@
                             ? 'Không có tóm tắt.'
                             : revision.summary}">
 
-						Không có tóm tắt.
-
-					</p>
+						Không có tóm tắt.</p>
 
 				</div>
 
@@ -290,12 +216,9 @@
 
 				<div class="wiki-admin-form-group">
 
-					<label>
-						Nội dung tại revision này
-					</label>
+					<label> Nội dung tại revision này </label>
 
-					<pre
-						class="wiki-admin-detail-content"
+					<pre class="wiki-admin-detail-content"
 						th:text="${revision.content}">
 					</pre>
 
@@ -306,33 +229,40 @@
 				<!-- CURRENT CONTENT VERSION                           -->
 				<!-- ================================================= -->
 
-				<div
-					th:if="${currentContentVersion}"
-					class="wiki-admin-create-note">
+				<div th:if="${currentContentVersion}" class="wiki-admin-create-note">
 
-					<strong>
-						Phiên bản nội dung hiện tại
-					</strong>
+					<strong> Phiên bản nội dung hiện tại </strong>
 
 					<p>
 
-						Bài viết hiện đang sử dụng
+						Bài viết hiện đang sử dụng <strong
+							th:text="${'v' + article.contentVersion}"> v3 </strong>. Phiên
+						bản bạn đang xem cũng là <strong
+							th:text="${'v' + revision.contentVersion}"> v3 </strong>. Vì vậy
+						phiên bản này không cần khôi phục. Hãy chọn một phiên bản nội dung
+						khác trong lịch sử.
 
-						<strong
-							th:text="${'v' + article.contentVersion}">
-							v3
-						</strong>.
+					</p>
 
-						Phiên bản bạn đang xem cũng là
+				</div>
 
-						<strong
-							th:text="${'v' + revision.contentVersion}">
-							v3
-						</strong>.
 
-						Vì vậy phiên bản này không cần khôi phục.
+				<!-- ================================================= -->
+				<!-- CURRENT VERSION - KHÔNG ĐƯỢC RESTORE              -->
+				<!-- ================================================= -->
 
-						Hãy chọn một phiên bản nội dung khác trong lịch sử.
+				<div th:if="${!restoreAllowed}" class="wiki-admin-create-note">
+
+					<strong> Phiên bản nội dung hiện tại </strong>
+
+					<p>
+
+						Bài viết hiện đang sử dụng <strong
+							th:text="${'v' + article.contentVersion}"> v3 </strong>. Phiên
+						bản bạn đang xem cũng là <strong
+							th:text="${'v' + revision.contentVersion}"> v3 </strong>. Vì vậy
+						phiên bản này không cần khôi phục. Hãy chọn một phiên bản nội dung
+						khác trong lịch sử.
 
 					</p>
 
@@ -343,38 +273,49 @@
 				<!-- CURRENT VERSION ACTIONS                           -->
 				<!-- ================================================= -->
 
-				<div
-					th:if="${currentContentVersion}"
-					class="wiki-admin-form-actions">
+				<div th:if="${!restoreAllowed}" class="wiki-admin-form-actions">
 
 					<a
 						th:href="@{/admin/wiki/articles/{id}/revisions(
-                            id=${article.id}
-                        )}"
-						class="wiki-admin-secondary-button">
-
-						Quay lại lịch sử
-
-					</a>
+            id=${article.id}
+        )}"
+						class="wiki-admin-secondary-button"> Quay lại lịch sử </a>
 
 
-					<button
-						type="button"
-						class="wiki-admin-primary-button"
-						disabled>
+					<button type="button" class="wiki-admin-primary-button" disabled>
 
-						Phiên bản đang được sử dụng
-
-					</button>
+						Phiên bản đang được sử dụng</button>
 
 				</div>
 
 
 				<!-- ================================================= -->
-				<!-- RESTORE OLD CONTENT VERSION                       -->
+				<!-- ARCHIVED + CURRENT CONTENT VERSION                 -->
 				<!-- ================================================= -->
 
-				<div th:unless="${currentContentVersion}">
+				<div th:if="${archivedArticle and currentContentVersion}"
+					class="wiki-admin-create-note">
+
+					<strong> Phiên bản mới nhất của bài lưu trữ </strong>
+
+					<p>
+
+						Đây là phiên bản nội dung hiện tại của bài viết, nhưng bài đang ở
+						trạng thái <strong> ARCHIVED </strong>. Bạn có thể khôi phục phiên
+						bản này để đưa bài viết trở lại trạng thái <strong> DRAFT
+						</strong>. Nội dung sẽ không thay đổi và phiên bản nội dung hiện tại vẫn
+						được giữ nguyên.
+
+					</p>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- RESTORE ALLOWED                                   -->
+				<!-- ================================================= -->
+
+				<div th:if="${restoreAllowed}">
 
 
 					<!-- ============================================= -->
@@ -383,88 +324,38 @@
 
 					<div class="wiki-admin-form-group">
 
-						<label for="restoreEditSummary">
-							Ghi chú khôi phục
-						</label>
-
-						<input
-							id="restoreEditSummary"
-							type="text"
-							name="editSummary"
-							form="restoreRevisionForm"
-							maxlength="255"
+						<label for="restoreEditSummary"> Ghi chú khôi phục </label> <input
+							id="restoreEditSummary" type="text" name="editSummary"
+							form="restoreRevisionForm" maxlength="255"
 							th:placeholder="${'Ví dụ: Khôi phục nội dung từ Revision #'
-                                + revision.revisionNumber}">
+                + revision.revisionNumber}">
 
 
-						<small>
-
-							Có thể để trống.
-
-							Hệ thống sẽ tự ghi lại revision
-							được dùng để khôi phục.
-
-						</small>
+						<small> Có thể để trống. Hệ thống sẽ tự ghi lại revision
+							được dùng để khôi phục. </small>
 
 					</div>
 
 
 					<!-- ============================================= -->
-					<!-- RESTORE WARNING                               -->
+					<!-- RESTORE WARNING - KHÁC CONTENT VERSION        -->
 					<!-- ============================================= -->
 
-					<div class="wiki-admin-create-note">
+					<div th:if="${!currentContentVersion}"
+						class="wiki-admin-create-note">
 
-						<strong>
-							Lưu ý khi khôi phục
-						</strong>
-
+						<strong> Lưu ý khi khôi phục </strong>
 
 						<p>
 
-							Bài viết hiện đang ở
-
-							<strong
-								th:text="${'v' + article.contentVersion}">
-
-								v3
-
-							</strong>.
-
-
-							Bạn đang chọn nội dung từ
-
-							<strong
-								th:text="${'v' + revision.contentVersion}">
-
-								v1
-
-							</strong>
-
-							thuộc
-
-							<strong
+							Bài viết hiện đang ở <strong
+								th:text="${'v' + article.contentVersion}"> v3 </strong>. Bạn
+							đang chọn nội dung từ <strong
+								th:text="${'v' + revision.contentVersion}"> v1 </strong> thuộc <strong
 								th:text="${'Revision #' + revision.revisionNumber}">
-
-								Revision #1
-
-							</strong>.
-
-
-							Sau khi khôi phục, hệ thống sẽ tạo một
-
-							<strong>
-								phiên bản nội dung mới
-							</strong>
-
-							và đưa bài viết về trạng thái
-
-							<strong>
-								DRAFT
-							</strong>.
-
-
-							Lịch sử phiên bản hiện tại vẫn được giữ nguyên.
+								Revision #1 </strong>. Sau khi khôi phục, hệ thống sẽ tạo một <strong>
+								phiên bản nội dung mới </strong> và đưa bài viết về trạng thái <strong>
+								DRAFT </strong>. Lịch sử phiên bản hiện tại vẫn được giữ nguyên.
 
 						</p>
 
@@ -479,40 +370,26 @@
 
 						<a
 							th:href="@{/admin/wiki/articles/{id}/revisions(
-                                id=${article.id}
-                            )}"
-							class="wiki-admin-secondary-button">
-
-							Quay lại lịch sử
-
-						</a>
+                id=${article.id}
+            )}"
+							class="wiki-admin-secondary-button"> Quay lại lịch sử </a>
 
 
-						<form
-							id="restoreRevisionForm"
-							method="post"
+						<form id="restoreRevisionForm" method="post"
 							th:action="@{/admin/wiki/articles/{id}/revisions/{revisionNumber}/restore(
-                                id=${article.id},
-                                revisionNumber=${revision.revisionNumber}
-                            )}"
+                id=${article.id},
+                revisionNumber=${revision.revisionNumber}
+            )}"
 							onsubmit="return confirmRestoreRevision();">
 
 
-							<!-- CSRF -->
-
-							<input
-								type="hidden"
-								th:name="${_csrf.parameterName}"
+							<input type="hidden" th:name="${_csrf.parameterName}"
 								th:value="${_csrf.token}">
 
 
-							<button
-								type="submit"
-								class="wiki-admin-primary-button">
+							<button type="submit" class="wiki-admin-primary-button">
 
-								Khôi phục phiên bản này
-
-							</button>
+								Khôi phục phiên bản này</button>
 
 						</form>
 
@@ -546,7 +423,39 @@
 		const currentContentVersion =
 				/*[[${article.contentVersion}]]*/ 0;
 
+		const archivedArticle =
+				/*[[${archivedArticle}]]*/ false;
 
+
+		/*
+		 * ARCHIVED + cùng contentVersion:
+		 *
+		 * chỉ đưa ARCHIVED -> DRAFT,
+		 * không tạo contentVersion mới.
+		 */
+		if (
+				archivedArticle
+				&& sourceContentVersion === currentContentVersion
+		) {
+
+			return window.confirm(
+					'Khôi phục Revision #'
+					+ revisionNumber
+					+ ' (v'
+					+ sourceContentVersion
+					+ ')?\n\n'
+					+ 'Đây là phiên bản nội dung mới nhất '
+					+ 'của bài đang lưu trữ.\n'
+					+ 'Nội dung sẽ được giữ nguyên.\n'
+					+ 'Bài viết sẽ được đưa từ ARCHIVED về DRAFT.\n\n'
+					+ 'Lịch sử phiên bản cũ vẫn được giữ nguyên.'
+			);
+		}
+
+
+		/*
+		 * Restore một contentVersion cũ.
+		 */
 		return window.confirm(
 				'Khôi phục Revision #'
 				+ revisionNumber

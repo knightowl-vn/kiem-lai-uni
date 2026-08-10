@@ -10,6 +10,7 @@ import com.universe.wiki.application.exceptions.WikiArticleRevisionNotFoundExcep
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
@@ -95,7 +96,7 @@ public class RestoreWikiArticleUseCase {
                 );
 
 
-        ensureSourceRevisionIsNotCurrentContent(
+        ensureSourceRevisionIsRestorable(
                 article,
                 sourceRevision
         );
@@ -231,13 +232,25 @@ public class RestoreWikiArticleUseCase {
         return editSummary.trim();
     }
     
-    private void ensureSourceRevisionIsNotCurrentContent(
+    private void ensureSourceRevisionIsRestorable(
             WikiArticle article,
             WikiArticleRevision sourceRevision
     ) {
-        if (
+        boolean sameContentVersion =
                 article.getContentVersion()
-                == sourceRevision.contentVersion()
+                == sourceRevision.contentVersion();
+
+
+        /*
+         * ARCHIVED là ngoại lệ.
+         *
+         * Dù source revision có cùng contentVersion,
+         * Admin vẫn được Restore để đưa bài từ
+         * ARCHIVED trở lại DRAFT.
+         */
+        if (
+                sameContentVersion
+                && article.getStatus() != ArticleStatus.ARCHIVED
         ) {
             throw new WikiArticleRevisionAlreadyCurrentException(
                     article.getContentVersion()

@@ -403,6 +403,16 @@ public class AdminWikiArticlePageController {
 	            == revision.contentVersion();
 
 
+	    boolean archivedArticle =
+	            "ARCHIVED".equals(
+	                    article.status()
+	            );
+
+
+	    boolean restoreAllowed =
+	            !currentContentVersion
+	            || archivedArticle;
+
 	    model.addAttribute(
 	            "article",
 	            article
@@ -426,6 +436,17 @@ public class AdminWikiArticlePageController {
 	    model.addAttribute(
 	            "currentContentVersion",
 	            currentContentVersion
+	    );
+	    
+
+	    model.addAttribute(
+	            "archivedArticle",
+	            archivedArticle
+	    );
+
+	    model.addAttribute(
+	            "restoreAllowed",
+	            restoreAllowed
 	    );
 
 

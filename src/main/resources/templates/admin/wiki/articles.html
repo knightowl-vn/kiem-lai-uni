@@ -44,6 +44,9 @@
 					class="wiki-admin-success-message" th:text="${successMessage}">
 					Thao tác thành công.</div>
 
+				<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
 				<!-- Tiêu đề khu vực -->
 				<div class="wiki-admin-heading">
 
@@ -369,9 +372,10 @@
                             id=${article.id}
                         )}"
 													class="
-                            wiki-admin-action-dropdown-form
-                            js-unpublish-wiki-article
-                        ">
+    wiki-admin-action-dropdown-form
+    js-unpublish-wiki-article
+    js-wiki-lifecycle-form
+">
 
 													<input type="hidden" th:name="${_csrf.parameterName}"
 														th:value="${_csrf.token}">
@@ -391,9 +395,10 @@
                             id=${article.id}
                         )}"
 													class="
-                            wiki-admin-action-dropdown-form
-                            js-archive-wiki-article
-                        ">
+    wiki-admin-action-dropdown-form
+    js-archive-wiki-article
+    js-wiki-lifecycle-form
+">
 
 													<input type="hidden" th:name="${_csrf.parameterName}"
 														th:value="${_csrf.token}">
@@ -568,44 +573,58 @@
 																	}
 																});
 											});
-							
+
 							document
-							.querySelectorAll(".js-wiki-lifecycle-form")
-							.forEach(function(form) {
+									.querySelectorAll(".js-wiki-lifecycle-form")
+									.forEach(
+											function(form) {
 
-								form.addEventListener(
-									"submit",
-									function() {
+												form.addEventListener(
+													    "submit",
+													    function(event) {
 
-										const submitButton =
-												form.querySelector(
-													'button[type="submit"]'
-												);
+													        /*
+													         * Nếu một confirmation handler trước đó
+													         * đã cancel submit thì không disable button.
+													         */
+													        if (event.defaultPrevented) {
+													            return;
+													        }
 
-										if (!submitButton) {
-											return;
-										}
+													        const submitButton =
+													            form.querySelector(
+													                'button[type="submit"]'
+													            );
 
-										/*
-										 * Không cho click lần 2 trong lúc
-										 * request đầu tiên đang xử lý.
-										 */
-										submitButton.disabled = true;
+													        if (!submitButton) {
+													            return;
+													        }
 
-										submitButton
-											.setAttribute(
-												"aria-disabled",
-												"true"
-											);
-									}
-								);
+													        submitButton.disabled = true;
 
-							});
+													        submitButton.setAttribute(
+													            "aria-disabled",
+													            "true"
+													        );
+
+													        const label =
+													            submitButton.querySelector(
+													                "span:last-child"
+													            );
+
+													        if (label) {
+													            label.textContent =
+													                "Đang xử lý...";
+													        }
+													    }
+													);
+
+											});
 
 						});
 	</script>
-	
-	
+
+
 
 </body>
 </html>
