@@ -6,6 +6,8 @@ import com.universe.wiki.application.article.query.list
         .ListWikiArticlesQuery;
 import com.universe.wiki.application.article.query.list
         .ListWikiArticlesUseCase;
+import com.universe.wiki.application.article.render.RenderedWikiContent;
+import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.application.article.template
         .WikiArticleContentTemplateProvider;
 import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailUseCase;
@@ -86,6 +88,10 @@ class AdminWikiArticlePageControllerTest {
     @Mock
     private GetWikiArticleRevisionDetailUseCase
             getWikiArticleRevisionDetailUseCase;
+    
+    @Mock
+    private WikiMarkdownRenderer
+            wikiMarkdownRenderer;
 
     private AdminWikiArticlePageController
             controller;
@@ -99,7 +105,8 @@ class AdminWikiArticlePageControllerTest {
                         contentTemplateProvider,
                         getWikiArticleDetailUseCase,
                         listWikiArticleRevisionsUseCase,
-                        getWikiArticleRevisionDetailUseCase
+                        getWikiArticleRevisionDetailUseCase,
+                        wikiMarkdownRenderer
                 );
     }
     /*
@@ -834,6 +841,58 @@ class AdminWikiArticlePageControllerTest {
                 contentTemplateProvider
         ).getTemplate(
                 ArticleType.CHARACTER
+        );
+    }
+    
+    @Test
+    @DisplayName(
+            "Render Markdown preview bằng WikiMarkdownRenderer"
+    )
+    void shouldPreviewWikiMarkdownContent() {
+
+        String markdown =
+                """
+                ## Tổng quan
+
+                **Trần Bình An** là nhân vật chính.
+                """;
+
+
+        String expectedHtml =
+                """
+                <h2 id="tong-quan">Tổng quan</h2>
+                <p><strong>Trần Bình An</strong> là nhân vật chính.</p>
+                """;
+
+
+        when(
+                wikiMarkdownRenderer.render(
+                        markdown
+                )
+        ).thenReturn(
+                new RenderedWikiContent(
+                        expectedHtml,
+                        List.of()
+                )
+        );
+
+
+        String result =
+                controller.previewContent(
+                        markdown
+                );
+
+
+        assertThat(result)
+                .isEqualTo(
+                        expectedHtml
+                );
+
+
+        verify(
+                wikiMarkdownRenderer
+        ).render(
+                markdown
         );
     }
 

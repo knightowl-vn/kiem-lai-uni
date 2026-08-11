@@ -2,6 +2,7 @@ package com.universe.wiki.entry.admin;
 
 import com.universe.wiki.application.article.query.list.ListWikiArticlesQuery;
 import com.universe.wiki.application.article.query.list.ListWikiArticlesUseCase;
+import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.application.article.template.WikiArticleContentTemplateProvider;
 import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailQuery;
 import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailUseCase;
@@ -23,6 +24,8 @@ import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.entry.admin.form.EditWikiArticleForm;
 
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.UUID;
 import jakarta.servlet.http.HttpServletResponse;
@@ -53,13 +56,16 @@ public class AdminWikiArticlePageController {
 	private final ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase;
 
 	private final GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase;
+	
+	private final WikiMarkdownRenderer wikiMarkdownRenderer;
 
 	public AdminWikiArticlePageController(
 	        ListWikiArticlesUseCase listWikiArticlesUseCase,
 	        WikiArticleContentTemplateProvider contentTemplateProvider,
 	        GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
 	        ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase,
-	        GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase
+	        GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase,
+	        WikiMarkdownRenderer wikiMarkdownRenderer
 	) {
 	    this.listWikiArticlesUseCase =
 	            listWikiArticlesUseCase;
@@ -75,6 +81,8 @@ public class AdminWikiArticlePageController {
 
 	    this.getWikiArticleRevisionDetailUseCase =
 	            getWikiArticleRevisionDetailUseCase;
+	    
+	    this.wikiMarkdownRenderer = wikiMarkdownRenderer;
 	}
 
 	/**
@@ -244,6 +252,32 @@ public class AdminWikiArticlePageController {
 		} catch (IllegalArgumentException exception) {
 			throw new IllegalArgumentException("Article status không hợp lệ: " + statusValue);
 		}
+	}
+	
+	/**
+	 * Render Markdown đang được Admin soạn
+	 * thành HTML để xem trước.
+	 *
+	 * Endpoint này chỉ preview:
+	 * - không lưu Article;
+	 * - không tạo Revision;
+	 * - không tăng contentVersion.
+	 */
+	@PostMapping(
+	        value = "/content-preview",
+	        consumes = MediaType.TEXT_PLAIN_VALUE,
+	        produces = MediaType.TEXT_HTML_VALUE
+	)
+	@ResponseBody
+	public String previewContent(
+	        @RequestBody(required = false)
+	        String markdown
+	) {
+	    return wikiMarkdownRenderer
+	            .render(
+	                    markdown
+	            )
+	            .html();
 	}
 
 	@GetMapping("/{id}")

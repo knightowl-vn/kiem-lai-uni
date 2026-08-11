@@ -20,6 +20,15 @@ document.addEventListener(
             history
         );
 
+        setupMarkdownPreview(
+            editor
+        );
+
+        setupWikiEditorDiagnostics(
+            editor,
+			history
+        );
+
         const toolbarButtons =
             document.querySelectorAll(
                 "[data-markdown-action]"
@@ -27,6 +36,19 @@ document.addEventListener(
 
         toolbarButtons.forEach(
             function(button) {
+
+                /*
+                 * Không cho toolbar làm textarea mất focus
+                 * trước khi action đọc selectionStart/selectionEnd.
+                 */
+                button.addEventListener(
+                    "mousedown",
+                    function(event) {
+
+                        event.preventDefault();
+                    }
+                );
+
 
                 button.addEventListener(
                     "click",
@@ -268,6 +290,12 @@ function applyMarkdownAction(
             toggleLinePrefix(
                 editor,
                 "- "
+            );
+            break;
+
+        case "clear-wrap":
+            insertClearWrapMarker(
+                editor
             );
             break;
 
@@ -686,6 +714,190 @@ function toggleLinePrefix(
 
 
 /* =========================================================
+   STOP IMAGE TEXT WRAPPING
+   ========================================================= */
+
+function insertClearWrapMarker(
+    editor
+) {
+    const marker =
+        "[[WIKI_CLEAR]]";
+
+
+    const value =
+        editor.value;
+
+
+    /*
+     * Dùng CHÍNH XÁC vị trí caret.
+     *
+     * Không tìm đầu dòng,
+     * vì textarea có thể chỉ đang visual-wrap.
+     */
+    const cursor =
+        editor.selectionStart;
+
+
+    const before =
+        value.substring(
+            0,
+            cursor
+        );
+
+
+    const after =
+        value.substring(
+            cursor
+        );
+
+
+    /*
+     * =====================================================
+     * KHÔNG CHÈN MARKER TRÙNG
+     * =====================================================
+     */
+
+    const trimmedBefore =
+        before.replace(
+            /\s+$/,
+            ""
+        );
+
+
+    const trimmedAfter =
+        after.replace(
+            /^\s+/,
+            ""
+        );
+
+
+    if (
+        trimmedBefore.endsWith(
+            marker
+        )
+        || trimmedAfter.startsWith(
+            marker
+        )
+    ) {
+
+        editor.focus();
+
+        return;
+    }
+
+
+    /*
+     * =====================================================
+     * TẠO PARAGRAPH RIÊNG CHO MARKER
+     * =====================================================
+     */
+
+    let prefix =
+        "";
+
+
+    if (
+        before.length > 0
+        && !before.endsWith(
+            "\n\n"
+        )
+    ) {
+
+        if (
+            before.endsWith(
+                "\n"
+            )
+        ) {
+
+            prefix =
+                "\n";
+
+        }
+        else {
+
+            prefix =
+                "\n\n";
+        }
+    }
+
+
+    let suffix =
+        "";
+
+
+    if (
+        after.length === 0
+    ) {
+
+        /*
+         * Cursor ở cuối nội dung.
+         *
+         * Sau marker tạo sẵn paragraph mới
+         * để tiếp tục viết.
+         */
+        suffix =
+            "\n\n";
+
+    }
+    else if (
+        after.startsWith(
+            "\n\n"
+        )
+    ) {
+
+        suffix =
+            "";
+
+    }
+    else if (
+        after.startsWith(
+            "\n"
+        )
+    ) {
+
+        suffix =
+            "\n";
+
+    }
+    else {
+
+        suffix =
+            "\n\n";
+    }
+
+
+    const insertion =
+        prefix
+        + marker
+        + suffix;
+
+
+    replaceRange(
+        editor,
+        cursor,
+        cursor,
+        insertion
+    );
+
+
+    /*
+     * Đưa caret xuống sau marker.
+     */
+    const newCursor =
+        cursor
+        + insertion.length;
+
+
+    editor.focus();
+
+
+    editor.setSelectionRange(
+        newCursor,
+        newCursor
+    );
+}
+
+/* =========================================================
    COMMON TEXT REPLACEMENT
    ========================================================= */
 
@@ -955,26 +1167,119 @@ function setupImageUpload(
             "wikiCsrf"
         );
 
+
+    /* =====================================================
+       MODAL ELEMENTS
+       ===================================================== */
+
+    const modal =
+        document.getElementById(
+            "wikiImageEditorModal"
+        );
+
+    const modalTitle =
+        document.getElementById(
+            "wikiImageEditorTitle"
+        );
+
+    const modalPreview =
+        document.getElementById(
+            "wikiImageEditorPreview"
+        );
+
+    const altInput =
+        document.getElementById(
+            "wikiImageAlt"
+        );
+
+    const captionInput =
+        document.getElementById(
+            "wikiImageCaption"
+        );
+
+    const confirmButton =
+        document.getElementById(
+            "wikiImageEditorConfirm"
+        );
+
+    const cancelButton =
+        document.getElementById(
+            "wikiImageEditorCancel"
+        );
+
+    const closeButton =
+        document.getElementById(
+            "wikiImageEditorClose"
+        );
+
+    const modalError =
+        document.getElementById(
+            "wikiImageEditorError"
+        );
+
+    const backdrop =
+        modal
+            ?.querySelector(
+                "[data-wiki-image-close]"
+            );
+
+
+    const previewBody =
+        document.getElementById(
+            "wikiMarkdownPreview"
+        );
+
+    const previewTab =
+        document.getElementById(
+            "wikiPreviewTab"
+        );
+
+    const previewPanel =
+        document.getElementById(
+            "wikiPreviewPanel"
+        );
+
+
     if (
         !imageButton
         || !fileInput
+        || !modal
+        || !modalPreview
+        || !altInput
+        || !captionInput
+        || !confirmButton
     ) {
         return;
     }
 
+
+    /* =====================================================
+       STATE
+       ===================================================== */
+
     let insertionStart = 0;
+
     let insertionEnd = 0;
+
     let selectedText = "";
 
+    let pendingFile = null;
+
+    let previewObjectUrl = null;
+
+    let editingBlock = null;
+
+    let mode = "insert";
+
+
+    /* =====================================================
+       OPEN FILE PICKER
+       ===================================================== */
 
     imageButton.addEventListener(
         "click",
-        function () {
+        function() {
 
-            /*
-             * Lưu vị trí cursor trước khi
-             * browser mở file picker.
-             */
             insertionStart =
                 editor.selectionStart;
 
@@ -994,9 +1299,13 @@ function setupImageUpload(
     );
 
 
+    /* =====================================================
+       FILE SELECTED
+       ===================================================== */
+
     fileInput.addEventListener(
         "change",
-        async function () {
+        function() {
 
             const file =
                 fileInput.files?.[0];
@@ -1005,121 +1314,1021 @@ function setupImageUpload(
                 return;
             }
 
+
+            pendingFile =
+                file;
+
+            editingBlock =
+                null;
+
+            mode =
+                "insert";
+
+
             const defaultAlt =
                 selectedText.trim()
                 || removeFileExtension(
                     file.name
                 );
 
-            const altText =
-                window.prompt(
-                    "Nhập mô tả cho ảnh:",
-                    defaultAlt
-                );
 
-            if (altText === null) {
-                return;
-            }
+            resetImageModal();
 
-            history.flush();
 
-            imageButton.disabled = true;
+            modalTitle.textContent =
+                "Chèn ảnh";
 
-            const oldLabel =
-                imageButton.textContent;
+            confirmButton.textContent =
+                "Chèn ảnh";
 
-            imageButton.textContent =
-                "Đang tải...";
+            altInput.value =
+                defaultAlt;
 
-            try {
-                const formData =
-                    new FormData();
+            captionInput.value =
+                "";
 
-                formData.append(
-                    "file",
+
+            setRadioValue(
+                "wikiImageSize",
+                "medium"
+            );
+
+            setRadioValue(
+                "wikiImageLayout",
+                "block-center"
+            );
+
+
+            previewObjectUrl =
+                URL.createObjectURL(
                     file
                 );
 
-                const headers = {};
+            modalPreview.src =
+                previewObjectUrl;
 
-                if (
-                    csrf
-                    && csrf.dataset.token
-                    && csrf.dataset.header
-                ) {
-                    headers[
-                        csrf.dataset.header
-                    ] =
-                        csrf.dataset.token;
+
+            openImageModal();
+        }
+    );
+
+
+    /* =====================================================
+       EDIT FROM PREVIEW
+       ===================================================== */
+
+    if (previewBody) {
+
+        previewBody.addEventListener(
+            "click",
+            function(event) {
+
+                const image =
+                    event.target.closest(
+                        "img.wiki-content-image"
+                    );
+
+                if (!image) {
+                    return;
                 }
 
-                const response =
-                    await fetch(
-                        "/admin/wiki/images",
-                        {
-                            method: "POST",
-                            headers: headers,
-                            body: formData
-                        }
+
+                const imageUrl =
+                    image.getAttribute(
+                        "src"
                     );
 
-                const responseBody =
-                    await response.json();
 
-                if (!response.ok) {
-                    throw new Error(
-                        responseBody.message
-                        || "Không thể upload ảnh."
+                const block =
+                    findWikiImageBlockByUrl(
+                        editor.value,
+                        imageUrl
                     );
+
+
+                if (!block) {
+
+                    console.warn(
+                        "Không tìm thấy Markdown của ảnh:",
+                        imageUrl
+                    );
+
+                    return;
                 }
 
-                const safeAlt =
-                    escapeMarkdownAltText(
-                        altText.trim()
-                        || defaultAlt
-                    );
+
+                mode =
+                    "edit";
+
+                pendingFile =
+                    null;
+
+                editingBlock =
+                    block;
+
+
+                resetImageModal();
+
+
+                modalTitle.textContent =
+                    "Chỉnh ảnh";
+
+                confirmButton.textContent =
+                    "Lưu thay đổi";
+
+                modalPreview.src =
+                    block.url;
+
+                altInput.value =
+                    block.alt;
+
+                captionInput.value =
+                    block.caption;
+
+
+                setRadioValue(
+                    "wikiImageSize",
+                    block.size
+                );
+
+                setRadioValue(
+                    "wikiImageLayout",
+                    block.layout
+                );
+
+
+                openImageModal();
+            }
+        );
+    }
+
+
+    /* =====================================================
+       CONFIRM
+       ===================================================== */
+
+    confirmButton.addEventListener(
+        "click",
+        async function() {
+
+            hideImageModalError();
+
+
+            const altText =
+                altInput.value.trim();
+
+
+            if (!altText) {
+
+                showImageModalError(
+                    "Vui lòng nhập mô tả ảnh."
+                );
+
+                altInput.focus();
+
+                return;
+            }
+
+
+            const caption =
+                captionInput.value.trim();
+
+            const size =
+                getRadioValue(
+                    "wikiImageSize",
+                    "medium"
+                );
+
+            let layout =
+                getRadioValue(
+                    "wikiImageLayout",
+                    "block-center"
+                );
+
+
+            let normalizedSize =
+                size;
+
+
+            /*
+             * Full width + wrap không có nghĩa
+             * vì sẽ không còn chỗ cho chữ.
+             */
+            if (
+                normalizedSize === "full"
+                && (
+                    layout === "wrap-left"
+                    || layout === "wrap-right"
+                )
+            ) {
+                normalizedSize =
+                    "large";
+            }
+
+
+            history.flush();
+
+
+            confirmButton.disabled =
+                true;
+
+
+            const oldLabel =
+                confirmButton.textContent;
+
+
+            try {
+
+                let imageUrl;
+
+
+                /*
+                 * ============================
+                 * INSERT NEW IMAGE
+                 * ============================
+                 */
+                if (mode === "insert") {
+
+                    if (!pendingFile) {
+
+                        throw new Error(
+                            "Không tìm thấy file ảnh."
+                        );
+                    }
+
+
+                    confirmButton.textContent =
+                        "Đang tải ảnh...";
+
+
+                    imageUrl =
+                        await uploadWikiImage(
+                            pendingFile,
+                            csrf
+                        );
+                }
+
+
+                /*
+                 * ============================
+                 * EDIT EXISTING IMAGE
+                 * ============================
+                 */
+                else {
+
+                    if (!editingBlock) {
+
+                        throw new Error(
+                            "Không tìm thấy ảnh cần chỉnh."
+                        );
+                    }
+
+
+                    imageUrl =
+                        editingBlock.url;
+                }
+
 
                 const markdown =
-                    "!["
-                    + safeAlt
-                    + "]("
-                    + responseBody.url
-                    + ")";
+                    buildWikiImageMarkdown(
+                        altText,
+                        imageUrl,
+                        caption,
+                        normalizedSize,
+                        layout
+                    );
 
-                insertImageMarkdown(
-                    editor,
-                    insertionStart,
-                    insertionEnd,
-                    markdown
-                );
+                /*
+                 * INSERT
+                 */
+                if (mode === "insert") {
+
+                    insertImageMarkdown(
+                        editor,
+                        insertionStart,
+                        insertionEnd,
+                        markdown
+                    );
+                }
+
+
+                /*
+                 * EDIT
+                 */
+                else {
+
+                    replaceWikiImageBlock(
+                        editor,
+                        editingBlock.start,
+                        editingBlock.end,
+                        markdown
+                    );
+                }
+
 
                 history.record();
 
-                editor.focus();
 
-            } catch (error) {
+                closeImageModal();
+
+
+                /*
+                 * Nếu đang đứng ở Preview,
+                 * render lại ngay để thấy thay đổi.
+                 */
+                if (
+                    previewPanel
+                    && !previewPanel.hidden
+                    && previewTab
+                ) {
+                    previewTab.click();
+                }
+                else {
+                    editor.focus();
+                }
+
+            }
+            catch (error) {
 
                 console.error(
-                    "Wiki image upload failed:",
+                    "Wiki image editor failed:",
                     error
                 );
 
-                window.alert(
+
+                showImageModalError(
                     error.message
-                    || "Không thể tải ảnh Wiki."
+                    || "Không thể xử lý ảnh."
                 );
 
-            } finally {
+            }
+            finally {
 
-                imageButton.disabled =
+                confirmButton.disabled =
                     false;
 
-                imageButton.textContent =
+                confirmButton.textContent =
                     oldLabel;
-
-                fileInput.value = "";
             }
         }
+    );
+
+
+    /* =====================================================
+       CLOSE
+       ===================================================== */
+
+    cancelButton?.addEventListener(
+        "click",
+        closeImageModal
+    );
+
+
+    closeButton?.addEventListener(
+        "click",
+        closeImageModal
+    );
+
+
+    backdrop?.addEventListener(
+        "click",
+        closeImageModal
+    );
+
+
+    document.addEventListener(
+        "keydown",
+        function(event) {
+
+            if (
+                event.key === "Escape"
+                && !modal.hidden
+            ) {
+                closeImageModal();
+            }
+        }
+    );
+
+
+    /* =====================================================
+       MODAL HELPERS
+       ===================================================== */
+
+    function openImageModal() {
+
+        modal.hidden =
+            false;
+
+        document.body.classList.add(
+            "wiki-modal-open"
+        );
+
+        altInput.focus();
+    }
+
+
+    function closeImageModal() {
+
+        modal.hidden =
+            true;
+
+        document.body.classList.remove(
+            "wiki-modal-open"
+        );
+
+
+        if (previewObjectUrl) {
+
+            URL.revokeObjectURL(
+                previewObjectUrl
+            );
+
+            previewObjectUrl =
+                null;
+        }
+
+
+        pendingFile =
+            null;
+
+        editingBlock =
+            null;
+
+        fileInput.value =
+            "";
+
+        hideImageModalError();
+    }
+
+
+    function resetImageModal() {
+
+        hideImageModalError();
+
+        altInput.value =
+            "";
+
+        captionInput.value =
+            "";
+    }
+
+
+    function showImageModalError(
+        message
+    ) {
+        if (!modalError) {
+            return;
+        }
+
+
+        modalError.textContent =
+            message;
+
+        modalError.hidden =
+            false;
+    }
+
+
+    function hideImageModalError() {
+
+        if (modalError) {
+            modalError.hidden = true;
+        }
+    }
+}
+
+
+/* =========================================================
+   IMAGE UPLOAD REQUEST
+   ========================================================= */
+
+async function uploadWikiImage(
+    file,
+    csrf
+) {
+    const formData =
+        new FormData();
+
+
+    formData.append(
+        "file",
+        file
+    );
+
+
+    const headers = {};
+
+
+    if (
+        csrf
+        && csrf.dataset.token
+        && csrf.dataset.header
+    ) {
+        headers[
+            csrf.dataset.header
+        ] =
+            csrf.dataset.token;
+    }
+
+
+    const response =
+        await fetch(
+            "/admin/wiki/images",
+            {
+                method: "POST",
+                headers: headers,
+                body: formData
+            }
+        );
+
+
+    const responseBody =
+        await response.json();
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            responseBody.message
+            || "Không thể upload ảnh."
+        );
+    }
+
+
+    if (
+        !responseBody.url
+        || !responseBody.url.trim()
+    ) {
+        throw new Error(
+            "Server không trả về URL ảnh."
+        );
+    }
+
+
+    return responseBody.url;
+}
+
+
+/* =========================================================
+   BUILD IMAGE MARKDOWN
+   ========================================================= */
+
+function buildWikiImageMarkdown(
+    alt,
+    url,
+    caption,
+    size,
+    layout
+) {
+    const safeAlt =
+        escapeMarkdownAltText(
+            alt
+        );
+
+
+    let markdown =
+        "!["
+        + safeAlt
+        + "]("
+        + url
+        + ' "wiki:size='
+        + size
+        + ";layout="
+        + layout
+        + '")';
+
+
+    if (caption) {
+
+        markdown +=
+            "\n\n*"
+            + escapeMarkdownCaption(
+                caption
+            )
+            + "*";
+    }
+
+
+    return markdown;
+}
+
+
+/* =========================================================
+   FIND IMAGE MARKDOWN FOR EDITING
+   ========================================================= */
+
+function findWikiImageBlockByUrl(
+    markdown,
+    url
+) {
+    /*
+     * Hỗ trợ cả format mới:
+     *
+     * wiki:size=medium;layout=wrap-right
+     *
+     * và format cũ:
+     *
+     * wiki:size=medium;align=right
+     */
+    const pattern =
+        /!\[((?:\\.|[^\]])*)\]\(([^\s)]+)(?:\s+"wiki:([^"]*)")?\)(?:\n\n\*((?:\\.|[^\n])*)\*)?/g;
+
+
+    let match;
+
+
+    while (
+        (
+            match =
+            pattern.exec(
+                markdown
+            )
+        ) !== null
+    ) {
+
+        if (
+            match[2] !== url
+        ) {
+            continue;
+        }
+
+
+        const metadata =
+            parseWikiImageMetadata(
+                match[3] || ""
+            );
+
+
+        return {
+
+            start:
+                match.index,
+
+            end:
+                match.index
+                + match[0].length,
+
+            alt:
+                unescapeMarkdownAltText(
+                    match[1] || ""
+                ),
+
+            url:
+                match[2],
+
+            size:
+                metadata.size,
+
+            layout:
+                metadata.layout,
+
+            caption:
+                unescapeMarkdownCaption(
+                    match[4] || ""
+                )
+        };
+    }
+
+
+    return null;
+}
+
+function parseWikiImageMetadata(
+    metadata
+) {
+    let size =
+        "medium";
+
+    let layout =
+        "block-center";
+
+    let legacyAlign =
+        null;
+
+    let hasLayout =
+        false;
+
+
+    metadata
+        .split(";")
+        .forEach(
+            function(part) {
+
+                const separator =
+                    part.indexOf("=");
+
+
+                if (
+                    separator === -1
+                ) {
+                    return;
+                }
+
+
+                const key =
+                    part
+                        .substring(
+                            0,
+                            separator
+                        )
+                        .trim();
+
+
+                const value =
+                    part
+                        .substring(
+                            separator + 1
+                        )
+                        .trim();
+
+
+                if (
+                    key === "size"
+                    && [
+                        "small",
+                        "medium",
+                        "large",
+                        "full"
+                    ].includes(
+                        value
+                    )
+                ) {
+
+                    size =
+                        value;
+                }
+
+
+                if (
+                    key === "layout"
+                    && [
+                        "block-left",
+                        "block-center",
+                        "block-right",
+                        "wrap-left",
+                        "wrap-right"
+                    ].includes(
+                        value
+                    )
+                ) {
+
+                    layout =
+                        value;
+
+                    hasLayout =
+                        true;
+                }
+
+
+                if (
+                    key === "align"
+                    && [
+                        "left",
+                        "center",
+                        "right"
+                    ].includes(
+                        value
+                    )
+                ) {
+
+                    legacyAlign =
+                        value;
+                }
+            }
+        );
+
+
+    /*
+     * Markdown ảnh cũ.
+     */
+    if (
+        !hasLayout
+        && legacyAlign
+    ) {
+
+        switch (
+        legacyAlign
+        ) {
+
+            case "left":
+                layout =
+                    "block-left";
+                break;
+
+            case "right":
+                layout =
+                    "block-right";
+                break;
+
+            default:
+                layout =
+                    "block-center";
+        }
+    }
+
+
+    if (
+        size === "full"
+        && (
+            layout === "wrap-left"
+            || layout === "wrap-right"
+        )
+    ) {
+
+        size =
+            "large";
+    }
+
+
+    return {
+        size,
+        layout
+    };
+}
+
+
+/* =========================================================
+   RADIO HELPERS
+   ========================================================= */
+
+function getRadioValue(
+    name,
+    fallback
+) {
+    const checked =
+        document.querySelector(
+            'input[name="'
+            + name
+            + '"]:checked'
+        );
+
+
+    return checked
+        ? checked.value
+        : fallback;
+}
+
+
+function setRadioValue(
+    name,
+    value
+) {
+    const radio =
+        document.querySelector(
+            'input[name="'
+            + name
+            + '"][value="'
+            + value
+            + '"]'
+        );
+
+
+    if (radio) {
+        radio.checked = true;
+    }
+}
+
+
+/* =========================================================
+   CAPTION ESCAPE
+   ========================================================= */
+
+function escapeMarkdownCaption(
+    text
+) {
+    return text
+        .replace(
+            /\\/g,
+            "\\\\"
+        )
+        .replace(
+            /\*/g,
+            "\\*"
+        );
+}
+
+
+function unescapeMarkdownCaption(
+    text
+) {
+    return text
+        .replace(
+            /\\\*/g,
+            "*"
+        )
+        .replace(
+            /\\\\/g,
+            "\\"
+        );
+}
+
+
+function unescapeMarkdownAltText(
+    text
+) {
+    return text
+        .replace(
+            /\\\]/g,
+            "]"
+        )
+        .replace(
+            /\\\\/g,
+            "\\"
+        );
+}
+
+/* =========================================================
+   NORMALIZE WIKI IMAGE BLOCK SPACING
+   ========================================================= */
+
+function replaceWikiImageBlock(
+    editor,
+    start,
+    end,
+    markdown
+) {
+    const value =
+        editor.value;
+
+
+    const before =
+        value.substring(
+            0,
+            start
+        );
+
+
+    const after =
+        value.substring(
+            end
+        );
+
+
+    let prefix =
+        "";
+
+
+    let suffix =
+        "";
+
+
+    /*
+     * Ảnh Wiki phải là một block riêng.
+     *
+     * Trước ảnh luôn phải có paragraph break.
+     */
+    if (
+        before.length > 0
+        && !before.endsWith(
+            "\n\n"
+        )
+    ) {
+
+        prefix =
+            before.endsWith("\n")
+                ? "\n"
+                : "\n\n";
+    }
+
+
+    /*
+     * Sau ảnh cũng phải có paragraph break.
+     *
+     * Đây chính là phần tránh:
+     *
+     * ![ảnh](...)
+     * text
+     *
+     * bị CommonMark hiểu thành cùng paragraph.
+     */
+    if (
+        after.length === 0
+    ) {
+
+        suffix =
+            "\n\n";
+
+    }
+    else if (
+        !after.startsWith(
+            "\n\n"
+        )
+    ) {
+
+        suffix =
+            after.startsWith("\n")
+                ? "\n"
+                : "\n\n";
+    }
+
+
+    replaceRange(
+        editor,
+        start,
+        end,
+        prefix
+        + markdown
+        + suffix
     );
 }
 
@@ -1134,50 +2343,13 @@ function insertImageMarkdown(
     end,
     markdown
 ) {
-    const value =
-        editor.value;
-
-    let replacement =
-        markdown;
-
-    /*
-     * Nếu trước ảnh chưa có dòng trống,
-     * tạo block riêng.
-     */
-    if (
-        start > 0
-        && !value
-                .substring(
-                    0,
-                    start
-                )
-                .endsWith("\n\n")
-    ) {
-        replacement =
-            "\n\n"
-            + replacement;
-    }
-
-   
-    if (
-        end < value.length
-        && !value
-                .substring(end)
-                .startsWith("\n\n")
-    ) {
-        replacement =
-            replacement
-            + "\n\n";
-    }
-
-    replaceRange(
+    replaceWikiImageBlock(
         editor,
         start,
         end,
-        replacement
+        markdown
     );
 }
-
 
 /* =========================================================
    IMAGE HELPERS
@@ -1205,4 +2377,1445 @@ function escapeMarkdownAltText(
             /\]/g,
             "\\]"
         );
+}
+
+
+/* =========================================================
+   WRITE / PREVIEW
+   ========================================================= */
+
+function setupMarkdownPreview(
+    editor
+) {
+    const writeTab =
+        document.getElementById(
+            "wikiWriteTab"
+        );
+
+    const previewTab =
+        document.getElementById(
+            "wikiPreviewTab"
+        );
+
+    const writePanel =
+        document.getElementById(
+            "wikiWritePanel"
+        );
+
+    const previewPanel =
+        document.getElementById(
+            "wikiPreviewPanel"
+        );
+
+    const previewBody =
+        document.getElementById(
+            "wikiMarkdownPreview"
+        );
+
+    const loadingState =
+        document.getElementById(
+            "wikiPreviewLoading"
+        );
+
+    const emptyState =
+        document.getElementById(
+            "wikiPreviewEmpty"
+        );
+
+    const csrf =
+        document.getElementById(
+            "wikiCsrf"
+        );
+
+
+    if (
+        !writeTab
+        || !previewTab
+        || !writePanel
+        || !previewPanel
+        || !previewBody
+    ) {
+        return;
+    }
+
+
+    let lastPreviewSource = null;
+
+
+    /* =====================================================
+       WRITE TAB
+       ===================================================== */
+
+    writeTab.addEventListener(
+        "click",
+        function() {
+
+            activateTab(
+                "write"
+            );
+
+            editor.focus();
+        }
+    );
+
+
+    /* =====================================================
+       PREVIEW TAB
+       ===================================================== */
+
+    previewTab.addEventListener(
+        "click",
+        async function() {
+
+            activateTab(
+                "preview"
+            );
+
+            await renderPreview();
+        }
+    );
+
+
+    /* =====================================================
+       TAB SWITCHING
+       ===================================================== */
+
+    function activateTab(
+        mode
+    ) {
+        const writeActive =
+            mode === "write";
+
+
+        writeTab.classList.toggle(
+            "is-active",
+            writeActive
+        );
+
+        previewTab.classList.toggle(
+            "is-active",
+            !writeActive
+        );
+
+
+        writeTab.setAttribute(
+            "aria-selected",
+            String(writeActive)
+        );
+
+        previewTab.setAttribute(
+            "aria-selected",
+            String(!writeActive)
+        );
+
+
+        writePanel.hidden =
+            !writeActive;
+
+        previewPanel.hidden =
+            writeActive;
+    }
+
+
+    /* =====================================================
+       SERVER-SIDE PREVIEW
+       ===================================================== */
+
+    async function renderPreview() {
+
+        const markdown =
+            editor.value;
+
+
+        hideState(
+            loadingState
+        );
+
+        hideState(
+            emptyState
+        );
+
+
+        if (!markdown.trim()) {
+
+            previewBody.innerHTML = "";
+
+            previewBody.dataset.rendered =
+                "false";
+
+            lastPreviewSource =
+                markdown;
+
+            showState(
+                emptyState
+            );
+
+            return;
+        }
+
+
+        if (
+            lastPreviewSource === markdown
+            && previewBody.dataset.rendered === "true"
+        ) {
+            return;
+        }
+
+
+        previewBody.innerHTML = "";
+
+        showState(
+            loadingState
+        );
+
+        // phần try/catch giữ nguyên...
+
+
+        try {
+
+            const headers = {
+                "Content-Type":
+                    "text/plain;charset=UTF-8",
+
+                "Accept":
+                    "text/html"
+            };
+
+
+            /*
+             * POST endpoint bị Spring Security CSRF bảo vệ.
+             */
+            if (
+                csrf
+                && csrf.dataset.token
+                && csrf.dataset.header
+            ) {
+                headers[
+                    csrf.dataset.header
+                ] =
+                    csrf.dataset.token;
+            }
+
+
+            const response =
+                await fetch(
+                    "/admin/wiki/articles/content-preview",
+                    {
+                        method: "POST",
+                        headers: headers,
+                        body: markdown
+                    }
+                );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "Không thể tạo bản xem trước."
+                );
+            }
+
+
+            const html =
+                await response.text();
+
+
+            /*
+             * HTML này không đến trực tiếp từ Markdown.
+             *
+             * Nó đã đi qua WikiMarkdownRenderer của server,
+             * nơi raw HTML được escape và URL được sanitize.
+             */
+            previewBody.innerHTML =
+                html;
+
+            previewBody
+                .querySelectorAll(
+                    "img.wiki-content-image"
+                )
+                .forEach(
+                    function(image) {
+
+                        image.setAttribute(
+                            "title",
+                            "Nhấp để chỉnh ảnh"
+                        );
+
+                        image.setAttribute(
+                            "tabindex",
+                            "0"
+                        );
+                    }
+                );
+
+
+            previewBody.dataset.rendered =
+                "true";
+
+
+            lastPreviewSource =
+                markdown;
+
+        }
+        catch (error) {
+
+            console.error(
+                "Wiki Markdown preview failed:",
+                error
+            );
+
+
+            previewBody.dataset.rendered =
+                "false";
+
+
+            previewBody.textContent =
+                "Không thể tạo bản xem trước. "
+                + "Vui lòng thử lại.";
+
+        }
+        finally {
+
+            hideState(
+                loadingState
+            );
+        }
+    }
+
+
+    /* =====================================================
+       STATE HELPERS
+       ===================================================== */
+
+    function showState(
+        element
+    ) {
+        if (element) {
+            element.hidden = false;
+        }
+    }
+
+
+    function hideState(
+        element
+    ) {
+        if (element) {
+            element.hidden = true;
+        }
+    }
+}
+
+
+function escapeMarkdownCaption(
+    text
+) {
+    return text
+        .replace(
+            /\\/g,
+            "\\\\"
+        )
+        .replace(
+            /\*/g,
+            "\\*"
+        );
+}
+
+/* =========================================================
+   WIKI EDITOR DIAGNOSTICS
+   ========================================================= */
+
+function setupWikiEditorDiagnostics(
+    editor,
+	history
+) {
+    const container =
+        document.getElementById(
+            "wikiEditorDiagnostics"
+        );
+
+    const list =
+        document.getElementById(
+            "wikiEditorDiagnosticList"
+        );
+
+
+    if (
+        !container
+        || !list
+    ) {
+        return;
+    }
+
+
+    function validate() {
+
+        const diagnostics =
+            validateWikiMarkdown(
+                editor.value
+            );
+
+
+        list.innerHTML =
+            "";
+
+
+        if (
+            diagnostics.length === 0
+        ) {
+
+            container.hidden =
+                true;
+
+            return;
+        }
+
+
+		diagnostics.forEach(
+		    function(diagnostic) {
+
+		        const item =
+		            document.createElement(
+		                "li"
+		            );
+
+
+		        item.className =
+		            "wiki-editor-diagnostic-item";
+
+
+		        /*
+		         * ===========================
+		         * NÚT TÌM VỊ TRÍ
+		         * ===========================
+		         */
+
+		        const locateButton =
+		            document.createElement(
+		                "button"
+		            );
+
+
+		        locateButton.type =
+		            "button";
+
+
+		        locateButton.className =
+		            "wiki-editor-diagnostic-link";
+
+
+		        locateButton.textContent =
+		            diagnostic.message;
+
+
+		        locateButton.addEventListener(
+		            "click",
+		            function() {
+
+		                editor.focus();
+
+
+		                editor.setSelectionRange(
+		                    diagnostic.start,
+		                    diagnostic.end
+		                );
+
+
+		                requestAnimationFrame(
+		                    function() {
+
+		                        editor.focus();
+
+
+		                        editor.setSelectionRange(
+		                            diagnostic.start,
+		                            diagnostic.end
+		                        );
+		                    }
+		                );
+		            }
+		        );
+
+
+		        item.appendChild(
+		            locateButton
+		        );
+
+
+		        /*
+		         * ===========================
+		         * NÚT SỬA TỰ ĐỘNG
+		         * ===========================
+		         */
+
+		        if (
+		            canAutoFixWikiDiagnostic(
+		                diagnostic
+		            )
+		        ) {
+
+		            const fixButton =
+		                document.createElement(
+		                    "button"
+		                );
+
+
+		            fixButton.type =
+		                "button";
+
+
+		            fixButton.className =
+		                "wiki-editor-diagnostic-fix";
+
+
+		            fixButton.textContent =
+		                "Sửa tự động";
+
+
+		            fixButton.addEventListener(
+		                "click",
+		                function() {
+
+		                    /*
+		                     * Lưu trạng thái trước khi sửa
+		                     * để Undo được.
+		                     */
+		                    history?.flush();
+
+
+		                    const fixed =
+		                        fixWikiDiagnostic(
+		                            editor,
+		                            diagnostic
+		                        );
+
+
+		                    if (
+		                        fixed
+		                    ) {
+
+		                        history?.record();
+		                    }
+		                }
+		            );
+
+
+		            item.appendChild(
+		                fixButton
+		            );
+		        }
+
+
+		        list.appendChild(
+		            item
+		        );
+		    }
+		);
+
+
+        container.hidden =
+            false;
+    }
+
+
+    /*
+     * Validation này chỉ đọc text.
+     * Không thay đổi textarea
+     * nên không gây vòng lặp input.
+     */
+    editor.addEventListener(
+        "input",
+        validate
+    );
+
+
+    validate();
+}
+
+
+/* =========================================================
+   VALIDATE ALL
+   ========================================================= */
+
+function validateWikiMarkdown(
+    markdown
+) {
+    const diagnostics =
+        [];
+
+
+    validateClearWrapMarkers(
+        markdown,
+        diagnostics
+    );
+
+
+    validateMalformedWikiImages(
+        markdown,
+        diagnostics
+    );
+
+
+    validateWikiImageMetadata(
+        markdown,
+        diagnostics
+    );
+
+
+    return diagnostics;
+}
+
+/* =========================================================
+   AUTO FIX SUPPORT
+   ========================================================= */
+
+function canAutoFixWikiDiagnostic(
+    diagnostic
+) {
+    return [
+        "CLEAR_WRAP_SPACING",
+        "IMAGE_BLOCK_SPACING",
+        "IMAGE_SPLIT_SYNTAX"
+    ].includes(
+        diagnostic.code
+    );
+}
+
+function fixWikiDiagnostic(
+    editor,
+    diagnostic
+) {
+    switch (
+        diagnostic.code
+    ) {
+
+        case "CLEAR_WRAP_SPACING":
+
+            return fixClearWrapSpacing(
+                editor,
+                diagnostic
+            );
+
+
+        case "IMAGE_BLOCK_SPACING":
+
+            return fixWikiImageBlockSpacing(
+                editor,
+                diagnostic
+            );
+
+
+        case "IMAGE_SPLIT_SYNTAX":
+
+            return fixSplitWikiImageSyntax(
+                editor,
+                diagnostic
+            );
+
+
+        default:
+
+            return false;
+    }
+}
+
+function fixClearWrapSpacing(
+    editor,
+    diagnostic
+) {
+    const marker =
+        "[[WIKI_CLEAR]]";
+
+
+    const value =
+        editor.value;
+
+
+    /*
+     * Diagnostic.start đang trỏ đúng
+     * vị trí marker.
+     *
+     * Nhưng vẫn kiểm tra lại để tránh
+     * sửa sai nếu nội dung vừa thay đổi.
+     */
+    const markerStart =
+        value.indexOf(
+            marker,
+            Math.max(
+                0,
+                diagnostic.start - 2
+            )
+        );
+
+
+    if (
+        markerStart === -1
+    ) {
+        return false;
+    }
+
+
+    const markerEnd =
+        markerStart
+        + marker.length;
+
+
+    let before =
+        value.substring(
+            0,
+            markerStart
+        );
+
+
+    let after =
+        value.substring(
+            markerEnd
+        );
+
+
+    /*
+     * Xóa khoảng trắng/newline thừa
+     * ngay sát marker.
+     *
+     * Không đụng vào nội dung thật.
+     */
+    before =
+        before.replace(
+            /[ \t\r\n]+$/,
+            ""
+        );
+
+
+    after =
+        after.replace(
+            /^[ \t\r\n]+/,
+            ""
+        );
+
+
+    let replacement =
+        "";
+
+
+    if (
+        before.length > 0
+    ) {
+
+        replacement +=
+            before
+            + "\n\n";
+    }
+
+
+    const newMarkerStart =
+        replacement.length;
+
+
+    replacement +=
+        marker
+        + "\n\n"
+        + after;
+
+
+    editor.value =
+        replacement;
+
+
+    editor.focus();
+
+
+    editor.setSelectionRange(
+        newMarkerStart,
+        newMarkerStart
+        + marker.length
+    );
+
+
+    /*
+     * Kích hoạt lại:
+     * - diagnostics
+     * - history schedule
+     */
+    editor.dispatchEvent(
+        new Event(
+            "input",
+            {
+                bubbles: true
+            }
+        )
+    );
+
+
+    return true;
+}
+
+function fixWikiImageBlockSpacing(
+    editor,
+    diagnostic
+) {
+    const value =
+        editor.value;
+
+
+    if (
+        diagnostic.start < 0
+        || diagnostic.end
+            > value.length
+        || diagnostic.start
+            >= diagnostic.end
+    ) {
+        return false;
+    }
+
+
+    const imageMarkdown =
+        value.substring(
+            diagnostic.start,
+            diagnostic.end
+        );
+
+
+    /*
+     * Safety check:
+     * phải thực sự là ảnh Wiki.
+     */
+    if (
+        !imageMarkdown.startsWith(
+            "!["
+        )
+        || !imageMarkdown.includes(
+            "wiki:"
+        )
+    ) {
+
+        return false;
+    }
+
+
+    /*
+     * Dùng helper đã có sẵn.
+     *
+     * Nó sẽ đảm bảo:
+     *
+     * paragraph trước
+     *
+     * ![ảnh](...)
+     *
+     * paragraph sau
+     */
+    replaceWikiImageBlock(
+        editor,
+        diagnostic.start,
+        diagnostic.end,
+        imageMarkdown
+    );
+
+
+    return true;
+}
+
+function fixSplitWikiImageSyntax(
+    editor,
+    diagnostic
+) {
+    const value =
+        editor.value;
+
+
+    if (
+        diagnostic.start < 0
+        || diagnostic.end
+            > value.length
+        || diagnostic.start
+            >= diagnostic.end
+    ) {
+        return false;
+    }
+
+
+    const brokenMarkdown =
+        value.substring(
+            diagnostic.start,
+            diagnostic.end
+        );
+
+
+    /*
+     * Sai:
+     *
+     * ![anh]
+     * (URL "wiki:...")
+     *
+     * Đúng:
+     *
+     * ![anh](URL "wiki:...")
+     */
+    const fixedMarkdown =
+        brokenMarkdown.replace(
+            /\]\s*\r?\n+\s*\(/,
+            "]("
+        );
+
+
+    if (
+        fixedMarkdown
+        === brokenMarkdown
+    ) {
+
+        return false;
+    }
+
+
+    /*
+     * Sau khi sửa cú pháp,
+     * normalize luôn thành block riêng.
+     */
+    replaceWikiImageBlock(
+        editor,
+        diagnostic.start,
+        diagnostic.end,
+        fixedMarkdown
+    );
+
+
+    return true;
+}
+
+/* =========================================================
+   WIKI CLEAR
+   ========================================================= */
+
+function validateClearWrapMarkers(
+    markdown,
+    diagnostics
+) {
+    const marker =
+        "[[WIKI_CLEAR]]";
+
+
+    let searchFrom =
+        0;
+
+    let occurrence =
+        0;
+
+
+    /*
+     * Có giới hạn rõ ràng:
+     * searchFrom luôn tăng.
+     */
+    while (
+        searchFrom
+        < markdown.length
+    ) {
+
+        const markerIndex =
+            markdown.indexOf(
+                marker,
+                searchFrom
+            );
+
+
+        if (
+            markerIndex === -1
+        ) {
+            break;
+        }
+
+
+        occurrence++;
+
+
+        const before =
+            markdown.substring(
+                0,
+                markerIndex
+            );
+
+
+        const after =
+            markdown.substring(
+                markerIndex
+                + marker.length
+            );
+
+
+        const validBefore =
+            before.length === 0
+            || before.endsWith(
+                "\n\n"
+            );
+
+
+        const validAfter =
+            after.length === 0
+            || after.startsWith(
+                "\n\n"
+            );
+
+
+        if (
+            !validBefore
+            || !validAfter
+        ) {
+
+            let detail;
+
+
+            if (
+                !validBefore
+                && !validAfter
+            ) {
+
+                detail =
+                    "cần một dòng trống trước và sau.";
+
+            }
+            else if (
+                !validBefore
+            ) {
+
+                detail =
+                    "cần một dòng trống trước.";
+
+            }
+            else {
+
+                detail =
+                    "cần một dòng trống sau.";
+            }
+
+
+			diagnostics.push({
+			    code:
+			        "CLEAR_WRAP_SPACING",
+
+			    message:
+			        "Ngắt bọc ảnh #"
+			        + occurrence
+			        + ": "
+			        + detail
+			        + " Nhấn để tìm vị trí.",
+
+			    start:
+			        markerIndex,
+
+			    end:
+			        markerIndex
+			        + marker.length
+			});
+        }
+
+
+        /*
+         * BẮT BUỘC tăng.
+         */
+        searchFrom =
+            markerIndex
+            + marker.length;
+    }
+}
+
+
+/* =========================================================
+   MALFORMED WIKI IMAGE
+   ========================================================= */
+
+function validateMalformedWikiImages(
+    markdown,
+    diagnostics
+) {
+    /*
+     * Tìm tất cả metadata Wiki.
+     *
+     * Mỗi "wiki:" phải nằm trong một
+     * Markdown image hợp lệ.
+     */
+    const metadataMatches =
+        Array.from(
+            markdown.matchAll(
+                /wiki:/g
+            )
+        );
+
+
+    let occurrence =
+        0;
+
+
+    metadataMatches.forEach(
+        function(match) {
+
+            occurrence++;
+
+
+            const metadataIndex =
+                match.index;
+
+
+            /*
+             * Tìm ảnh gần nhất chứa metadata này.
+             */
+            const imageStart =
+                markdown.lastIndexOf(
+                    "![",
+                    metadataIndex
+                );
+
+
+            const imageEnd =
+                markdown.indexOf(
+                    ")",
+                    metadataIndex
+                );
+
+
+            /*
+             * Không tìm được đầu / cuối image.
+             */
+            if (
+                imageStart === -1
+                || imageEnd === -1
+                || imageStart > metadataIndex
+            ) {
+
+                diagnostics.push({
+                    message:
+                        "Ảnh Wiki #"
+                        + occurrence
+                        + ": không xác định được cú pháp ảnh hoàn chỉnh. "
+                        + "Nhấn để tìm vị trí.",
+
+                    start:
+                        Math.max(
+                            0,
+                            metadataIndex - 20
+                        ),
+
+                    end:
+                        Math.min(
+                            markdown.length,
+                            metadataIndex + 80
+                        )
+                });
+
+                return;
+            }
+
+
+            const candidate =
+                markdown.substring(
+                    imageStart,
+                    imageEnd + 1
+                );
+
+
+            /*
+             * =================================================
+             * CASE 1
+             *
+             * ![alt]
+             * (URL "wiki:...")
+             *
+             * ] và ( bị tách bởi newline thật.
+             * =================================================
+             */
+            const splitBetweenAltAndUrl =
+                /\]\s*\r?\n+\s*\(/.test(
+                    candidate
+                );
+
+
+            if (
+                splitBetweenAltAndUrl
+            ) {
+
+                diagnostics.push({
+					code:
+					    "IMAGE_SPLIT_SYNTAX",
+                    message:
+                        "Ảnh Wiki #"
+                        + occurrence
+                        + ": mô tả ảnh và URL đang bị tách dòng. "
+                        + "Phần ] và ( phải nằm liền nhau. "
+                        + "Nhấn để tìm vị trí.",
+
+                    start:
+                        imageStart,
+
+                    end:
+                        imageEnd + 1
+                });
+
+                return;
+            }
+
+
+            /*
+             * =================================================
+             * CASE 2
+             *
+             * Kiểm tra cú pháp tổng thể.
+             *
+             * Đúng:
+             *
+             * ![alt](URL "wiki:size=small;layout=wrap-right")
+             * =================================================
+             */
+            const validSyntax =
+                /^!\[(?:\\.|[^\]])*\]\([^\s)\r\n]+[ \t]+"wiki:[^"\r\n]*"\)$/
+                    .test(
+                        candidate
+                    );
+
+
+            if (
+                !validSyntax
+            ) {
+
+                diagnostics.push({
+                    message:
+                        "Ảnh Wiki #"
+                        + occurrence
+                        + ": cú pháp ảnh không hợp lệ. "
+                        + "Nhấn để tìm vị trí.",
+
+                    start:
+                        imageStart,
+
+                    end:
+                        imageEnd + 1
+                });
+
+                return;
+            }
+
+
+            /*
+             * =================================================
+             * CASE 3
+             *
+             * Ảnh đúng cú pháp nhưng không đứng thành block.
+             *
+             * Ví dụ sai:
+             *
+             * text
+             * ![ảnh](...)
+             * text
+             *
+             * Ví dụ đúng:
+             *
+             * text
+             *
+             * ![ảnh](...)
+             *
+             * text
+             * =================================================
+             */
+
+            const before =
+                markdown.substring(
+                    0,
+                    imageStart
+                );
+
+
+            const after =
+                markdown.substring(
+                    imageEnd + 1
+                );
+
+
+            const validBefore =
+                before.length === 0
+                || /(?:\r?\n){2}$/.test(
+                    before
+                );
+
+
+            const validAfter =
+                after.length === 0
+                || /^(?:\r?\n){2}/.test(
+                    after
+                );
+
+
+            if (
+                !validBefore
+                || !validAfter
+            ) {
+
+                let detail;
+
+
+                if (
+                    !validBefore
+                    && !validAfter
+                ) {
+
+                    detail =
+                        "cần một dòng trống trước và sau ảnh.";
+
+                }
+                else if (
+                    !validBefore
+                ) {
+
+                    detail =
+                        "cần một dòng trống trước ảnh.";
+
+                }
+                else {
+
+                    detail =
+                        "cần một dòng trống sau ảnh.";
+                }
+
+
+                diagnostics.push({
+					code:
+					        "IMAGE_BLOCK_SPACING",
+                    message:
+                        "Ảnh Wiki #"
+                        + occurrence
+                        + ": "
+                        + detail
+                        + " Nếu không, kích thước và bố trí ảnh "
+                        + "có thể không được áp dụng đúng. "
+                        + "Nhấn để tìm vị trí.",
+
+                    start:
+                        imageStart,
+
+                    end:
+                        imageEnd + 1
+                });
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   WIKI IMAGE METADATA
+   ========================================================= */
+
+function validateWikiImageMetadata(
+    markdown,
+    diagnostics
+) {
+    const imagePattern =
+        /!\[[^\]]*\]\([^\)]*"wiki:([^"]*)"\)/g;
+
+
+    const matches =
+        Array.from(
+            markdown.matchAll(
+                imagePattern
+            )
+        );
+
+
+    matches.forEach(
+        function(match) {
+
+            const metadata =
+                match[1];
+
+
+            const sizeMatch =
+                metadata.match(
+                    /(?:^|;)size=([^;]+)/
+                );
+
+
+            const layoutMatch =
+                metadata.match(
+                    /(?:^|;)layout=([^;]+)/
+                );
+
+
+            if (
+                sizeMatch
+                && ![
+                    "small",
+                    "medium",
+                    "large",
+                    "full"
+                ].includes(
+                    sizeMatch[1]
+                )
+            ) {
+
+                diagnostics.push({
+                    message:
+                        "Ảnh Wiki sử dụng kích thước không hợp lệ: "
+                        + sizeMatch[1]
+                        + ". Nhấn để tìm vị trí.",
+
+                    start:
+                        match.index,
+
+                    end:
+                        match.index
+                        + match[0].length
+                });
+            }
+
+
+            if (
+                layoutMatch
+                && ![
+                    "block-left",
+                    "block-center",
+                    "block-right",
+                    "wrap-left",
+                    "wrap-right"
+                ].includes(
+                    layoutMatch[1]
+                )
+            ) {
+
+                diagnostics.push({
+                    message:
+                        "Ảnh Wiki sử dụng bố trí không hợp lệ: "
+                        + layoutMatch[1]
+                        + ". Nhấn để tìm vị trí.",
+
+                    start:
+                        match.index,
+
+                    end:
+                        match.index
+                        + match[0].length
+                });
+            }
+
+
+            if (
+                sizeMatch
+                && layoutMatch
+                && sizeMatch[1] === "full"
+                && (
+                    layoutMatch[1]
+                        === "wrap-left"
+                    || layoutMatch[1]
+                        === "wrap-right"
+                )
+            ) {
+
+                diagnostics.push({
+                    message:
+                        "Ảnh Wiki toàn chiều rộng không thể dùng bố trí bọc chữ. "
+                        + "Nhấn để tìm vị trí.",
+
+                    start:
+                        match.index,
+
+                    end:
+                        match.index
+                        + match[0].length
+                });
+            }
+        }
+    );
 }

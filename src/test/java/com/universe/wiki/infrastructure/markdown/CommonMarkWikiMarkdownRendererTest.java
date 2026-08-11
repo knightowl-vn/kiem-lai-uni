@@ -257,24 +257,34 @@ class CommonMarkWikiMarkdownRendererTest {
 
     @Test
     @DisplayName(
-            "Raw HTML trong Markdown không được thực thi trực tiếp"
+            "Raw HTML bị loại khỏi nội dung Wiki"
     )
-    void shouldEscapeRawHtml() {
+    void shouldRemoveRawHtml() {
+
         RenderedWikiContent result =
                 renderer.render(
                         """
                         ## Test
 
                         <script>alert('xss')</script>
+
+                        Nội dung hợp lệ.
                         """
                 );
+
 
         assertThat(result.html())
                 .doesNotContain(
                         "<script>"
                 )
-                .contains(
+                .doesNotContain(
                         "&lt;script&gt;"
+                )
+                .doesNotContain(
+                        "alert('xss')"
+                )
+                .contains(
+                        "Nội dung hợp lệ."
                 );
     }
     
@@ -321,4 +331,194 @@ class CommonMarkWikiMarkdownRendererTest {
                         "javascript:"
                 );
     }
+    
+    @Test
+    @DisplayName(
+            "Render ảnh Wiki thành figure có caption và layout"
+    )
+    void shouldRenderWikiImageAsFigure() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        Nội dung phía trước.
+
+                        ![Trần Bình An](https://example.com/tran-binh-an.webp "wiki:size=medium;layout=wrap-right")
+
+                        *Trần Bình An tại Kiếm Khí Trường Thành*
+
+                        Nội dung phía sau sẽ chạy cạnh ảnh.
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "<figure"
+                )
+                .contains(
+                        "wiki-media"
+                )
+                .contains(
+                        "wiki-media--medium"
+                )
+                .contains(
+                        "wiki-media--wrap-right"
+                )
+                .contains(
+                        "<img"
+                )
+                .contains(
+                        "class=\"wiki-content-image\""
+                )
+                .contains(
+                        "<figcaption>"
+                )
+                .contains(
+                        "Trần Bình An tại Kiếm Khí Trường Thành"
+                );
+    }
+
+
+    @Test
+    @DisplayName(
+            "Metadata align cũ vẫn tương thích"
+    )
+    void shouldSupportLegacyImageAlignMetadata() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        ![Ảnh cũ](https://example.com/legacy.webp "wiki:size=small;align=right")
+
+                        *Ảnh cũ*
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "wiki-media--small"
+                )
+                .contains(
+                        "wiki-media--block-right"
+                );
+    }
+
+
+    @Test
+    @DisplayName(
+            "Ảnh Markdown thường không bị biến thành Wiki figure"
+    )
+    void shouldKeepNormalMarkdownImageUnchanged() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        ![Ảnh thường](https://example.com/image.webp)
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "<img"
+                )
+                .doesNotContain(
+                        "<figure"
+                )
+                .doesNotContain(
+                        "wiki-media"
+                );
+    }
+    
+    @Test
+    @DisplayName(
+            "Marker WIKI_CLEAR phải kết thúc việc bọc chữ quanh ảnh"
+    )
+    void shouldRenderWikiClearWrapMarker() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        ![Ảnh minh họa](https://example.com/image.webp "wiki:size=medium;layout=wrap-right")
+
+                        *Chú thích ảnh*
+
+                        Đoạn văn vẫn đang bọc quanh ảnh.
+
+                        [[WIKI_CLEAR]]
+
+                        Đoạn này phải bắt đầu bên dưới ảnh.
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "wiki-media--wrap-right"
+                )
+                .contains(
+                        "wiki-clear-wrap"
+                )
+                .contains(
+                        "Đoạn này phải bắt đầu bên dưới ảnh."
+                )
+                .doesNotContain(
+                        "[[WIKI_CLEAR]]"
+                );
+    }
+    
+    @Test
+    @DisplayName(
+            "WIKI_CLEAR nằm giữa câu không được xem là lệnh ngắt bọc"
+    )
+    void shouldNotTreatInlineClearMarkerAsDirective() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        Đây là nội dung có [[WIKI_CLEAR]] nằm giữa câu.
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "[[WIKI_CLEAR]]"
+                )
+                .doesNotContain(
+                        "wiki-clear-wrap"
+                );
+    }
+    @Test
+    @DisplayName(
+            "Ảnh Wiki vẫn áp dụng layout khi text không có dòng trống sau ảnh"
+    )
+    void shouldRenderWikiImageWithoutBlankLineAfterImage() {
+
+        RenderedWikiContent result =
+                renderer.render(
+                        """
+                        ![Ảnh](https://example.com/image.webp "wiki:size=small;layout=wrap-right")
+                        Đoạn văn phải chạy bên trái ảnh.
+                        """
+                );
+
+
+        assertThat(result.html())
+                .contains(
+                        "wiki-media--small"
+                )
+                .contains(
+                        "wiki-media--wrap-right"
+                )
+                .contains(
+                        "<figure"
+                )
+                .contains(
+                        "Đoạn văn phải chạy bên trái ảnh."
+                );
+    }
+    
 }

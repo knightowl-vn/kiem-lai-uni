@@ -896,3 +896,1397 @@
     margin: 6px 4px;
     background: var(--border);
 }
+
+/* =========================================================
+   MARKDOWN WRITE / PREVIEW
+   ========================================================= */
+
+.wiki-markdown-editor-shell {
+    overflow: hidden;
+
+    margin-top: 12px;
+
+    border: 1px solid var(--border);
+    border-radius: 12px;
+
+    background: var(--surface);
+}
+
+
+/* =========================================================
+   TABS
+   ========================================================= */
+
+.wiki-markdown-editor-tabs {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+
+    padding: 0 10px;
+
+    border-bottom: 1px solid var(--border);
+
+    background: #fafafd;
+}
+
+
+.wiki-markdown-editor-tab {
+    position: relative;
+
+    min-height: 44px;
+
+    padding: 0 15px;
+
+    border: 0;
+
+    background: transparent;
+    color: var(--text-secondary);
+
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+
+.wiki-markdown-editor-tab:hover {
+    color: var(--text-primary);
+}
+
+
+.wiki-markdown-editor-tab.is-active {
+    color: var(--text-primary);
+}
+
+
+.wiki-markdown-editor-tab.is-active::after {
+    content: "";
+
+    position: absolute;
+
+    right: 10px;
+    bottom: -1px;
+    left: 10px;
+
+    height: 2px;
+
+    border-radius: 2px 2px 0 0;
+
+    background: var(--primary);
+}
+
+
+/* =========================================================
+   PANELS
+   ========================================================= */
+
+.wiki-markdown-editor-panel[hidden] {
+    display: none !important;
+}
+
+
+/* =========================================================
+   WRITE PANEL
+   ========================================================= */
+
+#wikiWritePanel
+.wiki-markdown-toolbar {
+    margin: 0;
+
+    border: 0;
+    border-bottom: 1px solid var(--border);
+
+    border-radius: 0;
+
+    background: #fafafd;
+}
+
+
+#wikiWritePanel
+#wikiContent {
+    display: block;
+
+    width: 100%;
+    min-height: 520px;
+
+    margin: 0;
+    padding: 18px;
+
+    border: 0;
+    border-radius: 0;
+
+    box-shadow: none;
+
+    resize: vertical;
+
+    background: var(--surface);
+}
+
+
+#wikiWritePanel
+#wikiContent:focus {
+    border: 0;
+    box-shadow: none;
+}
+
+
+#wikiWritePanel
+.wiki-admin-markdown-help {
+    margin: 0;
+    padding: 11px 16px;
+
+    border-top: 1px solid var(--border);
+
+    background: #fafafd;
+}
+
+
+/* =========================================================
+   PREVIEW PANEL
+   ========================================================= */
+
+.wiki-markdown-preview {
+    min-height: 520px;
+
+    padding: 24px 28px;
+
+    color: var(--text-primary);
+
+    font-size: 14px;
+    line-height: 1.75;
+}
+
+
+.wiki-markdown-preview-state {
+    padding: 40px 24px;
+
+    color: var(--text-secondary);
+
+    text-align: center;
+    font-size: 12px;
+}
+
+
+/* HEADINGS */
+
+.wiki-markdown-preview h2 {
+    margin: 28px 0 14px;
+
+    padding-bottom: 8px;
+
+    border-bottom: 1px solid var(--border);
+
+    font-size: 22px;
+}
+
+
+.wiki-markdown-preview h2:first-child {
+    margin-top: 0;
+}
+
+
+.wiki-markdown-preview h3 {
+    margin: 24px 0 10px;
+
+    font-size: 18px;
+}
+
+
+.wiki-markdown-preview h4 {
+    margin: 20px 0 8px;
+
+    font-size: 15px;
+}
+
+
+/* PARAGRAPHS */
+
+.wiki-markdown-preview p {
+    margin: 0 0 14px;
+}
+
+
+/* LIST */
+
+.wiki-markdown-preview ul,
+.wiki-markdown-preview ol {
+    margin: 0 0 16px;
+    padding-left: 26px;
+}
+
+
+/* QUOTE */
+
+.wiki-markdown-preview blockquote {
+    margin: 16px 0;
+    padding: 10px 16px;
+
+    border-left: 4px solid var(--primary);
+
+    background: var(--primary-light);
+
+    color: var(--text-secondary);
+}
+
+
+/* LINKS */
+
+.wiki-markdown-preview a {
+    color: var(--primary);
+}
+
+
+/* IMAGES */
+
+.wiki-markdown-preview img {
+    max-width: 100%;
+    height: auto;
+
+    margin: 14px 0;
+
+    border-radius: 10px;
+}
+
+
+/* TABLE */
+
+.wiki-markdown-preview table {
+    width: 100%;
+
+    margin: 18px 0;
+
+    border-collapse: collapse;
+}
+
+
+.wiki-markdown-preview th,
+.wiki-markdown-preview td {
+    padding: 10px 12px;
+
+    border: 1px solid var(--border);
+
+    text-align: left;
+}
+
+
+.wiki-markdown-preview th {
+    background: #fafafd;
+}
+
+
+/* CODE */
+
+.wiki-markdown-preview code {
+    padding: 2px 5px;
+
+    border-radius: 5px;
+
+    background: #f2f2f5;
+
+    font-family:
+        "Cascadia Code",
+        "Consolas",
+        monospace;
+}
+
+.wiki-markdown-preview
+.wiki-content-image {
+    display: block;
+    height: auto;
+}
+
+
+/* SIZE */
+
+.wiki-markdown-preview
+.wiki-content-image--small {
+    width: 35%;
+}
+
+.wiki-markdown-preview
+.wiki-content-image--medium {
+    width: 55%;
+}
+
+.wiki-markdown-preview
+.wiki-content-image--large {
+    width: 80%;
+}
+
+.wiki-markdown-preview
+.wiki-content-image--full {
+    width: 100%;
+}
+
+
+/* ALIGN */
+
+.wiki-markdown-preview
+.wiki-content-image--left {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+.wiki-markdown-preview
+.wiki-content-image--center {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.wiki-markdown-preview
+.wiki-content-image--right {
+    margin-left: auto;
+    margin-right: 0;
+}
+
+
+/* IMAGE BLOCK */
+
+.wiki-markdown-preview
+p:has(> .wiki-content-image:only-child) {
+    margin-bottom: 5px;
+}
+
+
+/* CAPTION */
+
+.wiki-markdown-preview
+p:has(> .wiki-content-image:only-child)
++ p:has(> em:only-child) {
+    margin-top: 0;
+    margin-bottom: 20px;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    text-align: center;
+}
+
+
+/* =========================================================
+   WIKI IMAGE EDITOR MODAL
+   ========================================================= */
+
+.wiki-image-editor-modal {
+    position: fixed;
+    inset: 0;
+
+    z-index: 3000;
+
+    display: grid;
+    place-items: center;
+
+    padding: 24px;
+}
+
+
+.wiki-image-editor-modal[hidden] {
+    display: none !important;
+}
+
+
+.wiki-image-editor-backdrop {
+    position: absolute;
+    inset: 0;
+
+    background: rgba(20, 21, 31, 0.56);
+}
+
+
+.wiki-image-editor-dialog {
+    position: relative;
+
+    z-index: 1;
+
+    width: min(680px, 100%);
+    max-height: calc(100vh - 48px);
+
+    overflow-y: auto;
+
+    border: 1px solid var(--border);
+    border-radius: 16px;
+
+    background: var(--surface);
+
+    box-shadow:
+        0 24px 70px
+        rgba(20, 21, 31, 0.26);
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.wiki-image-editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+
+    padding: 20px 22px;
+
+    border-bottom: 1px solid var(--border);
+}
+
+
+.wiki-image-editor-header h3 {
+    margin: 5px 0 0;
+
+    font-size: 19px;
+}
+
+
+.wiki-image-editor-close {
+    width: 34px;
+    height: 34px;
+
+    display: grid;
+    place-items: center;
+
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+    color: var(--text-secondary);
+
+    font-size: 23px;
+    line-height: 1;
+
+    cursor: pointer;
+}
+
+
+.wiki-image-editor-close:hover {
+    background: var(--danger-light);
+    color: var(--danger);
+}
+
+
+/* =========================================================
+   BODY
+   ========================================================= */
+
+.wiki-image-editor-body {
+    display: grid;
+    gap: 20px;
+
+    padding: 22px;
+}
+
+
+.wiki-image-editor-preview {
+    min-height: 230px;
+    max-height: 340px;
+
+    display: grid;
+    place-items: center;
+
+    overflow: hidden;
+
+    padding: 14px;
+
+    border: 1px solid var(--border);
+    border-radius: 12px;
+
+    background: #f7f7fa;
+}
+
+
+.wiki-image-editor-preview img {
+    display: block;
+
+    max-width: 100%;
+    max-height: 310px;
+
+    object-fit: contain;
+
+    border-radius: 9px;
+}
+
+
+/* =========================================================
+   FIELD
+   ========================================================= */
+
+.wiki-image-editor-field {
+    display: grid;
+    gap: 7px;
+}
+
+
+.wiki-image-editor-field label,
+.wiki-image-editor-fieldset legend {
+    font-size: 12px;
+    font-weight: 700;
+}
+
+
+.wiki-image-editor-field input {
+    width: 100%;
+    min-height: 44px;
+
+    padding: 0 13px;
+
+    border: 1px solid var(--border);
+    border-radius: 10px;
+
+    outline: none;
+
+    background: var(--surface);
+    color: var(--text-primary);
+
+    font: inherit;
+}
+
+
+.wiki-image-editor-field input:focus {
+    border-color: var(--primary);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(93, 77, 168, 0.12);
+}
+
+
+.wiki-image-editor-field small {
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   CHOICE BUTTONS
+   ========================================================= */
+
+.wiki-image-editor-fieldset {
+    min-width: 0;
+
+    margin: 0;
+    padding: 0;
+
+    border: 0;
+}
+
+
+.wiki-image-editor-fieldset legend {
+    margin-bottom: 9px;
+}
+
+
+.wiki-image-choice-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+
+.wiki-image-choice {
+    cursor: pointer;
+}
+
+
+.wiki-image-choice input {
+    position: absolute;
+
+    opacity: 0;
+    pointer-events: none;
+}
+
+
+.wiki-image-choice span {
+    min-height: 38px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0 13px;
+
+    border: 1px solid var(--border);
+    border-radius: 9px;
+
+    background: var(--surface);
+    color: var(--text-secondary);
+
+    font-size: 11px;
+    font-weight: 700;
+}
+
+
+.wiki-image-choice input:checked + span {
+    border-color: var(--primary);
+
+    background: var(--primary-light);
+    color: var(--primary);
+
+    box-shadow:
+        0 0 0 2px
+        rgba(93, 77, 168, 0.08);
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.wiki-image-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+
+    padding: 16px 22px;
+
+    border-top: 1px solid var(--border);
+
+    background: #fafafd;
+}
+
+
+/* =========================================================
+   IMAGE BLOCK + CAPTION ALIGNMENT
+   ========================================================= */
+
+/*
+ * Paragraph chứa duy nhất một ảnh Wiki.
+ */
+.wiki-markdown-preview
+p:has(> img.wiki-content-image:only-child) {
+    margin-top: 16px;
+    margin-bottom: 0;
+}
+
+
+/*
+ * Khi width đã chuyển lên paragraph,
+ * img luôn chiếm 100% block ảnh.
+ */
+.wiki-markdown-preview
+p:has(> img.wiki-content-image:only-child)
+> img.wiki-content-image {
+    display: block;
+
+    width: 100%;
+    max-width: 100%;
+
+    margin: 0;
+
+    height: auto;
+
+    border-radius: 10px;
+}
+
+
+/* =========================
+   SIZE
+   ========================= */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--small:only-child
+) {
+    width: 35%;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--medium:only-child
+) {
+    width: 55%;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--large:only-child
+) {
+    width: 80%;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--full:only-child
+) {
+    width: 100%;
+}
+
+
+/* =========================
+   ALIGN IMAGE BLOCK
+   ========================= */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--left:only-child
+) {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--center:only-child
+) {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--right:only-child
+) {
+    margin-left: auto;
+    margin-right: 0;
+}
+
+
+/* =========================================================
+   CAPTION WIDTH
+   ========================================================= */
+
+/* SMALL */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--small:only-child
+)
++ p:has(> em:only-child) {
+    width: 35%;
+}
+
+
+/* MEDIUM */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--medium:only-child
+)
++ p:has(> em:only-child) {
+    width: 55%;
+}
+
+
+/* LARGE */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--large:only-child
+)
++ p:has(> em:only-child) {
+    width: 80%;
+}
+
+
+/* FULL */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--full:only-child
+)
++ p:has(> em:only-child) {
+    width: 100%;
+}
+
+
+/* =========================================================
+   CAPTION ALIGNMENT
+   ========================================================= */
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--left:only-child
+)
++ p:has(> em:only-child) {
+    margin-left: 0;
+    margin-right: auto;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--center:only-child
+)
++ p:has(> em:only-child) {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+
+.wiki-markdown-preview
+p:has(
+    > img.wiki-content-image--right:only-child
+)
++ p:has(> em:only-child) {
+    margin-left: auto;
+    margin-right: 0;
+}
+
+
+/* Caption chung */
+
+.wiki-markdown-preview
+p:has(> img.wiki-content-image:only-child)
++ p:has(> em:only-child) {
+    margin-top: 7px;
+    margin-bottom: 22px;
+
+    color: var(--text-secondary);
+
+    text-align: center;
+
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* =========================================================
+   EDITABLE PREVIEW IMAGE
+   ========================================================= */
+
+.wiki-markdown-preview
+img.wiki-content-image {
+    cursor: pointer;
+
+    transition:
+        box-shadow 0.15s ease,
+        transform 0.15s ease;
+}
+
+
+.wiki-markdown-preview
+img.wiki-content-image:hover {
+    box-shadow:
+        0 0 0 3px
+        rgba(93, 77, 168, 0.18);
+
+    transform:
+        translateY(-1px);
+}
+
+
+body.wiki-modal-open {
+    overflow: hidden;
+}
+
+
+/* =========================================================
+   WIKI MEDIA / WORD-LIKE IMAGE LAYOUT
+   ========================================================= */
+
+.wiki-markdown-preview::after {
+    content: "";
+    display: block;
+    clear: both;
+}
+
+
+/* =========================================================
+   FIGURE
+   ========================================================= */
+
+.wiki-markdown-preview
+.wiki-media {
+    box-sizing: border-box;
+
+    margin-top: 18px;
+    margin-bottom: 22px;
+}
+
+
+.wiki-markdown-preview
+.wiki-media
+.wiki-content-image {
+    display: block;
+
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+
+    margin: 0;
+
+    border-radius: 10px;
+
+    cursor: pointer;
+}
+
+
+/* =========================================================
+   SIZE
+   ========================================================= */
+
+.wiki-markdown-preview
+.wiki-media--small {
+    width: 32%;
+}
+
+
+.wiki-markdown-preview
+.wiki-media--medium {
+    width: 48%;
+}
+
+
+.wiki-markdown-preview
+.wiki-media--large {
+    width: 68%;
+}
+
+
+.wiki-markdown-preview
+.wiki-media--full {
+    width: 100%;
+}
+
+
+/* =========================================================
+   BLOCK LAYOUT
+   ========================================================= */
+
+.wiki-markdown-preview
+.wiki-media--block-left {
+    margin-left: 0;
+    margin-right: auto;
+
+    clear: both;
+}
+
+
+.wiki-markdown-preview
+.wiki-media--block-center {
+    margin-left: auto;
+    margin-right: auto;
+
+    clear: both;
+}
+
+
+.wiki-markdown-preview
+.wiki-media--block-right {
+    margin-left: auto;
+    margin-right: 0;
+
+    clear: both;
+}
+
+
+/* =========================================================
+   WORD-LIKE TEXT WRAP
+   ========================================================= */
+
+/*
+ * Ảnh trái
+ * → text chạy bên phải.
+ */
+.wiki-markdown-preview
+.wiki-media--wrap-left {
+    float: left;
+
+    margin:
+        6px
+        24px
+        16px
+        0;
+}
+
+
+/*
+ * Ảnh phải
+ * → text chạy bên trái.
+ */
+.wiki-markdown-preview
+.wiki-media--wrap-right {
+    float: right;
+
+    margin:
+        6px
+        0
+        16px
+        24px;
+}
+
+
+/* =========================================================
+   CAPTION
+   ========================================================= */
+
+.wiki-markdown-preview
+.wiki-media
+figcaption {
+    margin-top: 8px;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    font-style: italic;
+    line-height: 1.45;
+
+    text-align: center;
+}
+
+
+/* =========================================================
+   SECTIONS SHOULD NOT ACCIDENTALLY WRAP
+   ========================================================= */
+
+.wiki-markdown-preview h2,
+.wiki-markdown-preview h3,
+.wiki-markdown-preview h4,
+.wiki-markdown-preview table,
+.wiki-markdown-preview blockquote {
+    clear: both;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 700px) {
+
+    .wiki-markdown-preview
+    .wiki-media {
+        float: none;
+
+        width: 100%;
+
+        margin:
+            18px
+            0
+            22px;
+    }
+}
+
+
+/* =========================================================
+   IMAGE LAYOUT CHOICES
+   ========================================================= */
+
+.wiki-image-layout-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            2,
+            minmax(0, 1fr)
+        );
+
+    gap: 10px;
+}
+
+
+.wiki-image-layout-choice {
+    cursor: pointer;
+}
+
+
+.wiki-image-layout-choice
+> input {
+    position: absolute;
+
+    opacity: 0;
+    pointer-events: none;
+}
+
+
+.wiki-image-layout-card {
+    min-height: 108px;
+
+    display: grid;
+    gap: 5px;
+
+    padding: 12px;
+
+    border: 1px solid var(--border);
+    border-radius: 11px;
+
+    background: var(--surface);
+
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+
+.wiki-image-layout-choice
+> input:checked
++ .wiki-image-layout-card {
+    border-color: var(--primary);
+
+    background: var(--primary-light);
+
+    box-shadow:
+        0 0 0 2px
+        rgba(93, 77, 168, 0.08);
+}
+
+
+.wiki-image-layout-card strong {
+    font-size: 11px;
+}
+
+
+.wiki-image-layout-card small {
+    color: var(--text-secondary);
+
+    font-size: 9px;
+}
+
+
+/* =========================================================
+   MINI LAYOUT PREVIEW
+   ========================================================= */
+
+.wiki-image-layout-icon {
+    position: relative;
+
+    height: 38px;
+
+    display: block;
+
+    overflow: hidden;
+
+    border-radius: 5px;
+
+    background:
+        repeating-linear-gradient(
+            to bottom,
+            #d8dae2 0,
+            #d8dae2 2px,
+            transparent 2px,
+            transparent 7px
+        );
+}
+
+
+.wiki-image-layout-icon i {
+    position: absolute;
+
+    width: 30%;
+    height: 28px;
+
+    border-radius: 4px;
+
+    background: var(--primary);
+}
+
+
+.wiki-image-layout-icon.is-block-left i {
+    left: 0;
+    top: 4px;
+}
+
+
+.wiki-image-layout-icon.is-block-center i {
+    left: 35%;
+    top: 4px;
+}
+
+
+.wiki-image-layout-icon.is-block-right i {
+    right: 0;
+    top: 4px;
+}
+
+
+.wiki-image-layout-icon.is-wrap-left i {
+    left: 0;
+    top: 4px;
+}
+
+
+.wiki-image-layout-icon.is-wrap-right i {
+    right: 0;
+    top: 4px;
+}
+
+
+.wiki-image-layout-help {
+    display: block;
+
+    margin-top: 9px;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+}
+
+
+@media (max-width: 600px) {
+
+    .wiki-image-layout-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =========================================================
+   STOP IMAGE TEXT WRAPPING
+   ========================================================= */
+
+.wiki-markdown-preview
+.wiki-clear-wrap {
+    display: block;
+    clear: both;
+
+    width: 100%;
+    height: 0;
+
+    margin: 0;
+    padding: 0;
+}
+
+.wiki-markdown-preview p {
+    text-align: justify;
+    text-justify: inter-word;
+}
+
+
+/* Caption ảnh không justify */
+.wiki-markdown-preview
+.wiki-media
+figcaption {
+    text-align: center;
+}
+
+
+/* Blockquote đọc tự nhiên hơn khi căn trái */
+.wiki-markdown-preview
+blockquote p {
+    text-align: left;
+}
+
+/* =========================================================
+   MARKDOWN EDITOR DIAGNOSTICS
+   ========================================================= */
+
+.wiki-editor-diagnostics {
+    margin: 12px 16px 16px;
+    padding: 12px 14px;
+
+    border: 1px solid #e8c96b;
+    border-radius: 10px;
+
+    background: #fff9e8;
+    color: #725600;
+
+    font-size: 12px;
+}
+
+
+.wiki-editor-diagnostics-header {
+    margin-bottom: 6px;
+}
+
+
+.wiki-editor-diagnostics ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+
+.wiki-editor-diagnostics li + li {
+    margin-top: 4px;
+}
+
+.wiki-editor-diagnostics ul {
+    display: grid;
+    gap: 6px;
+
+    margin: 0;
+    padding-left: 18px;
+}
+
+
+.wiki-editor-diagnostic-link {
+    padding: 0;
+
+    border: 0;
+    background: transparent;
+
+    color: inherit;
+
+    font: inherit;
+    text-align: left;
+
+    cursor: pointer;
+
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+}
+
+
+.wiki-editor-diagnostic-link:hover {
+    color: #5f4600;
+}
+
+#wikiContent::selection {
+    background: #ffe08a;
+    color: #2b2200;
+}
+#wikiContent::-moz-selection {
+    background: #ffe08a;
+    color: #2b2200;
+}
+
+/* =========================================================
+   WIKI EDITOR DIAGNOSTIC ACTIONS
+   ========================================================= */
+
+.wiki-editor-diagnostic-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+
+.wiki-editor-diagnostic-link {
+    flex: 1;
+
+    padding: 0;
+
+    border: 0;
+    background: transparent;
+
+    color: inherit;
+
+    font: inherit;
+    line-height: 1.5;
+    text-align: left;
+
+    cursor: pointer;
+
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+}
+
+
+.wiki-editor-diagnostic-fix {
+    flex: 0 0 auto;
+
+    padding: 5px 10px;
+
+    border: 1px solid #d7b654;
+    border-radius: 7px;
+
+    background: #fff;
+
+    color: #765800;
+
+    font-size: 12px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+
+.wiki-editor-diagnostic-fix:hover {
+    background: #fff4c9;
+}
+

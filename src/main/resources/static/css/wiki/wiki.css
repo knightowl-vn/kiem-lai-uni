@@ -262,3 +262,208 @@
         margin: 20px auto;
     }
 }
+
+
+/* =========================================================
+   WIKI MEDIA
+   ========================================================= */
+
+.wiki-article-content::after {
+    content: "";
+
+    display: block;
+    clear: both;
+}
+
+
+.wiki-article-content
+.wiki-media {
+    box-sizing: border-box;
+
+    margin-top: 22px;
+    margin-bottom: 26px;
+}
+
+
+.wiki-article-content
+.wiki-media
+.wiki-content-image {
+    display: block;
+
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+
+    margin: 0;
+
+    border-radius: 12px;
+}
+
+
+/* SIZE */
+
+.wiki-article-content
+.wiki-media--small {
+    width: 32%;
+}
+
+
+.wiki-article-content
+.wiki-media--medium {
+    width: 48%;
+}
+
+
+.wiki-article-content
+.wiki-media--large {
+    width: 68%;
+}
+
+
+.wiki-article-content
+.wiki-media--full {
+    width: 100%;
+}
+
+
+/* BLOCK */
+
+.wiki-article-content
+.wiki-media--block-left {
+    margin-left: 0;
+    margin-right: auto;
+
+    clear: both;
+}
+
+
+.wiki-article-content
+.wiki-media--block-center {
+    margin-left: auto;
+    margin-right: auto;
+
+    clear: both;
+}
+
+
+.wiki-article-content
+.wiki-media--block-right {
+    margin-left: auto;
+    margin-right: 0;
+
+    clear: both;
+}
+
+
+/* WRAP */
+
+.wiki-article-content
+.wiki-media--wrap-left {
+    float: left;
+
+    margin:
+        6px
+        28px
+        18px
+        0;
+}
+
+
+.wiki-article-content
+.wiki-media--wrap-right {
+    float: right;
+
+    margin:
+        6px
+        0
+        18px
+        28px;
+}
+
+
+/* CAPTION */
+
+.wiki-article-content
+.wiki-media
+figcaption {
+    margin-top: 8px;
+
+    color: var(--bs-secondary-color);
+
+    font-size: 0.85rem;
+    font-style: italic;
+    line-height: 1.45;
+
+    text-align: center;
+}
+
+
+/*
+ * Section mới không tiếp tục quấn
+ * quanh ảnh section trước.
+ */
+.wiki-article-content h2,
+.wiki-article-content h3,
+.wiki-article-content h4,
+.wiki-article-content table,
+.wiki-article-content blockquote {
+    clear: both;
+}
+
+
+/* MOBILE */
+
+@media (max-width: 768px) {
+
+    .wiki-article-content
+    .wiki-media {
+        float: none;
+
+        width: 100%;
+
+        margin:
+            20px
+            0
+            24px;
+    }
+}
+
+/* =========================================================
+   STOP IMAGE TEXT WRAPPING
+   ========================================================= */
+
+.wiki-article-content
+.wiki-clear-wrap {
+    display: block;
+    clear: both;
+
+    width: 100%;
+    height: 0;
+
+    margin: 0;
+    padding: 0;
+}
+
+/* =========================================================
+   JUSTIFIED ARTICLE TEXT
+   ========================================================= */
+
+.wiki-article-content p {
+    text-align: justify;
+    text-justify: inter-word;
+}
+
+
+/* Caption luôn căn giữa ảnh */
+.wiki-article-content
+.wiki-media
+figcaption {
+    text-align: center;
+}
+
+
+/* Trích dẫn không cần canh đều */
+.wiki-article-content
+blockquote p {
+    text-align: left;
+}
