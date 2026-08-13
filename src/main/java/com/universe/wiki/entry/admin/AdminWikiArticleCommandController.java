@@ -55,6 +55,21 @@ import java.util.UUID;
 @Controller
 @RequestMapping("/admin/wiki/articles")
 public class AdminWikiArticleCommandController {
+	
+	private static final String AUTOSAVE_CLEANUP_ATTRIBUTE =
+	        "wikiAutosaveCleanupKey";
+
+	private static final String CREATE_AUTOSAVE_KEY =
+	        "kiemlai:wiki:autosave:create";
+
+
+	private String editAutosaveKey(
+	        UUID articleId
+	) {
+
+	    return "kiemlai:wiki:autosave:edit:"
+	            + articleId;
+	}
 
 	/*
 	 * ===================================================== CREATE
@@ -190,7 +205,24 @@ public class AdminWikiArticleCommandController {
 		case PUBLISH -> "Đã xuất bản bài Wiki \"" + article.title() + "\".";
 		};
 
-		redirectAttributes.addFlashAttribute("successMessage", successMessage);
+		redirectAttributes.addFlashAttribute(
+		        "successMessage",
+		        successMessage
+		);
+
+
+		/*
+		 * Chỉ tới được đây khi Create use case
+		 * đã chạy thành công.
+		 *
+		 * Trang danh sách sẽ dùng tín hiệu này
+		 * để xóa local draft của Create.
+		 */
+		redirectAttributes.addFlashAttribute(
+		        AUTOSAVE_CLEANUP_ATTRIBUTE,
+		        CREATE_AUTOSAVE_KEY
+		);
+
 
 		return redirectToArticleList();
 	}
@@ -300,6 +332,17 @@ public class AdminWikiArticleCommandController {
 
 				"Đã cập nhật bài Wiki \"" + updatedArticle.title() + "\".");
 
+		
+		/*
+		 * Chỉ cleanup Auto-save của đúng bài
+		 * vừa được backend lưu thành công.
+		 */
+		redirectAttributes.addFlashAttribute(
+		        AUTOSAVE_CLEANUP_ATTRIBUTE,
+		        editAutosaveKey(
+		                articleId
+		        )
+		);
 		/*
 		 * Sau khi lưu xong quay về trang chi tiết bài.
 		 */

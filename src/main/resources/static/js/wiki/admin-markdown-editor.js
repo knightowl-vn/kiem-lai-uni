@@ -26,7 +26,11 @@ document.addEventListener(
 
         setupWikiEditorDiagnostics(
             editor,
-			history
+            history
+        );
+
+        setupWikiLocalAutosave(
+            editor
         );
 
         const toolbarButtons =
@@ -1142,6 +1146,1457 @@ function createHistoryManager(
         undo,
         redo
     };
+}
+
+/* =========================================================
+   WIKI LOCAL AUTO-SAVE + RECOVERY
+   ========================================================= */
+
+function setupWikiLocalAutosave(
+    editor
+) {
+    const form =
+        document.getElementById(
+            "wikiArticleForm"
+        );
+
+
+    const status =
+        document.getElementById(
+            "wikiAutosaveStatus"
+        );
+
+
+    if (!form) {
+        return;
+    }
+
+
+    /* =====================================================
+       RECOVERY ELEMENTS
+       ===================================================== */
+
+    const recoveryPanel =
+        document.getElementById(
+            "wikiAutosaveRecovery"
+        );
+
+
+    const recoveryMessage =
+        document.getElementById(
+            "wikiAutosaveRecoveryMessage"
+        );
+
+
+    const restoreButton =
+        document.getElementById(
+            "wikiAutosaveRestore"
+        );
+
+
+    const discardButton =
+        document.getElementById(
+            "wikiAutosaveDiscard"
+        );
+
+
+    /* =====================================================
+       PAGE MODE
+       ===================================================== */
+
+    const mode =
+        form.dataset
+            .wikiAutosaveMode;
+
+
+    const articleId =
+        form.dataset
+            .wikiArticleId
+        || null;
+
+
+    let storageKey;
+
+
+    if (
+        mode === "create"
+    ) {
+
+        storageKey =
+            "kiemlai:wiki:autosave:create";
+
+    }
+    else if (
+        mode === "edit"
+        && articleId
+    ) {
+
+        storageKey =
+            "kiemlai:wiki:autosave:edit:"
+            + articleId;
+
+    }
+    else {
+
+        console.warn(
+            "Không thể xác định Wiki Auto-save key."
+        );
+
+        return;
+    }
+
+
+    /* =====================================================
+       FORM FIELDS
+       ===================================================== */
+
+    const title =
+        document.getElementById(
+            "wikiTitle"
+        );
+
+
+    const articleType =
+        document.getElementById(
+            "wikiArticleType"
+        );
+
+
+    const summary =
+        document.getElementById(
+            "wikiSummary"
+        );
+
+
+    const editSummary =
+        document.getElementById(
+            "wikiEditSummary"
+        );
+
+
+    const contentTemplateButton =
+        document.getElementById(
+            "applyContentTemplate"
+        );
+
+
+    const previewPanel =
+        document.getElementById(
+            "wikiPreviewPanel"
+        );
+
+
+    const previewTab =
+        document.getElementById(
+            "wikiPreviewTab"
+        );
+
+
+    const watchedFields = [
+        title,
+        articleType,
+        summary,
+        editor,
+        editSummary
+    ].filter(
+        function(field) {
+            return Boolean(field);
+        }
+    );
+
+    /* =====================================================
+       RECOVERY LOCK
+       ===================================================== */
+
+	   const recoveryLockElements =
+	       Array.from(
+	           document.querySelectorAll(
+	               [
+	                   "[data-markdown-action]",
+	                   ".wiki-markdown-editor-tab",
+	                   "#wikiImageButton",
+	                   "#applyContentTemplate"
+	               ].join(",")
+	           )
+	       );
+
+
+    const originalDisabledState =
+        new Map();
+
+
+    watchedFields
+        .concat(
+            recoveryLockElements
+        )
+        .forEach(
+            function(element) {
+
+                if (!element) {
+                    return;
+                }
+
+
+                originalDisabledState.set(
+                    element,
+                    Boolean(
+                        element.disabled
+                    )
+                );
+            }
+        );
+
+
+    function setRecoveryLock(
+        locked
+    ) {
+
+        watchedFields
+            .concat(
+                recoveryLockElements
+            )
+            .forEach(
+                function(element) {
+
+                    if (!element) {
+                        return;
+                    }
+
+
+                    if (locked) {
+
+                        element.disabled =
+                            true;
+
+                        return;
+                    }
+
+
+                    element.disabled =
+                        originalDisabledState.get(
+                            element
+                        ) || false;
+                }
+            );
+    }
+
+
+    /* =====================================================
+       STATE
+       ===================================================== */
+
+    let saveTimer =
+        null;
+
+
+    let lastSavedData =
+        null;
+
+
+    let pendingRecoveryDraft =
+        null;
+
+
+    let recoveryPending =
+        false;
+
+
+    /*
+     * Dữ liệu server tại thời điểm
+     * trang editor vừa được mở.
+     *
+     * Đây là mốc để xác định:
+     *
+     * current form === server baseline
+     *     → không có thay đổi chưa lưu
+     *
+     * current form !== server baseline
+     *     → dirty
+     */
+    let serverBaselineData =
+        null;
+
+
+    /*
+     * Đang submit form thật lên backend.
+     *
+     * Khi true thì beforeunload
+     * không được hiện cảnh báo.
+     */
+    let submitting =
+        false;
+
+
+    const AUTO_SAVE_DELAY =
+        800;
+
+
+    /* =====================================================
+       CREATE SNAPSHOT
+       ===================================================== */
+
+    function createLocalDraft() {
+
+        return {
+
+            schemaVersion:
+                1,
+
+            mode:
+                mode,
+
+            articleId:
+                articleId,
+
+            pagePath:
+                window.location.pathname,
+
+            savedAt:
+                new Date()
+                    .toISOString(),
+
+            data: {
+
+                title:
+                    title
+                        ? title.value
+                        : "",
+
+                articleType:
+                    articleType
+                        ? articleType.value
+                        : "",
+
+                summary:
+                    summary
+                        ? summary.value
+                        : "",
+
+                content:
+                    editor.value,
+
+                editSummary:
+                    editSummary
+                        ? editSummary.value
+                        : ""
+            }
+        };
+    }
+
+
+    function serializeDraftData(
+        draft
+    ) {
+
+        return JSON.stringify(
+            draft.data
+        );
+    }
+
+    /* =====================================================
+       DIRTY STATE
+       ===================================================== */
+
+    function hasUnsavedServerChanges() {
+
+        if (
+            serverBaselineData === null
+        ) {
+            return false;
+        }
+
+
+        const currentData =
+            serializeDraftData(
+                createLocalDraft()
+            );
+
+
+        return currentData
+            !== serverBaselineData;
+    }
+
+
+    /* =====================================================
+       SAVE
+       ===================================================== */
+
+    function saveNow() {
+
+        if (saveTimer) {
+
+            clearTimeout(
+                saveTimer
+            );
+
+            saveTimer =
+                null;
+        }
+
+
+        /*
+         * Nếu đang có một recovery chưa được quyết định,
+         * tuyệt đối không ghi đè local draft cũ.
+         */
+        if (
+            recoveryPending
+        ) {
+
+            return;
+        }
+
+
+        const draft =
+            createLocalDraft();
+
+
+        const serializedData =
+            serializeDraftData(
+                draft
+            );
+
+        /*
+         * Nếu người dùng Undo / chỉnh lại
+         * đúng về dữ liệu server ban đầu,
+         * local draft không còn cần thiết.
+         */
+        if (
+            serverBaselineData !== null
+            && serializedData
+            === serverBaselineData
+        ) {
+
+            try {
+
+                localStorage.removeItem(
+                    storageKey
+                );
+
+            }
+            catch (error) {
+
+                console.error(
+                    "Không thể xóa Wiki local draft:",
+                    error
+                );
+            }
+
+
+            lastSavedData =
+                serializedData;
+
+
+            if (status) {
+
+                status.textContent =
+                    "Không có thay đổi chưa lưu lên hệ thống.";
+            }
+
+
+            return;
+        }
+
+
+        if (
+            serializedData
+            === lastSavedData
+        ) {
+
+            return;
+        }
+
+
+        try {
+
+            localStorage.setItem(
+                storageKey,
+                JSON.stringify(
+                    draft
+                )
+            );
+
+
+            lastSavedData =
+                serializedData;
+
+
+            showSavedStatus(
+                draft.savedAt
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Wiki local auto-save failed:",
+                error
+            );
+
+
+            if (status) {
+
+                status.textContent =
+                    "Không thể tự động lưu cục bộ.";
+            }
+        }
+    }
+
+
+    /* =====================================================
+       SCHEDULE SAVE
+       ===================================================== */
+
+    function scheduleSave() {
+
+        /*
+         * Bảo vệ recovery draft.
+         *
+         * Người dùng phải quyết định:
+         *
+         * - Khôi phục
+         * - Bỏ
+         *
+         * trước khi Auto-save được tiếp tục.
+         */
+        if (
+            recoveryPending
+        ) {
+
+            if (status) {
+
+                status.textContent =
+                    "Có bản tự lưu chưa được xử lý. "
+                    + "Hãy khôi phục hoặc bỏ bản tự lưu.";
+            }
+
+            return;
+        }
+
+
+        if (saveTimer) {
+
+            clearTimeout(
+                saveTimer
+            );
+        }
+
+
+        if (status) {
+
+            status.textContent =
+                "Đang chờ tự động lưu...";
+        }
+
+
+        saveTimer =
+            setTimeout(
+                saveNow,
+                AUTO_SAVE_DELAY
+            );
+    }
+
+
+    /* =====================================================
+       STATUS
+       ===================================================== */
+
+    function formatSavedTime(
+        savedAt
+    ) {
+
+        const date =
+            new Date(
+                savedAt
+            );
+
+
+        if (
+            Number.isNaN(
+                date.getTime()
+            )
+        ) {
+
+            return null;
+        }
+
+
+        return date.toLocaleString(
+            "vi-VN",
+            {
+                hour:
+                    "2-digit",
+
+                minute:
+                    "2-digit",
+
+                second:
+                    "2-digit",
+
+                day:
+                    "2-digit",
+
+                month:
+                    "2-digit",
+
+                year:
+                    "numeric"
+            }
+        );
+    }
+
+
+    function showSavedStatus(
+        savedAt
+    ) {
+
+        if (!status) {
+            return;
+        }
+
+
+        const time =
+            formatSavedTime(
+                savedAt
+            );
+
+
+        if (!time) {
+
+            status.textContent =
+                hasUnsavedServerChanges()
+                    ? "Đã tự lưu cục bộ. "
+                    + "Thay đổi chưa được lưu lên hệ thống."
+                    : "Nội dung hiện tại đã đồng bộ với hệ thống.";
+
+            return;
+        }
+
+
+        if (
+            hasUnsavedServerChanges()
+        ) {
+
+            status.textContent =
+                "Đã tự lưu cục bộ lúc "
+                + time
+                + ". Thay đổi chưa được lưu lên hệ thống.";
+
+        }
+        else {
+
+            status.textContent =
+                "Nội dung hiện tại đã đồng bộ với hệ thống.";
+        }
+    }
+
+
+    /* =====================================================
+       VALIDATE LOCAL DRAFT
+       ===================================================== */
+
+    function isCompatibleDraft(
+        draft
+    ) {
+
+        if (
+            !draft
+            || typeof draft
+            !== "object"
+        ) {
+
+            return false;
+        }
+
+
+        if (
+            draft.schemaVersion
+            !== 1
+        ) {
+
+            return false;
+        }
+
+
+        if (
+            draft.mode
+            !== mode
+        ) {
+
+            return false;
+        }
+
+
+        const storedArticleId =
+            draft.articleId
+            || null;
+
+
+        if (
+            storedArticleId
+            !== articleId
+        ) {
+
+            return false;
+        }
+
+
+        if (
+            !draft.data
+            || typeof draft.data
+            !== "object"
+        ) {
+
+            return false;
+        }
+
+
+        const fields = [
+            "title",
+            "articleType",
+            "summary",
+            "content",
+            "editSummary"
+        ];
+
+
+        return fields.every(
+            function(fieldName) {
+
+                return typeof draft.data[
+                    fieldName
+                ] === "string";
+            }
+        );
+    }
+
+
+    /* =====================================================
+       LOAD RECOVERY
+       ===================================================== */
+
+    function initializeRecovery() {
+
+        /*
+         * Server-rendered form chính là baseline
+         * của lần mở trang hiện tại.
+         */
+        const currentDraft =
+            createLocalDraft();
+
+
+        const currentData =
+            serializeDraftData(
+                currentDraft
+            );
+
+        /*
+         * Đây chính là dữ liệu server
+         * vừa render xuống editor.
+         */
+        serverBaselineData =
+            currentData;
+
+
+        lastSavedData =
+            currentData;
+
+
+        let rawDraft;
+
+
+        try {
+
+            rawDraft =
+                localStorage.getItem(
+                    storageKey
+                );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Không thể đọc Wiki local draft:",
+                error
+            );
+
+            return;
+        }
+
+
+        if (!rawDraft) {
+
+            return;
+        }
+
+
+        let localDraft;
+
+
+        try {
+
+            localDraft =
+                JSON.parse(
+                    rawDraft
+                );
+
+        }
+        catch (error) {
+
+            /*
+             * Dữ liệu hỏng thì bỏ.
+             *
+             * Không để JSON lỗi làm editor chết.
+             */
+            console.warn(
+                "Wiki local draft không hợp lệ. "
+                + "Đang xóa bản cục bộ.",
+                error
+            );
+
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+            return;
+        }
+
+
+        if (
+            !isCompatibleDraft(
+                localDraft
+            )
+        ) {
+
+            console.warn(
+                "Wiki local draft không tương thích. "
+                + "Đang xóa bản cục bộ."
+            );
+
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+            return;
+        }
+
+
+        const localData =
+            serializeDraftData(
+                localDraft
+            );
+
+
+        /*
+         * Local draft giống hệt dữ liệu server.
+         *
+         * Không cần recovery nữa.
+         */
+        if (
+            localData
+            === currentData
+        ) {
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+
+            if (status) {
+
+                status.textContent =
+                    "Nội dung hiện tại đã đồng bộ.";
+            }
+
+
+            return;
+        }
+
+
+        /*
+         * Có khác biệt thật sự.
+         */
+        pendingRecoveryDraft =
+            localDraft;
+
+
+        recoveryPending =
+            true;
+
+
+        showRecoveryPanel(
+            localDraft
+        );
+    }
+
+
+    /* =====================================================
+       SHOW RECOVERY
+       ===================================================== */
+
+    function showRecoveryPanel(
+        draft
+    ) {
+
+        setRecoveryLock(
+            true
+        );
+
+
+        if (
+            recoveryPanel
+        ) {
+
+            recoveryPanel.hidden =
+                false;
+        }
+
+
+        document.body.classList.add(
+            "wiki-autosave-recovery-open"
+        );
+
+
+        const savedTime =
+            formatSavedTime(
+                draft.savedAt
+            );
+
+
+        if (
+            recoveryMessage
+        ) {
+
+            if (savedTime) {
+
+                recoveryMessage.textContent =
+                    "Có một bản chỉnh sửa cục bộ "
+                    + "được lưu lúc "
+                    + savedTime
+                    + " nhưng chưa được lưu lên hệ thống.";
+
+            }
+            else {
+
+                recoveryMessage.textContent =
+                    "Có một bản chỉnh sửa cục bộ "
+                    + "chưa được lưu lên hệ thống.";
+            }
+        }
+
+
+        if (status) {
+
+            status.textContent =
+                "Có bản tự lưu cần được xử lý.";
+        }
+
+
+        requestAnimationFrame(
+            function() {
+
+                restoreButton
+                    ?.focus();
+            }
+        );
+    }
+
+
+    function hideRecoveryPanel() {
+
+        if (
+            recoveryPanel
+        ) {
+
+            recoveryPanel.hidden =
+                true;
+        }
+
+
+        document.body.classList.remove(
+            "wiki-autosave-recovery-open"
+        );
+    }
+
+
+    /* =====================================================
+       RESTORE FIELD
+       ===================================================== */
+
+    function restoreField(
+        field,
+        value
+    ) {
+
+        if (!field) {
+            return;
+        }
+
+
+        /*
+         * Published article:
+         *
+         * title readonly
+         * articleType disabled
+         *
+         * Không được recovery ghi đè những field
+         * mà giao diện không cho phép sửa.
+         */
+        if (
+            field.readOnly
+            || field.disabled
+        ) {
+
+            return;
+        }
+
+
+        field.value =
+            value;
+
+
+        field.dispatchEvent(
+            new Event(
+                "input",
+                {
+                    bubbles:
+                        true
+                }
+            )
+        );
+
+
+        if (
+            field.tagName
+            === "SELECT"
+        ) {
+
+            field.dispatchEvent(
+                new Event(
+                    "change",
+                    {
+                        bubbles:
+                            true
+                    }
+                )
+            );
+        }
+    }
+
+
+    /* =====================================================
+       RESTORE
+       ===================================================== */
+
+    function restoreLocalDraft() {
+
+        if (
+            !pendingRecoveryDraft
+        ) {
+
+            return;
+        }
+
+
+        const draft =
+            pendingRecoveryDraft;
+
+
+        /*
+         * Tắt khóa recovery trước khi dispatch input.
+         *
+         * saveNow() cuối function sẽ flush
+         * tất cả thay đổi một lần.
+         */
+        recoveryPending =
+            false;
+
+        setRecoveryLock(
+            false
+        );
+
+        restoreField(
+            title,
+            draft.data.title
+        );
+
+
+        restoreField(
+            articleType,
+            draft.data.articleType
+        );
+
+
+        restoreField(
+            summary,
+            draft.data.summary
+        );
+
+
+        restoreField(
+            editor,
+            draft.data.content
+        );
+
+
+        restoreField(
+            editSummary,
+            draft.data.editSummary
+        );
+
+
+        pendingRecoveryDraft =
+            null;
+
+
+        hideRecoveryPanel();
+
+
+		/*
+		 * Bản vừa khôi phục đã tồn tại
+		 * trong localStorage từ trước.
+		 *
+		 * Giữ nguyên savedAt của bản tự lưu gốc.
+		 */
+		lastSavedData =
+		    serializeDraftData(
+		        draft
+		    );
+
+
+        if (status) {
+
+            status.textContent =
+                "Đã khôi phục bản tự lưu. "
+                + "Thay đổi chưa được lưu lên hệ thống.";
+        }
+
+
+        /*
+         * Nếu người dùng đang ở Preview,
+         * render lại preview theo nội dung
+         * vừa recovery.
+         */
+        if (
+            previewPanel
+            && !previewPanel.hidden
+            && previewTab
+        ) {
+
+            previewTab.click();
+
+        }
+        else {
+
+            editor.focus();
+        }
+    }
+
+
+    /* =====================================================
+       DISCARD RECOVERY
+       ===================================================== */
+
+    function discardLocalDraft() {
+
+        try {
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+        }
+        catch (error) {
+
+            console.error(
+                "Không thể xóa Wiki local draft:",
+                error
+            );
+
+            return;
+        }
+
+
+        pendingRecoveryDraft =
+            null;
+
+
+        recoveryPending =
+            false;
+
+        setRecoveryLock(
+            false
+        );
+
+
+
+        hideRecoveryPanel();
+		
+		editor.focus();
+
+
+        /*
+         * Baseline bây giờ chính là dữ liệu
+         * server đang hiển thị.
+         */
+        lastSavedData =
+            serializeDraftData(
+                createLocalDraft()
+            );
+
+
+        if (status) {
+
+            status.textContent =
+                "Đã bỏ bản tự lưu. "
+                + "Đang sử dụng dữ liệu hiện tại.";
+        }
+    }
+
+
+    /* =====================================================
+       EVENT LISTENERS
+       ===================================================== */
+
+    watchedFields.forEach(
+        function(field) {
+
+            field.addEventListener(
+                "input",
+                scheduleSave
+            );
+
+
+            field.addEventListener(
+                "change",
+                scheduleSave
+            );
+        }
+    );
+
+
+    contentTemplateButton
+        ?.addEventListener(
+            "click",
+            function() {
+
+                setTimeout(
+                    scheduleSave,
+                    0
+                );
+            }
+        );
+
+
+    restoreButton
+        ?.addEventListener(
+            "click",
+            restoreLocalDraft
+        );
+
+
+    discardButton
+        ?.addEventListener(
+            "click",
+            discardLocalDraft
+        );
+
+
+    document.addEventListener(
+        "visibilitychange",
+        function() {
+
+            if (
+                document.visibilityState
+                === "hidden"
+                && saveTimer
+                && !recoveryPending
+            ) {
+
+                saveNow();
+            }
+        }
+    );
+
+    /* =====================================================
+       UNSAVED CHANGES WARNING
+       ===================================================== */
+
+    window.addEventListener(
+        "beforeunload",
+        function(event) {
+
+            /*
+             * Người dùng đang chủ động gửi form
+             * Save Draft / Publish / Update.
+             *
+             * Không cảnh báo trong trường hợp này.
+             */
+            if (
+                submitting
+            ) {
+                return;
+            }
+
+
+            /*
+             * recoveryPending:
+             *
+             * Có một local draft chưa được xử lý.
+             *
+             * hasUnsavedServerChanges():
+             *
+             * Form hiện tại khác dữ liệu server.
+             */
+            const shouldWarn =
+                recoveryPending
+                || hasUnsavedServerChanges();
+
+
+            if (
+                !shouldWarn
+            ) {
+                return;
+            }
+
+
+            event.preventDefault();
+
+
+            /*
+             * Các browser hiện đại tự hiển thị
+             * nội dung cảnh báo chuẩn của browser.
+             *
+             * Không thể tùy chỉnh message.
+             */
+            event.returnValue =
+                "";
+        }
+    );
+
+    /* =====================================================
+       REAL SERVER SUBMIT
+       ===================================================== */
+
+    form.addEventListener(
+        "submit",
+        function() {
+
+            /*
+             * Flush thay đổi cuối cùng vào localStorage
+             * trước khi gửi request.
+             *
+             * Nếu backend gặp lỗi, local draft
+             * vẫn còn để Recovery.
+             */
+            if (
+                !recoveryPending
+            ) {
+
+                saveNow();
+            }
+
+
+            /*
+             * Sau khi native validation đã pass
+             * và submit event xảy ra,
+             * user đang chủ động lưu.
+             *
+             * Không hiện beforeunload warning
+             * khi browser chuyển sang response mới.
+             */
+            submitting =
+                true;
+
+
+            if (status) {
+
+                status.textContent =
+                    "Đang lưu lên hệ thống...";
+            }
+        }
+    );
+
+    document.addEventListener(
+        "keydown",
+        function(event) {
+
+            if (
+                !recoveryPending
+            ) {
+                return;
+            }
+
+
+            if (
+                event.key === "Escape"
+            ) {
+
+                event.preventDefault();
+
+                return;
+            }
+
+
+            /*
+             * Focus trap đơn giản giữa
+             * hai nút của Recovery modal.
+             */
+            if (
+                event.key === "Tab"
+                && restoreButton
+                && discardButton
+            ) {
+
+                const focusable = [
+                    discardButton,
+                    restoreButton
+                ];
+
+
+                const currentIndex =
+                    focusable.indexOf(
+                        document.activeElement
+                    );
+
+
+                if (
+                    event.shiftKey
+                ) {
+
+                    if (
+                        currentIndex <= 0
+                    ) {
+
+                        event.preventDefault();
+
+                        restoreButton.focus();
+                    }
+
+                }
+                else {
+
+                    if (
+                        currentIndex ===
+                        focusable.length - 1
+                    ) {
+
+                        event.preventDefault();
+
+                        discardButton.focus();
+                    }
+                }
+            }
+        }
+    );
+
+
+    /* =====================================================
+       INITIALIZE
+       ===================================================== */
+
+    initializeRecovery();
 }
 
 /* =========================================================
@@ -2705,28 +4160,13 @@ function setupMarkdownPreview(
     }
 }
 
-
-function escapeMarkdownCaption(
-    text
-) {
-    return text
-        .replace(
-            /\\/g,
-            "\\\\"
-        )
-        .replace(
-            /\*/g,
-            "\\*"
-        );
-}
-
 /* =========================================================
    WIKI EDITOR DIAGNOSTICS
    ========================================================= */
 
 function setupWikiEditorDiagnostics(
     editor,
-	history
+    history
 ) {
     const container =
         document.getElementById(
@@ -2770,146 +4210,146 @@ function setupWikiEditorDiagnostics(
         }
 
 
-		diagnostics.forEach(
-		    function(diagnostic) {
+        diagnostics.forEach(
+            function(diagnostic) {
 
-		        const item =
-		            document.createElement(
-		                "li"
-		            );
-
-
-		        item.className =
-		            "wiki-editor-diagnostic-item";
+                const item =
+                    document.createElement(
+                        "li"
+                    );
 
 
-		        /*
-		         * ===========================
-		         * NÚT TÌM VỊ TRÍ
-		         * ===========================
-		         */
-
-		        const locateButton =
-		            document.createElement(
-		                "button"
-		            );
+                item.className =
+                    "wiki-editor-diagnostic-item";
 
 
-		        locateButton.type =
-		            "button";
+                /*
+                 * ===========================
+                 * NÚT TÌM VỊ TRÍ
+                 * ===========================
+                 */
+
+                const locateButton =
+                    document.createElement(
+                        "button"
+                    );
 
 
-		        locateButton.className =
-		            "wiki-editor-diagnostic-link";
+                locateButton.type =
+                    "button";
 
 
-		        locateButton.textContent =
-		            diagnostic.message;
+                locateButton.className =
+                    "wiki-editor-diagnostic-link";
 
 
-		        locateButton.addEventListener(
-		            "click",
-		            function() {
-
-		                editor.focus();
+                locateButton.textContent =
+                    diagnostic.message;
 
 
-		                editor.setSelectionRange(
-		                    diagnostic.start,
-		                    diagnostic.end
-		                );
+                locateButton.addEventListener(
+                    "click",
+                    function() {
+
+                        editor.focus();
 
 
-		                requestAnimationFrame(
-		                    function() {
-
-		                        editor.focus();
-
-
-		                        editor.setSelectionRange(
-		                            diagnostic.start,
-		                            diagnostic.end
-		                        );
-		                    }
-		                );
-		            }
-		        );
+                        editor.setSelectionRange(
+                            diagnostic.start,
+                            diagnostic.end
+                        );
 
 
-		        item.appendChild(
-		            locateButton
-		        );
+                        requestAnimationFrame(
+                            function() {
+
+                                editor.focus();
 
 
-		        /*
-		         * ===========================
-		         * NÚT SỬA TỰ ĐỘNG
-		         * ===========================
-		         */
-
-		        if (
-		            canAutoFixWikiDiagnostic(
-		                diagnostic
-		            )
-		        ) {
-
-		            const fixButton =
-		                document.createElement(
-		                    "button"
-		                );
+                                editor.setSelectionRange(
+                                    diagnostic.start,
+                                    diagnostic.end
+                                );
+                            }
+                        );
+                    }
+                );
 
 
-		            fixButton.type =
-		                "button";
+                item.appendChild(
+                    locateButton
+                );
 
 
-		            fixButton.className =
-		                "wiki-editor-diagnostic-fix";
+                /*
+                 * ===========================
+                 * NÚT SỬA TỰ ĐỘNG
+                 * ===========================
+                 */
+
+                if (
+                    canAutoFixWikiDiagnostic(
+                        diagnostic
+                    )
+                ) {
+
+                    const fixButton =
+                        document.createElement(
+                            "button"
+                        );
 
 
-		            fixButton.textContent =
-		                "Sửa tự động";
+                    fixButton.type =
+                        "button";
 
 
-		            fixButton.addEventListener(
-		                "click",
-		                function() {
-
-		                    /*
-		                     * Lưu trạng thái trước khi sửa
-		                     * để Undo được.
-		                     */
-		                    history?.flush();
+                    fixButton.className =
+                        "wiki-editor-diagnostic-fix";
 
 
-		                    const fixed =
-		                        fixWikiDiagnostic(
-		                            editor,
-		                            diagnostic
-		                        );
+                    fixButton.textContent =
+                        "Sửa tự động";
 
 
-		                    if (
-		                        fixed
-		                    ) {
+                    fixButton.addEventListener(
+                        "click",
+                        function() {
 
-		                        history?.record();
-		                    }
-		                }
-		            );
-
-
-		            item.appendChild(
-		                fixButton
-		            );
-		        }
+                            /*
+                             * Lưu trạng thái trước khi sửa
+                             * để Undo được.
+                             */
+                            history?.flush();
 
 
-		        list.appendChild(
-		            item
-		        );
-		    }
-		);
+                            const fixed =
+                                fixWikiDiagnostic(
+                                    editor,
+                                    diagnostic
+                                );
+
+
+                            if (
+                                fixed
+                            ) {
+
+                                history?.record();
+                            }
+                        }
+                    );
+
+
+                    item.appendChild(
+                        fixButton
+                    );
+                }
+
+
+                list.appendChild(
+                    item
+                );
+            }
+        );
 
 
         container.hidden =
@@ -2985,7 +4425,7 @@ function fixWikiDiagnostic(
     diagnostic
 ) {
     switch (
-        diagnostic.code
+    diagnostic.code
     ) {
 
         case "CLEAR_WRAP_SPACING":
@@ -3159,9 +4599,9 @@ function fixWikiImageBlockSpacing(
     if (
         diagnostic.start < 0
         || diagnostic.end
-            > value.length
+        > value.length
         || diagnostic.start
-            >= diagnostic.end
+        >= diagnostic.end
     ) {
         return false;
     }
@@ -3224,9 +4664,9 @@ function fixSplitWikiImageSyntax(
     if (
         diagnostic.start < 0
         || diagnostic.end
-            > value.length
+        > value.length
         || diagnostic.start
-            >= diagnostic.end
+        >= diagnostic.end
     ) {
         return false;
     }
@@ -3385,24 +4825,24 @@ function validateClearWrapMarkers(
             }
 
 
-			diagnostics.push({
-			    code:
-			        "CLEAR_WRAP_SPACING",
+            diagnostics.push({
+                code:
+                    "CLEAR_WRAP_SPACING",
 
-			    message:
-			        "Ngắt bọc ảnh #"
-			        + occurrence
-			        + ": "
-			        + detail
-			        + " Nhấn để tìm vị trí.",
+                message:
+                    "Ngắt bọc ảnh #"
+                    + occurrence
+                    + ": "
+                    + detail
+                    + " Nhấn để tìm vị trí.",
 
-			    start:
-			        markerIndex,
+                start:
+                    markerIndex,
 
-			    end:
-			        markerIndex
-			        + marker.length
-			});
+                end:
+                    markerIndex
+                    + marker.length
+            });
         }
 
 
@@ -3530,8 +4970,8 @@ function validateMalformedWikiImages(
             ) {
 
                 diagnostics.push({
-					code:
-					    "IMAGE_SPLIT_SYNTAX",
+                    code:
+                        "IMAGE_SPLIT_SYNTAX",
                     message:
                         "Ảnh Wiki #"
                         + occurrence
@@ -3672,8 +5112,8 @@ function validateMalformedWikiImages(
 
 
                 diagnostics.push({
-					code:
-					        "IMAGE_BLOCK_SPACING",
+                    code:
+                        "IMAGE_BLOCK_SPACING",
                     message:
                         "Ảnh Wiki #"
                         + occurrence
@@ -3797,9 +5237,9 @@ function validateWikiImageMetadata(
                 && sizeMatch[1] === "full"
                 && (
                     layoutMatch[1]
-                        === "wrap-left"
+                    === "wrap-left"
                     || layoutMatch[1]
-                        === "wrap-right"
+                    === "wrap-right"
                 )
             ) {
 

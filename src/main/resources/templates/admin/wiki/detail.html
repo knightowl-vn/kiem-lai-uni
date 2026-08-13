@@ -1,113 +1,156 @@
 <section class="dashboard-content">
 
-    <div class="wiki-admin-create-heading">
+	<!-- ===================================================== -->
+	<!-- WIKI AUTO-SAVE SERVER SUCCESS SIGNAL                 -->
+	<!-- ===================================================== -->
 
-        <div>
+	<div id="wikiAutosaveCleanupSignal"
+		th:if="${wikiAutosaveCleanupKey != null}"
+		th:data-storage-key="${wikiAutosaveCleanupKey}" hidden></div>
 
-            <a
-                th:href="@{/admin/wiki/articles}"
-                class="wiki-admin-back-link">
-                ← Quay lại danh sách
-            </a>
+	<div class="wiki-admin-create-heading">
 
-            <span class="wiki-admin-eyebrow">
-                WIKI MODULE
-            </span>
+		<div>
 
-            <h2 th:text="${article.title}">
-                Trần Bình An
-            </h2>
+			<a th:href="@{/admin/wiki/articles}" class="wiki-admin-back-link">
+				← Quay lại danh sách </a> <span class="wiki-admin-eyebrow"> WIKI
+				MODULE </span>
 
-            <p>
-                Chi tiết bài viết trong hệ thống quản trị.
-            </p>
+			<h2 th:text="${article.title}">Trần Bình An</h2>
 
-        </div>
+			<p>Chi tiết bài viết trong hệ thống quản trị.</p>
+
+		</div>
 
 
-        <div class="wiki-admin-form-actions">
+		<div class="wiki-admin-form-actions">
 
-            <a
-                th:if="${article.status == 'DRAFT'
+			<a
+				th:if="${article.status == 'DRAFT'
                         or article.status == 'PUBLISHED'}"
-                th:href="@{/admin/wiki/articles/{id}/edit(
+				th:href="@{/admin/wiki/articles/{id}/edit(
                     id=${article.id}
                 )}"
-                class="wiki-admin-primary-button">
+				class="wiki-admin-primary-button"> Chỉnh sửa </a>
 
-                Chỉnh sửa
+		</div>
 
-            </a>
-
-        </div>
-
-    </div>
+	</div>
 
 
-    <section class="wiki-admin-form-panel">
+	<section class="wiki-admin-form-panel">
 
-        <div class="wiki-admin-detail-grid">
+		<div class="wiki-admin-detail-grid">
 
-            <div>
-                <strong>Trạng thái</strong>
-                <p th:text="${article.status}">
-                    DRAFT
-                </p>
-            </div>
+			<div>
+				<strong>Trạng thái</strong>
+				<p th:text="${article.status}">DRAFT</p>
+			</div>
 
-            <div>
-                <strong>Loại bài</strong>
-                <p th:text="${article.articleType}">
-                    CHARACTER
-                </p>
-            </div>
+			<div>
+				<strong>Loại bài</strong>
+				<p th:text="${article.articleType}">CHARACTER</p>
+			</div>
 
-            <div>
-                <strong>Slug</strong>
-                <p th:text="${article.slug}">
-                    tran-binh-an
-                </p>
-            </div>
+			<div>
+				<strong>Slug</strong>
+				<p th:text="${article.slug}">tran-binh-an</p>
+			</div>
 
-            <div>
-                <strong>Cập nhật</strong>
+			<div>
+				<strong>Cập nhật</strong>
 
-                <p
-                    th:text="${#temporals.format(
+				<p
+					th:text="${#temporals.format(
                         article.updatedAt,
                         'dd/MM/yyyy HH:mm'
                     )}">
-                </p>
+				</p>
 
-            </div>
+			</div>
 
-        </div>
+		</div>
 
 
-        <div class="wiki-admin-form-group">
+		<div class="wiki-admin-form-group">
 
-            <label>Tóm tắt</label>
+			<label>Tóm tắt</label>
 
-            <p
-                th:text="${#strings.isEmpty(article.summary)
+			<p
+				th:text="${#strings.isEmpty(article.summary)
                     ? 'Chưa có tóm tắt.'
                     : article.summary}">
-            </p>
+			</p>
 
-        </div>
+		</div>
 
 
-        <div class="wiki-admin-form-group">
+		<div class="wiki-admin-form-group">
 
-            <label>Nội dung Markdown</label>
+			<label>Nội dung Markdown</label>
 
-            <pre
-                class="wiki-admin-detail-content"
-                th:text="${article.content}">
+			<pre class="wiki-admin-detail-content" th:text="${article.content}">
             </pre>
 
-        </div>
+		</div>
 
-    </section>
+	</section>
+
+	<script>
+document.addEventListener(
+    "DOMContentLoaded",
+    function() {
+
+        const signal =
+            document.getElementById(
+                "wikiAutosaveCleanupSignal"
+            );
+
+
+        if (!signal) {
+            return;
+        }
+
+
+        const storageKey =
+            signal.dataset
+                .storageKey
+                ?.trim();
+
+
+        if (
+            !storageKey
+            || !storageKey.startsWith(
+                "kiemlai:wiki:autosave:"
+            )
+        ) {
+
+            return;
+        }
+
+
+        try {
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+
+            console.info(
+                "Đã cleanup Wiki Auto-save:",
+                storageKey
+            );
+
+        }
+        catch (error) {
+
+            console.warn(
+                "Không thể cleanup Wiki Auto-save:",
+                error
+            );
+        }
+    }
+);
+</script>
 
 </section>

@@ -54,14 +54,23 @@
 
 				<section class="wiki-admin-form-panel">
 
-					<form method="post" th:action="@{/admin/wiki/articles}"
-						th:object="${form}" class="wiki-admin-create-form">
+					<form id="wikiArticleForm" method="post"
+						th:action="@{/admin/wiki/articles}" th:object="${form}"
+						class="wiki-admin-create-form" data-wiki-autosave-mode="create">
 
 						<div id="wikiCsrf" th:data-token="${_csrf.token}"
 							th:data-header="${_csrf.headerName}" hidden></div>
 
 						<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
 							th:text="${errorMessage}">Có lỗi xảy ra.</div>
+						<div class="wiki-admin-create-note">
+
+							<strong> Tự động lưu cục bộ </strong>
+
+							<p id="wikiAutosaveStatus" aria-live="polite">Chưa có thay
+								đổi cần tự lưu.</p>
+
+						</div>
 
 						<div class="wiki-admin-form-group">
 
@@ -376,6 +385,8 @@
 								để hiển thị trên Wiki công khai.</p>
 
 						</div>
+
+
 						<div class="wiki-admin-form-actions">
 
 							<a th:href="@{/admin/wiki/articles}"
@@ -392,6 +403,81 @@
 
 
 					</form>
+					
+					<!-- ===================================================== -->
+<!-- WIKI AUTO-SAVE RECOVERY MODAL                         -->
+<!-- ===================================================== -->
+
+<div
+	id="wikiAutosaveRecovery"
+	class="wiki-autosave-recovery-modal"
+	hidden>
+
+	<div class="wiki-autosave-recovery-backdrop"></div>
+
+
+	<section
+		class="wiki-autosave-recovery-dialog"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="wikiAutosaveRecoveryTitle"
+		aria-describedby="wikiAutosaveRecoveryMessage">
+
+		<div class="wiki-autosave-recovery-icon">
+			↻
+		</div>
+
+
+		<div class="wiki-autosave-recovery-content">
+
+			<span class="wiki-admin-eyebrow">
+				WIKI AUTO-SAVE
+			</span>
+
+
+			<h3 id="wikiAutosaveRecoveryTitle">
+				Phát hiện bản chỉnh sửa chưa lưu
+			</h3>
+
+
+			<p id="wikiAutosaveRecoveryMessage">
+				Phát hiện bản chỉnh sửa cục bộ chưa được lưu lên hệ thống.
+			</p>
+
+
+			<p class="wiki-autosave-recovery-help">
+				Hãy chọn cách xử lý bản tự lưu trước khi tiếp tục chỉnh sửa.
+			</p>
+
+		</div>
+
+
+		<div class="wiki-autosave-recovery-actions">
+
+			<button
+				id="wikiAutosaveDiscard"
+				type="button"
+				class="wiki-admin-secondary-button">
+
+				Bỏ bản tự lưu
+
+			</button>
+
+
+			<button
+				id="wikiAutosaveRestore"
+				type="button"
+				class="wiki-admin-primary-button">
+
+				Khôi phục bản tự lưu
+
+			</button>
+
+		</div>
+
+	</section>
+
+</div>
 
 					<!-- ===================================================== -->
 					<!-- WIKI IMAGE EDITOR MODAL                               -->

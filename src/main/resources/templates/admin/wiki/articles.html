@@ -47,6 +47,14 @@
 				<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
 					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
 
+				<!-- ===================================================== -->
+				<!-- WIKI AUTO-SAVE SERVER SUCCESS SIGNAL                 -->
+				<!-- ===================================================== -->
+
+				<div id="wikiAutosaveCleanupSignal"
+					th:if="${wikiAutosaveCleanupKey != null}"
+					th:data-storage-key="${wikiAutosaveCleanupKey}" hidden></div>
+
 				<!-- Tiêu đề khu vực -->
 				<div class="wiki-admin-heading">
 
@@ -504,6 +512,8 @@
 				.addEventListener(
 						"DOMContentLoaded",
 						function() {
+							
+							cleanupWikiAutosaveAfterServerSave();
 
 							document
 									.querySelectorAll(".js-delete-wiki-article")
@@ -579,49 +589,117 @@
 									.forEach(
 											function(form) {
 
-												form.addEventListener(
-													    "submit",
-													    function(event) {
+												form
+														.addEventListener(
+																"submit",
+																function(event) {
 
-													        /*
-													         * Nếu một confirmation handler trước đó
-													         * đã cancel submit thì không disable button.
-													         */
-													        if (event.defaultPrevented) {
-													            return;
-													        }
+																	/*
+																	 * Nếu một confirmation handler trước đó
+																	 * đã cancel submit thì không disable button.
+																	 */
+																	if (event.defaultPrevented) {
+																		return;
+																	}
 
-													        const submitButton =
-													            form.querySelector(
-													                'button[type="submit"]'
-													            );
+																	const submitButton = form
+																			.querySelector('button[type="submit"]');
 
-													        if (!submitButton) {
-													            return;
-													        }
+																	if (!submitButton) {
+																		return;
+																	}
 
-													        submitButton.disabled = true;
+																	submitButton.disabled = true;
 
-													        submitButton.setAttribute(
-													            "aria-disabled",
-													            "true"
-													        );
+																	submitButton
+																			.setAttribute(
+																					"aria-disabled",
+																					"true");
 
-													        const label =
-													            submitButton.querySelector(
-													                "span:last-child"
-													            );
+																	const label = submitButton
+																			.querySelector("span:last-child");
 
-													        if (label) {
-													            label.textContent =
-													                "Đang xử lý...";
-													        }
-													    }
-													);
+																	if (label) {
+																		label.textContent = "Đang xử lý...";
+																	}
+																});
 
 											});
 
 						});
+		
+		function cleanupWikiAutosaveAfterServerSave() {
+
+		    const signal =
+		        document.getElementById(
+		            "wikiAutosaveCleanupSignal"
+		        );
+
+
+		    /*
+		     * Không có signal
+		     * = trang này không phải redirect
+		     * từ một lần Save editor thành công.
+		     */
+		    if (!signal) {
+		        return;
+		    }
+
+
+		    const storageKey =
+		        signal.dataset
+		            .storageKey
+		            ?.trim();
+
+
+		    if (!storageKey) {
+		        return;
+		    }
+
+
+		    /*
+		     * Chỉ cho phép xóa namespace Wiki Auto-save.
+		     */
+		    if (
+		        !storageKey.startsWith(
+		            "kiemlai:wiki:autosave:"
+		        )
+		    ) {
+
+		        console.warn(
+		            "Từ chối cleanup localStorage key không hợp lệ:",
+		            storageKey
+		        );
+
+		        return;
+		    }
+
+
+		    try {
+
+		        localStorage.removeItem(
+		            storageKey
+		        );
+
+
+		        console.info(
+		            "Đã cleanup Wiki Auto-save:",
+		            storageKey
+		        );
+
+		    }
+		    catch (error) {
+
+		        /*
+		         * Cleanup localStorage thất bại
+		         * không được làm hỏng trang danh sách.
+		         */
+		        console.warn(
+		            "Không thể cleanup Wiki Auto-save:",
+		            error
+		        );
+		    }
+		}
 	</script>
 
 

@@ -2290,3 +2290,133 @@ blockquote p {
     background: #fff4c9;
 }
 
+/* =========================================================
+   WIKI AUTO-SAVE RECOVERY MODAL
+   ========================================================= */
+
+.wiki-autosave-recovery-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 3000;
+
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	padding: 24px;
+}
+
+
+.wiki-autosave-recovery-modal[hidden] {
+	display: none !important;
+}
+
+
+.wiki-autosave-recovery-backdrop {
+	position: absolute;
+	inset: 0;
+
+	background:
+		rgba(15, 23, 42, 0.55);
+}
+
+
+.wiki-autosave-recovery-dialog {
+	position: relative;
+
+	width: min(
+		520px,
+		100%
+	);
+
+	background: #ffffff;
+
+	border-radius: 18px;
+
+	padding: 28px;
+
+	box-shadow:
+		0 24px 70px
+		rgba(15, 23, 42, 0.25);
+
+	z-index: 1;
+}
+
+
+.wiki-autosave-recovery-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	width: 48px;
+	height: 48px;
+
+	margin-bottom: 18px;
+
+	border-radius: 50%;
+
+	background: #ede9fe;
+	color: #5b4bb7;
+
+	font-size: 24px;
+	font-weight: 700;
+}
+
+
+.wiki-autosave-recovery-content h3 {
+	margin:
+		6px
+		0
+		12px;
+}
+
+
+.wiki-autosave-recovery-content p {
+	margin:
+		0
+		0
+		10px;
+
+	line-height: 1.6;
+}
+
+
+.wiki-autosave-recovery-help {
+	color: #64748b;
+	font-size: 14px;
+}
+
+
+.wiki-autosave-recovery-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 12px;
+
+	margin-top: 24px;
+}
+
+
+body.wiki-autosave-recovery-open {
+	overflow: hidden;
+}
+
+
+@media (
+	max-width: 640px
+) {
+
+	.wiki-autosave-recovery-dialog {
+		padding: 22px;
+	}
+
+
+	.wiki-autosave-recovery-actions {
+		flex-direction: column-reverse;
+	}
+
+
+	.wiki-autosave-recovery-actions button {
+		width: 100%;
+	}
+}
+
