@@ -14,6 +14,7 @@ import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.entry.admin.form.CreateWikiArticleAction;
 import com.universe.wiki.entry.admin.form.CreateWikiArticleForm;
 import com.universe.wiki.entry.admin.form.EditWikiArticleForm;
+import com.universe.wiki.entry.admin.form.EditWikiArticleAction;
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleCommand;
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleUseCase;
 
@@ -30,6 +31,8 @@ import com.universe.wiki.application.article.unpublish.UnpublishWikiArticleComma
 import com.universe.wiki.application.article.unpublish.UnpublishWikiArticleUseCase;
 import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleCommand;
 import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleUseCase;
+import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleCommand;
+import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleUseCase;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleCommand;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleUseCase;
 
@@ -96,6 +99,9 @@ class AdminWikiArticleCommandControllerTest {
 	private UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase;
 
 	@Mock
+	private UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase;
+
+	@Mock
 	private UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase;
 
 	@Mock
@@ -114,6 +120,7 @@ class AdminWikiArticleCommandControllerTest {
 		        createAndPublishWikiArticleUseCase,
 
 		        updateDraftWikiArticleUseCase,
+		        updateDraftAndPublishWikiArticleUseCase,
 		        updatePublishedWikiArticleUseCase,
 
 		        getWikiArticleDetailUseCase,
@@ -358,6 +365,7 @@ class AdminWikiArticleCommandControllerTest {
 	            controller.updateArticle(
 	                    ARTICLE_ID,
 	                    form,
+	                    EditWikiArticleAction.SAVE_CHANGES,
 	                    authentication,
 	                    redirectAttributes
 	            );
@@ -391,6 +399,281 @@ class AdminWikiArticleCommandControllerTest {
 	                    "Cập nhật bản nháp",
 	                    ADMIN_ID
 	            )
+	    );
+
+
+	    verify(
+	            updateDraftAndPublishWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftAndPublishWikiArticleCommand.class)
+	    );
+
+
+	    verify(
+	            updatePublishedWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdatePublishedWikiArticleCommand.class)
+	    );
+	}
+
+
+
+	/*
+	 * =====================================================
+	 * UPDATE DRAFT + PUBLISH
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName(
+	        "Lưu thay đổi và xuất bản bài Wiki DRAFT trong cùng một hành động"
+	)
+	void shouldUpdateDraftAndPublishWikiArticle() {
+
+	    EditWikiArticleForm form =
+	            new EditWikiArticleForm();
+
+	    form.setTitle(
+	            "  Trần Bình An hoàn thiện  "
+	    );
+
+	    form.setArticleType(
+	            ArticleType.CHARACTER
+	    );
+
+	    form.setSummary(
+	            "  Tóm tắt hoàn thiện  "
+	    );
+
+	    form.setContent(
+	            "  Nội dung hoàn thiện để xuất bản  "
+	    );
+
+	    form.setEditSummary(
+	            "  Hoàn thiện và xuất bản  "
+	    );
+
+
+	    when(
+	            authentication.getName()
+	    ).thenReturn(
+	            ADMIN_EMAIL
+	    );
+
+
+	    when(
+	            userIdentityContract.findByEmail(
+	                    ADMIN_EMAIL
+	            )
+	    ).thenReturn(
+	            Optional.of(
+	                    createAdminDTO()
+	            )
+	    );
+
+
+	    when(
+	            getWikiArticleDetailUseCase.execute(
+	                    new GetWikiArticleDetailQuery(
+	                            ARTICLE_ID
+	                    )
+	            )
+	    ).thenReturn(
+	            createDraftArticleDTO()
+	    );
+
+
+	    WikiArticleDTO publishedArticle =
+	            new WikiArticleDTO(
+	                    ARTICLE_ID,
+	                    "Trần Bình An hoàn thiện",
+	                    "tran-binh-an-hoan-thien",
+	                    "CHARACTER",
+	                    "Tóm tắt hoàn thiện",
+	                    "Nội dung hoàn thiện để xuất bản",
+	                    "PUBLISHED",
+	                    ADMIN_ID,
+	                    ADMIN_ID,
+	                    ADMIN_ID,
+	                    null,
+	                    NOW,
+	                    NOW,
+	                    NOW,
+	                    null,
+	                    2L,
+	                    2L
+	            );
+
+
+	    when(
+	            updateDraftAndPublishWikiArticleUseCase.execute(
+	                    new UpdateDraftAndPublishWikiArticleCommand(
+	                            ARTICLE_ID,
+	                            "Trần Bình An hoàn thiện",
+	                            ArticleType.CHARACTER,
+	                            "Tóm tắt hoàn thiện",
+	                            "Nội dung hoàn thiện để xuất bản",
+	                            "Hoàn thiện và xuất bản",
+	                            ADMIN_ID
+	                    )
+	            )
+	    ).thenReturn(
+	            publishedArticle
+	    );
+
+
+	    RedirectAttributesModelMap redirectAttributes =
+	            new RedirectAttributesModelMap();
+
+
+	    String result =
+	            controller.updateArticle(
+	                    ARTICLE_ID,
+	                    form,
+	                    EditWikiArticleAction.SAVE_AND_PUBLISH,
+	                    authentication,
+	                    redirectAttributes
+	            );
+
+
+	    assertThat(result)
+	            .isEqualTo(
+	                    "redirect:/admin/wiki/articles/"
+	                            + ARTICLE_ID
+	            );
+
+
+	    assertThat(
+	            redirectAttributes
+	                    .getFlashAttributes()
+	                    .get("successMessage")
+	    ).isEqualTo(
+	            "Đã lưu thay đổi và xuất bản bài Wiki "
+	                    + "\"Trần Bình An hoàn thiện\"."
+	    );
+
+
+	    assertThat(
+	            redirectAttributes
+	                    .getFlashAttributes()
+	                    .get("wikiAutosaveCleanupKey")
+	    ).isEqualTo(
+	            "kiemlai:wiki:autosave:edit:"
+	                    + ARTICLE_ID
+	    );
+
+
+	    verify(
+	            updateDraftAndPublishWikiArticleUseCase
+	    ).execute(
+	            new UpdateDraftAndPublishWikiArticleCommand(
+	                    ARTICLE_ID,
+	                    "Trần Bình An hoàn thiện",
+	                    ArticleType.CHARACTER,
+	                    "Tóm tắt hoàn thiện",
+	                    "Nội dung hoàn thiện để xuất bản",
+	                    "Hoàn thiện và xuất bản",
+	                    ADMIN_ID
+	            )
+	    );
+
+
+	    verify(
+	            updateDraftWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftWikiArticleCommand.class)
+	    );
+
+
+	    verify(
+	            updatePublishedWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdatePublishedWikiArticleCommand.class)
+	    );
+	}
+
+
+	@Test
+	@DisplayName(
+	        "Không cho SAVE_AND_PUBLISH khi bài Wiki đã PUBLISHED"
+	)
+	void shouldRejectSaveAndPublishForPublishedArticle() {
+
+	    EditWikiArticleForm form =
+	            new EditWikiArticleForm();
+
+	    form.setSummary(
+	            "Tóm tắt"
+	    );
+
+	    form.setContent(
+	            "Nội dung"
+	    );
+
+
+	    when(
+	            authentication.getName()
+	    ).thenReturn(
+	            ADMIN_EMAIL
+	    );
+
+
+	    when(
+	            userIdentityContract.findByEmail(
+	                    ADMIN_EMAIL
+	            )
+	    ).thenReturn(
+	            Optional.of(
+	                    createAdminDTO()
+	            )
+	    );
+
+
+	    when(
+	            getWikiArticleDetailUseCase.execute(
+	                    new GetWikiArticleDetailQuery(
+	                            ARTICLE_ID
+	                    )
+	            )
+	    ).thenReturn(
+	            createPublishedArticleDTO()
+	    );
+
+
+	    assertThatThrownBy(() ->
+	            controller.updateArticle(
+	                    ARTICLE_ID,
+	                    form,
+	                    EditWikiArticleAction.SAVE_AND_PUBLISH,
+	                    authentication,
+	                    new RedirectAttributesModelMap()
+	            )
+	    )
+	            .isInstanceOf(
+	                    IllegalStateException.class
+	            )
+	            .hasMessage(
+	                    "Bài Wiki đã được xuất bản."
+	            );
+
+
+	    verify(
+	            updateDraftAndPublishWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftAndPublishWikiArticleCommand.class)
+	    );
+
+
+	    verify(
+	            updateDraftWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftWikiArticleCommand.class)
 	    );
 
 
@@ -519,6 +802,7 @@ class AdminWikiArticleCommandControllerTest {
 	            controller.updateArticle(
 	                    ARTICLE_ID,
 	                    form,
+	                    EditWikiArticleAction.SAVE_CHANGES,
 	                    authentication,
 	                    redirectAttributes
 	            );
@@ -541,6 +825,14 @@ class AdminWikiArticleCommandControllerTest {
 	                    "Bổ sung nội dung",
 	                    ADMIN_ID
 	            )
+	    );
+
+
+	    verify(
+	            updateDraftAndPublishWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftAndPublishWikiArticleCommand.class)
 	    );
 
 
@@ -610,6 +902,7 @@ class AdminWikiArticleCommandControllerTest {
 	            controller.updateArticle(
 	                    ARTICLE_ID,
 	                    form,
+	                    EditWikiArticleAction.SAVE_CHANGES,
 	                    authentication,
 	                    new RedirectAttributesModelMap()
 	            )
@@ -620,6 +913,14 @@ class AdminWikiArticleCommandControllerTest {
 	            .hasMessage(
 	                    "Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp."
 	            );
+
+
+	    verify(
+	            updateDraftAndPublishWikiArticleUseCase,
+	            never()
+	    ).execute(
+	            any(UpdateDraftAndPublishWikiArticleCommand.class)
+	    );
 
 
 	    verify(

@@ -18,6 +18,10 @@ public enum RevisionChangeType {
      */
     UPDATE_DRAFT,
     /**
+     * Cập nhật bản nháp và xuất bản trong cùng một hành động.
+     */
+    UPDATE_AND_PUBLISH,
+    /**
      * Tạo và xuất bản trong cùng một hành động. 
      */
     

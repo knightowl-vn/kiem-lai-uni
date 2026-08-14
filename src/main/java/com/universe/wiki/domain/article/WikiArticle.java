@@ -293,6 +293,174 @@ public class WikiArticle {
 
 		return true;
 	}
+	/*
+	 * =====================================================
+	 * UPDATE DRAFT + PUBLISH
+	 * =====================================================
+	 */
+
+	/**
+	 * Cập nhật bản nháp và xuất bản trong cùng một
+	 * hành động nghiệp vụ.
+	 *
+	 * Trả về:
+	 * - true  : nội dung biên tập thực sự thay đổi;
+	 * - false : dữ liệu biên tập giữ nguyên, chỉ publish.
+	 *
+	 * aggregateVersion:
+	 * - luôn tăng đúng 1 vì đây là một business action.
+	 *
+	 * contentVersion:
+	 * - chỉ tăng khi nội dung biên tập thực sự thay đổi.
+	 */
+	public boolean updateDraftAndPublish(
+	        String title,
+	        Slug slug,
+	        ArticleType articleType,
+	        String summary,
+	        String content,
+	        UUID actorId,
+	        Instant now
+	) {
+	    requireStatus(
+	            ArticleStatus.DRAFT,
+	            "Chỉ bài viết ở trạng thái DRAFT "
+	                    + "mới được cập nhật và xuất bản."
+	    );
+
+	    /*
+	     * Validate toàn bộ trước khi mutate.
+	     */
+	    String normalizedTitle =
+	            validateTitle(
+	                    title
+	            );
+
+	    Slug normalizedSlug =
+	            Objects.requireNonNull(
+	                    slug,
+	                    "Slug không được để trống."
+	            );
+
+	    ArticleType normalizedArticleType =
+	            Objects.requireNonNull(
+	                    articleType,
+	                    "Article type không được để trống."
+	            );
+
+	    String normalizedSummary =
+	            validateSummary(
+	                    summary
+	            );
+
+	    String normalizedContent =
+	            validateContent(
+	                    content
+	            );
+
+	    UUID normalizedActorId =
+	            Objects.requireNonNull(
+	                    actorId,
+	                    "Người cập nhật và xuất bản "
+	                            + "không được để trống."
+	            );
+
+	    Instant normalizedNow =
+	            Objects.requireNonNull(
+	                    now,
+	                    "Thời gian cập nhật và xuất bản "
+	                            + "không được để trống."
+	            );
+
+
+	    /*
+	     * Publish bắt buộc phải có content.
+	     *
+	     * Kiểm tra TRƯỚC khi mutate aggregate.
+	     */
+	    if (
+	            normalizedContent.isBlank()
+	    ) {
+	        throw new IllegalStateException(
+	                "Bài viết phải có nội dung trước khi xuất bản."
+	        );
+	    }
+
+
+	    boolean contentChanged =
+	            hasEditorialContentChanged(
+	                    normalizedTitle,
+	                    normalizedSlug,
+	                    normalizedArticleType,
+	                    normalizedSummary,
+	                    normalizedContent
+	            );
+
+
+	    /*
+	     * Apply editorial state.
+	     */
+	    this.title =
+	            normalizedTitle;
+
+	    this.slug =
+	            normalizedSlug;
+
+	    this.articleType =
+	            normalizedArticleType;
+
+	    this.summary =
+	            normalizedSummary;
+
+	    this.content =
+	            normalizedContent;
+
+
+	    /*
+	     * Apply lifecycle state.
+	     */
+	    this.status =
+	            ArticleStatus.PUBLISHED;
+
+	    this.publishedBy =
+	            normalizedActorId;
+
+	    this.publishedAt =
+	            normalizedNow;
+
+	    this.archivedBy =
+	            null;
+
+	    this.archivedAt =
+	            null;
+
+	    this.updatedBy =
+	            normalizedActorId;
+
+	    this.updatedAt =
+	            normalizedNow;
+
+
+	    /*
+	     * Chỉ nội dung thực sự đổi
+	     * mới tạo content version mới.
+	     */
+	    if (
+	            contentChanged
+	    ) {
+	        increaseContentVersion();
+	    }
+
+
+	    /*
+	     * Một click "Lưu & xuất bản"
+	     * = một mutation nghiệp vụ.
+	     */
+	    increaseVersion();
+
+
+	    return contentChanged;
+	}
 
 	/*
 	 * ===================================================== UPDATE PUBLISHED

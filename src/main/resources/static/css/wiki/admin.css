@@ -3744,3 +3744,212 @@ body.wiki-autosave-recovery-open {
         order: 3;
     }
 }
+
+/* =========================================================
+   EDIT — CURRENT STATUS
+   ========================================================= */
+
+.wiki-admin-edit-status-panel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 16px;
+
+    padding:
+        14px
+        16px;
+
+    border: 1px solid var(--border);
+    border-radius: 12px;
+
+    background: #fafafd;
+}
+
+
+.wiki-admin-edit-status-main {
+    flex: 0 0 auto;
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+}
+
+
+.wiki-admin-edit-status-label {
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    font-weight: 700;
+}
+
+
+.wiki-admin-edit-status-panel p {
+    margin: 0;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.55;
+
+    text-align: right;
+}
+
+
+@media (max-width: 650px) {
+
+    .wiki-admin-edit-status-panel {
+        align-items: flex-start;
+        flex-direction: column;
+
+        gap: 9px;
+    }
+
+
+    .wiki-admin-edit-status-panel p {
+        text-align: left;
+    }
+}
+
+/* =========================================================
+   EDIT — ACTION ORDER
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-edit-actions
+    button[value="SAVE_AND_PUBLISH"] {
+        order: 1;
+    }
+
+
+    .wiki-admin-edit-actions
+    button[value="SAVE_CHANGES"] {
+        order: 2;
+    }
+
+
+    .wiki-admin-edit-actions
+    a.wiki-admin-secondary-button {
+        order: 3;
+    }
+}
+
+/* =========================================================
+   EDIT — READONLY METADATA
+   ========================================================= */
+
+.wiki-admin-readonly-field {
+    background: #f7f7fa !important;
+    color: var(--text-secondary) !important;
+
+    cursor: not-allowed;
+}
+
+
+.wiki-admin-readonly-field:hover {
+    border-color: var(--border) !important;
+}
+
+
+.wiki-admin-readonly-field:focus {
+    border-color: var(--border) !important;
+
+    box-shadow: none !important;
+}
+
+/* =========================================================
+   EDIT — VERSION NOTE
+   ========================================================= */
+
+.wiki-admin-version-note {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+
+    gap: 24px;
+
+    padding: 15px 17px;
+
+    border: 1px solid var(--border);
+    border-radius: 12px;
+
+    background: #fafafd;
+}
+
+
+.wiki-admin-version-note-heading {
+    flex: 0 0 auto;
+
+    display: grid;
+    gap: 4px;
+}
+
+
+.wiki-admin-version-note-label {
+    color: var(--primary);
+
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+}
+
+
+.wiki-admin-version-note-heading strong {
+    color: var(--text-primary);
+
+    font-size: 11px;
+}
+
+
+.wiki-admin-version-note-content {
+    max-width: 720px;
+
+    display: grid;
+    gap: 4px;
+}
+
+
+.wiki-admin-version-note-content p {
+    margin: 0;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.55;
+
+    text-align: right;
+}
+
+
+.wiki-admin-version-note-content strong {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-version-note {
+        flex-direction: column;
+
+        gap: 10px;
+
+        padding: 14px 15px;
+    }
+
+
+    .wiki-admin-version-note-content {
+        gap: 5px;
+    }
+
+
+    .wiki-admin-version-note-content p {
+        text-align: left;
+    }
+}

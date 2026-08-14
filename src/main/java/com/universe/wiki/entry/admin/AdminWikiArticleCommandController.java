@@ -26,7 +26,9 @@ import com.universe.wiki.application.article.unpublish.UnpublishWikiArticleUseCa
 
 import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleCommand;
 import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleUseCase;
+import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleCommand;
 
+import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleUseCase;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleCommand;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleUseCase;
 import com.universe.wiki.application.exceptions.WikiArticleRevisionAlreadyCurrentException;
@@ -36,6 +38,7 @@ import com.universe.wiki.domain.article.ArticleStatus;
 
 import com.universe.wiki.entry.admin.form.CreateWikiArticleAction;
 import com.universe.wiki.entry.admin.form.CreateWikiArticleForm;
+import com.universe.wiki.entry.admin.form.EditWikiArticleAction;
 import com.universe.wiki.entry.admin.form.EditWikiArticleForm;
 
 import org.springframework.security.core.Authentication;
@@ -55,20 +58,14 @@ import java.util.UUID;
 @Controller
 @RequestMapping("/admin/wiki/articles")
 public class AdminWikiArticleCommandController {
-	
-	private static final String AUTOSAVE_CLEANUP_ATTRIBUTE =
-	        "wikiAutosaveCleanupKey";
 
-	private static final String CREATE_AUTOSAVE_KEY =
-	        "kiemlai:wiki:autosave:create";
+	private static final String AUTOSAVE_CLEANUP_ATTRIBUTE = "wikiAutosaveCleanupKey";
 
+	private static final String CREATE_AUTOSAVE_KEY = "kiemlai:wiki:autosave:create";
 
-	private String editAutosaveKey(
-	        UUID articleId
-	) {
+	private String editAutosaveKey(UUID articleId) {
 
-	    return "kiemlai:wiki:autosave:edit:"
-	            + articleId;
+		return "kiemlai:wiki:autosave:edit:" + articleId;
 	}
 
 	/*
@@ -86,6 +83,8 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	private final UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase;
+
+	private final UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase;
 
 	private final UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase;
 
@@ -129,6 +128,7 @@ public class AdminWikiArticleCommandController {
 			CreateAndPublishWikiArticleUseCase createAndPublishWikiArticleUseCase,
 
 			UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase,
+			UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase,
 			UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase,
 
 			GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
@@ -144,6 +144,8 @@ public class AdminWikiArticleCommandController {
 		this.createAndPublishWikiArticleUseCase = createAndPublishWikiArticleUseCase;
 
 		this.updateDraftWikiArticleUseCase = updateDraftWikiArticleUseCase;
+
+		this.updateDraftAndPublishWikiArticleUseCase = updateDraftAndPublishWikiArticleUseCase;
 
 		this.updatePublishedWikiArticleUseCase = updatePublishedWikiArticleUseCase;
 
@@ -205,24 +207,14 @@ public class AdminWikiArticleCommandController {
 		case PUBLISH -> "Đã xuất bản bài Wiki \"" + article.title() + "\".";
 		};
 
-		redirectAttributes.addFlashAttribute(
-		        "successMessage",
-		        successMessage
-		);
-
+		redirectAttributes.addFlashAttribute("successMessage", successMessage);
 
 		/*
-		 * Chỉ tới được đây khi Create use case
-		 * đã chạy thành công.
+		 * Chỉ tới được đây khi Create use case đã chạy thành công.
 		 *
-		 * Trang danh sách sẽ dùng tín hiệu này
-		 * để xóa local draft của Create.
+		 * Trang danh sách sẽ dùng tín hiệu này để xóa local draft của Create.
 		 */
-		redirectAttributes.addFlashAttribute(
-		        AUTOSAVE_CLEANUP_ATTRIBUTE,
-		        CREATE_AUTOSAVE_KEY
-		);
-
+		redirectAttributes.addFlashAttribute(AUTOSAVE_CLEANUP_ATTRIBUTE, CREATE_AUTOSAVE_KEY);
 
 		return redirectToArticleList();
 	}
@@ -251,6 +243,8 @@ public class AdminWikiArticleCommandController {
 
 			@ModelAttribute("form") EditWikiArticleForm form,
 
+			@RequestParam(name = "action", defaultValue = "SAVE_CHANGES") EditWikiArticleAction action,
+
 			Authentication authentication,
 
 			RedirectAttributes redirectAttributes) {
@@ -269,44 +263,78 @@ public class AdminWikiArticleCommandController {
 
 		WikiArticleDTO updatedArticle;
 
+		boolean publishedNow = false;
+
 		switch (status) {
 
 		/*
 		 * ================================================= DRAFT
-		 *
-		 * Cho phép sửa: - title - articleType - summary - content
 		 * =================================================
 		 */
-
 		case DRAFT -> {
 
 			validateDraftEditForm(form);
 
-			updatedArticle = updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(articleId,
+			switch (action) {
 
-					form.getTitle().trim(),
+			/*
+			 * Chỉ lưu thay đổi, giữ article ở DRAFT.
+			 */
+			case SAVE_CHANGES ->
 
-					form.getArticleType(),
+				updatedArticle = updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(articleId,
 
-					normalizeText(form.getSummary()),
+						form.getTitle().trim(),
 
-					normalizeText(form.getContent()),
+						form.getArticleType(),
 
-					normalizeDraftUpdateEditSummary(form.getEditSummary()),
+						normalizeText(form.getSummary()),
 
-					actorId));
+						normalizeText(form.getContent()),
+
+						normalizeDraftUpdateEditSummary(form.getEditSummary()),
+
+						actorId));
+
+			/*
+			 * Lưu dữ liệu hiện tại và publish trong cùng transaction.
+			 */
+			case SAVE_AND_PUBLISH -> {
+
+				updatedArticle = updateDraftAndPublishWikiArticleUseCase
+						.execute(new UpdateDraftAndPublishWikiArticleCommand(articleId,
+
+								form.getTitle().trim(),
+
+								form.getArticleType(),
+
+								normalizeText(form.getSummary()),
+
+								normalizeText(form.getContent()),
+
+								normalizeNullableText(form.getEditSummary()),
+
+								actorId));
+
+				publishedNow = true;
+			}
+
+			default -> throw new IllegalArgumentException("Hành động chỉnh sửa bài Wiki " + "không hợp lệ.");
+			}
 		}
 
 		/*
 		 * ================================================= PUBLISHED
 		 *
-		 * Chỉ cho phép sửa: - summary - content
-		 *
-		 * Không lấy title/articleType từ browser để update.
+		 * Article đã publish không được nhận SAVE_AND_PUBLISH từ browser.
 		 * =================================================
 		 */
+		case PUBLISHED -> {
 
-		case PUBLISHED ->
+			if (action != EditWikiArticleAction.SAVE_CHANGES) {
+
+				throw new IllegalStateException("Bài Wiki đã được xuất bản.");
+			}
 
 			updatedArticle = updatePublishedWikiArticleUseCase.execute(new UpdatePublishedWikiArticleCommand(articleId,
 
@@ -317,32 +345,27 @@ public class AdminWikiArticleCommandController {
 					normalizePublishedUpdateEditSummary(form.getEditSummary()),
 
 					actorId));
+		}
 
 		/*
 		 * ================================================= ARCHIVED
 		 * =================================================
 		 */
+		case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ " + "không thể chỉnh sửa trực tiếp.");
 
-		case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
-
-		default -> throw new IllegalStateException("Trạng thái bài Wiki không hỗ trợ chỉnh sửa: " + status.name());
+		default -> throw new IllegalStateException("Trạng thái bài Wiki " + "không hỗ trợ chỉnh sửa: " + status.name());
 		}
 
-		redirectAttributes.addFlashAttribute("successMessage",
+		String successMessage = publishedNow
+				? "Đã lưu thay đổi và xuất bản bài Wiki \"" + updatedArticle.title() + "\"."
+				: "Đã cập nhật bài Wiki \"" + updatedArticle.title() + "\".";
 
-				"Đã cập nhật bài Wiki \"" + updatedArticle.title() + "\".");
+		redirectAttributes.addFlashAttribute("successMessage", successMessage);
 
-		
 		/*
-		 * Chỉ cleanup Auto-save của đúng bài
-		 * vừa được backend lưu thành công.
+		 * Chỉ cleanup Auto-save của đúng bài vừa được backend lưu thành công.
 		 */
-		redirectAttributes.addFlashAttribute(
-		        AUTOSAVE_CLEANUP_ATTRIBUTE,
-		        editAutosaveKey(
-		                articleId
-		        )
-		);
+		redirectAttributes.addFlashAttribute(AUTOSAVE_CLEANUP_ATTRIBUTE, editAutosaveKey(articleId));
 		/*
 		 * Sau khi lưu xong quay về trang chi tiết bài.
 		 */
@@ -387,45 +410,25 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	@PostMapping("/{articleId}/unpublish")
-	public String unpublishArticle(
-	        @PathVariable UUID articleId,
-	        Authentication authentication,
-	        RedirectAttributes redirectAttributes
-	) {
-	    UUID actorId =
-	            resolveActorId(
-	                    authentication
-	            );
+	public String unpublishArticle(@PathVariable UUID articleId, Authentication authentication,
+			RedirectAttributes redirectAttributes) {
+		UUID actorId = resolveActorId(authentication);
 
-	    try {
+		try {
 
-	        WikiArticleDTO article =
-	                unpublishWikiArticleUseCase.execute(
-	                        new UnpublishWikiArticleCommand(
-	                                articleId,
-	                                null,
-	                                actorId
-	                        )
-	                );
+			WikiArticleDTO article = unpublishWikiArticleUseCase
+					.execute(new UnpublishWikiArticleCommand(articleId, null, actorId));
 
-	        redirectAttributes.addFlashAttribute(
-	                "successMessage",
-	                "Đã gỡ xuất bản bài Wiki \""
-	                        + article.title()
-	                        + "\". "
-	                        + "Bài viết đã trở về bản nháp."
-	        );
+			redirectAttributes.addFlashAttribute("successMessage",
+					"Đã gỡ xuất bản bài Wiki \"" + article.title() + "\". " + "Bài viết đã trở về bản nháp.");
 
-	    } catch (IllegalStateException exception) {
+		} catch (IllegalStateException exception) {
 
-	        redirectAttributes.addFlashAttribute(
-	                "errorMessage",
-	                "Không thể gỡ xuất bản bài Wiki. "
-	                        + exception.getMessage()
-	        );
-	    }
+			redirectAttributes.addFlashAttribute("errorMessage",
+					"Không thể gỡ xuất bản bài Wiki. " + exception.getMessage());
+		}
 
-	    return redirectToArticleList();
+		return redirectToArticleList();
 	}
 
 	/*
@@ -434,44 +437,24 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	@PostMapping("/{articleId}/archive")
-	public String archiveArticle(
-	        @PathVariable UUID articleId,
-	        Authentication authentication,
-	        RedirectAttributes redirectAttributes
-	) {
-	    UUID actorId =
-	            resolveActorId(
-	                    authentication
-	            );
+	public String archiveArticle(@PathVariable UUID articleId, Authentication authentication,
+			RedirectAttributes redirectAttributes) {
+		UUID actorId = resolveActorId(authentication);
 
-	    try {
+		try {
 
-	        WikiArticleDTO article =
-	                archiveWikiArticleUseCase.execute(
-	                        new ArchiveWikiArticleCommand(
-	                                articleId,
-	                                null,
-	                                actorId
-	                        )
-	                );
+			WikiArticleDTO article = archiveWikiArticleUseCase
+					.execute(new ArchiveWikiArticleCommand(articleId, null, actorId));
 
-	        redirectAttributes.addFlashAttribute(
-	                "successMessage",
-	                "Đã lưu trữ bài Wiki \""
-	                        + article.title()
-	                        + "\"."
-	        );
+			redirectAttributes.addFlashAttribute("successMessage", "Đã lưu trữ bài Wiki \"" + article.title() + "\".");
 
-	    } catch (IllegalStateException exception) {
+		} catch (IllegalStateException exception) {
 
-	        redirectAttributes.addFlashAttribute(
-	                "errorMessage",
-	                "Không thể lưu trữ bài Wiki. "
-	                        + exception.getMessage()
-	        );
-	    }
+			redirectAttributes.addFlashAttribute("errorMessage",
+					"Không thể lưu trữ bài Wiki. " + exception.getMessage());
+		}
 
-	    return redirectToArticleList();
+		return redirectToArticleList();
 	}
 
 	/*
