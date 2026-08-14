@@ -271,8 +271,8 @@ function applyMarkdownAction(
         case "italic":
             toggleInline(
                 editor,
-                "*",
-                "*",
+                "_",
+                "_",
                 "văn bản in nghiêng"
             );
             break;
@@ -506,6 +506,137 @@ function toggleInline(
 
         return;
     }
+	
+	/*
+	 * CASE 2B
+	 *
+	 * Chuẩn hóa Bold + Italic.
+	 *
+	 * Quy ước của Wiki Editor:
+	 *
+	 * **_Content_**
+	 *
+	 * thay vì:
+	 *
+	 * _**Content**_
+	 *
+	 * Chỉ cần xử lý đặc biệt khi action hiện tại
+	 * là Bold (**).
+	 */
+	if (
+	    selected.length > 0
+	    && before === "**"
+	    && after === "**"
+	) {
+
+	    /*
+	     * CASE 2B.1
+	     *
+	     * Source:
+	     *
+	     * **_Content_**
+	     *
+	     * Người dùng chỉ select:
+	     *
+	     * Content
+	     *
+	     * rồi bấm Bold lần nữa.
+	     *
+	     * → bỏ Bold
+	     * → giữ Italic:
+	     *
+	     * _Content_
+	     */
+	    if (
+	        start >= 3
+	        && value.substring(
+	            start - 3,
+	            start
+	        ) === "**_"
+	        && value.substring(
+	            end,
+	            end + 3
+	        ) === "_**"
+	    ) {
+	        const replacement =
+	            "_"
+	            + selected
+	            + "_";
+
+	        replaceRange(
+	            editor,
+	            start - 3,
+	            end + 3,
+	            replacement
+	        );
+
+	        editor.focus();
+
+	        editor.setSelectionRange(
+	            start - 2,
+	            start - 2
+	            + selected.length
+	        );
+
+	        return;
+	    }
+
+
+	    /*
+	     * CASE 2B.2
+	     *
+	     * Source:
+	     *
+	     * _Content_
+	     *
+	     * Người dùng chỉ select:
+	     *
+	     * Content
+	     *
+	     * rồi bấm Bold.
+	     *
+	     * Thay vì:
+	     *
+	     * _**Content**_
+	     *
+	     * chuẩn hóa thành:
+	     *
+	     * **_Content_**
+	     */
+	    if (
+	        start >= 1
+	        && value.substring(
+	            start - 1,
+	            start
+	        ) === "_"
+	        && value.substring(
+	            end,
+	            end + 1
+	        ) === "_"
+	    ) {
+	        const replacement =
+	            "**_"
+	            + selected
+	            + "_**";
+
+	        replaceRange(
+	            editor,
+	            start - 1,
+	            end + 1,
+	            replacement
+	        );
+
+	        editor.focus();
+
+	        editor.setSelectionRange(
+	            start + 2,
+	            start + 2
+	            + selected.length
+	        );
+
+	        return;
+	    }
+	}
 
 
     /*
@@ -1308,17 +1439,17 @@ function setupWikiLocalAutosave(
        RECOVERY LOCK
        ===================================================== */
 
-	   const recoveryLockElements =
-	       Array.from(
-	           document.querySelectorAll(
-	               [
-	                   "[data-markdown-action]",
-	                   ".wiki-markdown-editor-tab",
-	                   "#wikiImageButton",
-	                   "#applyContentTemplate"
-	               ].join(",")
-	           )
-	       );
+    const recoveryLockElements =
+        Array.from(
+            document.querySelectorAll(
+                [
+                    "[data-markdown-action]",
+                    ".wiki-markdown-editor-tab",
+                    "#wikiImageButton",
+                    "#applyContentTemplate"
+                ].join(",")
+            )
+        );
 
 
     const originalDisabledState =
@@ -2253,16 +2384,16 @@ function setupWikiLocalAutosave(
         hideRecoveryPanel();
 
 
-		/*
-		 * Bản vừa khôi phục đã tồn tại
-		 * trong localStorage từ trước.
-		 *
-		 * Giữ nguyên savedAt của bản tự lưu gốc.
-		 */
-		lastSavedData =
-		    serializeDraftData(
-		        draft
-		    );
+        /*
+         * Bản vừa khôi phục đã tồn tại
+         * trong localStorage từ trước.
+         *
+         * Giữ nguyên savedAt của bản tự lưu gốc.
+         */
+        lastSavedData =
+            serializeDraftData(
+                draft
+            );
 
 
         if (status) {
@@ -2332,8 +2463,8 @@ function setupWikiLocalAutosave(
 
 
         hideRecoveryPanel();
-		
-		editor.focus();
+
+        editor.focus();
 
 
         /*

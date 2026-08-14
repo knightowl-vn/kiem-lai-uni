@@ -656,6 +656,23 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 				 * javascript:... không được dùng cho link và image.
 				 */
 				.sanitizeUrls(true)
+				
+				/*
+	             * Giữ xuống dòng đơn trong Markdown
+	             * khi render ra HTML.
+	             *
+	             * Ví dụ:
+	             *
+	             * Dòng 1
+	             * Dòng 2
+	             *
+	             * =>
+	             *
+	             * Dòng 1<br>
+	             * Dòng 2
+	             */
+	            .softbreak("<br />\n")
+	            
 
 				/*
 				 * Custom figure renderer.

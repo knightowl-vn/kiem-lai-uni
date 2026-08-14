@@ -4,6 +4,7 @@ import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
+import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,12 +37,20 @@ class WikiArticlePersistenceAdapterTest {
 
 	@Mock
 	private SpringDataWikiArticleJpaRepository repository;
+	
+	@Mock
+	private WikiImageReferenceSynchronizer
+	        imageReferenceSynchronizer;
 
 	private WikiArticlePersistenceAdapter persistenceAdapter;
 
 	@BeforeEach
 	void setUp() {
-		persistenceAdapter = new WikiArticlePersistenceAdapter(repository);
+	    persistenceAdapter =
+	            new WikiArticlePersistenceAdapter(
+	                    repository,
+	                    imageReferenceSynchronizer
+	            );
 	}
 
 	@Test
@@ -71,6 +80,12 @@ class WikiArticlePersistenceAdapterTest {
 		persistenceAdapter.save(article);
 
 		verify(repository).save(entityCaptor.capture());
+		verify(
+		        imageReferenceSynchronizer
+		).syncArticleReferences(
+		        article.getId(),
+		        article.getContent()
+		);
 
 		WikiArticleJpaEntity entity = entityCaptor.getValue();
 

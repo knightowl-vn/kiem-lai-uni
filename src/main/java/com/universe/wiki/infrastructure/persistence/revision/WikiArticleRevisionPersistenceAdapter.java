@@ -8,6 +8,7 @@ import com.universe.wiki.domain.article.Slug;
 
 import com.universe.wiki.domain.revision.RevisionChangeType;
 import com.universe.wiki.domain.revision.WikiArticleRevision;
+import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
 import org.springframework.stereotype.Component;
 
@@ -20,13 +21,20 @@ public class WikiArticleRevisionPersistenceAdapter
 
     private final SpringDataWikiArticleRevisionJpaRepository
             repository;
+    
+    private final WikiImageReferenceSynchronizer
+    imageReferenceSynchronizer;
 
 
     public WikiArticleRevisionPersistenceAdapter(
-            SpringDataWikiArticleRevisionJpaRepository repository
+            SpringDataWikiArticleRevisionJpaRepository repository,
+            WikiImageReferenceSynchronizer imageReferenceSynchronizer
     ) {
         this.repository =
                 repository;
+
+        this.imageReferenceSynchronizer =
+                imageReferenceSynchronizer;
     }
 
 
@@ -53,6 +61,12 @@ public class WikiArticleRevisionPersistenceAdapter
 
         repository.save(
                 entity
+        );
+        
+        imageReferenceSynchronizer
+        .syncRevisionReferences(
+                revision.id(),
+                revision.content()
         );
     }
 
