@@ -167,11 +167,14 @@
 
 				<!-- Bảng bài viết -->
 				<section th:unless="${articlePage.items.isEmpty()}"
-					class="wiki-admin-table-panel">
+					class="wiki-admin-table-panel
+           wiki-admin-article-list-panel">
 
 					<div class="wiki-admin-table-wrapper">
 
-						<table class="wiki-admin-table">
+						<table
+							class="wiki-admin-table
+              wiki-admin-article-list-table">
 
 							<thead>
 								<tr>
@@ -192,7 +195,7 @@
 									<!-- BÀI VIẾT                         -->
 									<!-- ================================= -->
 
-									<td>
+									<td class="wiki-admin-article-list-main">
 										<div class="wiki-admin-article-cell">
 
 											<strong th:text="${article.title}"> Trần Bình An </strong> <span
@@ -206,7 +209,8 @@
 									<!-- LOẠI                              -->
 									<!-- ================================= -->
 
-									<td><span class="wiki-admin-type-badge"
+									<td class="wiki-admin-article-list-type"><span
+										class="wiki-admin-type-badge"
 										th:text="${#strings.replace(
                     article.articleType,
                     '_',
@@ -219,7 +223,8 @@
 									<!-- TRẠNG THÁI                        -->
 									<!-- ================================= -->
 
-									<td><span class="wiki-admin-status-badge"
+									<td class="wiki-admin-article-list-status"><span
+										class="wiki-admin-status-badge"
 										th:classappend="${article.status == 'PUBLISHED'}
                     ? ' is-published'
                     : (${article.status == 'ARCHIVED'}
@@ -232,7 +237,8 @@
 									<!-- CẬP NHẬT                          -->
 									<!-- ================================= -->
 
-									<td><span th:if="${article.updatedAt != null}"
+									<td class="wiki-admin-article-list-updated"><span
+										th:if="${article.updatedAt != null}"
 										th:text="${#temporals.format(
                     article.updatedAt,
                     'dd/MM/yyyy HH:mm'
@@ -246,7 +252,8 @@
 									<!-- PHIÊN BẢN                         -->
 									<!-- ================================= -->
 
-									<td><span class="wiki-admin-version"
+									<td class="wiki-admin-article-list-version"><span
+										class="wiki-admin-version"
 										th:text="${'v' + article.contentVersion}"> v1 </span></td>
 
 
@@ -254,7 +261,9 @@
 									<!-- THAO TÁC                          -->
 									<!-- ================================= -->
 
-									<td class="wiki-admin-actions-cell">
+									<td
+										class="wiki-admin-actions-cell
+           wiki-admin-article-list-action">
 
 										<div class="wiki-admin-action-menu">
 

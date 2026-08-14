@@ -56,33 +56,26 @@ public class AdminWikiArticlePageController {
 	private final ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase;
 
 	private final GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase;
-	
+
 	private final WikiMarkdownRenderer wikiMarkdownRenderer;
 
-	public AdminWikiArticlePageController(
-	        ListWikiArticlesUseCase listWikiArticlesUseCase,
-	        WikiArticleContentTemplateProvider contentTemplateProvider,
-	        GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
-	        ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase,
-	        GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase,
-	        WikiMarkdownRenderer wikiMarkdownRenderer
-	) {
-	    this.listWikiArticlesUseCase =
-	            listWikiArticlesUseCase;
+	public AdminWikiArticlePageController(ListWikiArticlesUseCase listWikiArticlesUseCase,
+			WikiArticleContentTemplateProvider contentTemplateProvider,
+			GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
+			ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase,
+			GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase,
+			WikiMarkdownRenderer wikiMarkdownRenderer) {
+		this.listWikiArticlesUseCase = listWikiArticlesUseCase;
 
-	    this.contentTemplateProvider =
-	            contentTemplateProvider;
+		this.contentTemplateProvider = contentTemplateProvider;
 
-	    this.getWikiArticleDetailUseCase =
-	            getWikiArticleDetailUseCase;
+		this.getWikiArticleDetailUseCase = getWikiArticleDetailUseCase;
 
-	    this.listWikiArticleRevisionsUseCase =
-	            listWikiArticleRevisionsUseCase;
+		this.listWikiArticleRevisionsUseCase = listWikiArticleRevisionsUseCase;
 
-	    this.getWikiArticleRevisionDetailUseCase =
-	            getWikiArticleRevisionDetailUseCase;
-	    
-	    this.wikiMarkdownRenderer = wikiMarkdownRenderer;
+		this.getWikiArticleRevisionDetailUseCase = getWikiArticleRevisionDetailUseCase;
+
+		this.wikiMarkdownRenderer = wikiMarkdownRenderer;
 	}
 
 	/**
@@ -96,98 +89,47 @@ public class AdminWikiArticlePageController {
 	 * &size=20
 	 */
 	@GetMapping({ "", "/" })
-	public String listPage(
-	        @RequestParam(required = false) String keyword,
-	        @RequestParam(name = "type", required = false) String articleTypeValue,
-	        @RequestParam(name = "status", required = false) String statusValue,
-	        @RequestParam(defaultValue = "0") int page,
-	        @RequestParam(defaultValue = "20") int size,
-	        Model model,
-	        HttpServletResponse response
-	) {
-	    /*
-	     * Trang quản trị có dữ liệu thay đổi liên tục sau
-	     * Publish / Unpublish / Archive / Restore.
-	     *
-	     * Không cho browser dùng lại HTML cũ trong cache.
-	     */
-	    response.setHeader(
-	            "Cache-Control",
-	            "no-store, no-cache, must-revalidate, max-age=0"
-	    );
+	public String listPage(@RequestParam(required = false) String keyword,
+			@RequestParam(name = "type", required = false) String articleTypeValue,
+			@RequestParam(name = "status", required = false) String statusValue,
+			@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, Model model,
+			HttpServletResponse response) {
+		/*
+		 * Trang quản trị có dữ liệu thay đổi liên tục sau Publish / Unpublish / Archive
+		 * / Restore.
+		 *
+		 * Không cho browser dùng lại HTML cũ trong cache.
+		 */
+		response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
 
-	    response.setHeader(
-	            "Pragma",
-	            "no-cache"
-	    );
+		response.setHeader("Pragma", "no-cache");
 
-	    response.setDateHeader(
-	            "Expires",
-	            0
-	    );
+		response.setDateHeader("Expires", 0);
 
-	    ArticleType selectedType =
-	            resolveArticleType(
-	                    articleTypeValue
-	            );
+		ArticleType selectedType = resolveArticleType(articleTypeValue);
 
-	    ArticleStatus selectedStatus =
-	            resolveArticleStatus(
-	                    statusValue
-	            );
+		ArticleStatus selectedStatus = resolveArticleStatus(statusValue);
 
-	    WikiArticlePageDTO articlePage =
-	            listWikiArticlesUseCase.execute(
-	                    new ListWikiArticlesQuery(
-	                            keyword,
-	                            selectedType,
-	                            selectedStatus,
-	                            page,
-	                            size
-	                    )
-	            );
+		WikiArticlePageDTO articlePage = listWikiArticlesUseCase
+				.execute(new ListWikiArticlesQuery(keyword, selectedType, selectedStatus, page, size));
 
-	    model.addAttribute(
-	            "articlePage",
-	            articlePage
-	    );
+		model.addAttribute("articlePage", articlePage);
 
-	    model.addAttribute(
-	            "keyword",
-	            keyword == null ? "" : keyword
-	    );
+		model.addAttribute("keyword", keyword == null ? "" : keyword);
 
-	    model.addAttribute(
-	            "selectedType",
-	            selectedType
-	    );
+		model.addAttribute("selectedType", selectedType);
 
-	    model.addAttribute(
-	            "selectedStatus",
-	            selectedStatus
-	    );
+		model.addAttribute("selectedStatus", selectedStatus);
 
-	    model.addAttribute(
-	            "articleTypes",
-	            ArticleType.values()
-	    );
+		model.addAttribute("articleTypes", ArticleType.values());
 
-	    model.addAttribute(
-	            "articleStatuses",
-	            ArticleStatus.values()
-	    );
+		model.addAttribute("articleStatuses", ArticleStatus.values());
 
-	    model.addAttribute(
-	            "pageTitle",
-	            PAGE_TITLE
-	    );
+		model.addAttribute("pageTitle", PAGE_TITLE);
 
-	    model.addAttribute(
-	            "activeMenu",
-	            ACTIVE_MENU
-	    );
+		model.addAttribute("activeMenu", ACTIVE_MENU);
 
-	    return "admin/wiki/articles";
+		return "admin/wiki/articles";
 	}
 
 	/**
@@ -253,40 +195,28 @@ public class AdminWikiArticlePageController {
 			throw new IllegalArgumentException("Article status không hợp lệ: " + statusValue);
 		}
 	}
-	
+
 	/**
-	 * Render Markdown đang được Admin soạn
-	 * thành HTML để xem trước.
+	 * Render Markdown đang được Admin soạn thành HTML để xem trước.
 	 *
-	 * Endpoint này chỉ preview:
-	 * - không lưu Article;
-	 * - không tạo Revision;
-	 * - không tăng contentVersion.
+	 * Endpoint này chỉ preview: - không lưu Article; - không tạo Revision; - không
+	 * tăng contentVersion.
 	 */
-	@PostMapping(
-	        value = "/content-preview",
-	        consumes = MediaType.TEXT_PLAIN_VALUE,
-	        produces = MediaType.TEXT_HTML_VALUE
-	)
+	@PostMapping(value = "/content-preview", consumes = MediaType.TEXT_PLAIN_VALUE, produces = MediaType.TEXT_HTML_VALUE)
 	@ResponseBody
-	public String previewContent(
-	        @RequestBody(required = false)
-	        String markdown
-	) {
-	    return wikiMarkdownRenderer
-	            .render(
-	                    markdown
-	            )
-	            .html();
+	public String previewContent(@RequestBody(required = false) String markdown) {
+		return wikiMarkdownRenderer.render(markdown).html();
 	}
 
 	@GetMapping("/{id}")
-	public String detailPage(@PathVariable UUID id,
-
-			Model model) {
+	public String detailPage(@PathVariable UUID id, Model model) {
 		WikiArticleDTO article = getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(id));
 
+		String renderedContent = wikiMarkdownRenderer.render(article.content()).html();
+
 		model.addAttribute("article", article);
+
+		model.addAttribute("renderedContent", renderedContent);
 
 		model.addAttribute("pageTitle", "Chi tiết bài Wiki");
 
@@ -334,156 +264,77 @@ public class AdminWikiArticlePageController {
 
 		return "admin/wiki/edit";
 	}
-	
+
 	/*
-	 * =====================================================
-	 * REVISION HISTORY
+	 * ===================================================== REVISION HISTORY
 	 * =====================================================
 	 */
 
 	@GetMapping("/{id}/revisions")
-	public String revisionHistoryPage(
-	        @PathVariable
-	        UUID id,
+	public String revisionHistoryPage(@PathVariable UUID id,
 
-	        @RequestParam(defaultValue = "0")
-	        int page,
+			@RequestParam(defaultValue = "0") int page,
 
-	        @RequestParam(defaultValue = "20")
-	        int size,
+			@RequestParam(defaultValue = "20") int size,
 
-	        Model model
-	) {
-	    /*
-	     * Lấy bài hiện tại để trang History biết
-	     * lịch sử này thuộc bài nào.
-	     */
-	    WikiArticleDTO article =
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            id
-	                    )
-	            );
+			Model model) {
+		/*
+		 * Lấy bài hiện tại để trang History biết lịch sử này thuộc bài nào.
+		 */
+		WikiArticleDTO article = getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(id));
 
+		WikiArticleRevisionPageDTO revisionPage = listWikiArticleRevisionsUseCase
+				.execute(new ListWikiArticleRevisionsQuery(id, page, size));
 
-	    WikiArticleRevisionPageDTO revisionPage =
-	            listWikiArticleRevisionsUseCase.execute(
-	                    new ListWikiArticleRevisionsQuery(
-	                            id,
-	                            page,
-	                            size
-	                    )
-	            );
+		model.addAttribute("article", article);
 
+		model.addAttribute("revisionPage", revisionPage);
 
-	    model.addAttribute(
-	            "article",
-	            article
-	    );
+		model.addAttribute("pageTitle", "Lịch sử phiên bản");
 
-	    model.addAttribute(
-	            "revisionPage",
-	            revisionPage
-	    );
+		model.addAttribute("activeMenu", ACTIVE_MENU);
 
-	    model.addAttribute(
-	            "pageTitle",
-	            "Lịch sử phiên bản"
-	    );
-
-	    model.addAttribute(
-	            "activeMenu",
-	            ACTIVE_MENU
-	    );
-
-
-	    return "admin/wiki/revisions";
+		return "admin/wiki/revisions";
 	}
-	
-	
+
 	/*
-	 * =====================================================
-	 * REVISION DETAIL
+	 * ===================================================== REVISION DETAIL
 	 * =====================================================
 	 */
 
 	@GetMapping("/{id}/revisions/{revisionNumber}")
-	public String revisionDetailPage(
-	        @PathVariable
-	        UUID id,
+	public String revisionDetailPage(@PathVariable UUID id,
 
-	        @PathVariable
-	        long revisionNumber,
+			@PathVariable long revisionNumber,
 
-	        Model model
-	) {
-	    WikiArticleDTO article =
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            id
-	                    )
-	            );
+			Model model) {
+		WikiArticleDTO article = getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(id));
 
+		WikiArticleRevisionDetailDTO revision = getWikiArticleRevisionDetailUseCase
+				.execute(new GetWikiArticleRevisionDetailQuery(id, revisionNumber));
+		String renderedRevisionContent = wikiMarkdownRenderer.render(revision.content()).html();
+		boolean currentContentVersion = article.contentVersion() == revision.contentVersion();
 
-	    WikiArticleRevisionDetailDTO revision =
-	            getWikiArticleRevisionDetailUseCase.execute(
-	                    new GetWikiArticleRevisionDetailQuery(
-	                            id,
-	                            revisionNumber
-	                    )
-	            );
-	    boolean currentContentVersion =
-	            article.contentVersion()
-	            == revision.contentVersion();
+		boolean archivedArticle = "ARCHIVED".equals(article.status());
 
+		boolean restoreAllowed = !currentContentVersion || archivedArticle;
 
-	    boolean archivedArticle =
-	            "ARCHIVED".equals(
-	                    article.status()
-	            );
+		model.addAttribute("article", article);
 
+		model.addAttribute("revision", revision);
 
-	    boolean restoreAllowed =
-	            !currentContentVersion
-	            || archivedArticle;
+		model.addAttribute("renderedRevisionContent", renderedRevisionContent);
 
-	    model.addAttribute(
-	            "article",
-	            article
-	    );
+		model.addAttribute("pageTitle", "Chi tiết phiên bản");
 
-	    model.addAttribute(
-	            "revision",
-	            revision
-	    );
+		model.addAttribute("activeMenu", ACTIVE_MENU);
 
-	    model.addAttribute(
-	            "pageTitle",
-	            "Chi tiết phiên bản"
-	    );
+		model.addAttribute("currentContentVersion", currentContentVersion);
 
-	    model.addAttribute(
-	            "activeMenu",
-	            ACTIVE_MENU
-	    );
-	    
-	    model.addAttribute(
-	            "currentContentVersion",
-	            currentContentVersion
-	    );
-	    
+		model.addAttribute("archivedArticle", archivedArticle);
 
-	    model.addAttribute(
-	            "archivedArticle",
-	            archivedArticle
-	    );
+		model.addAttribute("restoreAllowed", restoreAllowed);
 
-	    model.addAttribute(
-	            "restoreAllowed",
-	            restoreAllowed
-	    );
-
-
-	    return "admin/wiki/revision-detail";
+		return "admin/wiki/revision-detail";
 	}
 }

@@ -3953,3 +3953,1833 @@ body.wiki-autosave-recovery-open {
         text-align: left;
     }
 }
+
+/* =========================================================
+   ADMIN WIKI — ARTICLE DETAIL
+   ========================================================= */
+
+.wiki-admin-detail-heading {
+    width: 100%;
+    max-width: 1440px;
+
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+
+    gap: 24px;
+
+    margin-bottom: 24px;
+}
+
+
+.wiki-admin-detail-heading-content {
+    min-width: 0;
+}
+
+
+.wiki-admin-detail-heading
+.wiki-admin-back-link {
+    margin-bottom: 16px;
+}
+
+
+.wiki-admin-detail-heading
+.wiki-admin-eyebrow {
+    display: inline-block;
+
+    margin-bottom: 7px;
+}
+
+
+.wiki-admin-detail-title-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+
+    gap: 10px;
+}
+
+
+.wiki-admin-detail-title-row h2 {
+    margin: 0;
+
+    font-size: clamp(
+        24px,
+        2.2vw,
+        30px
+    );
+
+    line-height: 1.25;
+}
+
+
+.wiki-admin-detail-heading-content > p {
+    max-width: 680px;
+
+    margin: 7px 0 0;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+
+/* =========================================================
+   DETAIL ACTIONS
+   ========================================================= */
+
+.wiki-admin-detail-actions {
+    flex: 0 0 auto;
+
+    display: flex;
+    align-items: center;
+
+    gap: 9px;
+}
+
+
+.wiki-admin-detail-actions
+.wiki-admin-primary-button,
+.wiki-admin-detail-actions
+.wiki-admin-secondary-button {
+    flex: 0 0 auto;
+
+    white-space: nowrap;
+}
+
+
+/* =========================================================
+   DETAIL PANEL
+   ========================================================= */
+
+.wiki-admin-detail-panel {
+    width: 100%;
+    max-width: 1440px;
+
+    overflow: hidden;
+
+    border: 1px solid var(--border);
+    border-radius: 16px;
+
+    background: var(--surface);
+
+    box-shadow: var(--shadow);
+}
+
+
+/* =========================================================
+   METADATA
+   ========================================================= */
+
+.wiki-admin-detail-metadata {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            4,
+            minmax(0, 1fr)
+        );
+
+    border-bottom: 1px solid var(--border);
+
+    background: #fafafd;
+}
+
+
+.wiki-admin-detail-meta-item {
+    min-width: 0;
+
+    display: grid;
+    align-content: start;
+
+    gap: 8px;
+
+    padding: 17px 18px;
+
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+
+/*
+ * Grid 4 cột:
+ * bỏ border phải của item cuối mỗi hàng.
+ */
+.wiki-admin-detail-meta-item:nth-child(4n) {
+    border-right: 0;
+}
+
+
+.wiki-admin-detail-meta-label {
+    color: var(--text-secondary);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+}
+
+
+.wiki-admin-detail-meta-value {
+    min-width: 0;
+
+    color: var(--text-primary);
+
+    font-size: 11px;
+    font-weight: 700;
+
+    overflow-wrap: anywhere;
+}
+
+
+.wiki-admin-detail-slug {
+    width: fit-content;
+    max-width: 100%;
+
+    padding: 5px 8px;
+
+    overflow-wrap: anywhere;
+
+    border-radius: 7px;
+
+    background: #f0f1f4;
+    color: #686c75;
+
+    font-size: 10px;
+}
+
+
+/* =========================================================
+   DETAIL SECTION
+   ========================================================= */
+
+.wiki-admin-detail-section {
+    padding:
+        26px
+        30px;
+}
+
+
+.wiki-admin-detail-section
++ .wiki-admin-detail-section {
+    border-top: 1px solid var(--border);
+}
+
+
+.wiki-admin-detail-section-heading {
+    margin-bottom: 16px;
+}
+
+
+.wiki-admin-detail-section-eyebrow {
+    display: block;
+
+    margin-bottom: 5px;
+
+    color: var(--primary);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    letter-spacing: 0.9px;
+}
+
+
+.wiki-admin-detail-section-heading h3 {
+    margin: 0;
+
+    color: var(--text-primary);
+
+    font-size: 16px;
+}
+
+
+/* =========================================================
+   SUMMARY
+   ========================================================= */
+
+.wiki-admin-detail-summary {
+    max-width: 980px;
+
+    margin: 0;
+
+    color: var(--text-primary);
+
+    font-size: 13px;
+    line-height: 1.75;
+}
+
+
+.wiki-admin-detail-summary.is-empty {
+    color: var(--text-secondary);
+
+    font-style: italic;
+}
+
+
+/* =========================================================
+   RENDERED CONTENT
+   ========================================================= */
+
+.wiki-admin-detail-content {
+    width: 100%;
+    max-width: 100%;
+
+    min-height: 0;
+
+    padding: 0;
+
+    overflow-wrap: anywhere;
+
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+
+/*
+ * Preview CSS trước đây có min-height 520px.
+ * Trang Detail không cần ép chiều cao.
+ */
+.wiki-admin-detail-content.wiki-markdown-preview {
+    min-height: 0;
+}
+
+
+/*
+ * Không cần khoảng trắng đầu section quá lớn.
+ */
+.wiki-admin-detail-content
+> :first-child {
+    margin-top: 0;
+}
+
+
+.wiki-admin-detail-content
+> :last-child {
+    margin-bottom: 0;
+}
+
+
+.wiki-admin-detail-empty-content {
+    padding: 22px;
+
+    border: 1px dashed var(--border);
+    border-radius: 11px;
+
+    background: #fafafd;
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    text-align: center;
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1050px) {
+
+    .wiki-admin-detail-metadata {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(0, 1fr)
+            );
+    }
+
+
+    .wiki-admin-detail-meta-item {
+        border-right: 1px solid var(--border);
+    }
+
+
+    .wiki-admin-detail-meta-item:nth-child(2n) {
+        border-right: 0;
+    }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-detail-heading {
+        align-items: stretch;
+        flex-direction: column;
+
+        gap: 16px;
+
+        margin-bottom: 20px;
+    }
+
+
+    .wiki-admin-detail-title-row {
+        align-items: flex-start;
+    }
+
+
+    .wiki-admin-detail-title-row h2 {
+        font-size: 25px;
+    }
+
+
+    .wiki-admin-detail-actions {
+        width: 100%;
+
+        display: grid;
+
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(0, 1fr)
+            );
+    }
+
+
+    .wiki-admin-detail-actions
+    .wiki-admin-primary-button,
+    .wiki-admin-detail-actions
+    .wiki-admin-secondary-button {
+        width: 100%;
+    }
+
+
+    .wiki-admin-detail-panel {
+        border-radius: 14px;
+    }
+
+
+    .wiki-admin-detail-metadata {
+        grid-template-columns: 1fr;
+    }
+
+
+    .wiki-admin-detail-meta-item,
+    .wiki-admin-detail-meta-item:nth-child(2n),
+    .wiki-admin-detail-meta-item:nth-child(4n) {
+        border-right: 0;
+    }
+
+
+    .wiki-admin-detail-section {
+        padding:
+            20px
+            17px;
+    }
+
+
+    .wiki-admin-detail-summary {
+        font-size: 12px;
+        line-height: 1.7;
+    }
+
+
+    .wiki-admin-detail-content {
+        font-size: 13px;
+        line-height: 1.75;
+    }
+}
+
+/* =========================================================
+   DETAIL — RENDERED IMAGE IS READ-ONLY
+   ========================================================= */
+
+.wiki-admin-detail-content
+img.wiki-content-image {
+    cursor: default;
+}
+
+
+.wiki-admin-detail-content
+img.wiki-content-image:hover {
+    box-shadow: none;
+    transform: none;
+}
+
+/* =========================================================
+   DETAIL — LIFECYCLE ACTION MENU
+   ========================================================= */
+
+.wiki-admin-detail-action-menu {
+    position: relative;
+
+    flex: 0 0 auto;
+}
+
+
+/*
+ * Loại marker mặc định của <details>.
+ */
+.wiki-admin-detail-action-menu
+> summary {
+    list-style: none;
+}
+
+
+.wiki-admin-detail-action-menu
+> summary::-webkit-details-marker {
+    display: none;
+}
+
+
+/* =========================================================
+   TRIGGER
+   ========================================================= */
+
+.wiki-admin-detail-action-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    user-select: none;
+}
+
+
+.wiki-admin-detail-action-chevron {
+    color: var(--text-secondary);
+
+    font-size: 10px;
+
+    transition:
+        transform 0.15s ease;
+}
+
+
+.wiki-admin-detail-action-menu[open]
+.wiki-admin-detail-action-chevron {
+    transform: rotate(180deg);
+}
+
+
+/* =========================================================
+   DROPDOWN
+   ========================================================= */
+
+.wiki-admin-detail-action-dropdown {
+    position: absolute;
+
+    top: calc(100% + 7px);
+    right: 0;
+
+    z-index: 100;
+
+    width: 190px;
+
+    padding: 6px;
+
+    border: 1px solid var(--border);
+    border-radius: 11px;
+
+    background: var(--surface);
+
+    box-shadow:
+        0 14px 34px
+        rgba(20, 21, 31, 0.14);
+}
+
+
+.wiki-admin-detail-action-dropdown form {
+    margin: 0;
+}
+
+
+/* =========================================================
+   ITEM
+   ========================================================= */
+
+.wiki-admin-detail-action-item {
+    width: 100%;
+    min-height: 40px;
+
+    display: flex;
+    align-items: center;
+
+    gap: 9px;
+
+    padding:
+        0
+        10px;
+
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+    color: var(--text-primary);
+
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+
+    text-align: left;
+
+    cursor: pointer;
+
+    transition:
+        background 0.12s ease,
+        color 0.12s ease;
+}
+
+
+.wiki-admin-detail-action-item:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
+
+.wiki-admin-detail-action-icon {
+    width: 18px;
+
+    flex: 0 0 18px;
+
+    display: inline-flex;
+    justify-content: center;
+
+    color: var(--text-secondary);
+}
+
+
+/* =========================================================
+   POSITIVE
+   ========================================================= */
+
+.wiki-admin-detail-action-item.is-positive {
+    color: var(--success);
+}
+
+
+.wiki-admin-detail-action-item.is-positive:hover {
+    background: var(--success-light);
+    color: var(--success);
+}
+
+
+/* =========================================================
+   WARNING
+   ========================================================= */
+
+.wiki-admin-detail-action-item.is-warning {
+    color: var(--warning);
+}
+
+
+.wiki-admin-detail-action-item.is-warning:hover {
+    background: var(--warning-light);
+    color: var(--warning);
+}
+
+
+/* =========================================================
+   SEPARATOR
+   ========================================================= */
+
+.wiki-admin-detail-action-separator {
+    height: 1px;
+
+    margin:
+        5px
+        4px;
+
+    background: var(--border);
+}
+
+
+/* =========================================================
+   MOBILE ACTION HIERARCHY
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    /*
+     * DRAFT / PUBLISHED:
+     *
+     * [      Chỉnh sửa      ]
+     * [ Lịch sử ][ Thao tác ]
+     */
+    .wiki-admin-detail-actions {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(0, 1fr)
+            );
+    }
+
+
+    .wiki-admin-detail-edit-button {
+        grid-column:
+            1 / -1;
+
+        order: 1;
+    }
+
+
+    .wiki-admin-detail-history-button {
+        order: 2;
+    }
+
+
+    .wiki-admin-detail-action-menu {
+        width: 100%;
+
+        order: 3;
+    }
+
+
+    .wiki-admin-detail-action-trigger {
+        width: 100%;
+    }
+
+
+    .wiki-admin-detail-action-dropdown {
+        right: 0;
+        left: auto;
+
+        width:
+            min(
+                220px,
+                calc(100vw - 40px)
+            );
+    }
+
+
+    /*
+     * ARCHIVED chỉ còn History.
+     */
+    .wiki-admin-detail-actions.is-archived
+    .wiki-admin-detail-history-button {
+        grid-column:
+            1 / -1;
+    }
+}
+
+/* =========================================================
+   ADMIN WIKI — REVISION DETAIL
+   ========================================================= */
+
+.wiki-admin-revision-panel {
+    width: 100%;
+    max-width: 1440px;
+
+    overflow: hidden;
+
+    border: 1px solid var(--border);
+    border-radius: 16px;
+
+    background: var(--surface);
+
+    box-shadow: var(--shadow);
+}
+
+
+.wiki-admin-revision-error {
+    margin:
+        20px
+        22px
+        0;
+}
+
+
+/* =========================================================
+   REVISION METADATA
+   ========================================================= */
+
+.wiki-admin-revision-meta-grid {
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            4,
+            minmax(0, 1fr)
+        );
+
+    background: #fafafd;
+
+    border-bottom: 1px solid var(--border);
+}
+
+
+.wiki-admin-revision-meta-item {
+    min-width: 0;
+
+    display: grid;
+    align-content: start;
+
+    gap: 8px;
+
+    padding:
+        17px
+        18px;
+
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+
+.wiki-admin-revision-meta-item:nth-child(4n) {
+    border-right: 0;
+}
+
+
+.wiki-admin-revision-meta-label {
+    color: var(--text-secondary);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    letter-spacing: 0.65px;
+    text-transform: uppercase;
+}
+
+
+.wiki-admin-revision-meta-value {
+    min-width: 0;
+
+    color: var(--text-primary);
+
+    font-size: 11px;
+    line-height: 1.5;
+
+    overflow-wrap: anywhere;
+}
+
+
+.wiki-admin-revision-meta-value.is-muted {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+
+.wiki-admin-revision-number {
+    font-size: 14px;
+}
+
+
+/* =========================================================
+   CHANGE TYPE BADGE
+   ========================================================= */
+
+.wiki-admin-revision-change-badge {
+    width: fit-content;
+    max-width: 100%;
+
+    display: inline-flex;
+    align-items: center;
+
+    padding:
+        6px
+        9px;
+
+    border-radius: 20px;
+
+    background: var(--primary-light);
+    color: var(--primary);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    overflow-wrap: anywhere;
+}
+
+
+/* =========================================================
+   REVISION SECTIONS
+   ========================================================= */
+
+.wiki-admin-revision-section {
+    padding:
+        26px
+        30px;
+}
+
+
+.wiki-admin-revision-section
++ .wiki-admin-revision-section {
+    border-top: 1px solid var(--border);
+}
+
+
+.wiki-admin-revision-section-heading {
+    margin-bottom: 16px;
+}
+
+
+.wiki-admin-revision-section-eyebrow {
+    display: block;
+
+    margin-bottom: 5px;
+
+    color: var(--primary);
+
+    font-size: 9px;
+    font-weight: 800;
+
+    letter-spacing: 0.9px;
+}
+
+
+.wiki-admin-revision-section-heading h3 {
+    margin: 0;
+
+    font-size: 16px;
+}
+
+
+/* =========================================================
+   SUMMARY
+   ========================================================= */
+
+.wiki-admin-revision-summary {
+    max-width: 980px;
+
+    margin: 0;
+
+    font-size: 13px;
+    line-height: 1.75;
+}
+
+
+.wiki-admin-revision-summary.is-empty {
+    color: var(--text-secondary);
+
+    font-style: italic;
+}
+
+
+/* =========================================================
+   RENDERED REVISION CONTENT
+   ========================================================= */
+
+.wiki-admin-revision-content {
+    width: 100%;
+    max-width: 100%;
+
+    min-height: 0;
+
+    padding: 0;
+
+    overflow-wrap: anywhere;
+
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+
+.wiki-admin-revision-content.wiki-markdown-preview {
+    min-height: 0;
+}
+
+
+.wiki-admin-revision-content
+> :first-child {
+    margin-top: 0;
+}
+
+
+.wiki-admin-revision-content
+> :last-child {
+    margin-bottom: 0;
+}
+
+
+/*
+ * Revision là read-only.
+ */
+.wiki-admin-revision-content
+img.wiki-content-image {
+    cursor: default;
+}
+
+
+.wiki-admin-revision-content
+img.wiki-content-image:hover {
+    box-shadow: none;
+    transform: none;
+}
+
+
+/* =========================================================
+   RAW MARKDOWN
+   ========================================================= */
+
+.wiki-admin-revision-source {
+    margin-top: 22px;
+
+    border: 1px solid var(--border);
+    border-radius: 10px;
+
+    background: #fafafd;
+}
+
+
+.wiki-admin-revision-source > summary {
+    padding:
+        12px
+        14px;
+
+    color: var(--text-secondary);
+
+    font-size: 11px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    user-select: none;
+}
+
+
+.wiki-admin-revision-source[open] > summary {
+    border-bottom: 1px solid var(--border);
+
+    color: var(--primary);
+}
+
+
+.wiki-admin-revision-source-content {
+    max-height: 420px;
+
+    overflow: auto;
+
+    margin: 0;
+
+    padding:
+        16px
+        18px;
+
+    color: var(--text-primary);
+
+    font-family:
+        "Cascadia Code",
+        "Consolas",
+        monospace;
+
+    font-size: 11px;
+    line-height: 1.7;
+
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+
+/* =========================================================
+   RESTORE STATE
+   ========================================================= */
+
+.wiki-admin-revision-restore-section {
+    background: #fcfcfe;
+}
+
+
+.wiki-admin-revision-state {
+    padding:
+        14px
+        16px;
+
+    border: 1px solid var(--border);
+    border-radius: 11px;
+
+    background: var(--surface);
+}
+
+
+.wiki-admin-revision-state-heading {
+    display: flex;
+    align-items: center;
+
+    gap: 8px;
+
+    margin-bottom: 6px;
+}
+
+
+.wiki-admin-revision-state-heading strong {
+    font-size: 11px;
+}
+
+
+.wiki-admin-revision-state-dot {
+    width: 7px;
+    height: 7px;
+
+    flex: 0 0 7px;
+
+    border-radius: 50%;
+
+    background: var(--primary);
+}
+
+
+.wiki-admin-revision-state p {
+    margin: 0;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.65;
+}
+
+
+/* CURRENT */
+
+.wiki-admin-revision-state.is-current {
+    border-color:
+        rgba(93, 77, 168, 0.16);
+
+    background:
+        rgba(238, 234, 253, 0.50);
+}
+
+
+/* ARCHIVED */
+
+.wiki-admin-revision-state.is-archived {
+    border-color:
+        rgba(202, 77, 92, 0.15);
+
+    background: var(--danger-light);
+}
+
+
+.wiki-admin-revision-state.is-archived
+.wiki-admin-revision-state-dot {
+    background: var(--danger);
+}
+
+
+/* WARNING */
+
+.wiki-admin-revision-state.is-warning {
+    border-color:
+        rgba(205, 151, 40, 0.20);
+
+    background: var(--warning-light);
+}
+
+
+.wiki-admin-revision-state.is-warning
+.wiki-admin-revision-state-dot {
+    background: var(--warning);
+}
+
+
+/* =========================================================
+   RESTORE FORM
+   ========================================================= */
+
+.wiki-admin-revision-restore-form {
+    margin-top: 20px;
+}
+
+
+/* =========================================================
+   REVISION ACTIONS
+   ========================================================= */
+
+.wiki-admin-revision-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    gap: 9px;
+
+    margin-top: 22px;
+
+    padding-top: 18px;
+
+    border-top: 1px solid var(--border);
+}
+
+
+.wiki-admin-revision-actions form {
+    margin: 0;
+}
+
+
+.wiki-admin-revision-actions
+.wiki-admin-primary-button:disabled {
+    opacity: 0.62;
+
+    cursor: default;
+
+    filter: none;
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 1050px) {
+
+    .wiki-admin-revision-meta-grid {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(0, 1fr)
+            );
+    }
+
+
+    .wiki-admin-revision-meta-item {
+        border-right: 1px solid var(--border);
+    }
+
+
+    .wiki-admin-revision-meta-item:nth-child(2n) {
+        border-right: 0;
+    }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-revision-panel {
+        border-radius: 14px;
+    }
+
+
+    .wiki-admin-revision-meta-grid {
+        grid-template-columns: 1fr;
+    }
+
+
+    .wiki-admin-revision-meta-item,
+    .wiki-admin-revision-meta-item:nth-child(2n),
+    .wiki-admin-revision-meta-item:nth-child(4n) {
+        border-right: 0;
+    }
+
+
+    .wiki-admin-revision-section {
+        padding:
+            20px
+            17px;
+    }
+
+
+    .wiki-admin-revision-summary,
+    .wiki-admin-revision-content {
+        font-size: 12px;
+        line-height: 1.7;
+    }
+
+
+    .wiki-admin-revision-source-content {
+        font-size: 10px;
+    }
+
+
+    .wiki-admin-revision-actions {
+        flex-direction: column;
+
+        align-items: stretch;
+    }
+
+
+    .wiki-admin-revision-actions
+    .wiki-admin-primary-button,
+    .wiki-admin-revision-actions
+    .wiki-admin-secondary-button,
+    .wiki-admin-revision-actions form,
+    .wiki-admin-revision-actions form button {
+        width: 100%;
+    }
+}
+
+/* =========================================================
+   REVISION SOURCE — FOCUS
+   ========================================================= */
+
+.wiki-admin-revision-source > summary {
+    outline: none;
+}
+
+
+.wiki-admin-revision-source > summary:focus-visible {
+    outline: 2px solid
+        rgba(93, 77, 168, 0.45);
+
+    outline-offset: 2px;
+
+    border-radius: 8px;
+}
+
+/* =========================================================
+   ADMIN WIKI — REVISION LIST
+   ========================================================= */
+
+.wiki-admin-revision-list-change-type {
+    font-weight: 700;
+}
+
+
+/*
+ * Nút Xem trong table không cần cao bằng button form.
+ */
+.wiki-admin-revision-view-button {
+    min-height: 36px;
+
+    padding:
+        0
+        13px;
+
+    font-size: 11px;
+}
+
+/* =========================================================
+   REVISION LIST — MOBILE CARDS
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /*
+     * Không cần panel ngoài bao toàn bộ danh sách nữa.
+     * Mỗi revision sẽ tự trở thành một card.
+     */
+    .wiki-admin-revision-list-panel {
+        overflow: visible;
+
+        border: 0;
+        border-radius: 0;
+
+        background: transparent;
+
+        box-shadow: none;
+    }
+
+
+    .wiki-admin-revision-list-panel
+    .wiki-admin-table-wrapper {
+        overflow: visible;
+    }
+
+
+    /*
+     * Bỏ min-width: 960px của table chung.
+     */
+    .wiki-admin-revision-list-table {
+        display: block;
+
+        width: 100%;
+        min-width: 0;
+    }
+
+
+    /*
+     * Mobile không cần table header.
+     */
+    .wiki-admin-revision-list-table
+    thead {
+        display: none;
+    }
+
+
+    .wiki-admin-revision-list-table
+    tbody {
+        display: grid;
+
+        gap: 12px;
+    }
+
+
+    /*
+     * Mỗi <tr> = một revision card.
+     *
+     * Hàng 1:
+     * #12                  ARCHIVED
+     *
+     * Hàng 2:
+     * ARCHIVE
+     *
+     * Hàng 3:
+     * Lưu trữ bài viết
+     *
+     * Hàng 4:
+     * 15/08/...              Xem
+     */
+    .wiki-admin-revision-list-table
+    tbody tr {
+        display: grid;
+
+        grid-template-columns:
+            minmax(0, 1fr)
+            auto;
+
+        gap:
+            10px
+            14px;
+
+        padding:
+            16px;
+
+        border: 1px solid var(--border);
+        border-radius: 13px;
+
+        background: var(--surface);
+
+        box-shadow:
+            0 4px 16px
+            rgba(20, 21, 31, 0.045);
+    }
+
+
+    /*
+     * Reset style td của table desktop.
+     */
+    .wiki-admin-revision-list-table
+    tbody td {
+        display: block;
+
+        min-width: 0;
+
+        padding: 0;
+
+        border: 0;
+    }
+
+
+    /* =====================================================
+       NUMBER
+       ===================================================== */
+
+    .wiki-admin-revision-list-number {
+        grid-column: 1;
+        grid-row: 1;
+
+        align-self: center;
+    }
+
+
+    .wiki-admin-revision-list-number
+    strong {
+        font-size: 14px;
+    }
+
+
+    /* =====================================================
+       STATUS
+       ===================================================== */
+
+    .wiki-admin-revision-list-status {
+        grid-column: 2;
+        grid-row: 1;
+
+        align-self: center;
+
+        justify-self: end;
+    }
+
+
+    /* =====================================================
+       CHANGE TYPE
+       ===================================================== */
+
+    .wiki-admin-revision-list-change {
+        grid-column:
+            1 / -1;
+
+        grid-row: 2;
+    }
+
+
+    .wiki-admin-revision-list-change-type {
+        display: inline-flex;
+        align-items: center;
+
+        width: fit-content;
+
+        padding:
+            5px
+            8px;
+
+        border-radius: 7px;
+
+        background:
+            rgba(93, 77, 168, 0.08);
+
+        color: var(--primary);
+
+        font-size: 9px;
+        font-weight: 800;
+
+        letter-spacing: 0.25px;
+    }
+
+
+    /* =====================================================
+       EDIT SUMMARY
+       ===================================================== */
+
+    .wiki-admin-revision-list-summary {
+        grid-column:
+            1 / -1;
+
+        grid-row: 3;
+
+        color: var(--text-primary);
+
+        font-size: 12px;
+        line-height: 1.55;
+
+        overflow-wrap: anywhere;
+    }
+
+
+    /* =====================================================
+       TIME
+       ===================================================== */
+
+    .wiki-admin-revision-list-time {
+        grid-column: 1;
+        grid-row: 4;
+
+        align-self: center;
+
+        color: var(--text-secondary);
+
+        font-size: 10px;
+    }
+
+
+    /* =====================================================
+       ACTION
+       ===================================================== */
+
+    .wiki-admin-revision-list-action {
+        grid-column: 2;
+        grid-row: 4;
+
+        justify-self: end;
+    }
+
+
+    .wiki-admin-revision-view-button {
+        width: auto;
+
+        flex: 0 0 auto;
+
+        min-height: 36px;
+
+        padding:
+            0
+            14px;
+    }
+
+
+    /*
+     * Không dùng hover background của table row
+     * cho card.
+     */
+    .wiki-admin-revision-list-table
+    tbody tr:hover {
+        background: var(--surface);
+    }
+}
+
+/* =========================================================
+   REVISION LIST — MOBILE PAGINATION
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    .wiki-admin-pagination {
+        gap:
+            10px
+            8px;
+
+        margin-top: 18px;
+    }
+
+
+    .wiki-admin-pagination
+    .wiki-admin-page-button {
+        min-height: 38px;
+
+        padding:
+            0
+            12px;
+
+        font-size: 10px;
+    }
+
+
+    .wiki-admin-pagination > span {
+        width: 100%;
+
+        order: -1;
+
+        text-align: center;
+
+        font-size: 11px;
+    }
+}
+
+/* =========================================================
+   ADMIN WIKI — ARTICLE LIST
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    /*
+     * Mobile không dùng một panel lớn chứa table.
+     * Mỗi article tự trở thành card.
+     */
+    .wiki-admin-article-list-panel {
+        overflow: visible;
+
+        border: 0;
+        border-radius: 0;
+
+        background: transparent;
+
+        box-shadow: none;
+    }
+
+
+    .wiki-admin-article-list-panel
+    .wiki-admin-table-wrapper {
+        overflow: visible;
+    }
+
+
+    .wiki-admin-article-list-table {
+        display: block;
+
+        width: 100%;
+        min-width: 0;
+    }
+
+
+    .wiki-admin-article-list-table
+    thead {
+        display: none;
+    }
+
+
+    .wiki-admin-article-list-table
+    tbody {
+        display: grid;
+
+        gap: 12px;
+    }
+
+
+    /* =====================================================
+       ARTICLE CARD
+       ===================================================== */
+
+    .wiki-admin-article-list-table
+    tbody tr {
+        display: grid;
+
+        grid-template-columns:
+            minmax(0, 1fr)
+            auto;
+
+        gap:
+            12px
+            14px;
+
+        padding: 16px;
+
+        border: 1px solid var(--border);
+        border-radius: 13px;
+
+        background: var(--surface);
+
+        box-shadow:
+            0 4px 16px
+            rgba(20, 21, 31, 0.045);
+    }
+
+
+    .wiki-admin-article-list-table
+    tbody td {
+        display: block;
+
+        min-width: 0;
+
+        padding: 0;
+
+        border: 0;
+    }
+
+
+    .wiki-admin-article-list-table
+    tbody tr:hover {
+        background: var(--surface);
+    }
+
+
+    /* =====================================================
+       TITLE + SLUG
+       ===================================================== */
+
+    .wiki-admin-article-list-main {
+        grid-column: 1;
+        grid-row: 1;
+
+        align-self: center;
+    }
+
+
+    .wiki-admin-article-cell {
+        min-width: 0;
+    }
+
+
+    .wiki-admin-article-cell strong {
+        font-size: 14px;
+        line-height: 1.4;
+
+        overflow-wrap: anywhere;
+    }
+
+
+    .wiki-admin-article-cell span {
+        margin-top: 4px;
+
+        font-size: 10px;
+
+        overflow-wrap: anywhere;
+    }
+
+
+    /* =====================================================
+       STATUS
+       ===================================================== */
+
+    .wiki-admin-article-list-status {
+        grid-column: 2;
+        grid-row: 1;
+
+        align-self: start;
+
+        justify-self: end;
+    }
+
+
+    /* =====================================================
+       TYPE
+       ===================================================== */
+
+    .wiki-admin-article-list-type {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+
+    /* =====================================================
+       VERSION
+       ===================================================== */
+
+    .wiki-admin-article-list-version {
+        grid-column: 2;
+        grid-row: 2;
+
+        justify-self: end;
+
+        align-self: center;
+    }
+
+
+    /* =====================================================
+       UPDATED
+       ===================================================== */
+
+    .wiki-admin-article-list-updated {
+        grid-column: 1;
+        grid-row: 3;
+
+        align-self: center;
+
+        color: var(--text-secondary);
+
+        font-size: 10px;
+    }
+
+
+    /*
+     * Thêm label để timestamp không bị vô nghĩa
+     * khi bỏ table header.
+     */
+    .wiki-admin-article-list-updated::before {
+        content: "Cập nhật: ";
+
+        font-weight: 700;
+    }
+
+
+    /* =====================================================
+       ACTION
+       ===================================================== */
+
+    .wiki-admin-article-list-action {
+        grid-column: 2;
+        grid-row: 3;
+
+        justify-self: end;
+
+        align-self: center;
+    }
+
+
+    .wiki-admin-article-list-action
+    .wiki-admin-action-menu-trigger {
+        min-width: 105px;
+    }
+}
+
+/* =========================================================
+   ARTICLE LIST — COMPACT FILTER
+   ========================================================= */
+
+@media (max-width: 760px) {
+
+    .wiki-admin-filter-form {
+        grid-template-columns: 1fr;
+    }
+
+
+    .wiki-admin-filter-actions {
+        grid-column: auto;
+
+        display: flex;
+
+        gap: 9px;
+    }
+
+
+    .wiki-admin-filter-actions
+    .wiki-admin-primary-button,
+    .wiki-admin-filter-actions
+    .wiki-admin-secondary-button {
+        flex: 1;
+    }
+}
+
+@media (max-width: 650px) {
+
+    .wiki-admin-heading {
+        width: 100%;
+
+        align-items: stretch;
+
+        gap: 14px;
+    }
+
+
+    .wiki-admin-heading
+    > .wiki-admin-primary-button {
+        width: 100%;
+
+        flex: 0 0 auto;
+    }
+}

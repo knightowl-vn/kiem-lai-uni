@@ -380,6 +380,8 @@ public class AdminWikiArticleCommandController {
 	@PostMapping("/{articleId}/publish")
 	public String publishArticle(@PathVariable UUID articleId,
 
+			@RequestParam(name = "returnTo", defaultValue = "list") String returnTo,
+
 			Authentication authentication,
 
 			RedirectAttributes redirectAttributes) {
@@ -401,7 +403,7 @@ public class AdminWikiArticleCommandController {
 					"Không thể xuất bản bài Wiki. " + exception.getMessage());
 		}
 
-		return redirectToArticleList();
+		return redirectAfterLifecycleAction(articleId, returnTo);
 	}
 
 	/*
@@ -410,7 +412,8 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	@PostMapping("/{articleId}/unpublish")
-	public String unpublishArticle(@PathVariable UUID articleId, Authentication authentication,
+	public String unpublishArticle(@PathVariable UUID articleId,
+			@RequestParam(name = "returnTo", defaultValue = "list") String returnTo, Authentication authentication,
 			RedirectAttributes redirectAttributes) {
 		UUID actorId = resolveActorId(authentication);
 
@@ -428,7 +431,7 @@ public class AdminWikiArticleCommandController {
 					"Không thể gỡ xuất bản bài Wiki. " + exception.getMessage());
 		}
 
-		return redirectToArticleList();
+		return redirectAfterLifecycleAction(articleId, returnTo);
 	}
 
 	/*
@@ -437,7 +440,8 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	@PostMapping("/{articleId}/archive")
-	public String archiveArticle(@PathVariable UUID articleId, Authentication authentication,
+	public String archiveArticle(@PathVariable UUID articleId,
+			@RequestParam(name = "returnTo", defaultValue = "list") String returnTo, Authentication authentication,
 			RedirectAttributes redirectAttributes) {
 		UUID actorId = resolveActorId(authentication);
 
@@ -454,7 +458,7 @@ public class AdminWikiArticleCommandController {
 					"Không thể lưu trữ bài Wiki. " + exception.getMessage());
 		}
 
-		return redirectToArticleList();
+		return redirectAfterLifecycleAction(articleId, returnTo);
 	}
 
 	/*
@@ -662,5 +666,13 @@ public class AdminWikiArticleCommandController {
 		}
 
 		return value.trim();
+	}
+
+	private String redirectAfterLifecycleAction(UUID articleId, String returnTo) {
+		if ("detail".equalsIgnoreCase(returnTo)) {
+			return redirectToArticleDetail(articleId);
+		}
+
+		return redirectToArticleList();
 	}
 }
