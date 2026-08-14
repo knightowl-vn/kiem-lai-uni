@@ -133,23 +133,23 @@ document.addEventListener(
                 /*
                  * Ctrl + I
                  */
-                if (key === "i") {
+				if (key === "i") {
 
-                    event.preventDefault();
+				    event.preventDefault();
 
-                    history.flush();
+				    history.flush();
 
-                    toggleInline(
-                        editor,
-                        "*",
-                        "*",
-                        "văn bản in nghiêng"
-                    );
+				    toggleInline(
+				        editor,
+				        "_",
+				        "_",
+				        "văn bản in nghiêng"
+				    );
 
-                    history.record();
+				    history.record();
 
-                    return;
-                }
+				    return;
+				}
 
                 /*
                  * Ctrl + K

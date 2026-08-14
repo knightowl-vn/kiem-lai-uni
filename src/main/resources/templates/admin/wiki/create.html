@@ -63,45 +63,65 @@
 
 						<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
 							th:text="${errorMessage}">Có lỗi xảy ra.</div>
-						<div class="wiki-admin-create-note">
+						<div class="wiki-admin-create-note wiki-admin-autosave-note">
 
-							<strong> Tự động lưu cục bộ </strong>
+							<div class="wiki-admin-autosave-indicator" aria-hidden="true">
+							</div>
 
-							<p id="wikiAutosaveStatus" aria-live="polite">Chưa có thay
-								đổi cần tự lưu.</p>
+							<div class="wiki-admin-autosave-content">
 
-						</div>
+								<strong> Tự động lưu cục bộ </strong>
 
-						<div class="wiki-admin-form-group">
+								<p id="wikiAutosaveStatus" aria-live="polite">Chưa có thay
+									đổi cần tự lưu.</p>
 
-							<label for="wikiTitle"> Tiêu đề bài viết <span
-								class="required-marker">*</span>
-							</label> <input id="wikiTitle" type="text" th:field="*{title}"
-								maxlength="255" autocomplete="off"
-								placeholder="Ví dụ: Trần Bình An" required> <small>
-								Slug sẽ được hệ thống tự động tạo từ tiêu đề. </small>
+							</div>
 
 						</div>
 
-						<div class="wiki-admin-form-group">
+						<!-- ================================================= -->
+						<!-- ARTICLE BASIC INFO                                -->
+						<!-- ================================================= -->
 
-							<label for="wikiArticleType"> Loại nội dung <span
-								class="required-marker">*</span>
-							</label> <select id="wikiArticleType" th:field="*{articleType}" required>
+						<div class="wiki-admin-metadata-grid">
 
-								<option value="" disabled>Chọn loại nội dung</option>
+							<!-- TITLE -->
 
-								<option th:each="type : ${articleTypes}"
-									th:value="${type.name()}"
-									th:text="${#strings.replace(
-                                        type.name(),
-                                        '_',
-                                        ' '
-                                    )}">
-									CHARACTER</option>
+							<div class="wiki-admin-form-group">
 
-							</select> <small> Loại bài có thể ảnh hưởng tới URL và cách phân
-								loại trong Wiki. </small>
+								<label for="wikiTitle"> Tiêu đề bài viết <span
+									class="required-marker">*</span>
+								</label> <input id="wikiTitle" type="text" th:field="*{title}"
+									maxlength="255" autocomplete="off"
+									placeholder="Ví dụ: Trần Bình An" required> <small>
+									Slug sẽ được hệ thống tự động tạo từ tiêu đề. </small>
+
+							</div>
+
+
+							<!-- ARTICLE TYPE -->
+
+							<div class="wiki-admin-form-group">
+
+								<label for="wikiArticleType"> Loại nội dung <span
+									class="required-marker">*</span>
+								</label> <select id="wikiArticleType" th:field="*{articleType}" required>
+
+									<option value="" disabled>Chọn loại nội dung</option>
+
+									<option th:each="type : ${articleTypes}"
+										th:value="${type.name()}"
+										th:text="${#strings.replace(
+                    type.name(),
+                    '_',
+                    ' '
+                )}">
+										CHARACTER</option>
+
+								</select> <small> Loại bài ảnh hưởng tới URL và cách phân loại
+									trong Wiki. </small>
+
+							</div>
 
 						</div>
 
@@ -376,13 +396,33 @@
 
 						</div>
 
-						<div class="wiki-admin-create-note">
+						<div class="wiki-admin-create-note wiki-admin-publish-note">
 
-							<strong> Bạn có hai lựa chọn </strong>
+							<span class="wiki-admin-publish-note-label"> LƯU Ý KHI TẠO
+								BÀI </span>
 
-							<p>Nếu nội dung chưa hoàn thiện, hãy lưu bản nháp để tiếp tục
-								chỉnh sửa sau. Nếu bài viết đã đầy đủ, bạn có thể xuất bản ngay
-								để hiển thị trên Wiki công khai.</p>
+							<div class="wiki-admin-publish-options">
+
+								<div class="wiki-admin-publish-option">
+
+									<strong> Lưu bản nháp </strong>
+
+									<p>Dùng khi nội dung chưa hoàn thiện và cần tiếp tục chỉnh
+										sửa sau.</p>
+
+								</div>
+
+
+								<div class="wiki-admin-publish-option">
+
+									<strong> Xuất bản ngay </strong>
+
+									<p>Dùng khi bài viết đã sẵn sàng để hiển thị trên Wiki công
+										khai.</p>
+
+								</div>
+
+							</div>
 
 						</div>
 
@@ -403,81 +443,57 @@
 
 
 					</form>
-					
+
 					<!-- ===================================================== -->
-<!-- WIKI AUTO-SAVE RECOVERY MODAL                         -->
-<!-- ===================================================== -->
+					<!-- WIKI AUTO-SAVE RECOVERY MODAL                         -->
+					<!-- ===================================================== -->
 
-<div
-	id="wikiAutosaveRecovery"
-	class="wiki-autosave-recovery-modal"
-	hidden>
+					<div id="wikiAutosaveRecovery" class="wiki-autosave-recovery-modal"
+						hidden>
 
-	<div class="wiki-autosave-recovery-backdrop"></div>
+						<div class="wiki-autosave-recovery-backdrop"></div>
 
 
-	<section
-		class="wiki-autosave-recovery-dialog"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="wikiAutosaveRecoveryTitle"
-		aria-describedby="wikiAutosaveRecoveryMessage">
-
-		<div class="wiki-autosave-recovery-icon">
-			↻
-		</div>
+						<section class="wiki-autosave-recovery-dialog" role="dialog"
+							aria-modal="true" aria-labelledby="wikiAutosaveRecoveryTitle"
+							aria-describedby="wikiAutosaveRecoveryMessage">
 
 
-		<div class="wiki-autosave-recovery-content">
+							<div class="wiki-autosave-recovery-content">
 
-			<span class="wiki-admin-eyebrow">
-				WIKI AUTO-SAVE
-			</span>
+								<span class="wiki-admin-eyebrow"> WIKI AUTO-SAVE </span>
 
 
-			<h3 id="wikiAutosaveRecoveryTitle">
-				Phát hiện bản chỉnh sửa chưa lưu
-			</h3>
+								<h3 id="wikiAutosaveRecoveryTitle">Phát hiện bản chỉnh sửa
+									chưa lưu</h3>
 
 
-			<p id="wikiAutosaveRecoveryMessage">
-				Phát hiện bản chỉnh sửa cục bộ chưa được lưu lên hệ thống.
-			</p>
+								<p id="wikiAutosaveRecoveryMessage">Phát hiện bản chỉnh sửa
+									cục bộ chưa được lưu lên hệ thống.</p>
 
 
-			<p class="wiki-autosave-recovery-help">
-				Hãy chọn cách xử lý bản tự lưu trước khi tiếp tục chỉnh sửa.
-			</p>
+								<p class="wiki-autosave-recovery-help">Hãy chọn cách xử lý
+									bản tự lưu trước khi tiếp tục chỉnh sửa.</p>
 
-		</div>
-
-
-		<div class="wiki-autosave-recovery-actions">
-
-			<button
-				id="wikiAutosaveDiscard"
-				type="button"
-				class="wiki-admin-secondary-button">
-
-				Bỏ bản tự lưu
-
-			</button>
+							</div>
 
 
-			<button
-				id="wikiAutosaveRestore"
-				type="button"
-				class="wiki-admin-primary-button">
+							<div class="wiki-autosave-recovery-actions">
 
-				Khôi phục bản tự lưu
+								<button id="wikiAutosaveDiscard" type="button"
+									class="wiki-admin-secondary-button">Bỏ bản tự lưu</button>
 
-			</button>
 
-		</div>
+								<button id="wikiAutosaveRestore" type="button"
+									class="wiki-admin-primary-button">Khôi phục bản tự lưu
 
-	</section>
+								</button>
 
-</div>
+							</div>
+
+						</section>
+
+					</div>
 
 					<!-- ===================================================== -->
 					<!-- WIKI IMAGE EDITOR MODAL                               -->

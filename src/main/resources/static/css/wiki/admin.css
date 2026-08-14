@@ -2322,44 +2322,81 @@ blockquote p {
 
 
 .wiki-autosave-recovery-dialog {
-	position: relative;
+    position: relative;
+    z-index: 1;
 
-	width: min(
-		520px,
-		100%
-	);
+    width: min(440px, 100%);
 
-	background: #ffffff;
+    padding: 22px;
 
-	border-radius: 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
 
-	padding: 28px;
+    background: #ffffff;
 
-	box-shadow:
-		0 24px 70px
-		rgba(15, 23, 42, 0.25);
-
-	z-index: 1;
+    box-shadow:
+        0 22px 60px
+        rgba(15, 23, 42, 0.23);
 }
 
 
 .wiki-autosave-recovery-icon {
-	display: flex;
-	align-items: center;
-	justify-content: center;
+    width: 40px;
+    height: 40px;
 
-	width: 48px;
-	height: 48px;
+    margin-bottom: 14px;
 
-	margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
-	border-radius: 50%;
+    border-radius: 50%;
 
-	background: #ede9fe;
-	color: #5b4bb7;
+    background: #ede9fe;
+    color: #5b4bb7;
 
-	font-size: 24px;
-	font-weight: 700;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.wiki-autosave-recovery-content h3 {
+    margin: 5px 0 9px;
+
+    font-size: 18px;
+    line-height: 1.35;
+}
+
+
+.wiki-autosave-recovery-content p {
+    margin: 0 0 8px;
+
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+
+.wiki-autosave-recovery-help {
+    color: #64748b;
+    font-size: 12px;
+}
+
+
+.wiki-autosave-recovery-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+
+    margin-top: 18px;
+}
+
+
+.wiki-autosave-recovery-actions
+.wiki-admin-primary-button,
+.wiki-autosave-recovery-actions
+.wiki-admin-secondary-button {
+    min-height: 38px;
+    padding: 0 13px;
+    font-size: 11px;
 }
 
 
@@ -2420,3 +2457,1290 @@ body.wiki-autosave-recovery-open {
 	}
 }
 
+/* =========================================================
+   CREATE / EDIT RESPONSIVE WORKSPACE
+   ========================================================= */
+
+/*
+ * Create/Edit là workspace soạn bài.
+ * Không giới hạn ở 820px như form thông thường.
+ */
+.wiki-admin-form-panel {
+    width: 100%;
+    max-width: 1440px;
+    box-sizing: border-box;
+}
+
+.wiki-admin-create-heading {
+    width: 100%;
+    max-width: 1440px;
+}
+
+
+/*
+ * Các container bên trong phải được phép co lại
+ * theo chiều rộng khả dụng của admin-main.
+ */
+.wiki-admin-create-form,
+.wiki-admin-form-group,
+.wiki-markdown-editor-shell,
+.wiki-markdown-editor-panel {
+    min-width: 0;
+}
+
+
+/* =========================================================
+   RESPONSIVE MARKDOWN EDITOR HEIGHT
+   ========================================================= */
+
+/*
+ * Không ép editor luôn cao tối thiểu 520px.
+ *
+ * Chiều cao sẽ thay đổi theo viewport:
+ * - màn hình thấp → editor thấp hơn
+ * - màn hình lớn → editor cao hơn
+ * - tối đa khoảng 620px
+ */
+#wikiWritePanel #wikiContent {
+    width: 100%;
+    height: clamp(300px, 52vh, 620px);
+    min-height: 300px;
+    box-sizing: border-box;
+}
+
+
+/*
+ * Preview có chiều cao tương đương editor
+ * để khi chuyển Write / Preview không bị nhảy layout quá mạnh.
+ */
+#wikiPreviewPanel .wiki-markdown-preview {
+    min-height: clamp(300px, 52vh, 620px);
+    box-sizing: border-box;
+}
+
+
+/* =========================================================
+   TOOLBAR RESPONSIVE
+   ========================================================= */
+
+.wiki-markdown-toolbar {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+
+/*
+ * Tablet:
+ * toolbar cho phép wrap tự nhiên.
+ */
+@media (max-width: 900px) {
+
+    .wiki-admin-form-panel {
+        padding: 22px;
+    }
+
+    #wikiWritePanel #wikiContent {
+        height: clamp(300px, 48vh, 520px);
+    }
+
+    #wikiPreviewPanel .wiki-markdown-preview {
+        min-height: clamp(300px, 48vh, 520px);
+    }
+}
+
+
+/*
+ * Mobile:
+ * giảm padding để editor tận dụng chiều ngang.
+ */
+@media (max-width: 650px) {
+
+    .wiki-admin-form-panel {
+        padding: 16px;
+        border-radius: 14px;
+    }
+
+    .wiki-markdown-editor-shell {
+        border-radius: 10px;
+    }
+
+    #wikiWritePanel #wikiContent {
+        height: clamp(280px, 46vh, 460px);
+        min-height: 280px;
+        padding: 14px;
+    }
+
+    #wikiPreviewPanel .wiki-markdown-preview {
+        min-height: clamp(280px, 46vh, 460px);
+        padding: 18px 16px;
+    }
+}
+
+/* =========================================================
+   CREATE — AUTOSAVE STATUS
+   ========================================================= */
+
+.wiki-admin-autosave-note {
+    width: fit-content;
+    max-width: 100%;
+
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 10px;
+
+    padding: 11px 14px;
+
+    border: 1px solid rgba(93, 77, 168, 0.10);
+    border-radius: 11px;
+
+    background: rgba(238, 234, 253, 0.72);
+}
+
+
+.wiki-admin-autosave-indicator {
+    width: 8px;
+    height: 8px;
+
+    flex: 0 0 auto;
+
+    margin-top: 5px;
+
+    border-radius: 50%;
+
+    background: var(--primary);
+
+    box-shadow:
+        0 0 0 4px
+        rgba(93, 77, 168, 0.10);
+}
+
+
+.wiki-admin-autosave-content {
+    min-width: 0;
+}
+
+
+.wiki-admin-autosave-note
+.wiki-admin-autosave-content strong {
+    margin-bottom: 3px;
+
+    font-size: 11px;
+}
+
+
+.wiki-admin-autosave-note
+.wiki-admin-autosave-content p {
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+/* =========================================================
+   CREATE — PAGE HEADING
+   ========================================================= */
+
+.wiki-admin-create-heading {
+    margin-bottom: 24px;
+}
+
+
+.wiki-admin-create-heading
+.wiki-admin-back-link {
+    margin-bottom: 16px;
+}
+
+
+.wiki-admin-create-heading
+.wiki-admin-eyebrow {
+    display: inline-block;
+
+    margin-bottom: 7px;
+}
+
+
+.wiki-admin-create-heading h2 {
+    margin: 0 0 6px;
+
+    font-size: clamp(
+        22px,
+        2vw,
+        28px
+    );
+
+    line-height: 1.25;
+}
+
+
+.wiki-admin-create-heading p {
+    max-width: 620px;
+
+    line-height: 1.55;
+}
+
+
+@media (max-width: 650px) {
+
+    .wiki-admin-create-heading {
+        margin-bottom: 20px;
+    }
+
+
+    .wiki-admin-create-heading h2 {
+        font-size: 26px;
+    }
+
+
+    .wiki-admin-back-link {
+        margin-bottom: 14px;
+    }
+}
+/* =========================================================
+   FINAL POLISH — WIKI AUTOSAVE RECOVERY
+   ========================================================= */
+
+.wiki-autosave-recovery-dialog {
+    width: min(420px, calc(100vw - 32px));
+    padding: 20px;
+
+    border: 1px solid var(--border);
+    border-radius: 15px;
+
+    background: var(--surface);
+
+    box-shadow:
+        0 22px 60px
+        rgba(15, 23, 42, 0.22);
+}
+
+
+.wiki-autosave-recovery-content h3 {
+    margin: 6px 0 9px;
+
+    font-size: 18px;
+    line-height: 1.35;
+}
+
+
+.wiki-autosave-recovery-content p {
+    margin: 0 0 8px;
+
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+
+.wiki-autosave-recovery-help {
+    color: var(--text-secondary);
+
+    font-size: 12px;
+}
+
+
+.wiki-autosave-recovery-actions {
+    display: flex;
+    justify-content: flex-end;
+
+    gap: 8px;
+
+    margin-top: 17px;
+}
+
+
+.wiki-autosave-recovery-actions
+.wiki-admin-primary-button,
+.wiki-autosave-recovery-actions
+.wiki-admin-secondary-button {
+    min-height: 38px;
+
+    padding: 0 13px;
+
+    font-size: 11px;
+}
+
+
+/* =========================================================
+   FINAL POLISH — NORMAL AUTOSAVE STATUS
+   ========================================================= */
+
+.wiki-admin-autosave-note {
+    width: fit-content;
+    max-width: min(100%, 760px);
+
+    justify-self: start;
+
+    display: inline-flex;
+    align-items: flex-start;
+
+    gap: 10px;
+
+    padding: 11px 14px;
+
+    border: 1px solid
+        rgba(93, 77, 168, 0.10);
+
+    border-radius: 11px;
+
+    background:
+        rgba(238, 234, 253, 0.72);
+}
+
+
+.wiki-admin-autosave-indicator {
+    width: 7px;
+    height: 7px;
+
+    flex: 0 0 auto;
+
+    margin-top: 5px;
+
+    border-radius: 50%;
+
+    background: var(--primary);
+
+    box-shadow:
+        0 0 0 4px
+        rgba(93, 77, 168, 0.09);
+}
+
+
+.wiki-admin-autosave-content {
+    min-width: 0;
+}
+
+
+.wiki-admin-autosave-note
+.wiki-admin-autosave-content strong {
+    margin-bottom: 2px;
+
+    font-size: 11px;
+}
+
+
+.wiki-admin-autosave-note
+.wiki-admin-autosave-content p {
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-autosave-recovery-modal {
+        padding: 14px;
+    }
+
+
+    .wiki-autosave-recovery-dialog {
+        width: min(
+            380px,
+            calc(100vw - 28px)
+        );
+
+        padding: 18px;
+
+        border-radius: 14px;
+    }
+
+
+    .wiki-autosave-recovery-content h3 {
+        margin: 5px 0 8px;
+
+        font-size: 17px;
+        line-height: 1.35;
+    }
+
+
+    .wiki-autosave-recovery-content p {
+        font-size: 12px;
+        line-height: 1.5;
+    }
+
+
+    .wiki-autosave-recovery-help {
+        font-size: 11px;
+    }
+
+
+    .wiki-autosave-recovery-actions {
+        flex-direction: column;
+
+        gap: 8px;
+
+        margin-top: 16px;
+    }
+
+
+    .wiki-autosave-recovery-actions button {
+        width: 100%;
+        min-height: 40px;
+    }
+}
+
+/* =========================================================
+   CREATE — ARTICLE METADATA
+   ========================================================= */
+
+.wiki-admin-metadata-grid {
+    min-width: 0;
+
+    display: grid;
+
+    grid-template-columns:
+        minmax(0, 2fr)
+        minmax(280px, 1fr);
+
+    align-items: start;
+
+    gap: 18px;
+}
+
+
+/* =========================================================
+   FORM FIELD POLISH
+   ========================================================= */
+
+.wiki-admin-form-group {
+    min-width: 0;
+}
+
+
+.wiki-admin-form-group label {
+    color: var(--text-primary);
+
+    font-size: 12px;
+    font-weight: 700;
+
+    line-height: 1.4;
+}
+
+
+.wiki-admin-form-group input,
+.wiki-admin-form-group select,
+.wiki-admin-form-group textarea {
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease,
+        background 0.15s ease;
+}
+
+
+.wiki-admin-form-group input:hover,
+.wiki-admin-form-group select:hover,
+.wiki-admin-form-group textarea:hover {
+    border-color: #d7d8de;
+}
+
+
+.wiki-admin-form-group small {
+    display: block;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+
+/* =========================================================
+   TITLE
+   ========================================================= */
+
+#wikiTitle {
+    min-height: 48px;
+
+    padding:
+        0
+        14px;
+}
+
+
+/* =========================================================
+   ARTICLE TYPE
+   ========================================================= */
+
+#wikiArticleType {
+    min-height: 48px;
+
+    padding-left: 14px;
+    padding-right: 38px;
+}
+
+
+/* =========================================================
+   SUMMARY
+   ========================================================= */
+
+#wikiSummary {
+    min-height: 118px;
+    max-height: 240px;
+
+    padding: 13px 14px;
+
+    line-height: 1.6;
+}
+
+
+/* =========================================================
+   RESPONSIVE METADATA
+   ========================================================= */
+
+@media (max-width: 950px) {
+
+    .wiki-admin-metadata-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+
+@media (max-width: 650px) {
+
+    .wiki-admin-metadata-grid {
+        gap: 20px;
+    }
+
+
+    #wikiTitle,
+    #wikiArticleType {
+        min-height: 46px;
+    }
+
+
+    #wikiSummary {
+        min-height: 110px;
+    }
+}
+
+/* =========================================================
+   CREATE — CONTENT HEADER
+   ========================================================= */
+
+.wiki-admin-content-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+
+    gap: 12px 18px;
+
+    margin-bottom: 9px;
+}
+
+
+.wiki-admin-content-header > div {
+    min-width: 0;
+}
+
+
+.wiki-admin-content-header label {
+    margin-bottom: 3px;
+
+    font-size: 13px;
+    font-weight: 700;
+}
+
+
+.wiki-admin-content-header small {
+    line-height: 1.45;
+}
+
+
+/*
+ * Không cho rule mobile chung:
+ *
+ * .wiki-admin-secondary-button { flex: 1; }
+ *
+ * kéo nút Apply Template chiếm hết hàng.
+ */
+.wiki-admin-content-header
+.wiki-admin-secondary-button {
+    width: auto;
+
+    flex: 0 0 auto;
+
+    min-height: 40px;
+
+    padding:
+        0
+        14px;
+
+    white-space: nowrap;
+}
+
+
+/* =========================================================
+   TEMPLATE HELP
+   ========================================================= */
+
+.wiki-admin-template-help {
+    margin-bottom: 12px;
+
+    color: var(--text-secondary);
+
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-content-header {
+        align-items: flex-start;
+
+        gap: 10px;
+    }
+
+
+    .wiki-admin-content-header
+    .wiki-admin-secondary-button {
+        width: auto;
+
+        flex: 0 0 auto;
+
+        min-height: 38px;
+
+        padding:
+            0
+            12px;
+
+        font-size: 11px;
+    }
+
+
+    .wiki-admin-template-help {
+        margin-bottom: 10px;
+
+        font-size: 10px;
+    }
+}
+
+/* =========================================================
+   MARKDOWN TOOLBAR — RESPONSIVE
+   ========================================================= */
+
+.wiki-markdown-toolbar {
+    width: 100%;
+    max-width: 100%;
+
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+
+    gap: 5px;
+
+    overflow-x: auto;
+    overflow-y: hidden;
+
+    scrollbar-width: thin;
+
+    overscroll-behavior-inline: contain;
+}
+
+
+/*
+ * Không cho từng nhóm toolbar bị ép nhỏ.
+ */
+.wiki-markdown-toolbar-group {
+    flex: 0 0 auto;
+}
+
+
+/*
+ * Divider phải giữ nguyên kích thước.
+ */
+.wiki-markdown-toolbar-divider {
+    flex: 0 0 1px;
+}
+
+
+/*
+ * Button không xuống dòng.
+ */
+.wiki-markdown-tool {
+    flex: 0 0 auto;
+
+    white-space: nowrap;
+}
+
+
+/* =========================================================
+   TOOLBAR BUTTON POLISH
+   ========================================================= */
+
+#wikiWritePanel
+.wiki-markdown-toolbar {
+    padding: 7px 9px;
+}
+
+
+#wikiWritePanel
+.wiki-markdown-tool {
+    min-width: 36px;
+    height: 34px;
+
+    padding: 0 9px;
+
+    border-radius: 7px;
+
+    font-size: 12px;
+}
+
+
+#wikiWritePanel
+.wiki-markdown-tool:hover:not(:disabled) {
+    border-color: var(--border);
+
+    background: var(--surface);
+    color: var(--primary);
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    #wikiWritePanel
+    .wiki-markdown-toolbar {
+        gap: 4px;
+
+        padding: 7px;
+
+        /*
+         * Một hàng duy nhất.
+         * Vuốt ngang để xem các tool phía sau.
+         */
+        flex-wrap: nowrap;
+    }
+
+
+    #wikiWritePanel
+    .wiki-markdown-tool {
+        min-width: 34px;
+        height: 34px;
+
+        padding: 0 8px;
+
+        font-size: 11px;
+    }
+
+
+    #wikiWritePanel
+    .wiki-markdown-toolbar-divider {
+        height: 22px;
+
+        margin: 0 2px;
+    }
+}
+
+/* =========================================================
+   MARKDOWN EDITOR — SURFACE POLISH
+   ========================================================= */
+
+.wiki-markdown-editor-shell {
+    border-color: #dedfe5;
+
+    box-shadow:
+        0 1px 2px rgba(32, 33, 36, 0.03);
+
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+
+/*
+ * Khi textarea đang được focus,
+ * làm cả editor nổi nhẹ lên.
+ */
+.wiki-markdown-editor-shell:focus-within {
+    border-color:
+        rgba(93, 77, 168, 0.48);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(93, 77, 168, 0.07);
+}
+
+
+/* =========================================================
+   WRITE / PREVIEW TABS
+   ========================================================= */
+
+.wiki-markdown-editor-tabs {
+    min-height: 48px;
+
+    align-items: stretch;
+
+    padding: 0 12px;
+
+    background: #fafafd;
+}
+
+
+.wiki-markdown-editor-tab {
+    min-height: 48px;
+
+    padding: 0 14px;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    font-weight: 700;
+
+    transition:
+        color 0.15s ease,
+        background 0.15s ease;
+}
+
+
+.wiki-markdown-editor-tab:hover {
+    color: var(--primary);
+
+    background:
+        rgba(93, 77, 168, 0.035);
+}
+
+
+.wiki-markdown-editor-tab.is-active {
+    color: var(--primary);
+}
+
+
+.wiki-markdown-editor-tab.is-active::after {
+    right: 8px;
+    left: 8px;
+
+    height: 2px;
+
+    background: var(--primary);
+}
+
+
+/* =========================================================
+   TEXTAREA
+   ========================================================= */
+
+#wikiWritePanel #wikiContent {
+    padding: 20px;
+
+    color: var(--text-primary);
+
+    font-family:
+        "Cascadia Code",
+        "Consolas",
+        monospace;
+
+    font-size: 13px;
+    line-height: 1.75;
+
+    caret-color: var(--primary);
+}
+
+
+#wikiWritePanel #wikiContent::placeholder {
+    color: #9a9da5;
+}
+
+
+/* =========================================================
+   MARKDOWN HELP BAR
+   ========================================================= */
+
+#wikiWritePanel
+.wiki-admin-markdown-help {
+    gap: 16px;
+
+    padding:
+        10px
+        16px;
+
+    background: #fafafd;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+}
+
+
+#wikiWritePanel
+.wiki-admin-markdown-help strong {
+    color: var(--primary);
+}
+
+
+/* =========================================================
+   PREVIEW
+   ========================================================= */
+
+#wikiPreviewPanel {
+    background: var(--surface);
+}
+
+
+#wikiPreviewPanel
+.wiki-markdown-preview {
+    width: 100%;
+    max-width: 100%;
+
+    padding:
+        26px
+        30px;
+
+    overflow-wrap: anywhere;
+}
+
+
+/* =========================================================
+   PREVIEW STATES
+   ========================================================= */
+
+.wiki-markdown-preview-state {
+    min-height: 220px;
+
+    display: grid;
+    place-items: center;
+
+    padding: 32px;
+
+    color: var(--text-secondary);
+
+    font-size: 12px;
+    text-align: center;
+}
+
+
+/* hidden vẫn phải thực sự biến mất */
+.wiki-markdown-preview-state[hidden] {
+    display: none !important;
+}
+
+
+/* =========================================================
+   TOOLBAR SCROLLBAR
+   ========================================================= */
+
+/*
+ * Toolbar vẫn vuốt ngang được,
+ * nhưng không cần hiện scrollbar xám lớn trên mobile.
+ */
+.wiki-markdown-toolbar {
+    scrollbar-width: none;
+}
+
+
+.wiki-markdown-toolbar::-webkit-scrollbar {
+    display: none;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-markdown-editor-tabs {
+        min-height: 46px;
+
+        padding:
+            0
+            8px;
+    }
+
+
+    .wiki-markdown-editor-tab {
+        min-height: 46px;
+
+        padding:
+            0
+            12px;
+
+        font-size: 11px;
+    }
+
+
+    #wikiWritePanel #wikiContent {
+        padding: 15px;
+
+        font-size: 12px;
+        line-height: 1.7;
+    }
+
+
+    #wikiPreviewPanel
+    .wiki-markdown-preview {
+        padding:
+            18px
+            16px;
+
+        font-size: 13px;
+        line-height: 1.7;
+    }
+
+
+    #wikiWritePanel
+    .wiki-admin-markdown-help {
+        gap: 10px;
+
+        padding:
+            9px
+            12px;
+    }
+}
+
+/* =========================================================
+   CREATE — EDIT SUMMARY
+   ========================================================= */
+
+#wikiEditSummary {
+    min-height: 46px;
+
+    padding:
+        0
+        14px;
+}
+
+
+/* =========================================================
+   CREATE — DRAFT / PUBLISH NOTE
+   ========================================================= */
+
+.wiki-admin-publish-note {
+    display: block;
+
+    padding: 16px 18px;
+
+    border: 1px solid
+        rgba(93, 77, 168, 0.10);
+
+    border-radius: 12px;
+
+    background:
+        rgba(238, 234, 253, 0.55);
+}
+
+
+.wiki-admin-publish-note-label {
+    display: block;
+
+    margin-bottom: 12px;
+
+    color: var(--primary);
+
+    font-size: 10px;
+    font-weight: 800;
+
+    letter-spacing: 1px;
+}
+
+
+.wiki-admin-publish-options {
+    display: grid;
+
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+
+    gap: 18px;
+}
+
+
+.wiki-admin-publish-option {
+    min-width: 0;
+}
+
+
+.wiki-admin-publish-option + .wiki-admin-publish-option {
+    padding-left: 18px;
+
+    border-left: 1px solid
+        rgba(93, 77, 168, 0.14);
+}
+
+
+.wiki-admin-publish-note
+.wiki-admin-publish-option strong {
+    display: block;
+
+    margin-bottom: 4px;
+
+    color: var(--text-primary);
+
+    font-size: 11px;
+}
+
+
+.wiki-admin-publish-note
+.wiki-admin-publish-option p {
+    margin: 0;
+
+    color: var(--text-secondary);
+
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    .wiki-admin-publish-note {
+        padding:
+            15px
+            16px;
+    }
+
+
+    .wiki-admin-publish-options {
+        grid-template-columns: 1fr;
+
+        gap: 13px;
+    }
+
+
+    .wiki-admin-publish-option + .wiki-admin-publish-option {
+        padding-top: 13px;
+        padding-left: 0;
+
+        border-top: 1px solid
+            rgba(93, 77, 168, 0.14);
+
+        border-left: 0;
+    }
+}
+
+/* =========================================================
+   CREATE — FORM ACTION BAR
+   ========================================================= */
+
+.wiki-admin-form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+
+    gap: 10px;
+
+    margin:
+        0
+        -28px
+        -28px;
+
+    padding:
+        16px
+        28px;
+
+    border-top: 1px solid var(--border);
+
+    background:
+        rgba(255, 255, 255, 0.94);
+
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+
+/* Secondary actions */
+.wiki-admin-form-actions
+.wiki-admin-secondary-button {
+    min-height: 42px;
+
+    padding:
+        0
+        16px;
+}
+
+
+/* Primary publish */
+.wiki-admin-form-actions
+.wiki-admin-primary-button {
+    min-height: 42px;
+
+    padding:
+        0
+        18px;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+    /*
+     * Không sticky trên mobile:
+     * 3 button xếp dọc sẽ chiếm quá nhiều viewport.
+     */
+    .wiki-admin-form-actions {
+        position: static;
+
+        flex-direction: column;
+
+        gap: 9px;
+
+        margin:
+            0
+            -16px
+            -16px;
+
+        padding:
+            16px;
+
+        background: #fafafd;
+
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+
+
+    .wiki-admin-form-actions
+    .wiki-admin-primary-button,
+    .wiki-admin-form-actions
+    .wiki-admin-secondary-button {
+        width: 100%;
+        min-height: 46px;
+    }
+
+
+    /*
+     * Mobile hierarchy:
+     *
+     * Publish
+     * Save Draft
+     * Cancel
+     */
+    .wiki-admin-form-actions
+    .wiki-admin-primary-button {
+        order: 1;
+    }
+
+
+    .wiki-admin-form-actions
+    button[value="SAVE_DRAFT"] {
+        order: 2;
+    }
+
+
+    .wiki-admin-form-actions
+    a.wiki-admin-secondary-button {
+        order: 3;
+    }
+}
