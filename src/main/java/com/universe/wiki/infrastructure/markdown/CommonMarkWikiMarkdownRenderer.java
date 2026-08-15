@@ -48,6 +48,16 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 	private static final String CLEAR_WRAP_MARKER = "[[WIKI_CLEAR]]";
 
+	private static final int DEFAULT_IMAGE_WIDTH = 50;
+
+	private static final int MIN_IMAGE_WIDTH = 20;
+
+	private static final int MAX_IMAGE_WIDTH = 100;
+
+	private static final int MAX_WRAPPING_IMAGE_WIDTH = 70;
+
+	private static final int IMAGE_WIDTH_STEP = 10;
+
 	public CommonMarkWikiMarkdownRenderer() {
 
 		this.extensions = List.of(TablesExtension.create());
@@ -131,11 +141,7 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 			@Override
 			public void visit(Paragraph paragraph) {
 
-				if (
-				        findLeadingWikiImage(
-				                paragraph
-				        ) != null
-				) {
+				if (findLeadingWikiImage(paragraph) != null) {
 
 					imageParagraphs.add(paragraph);
 
@@ -214,247 +220,144 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 		return CLEAR_WRAP_MARKER.equals(text.getLiteral().trim());
 	}
 
-	private Image findLeadingWikiImage(
-	        Paragraph paragraph
-	) {
+	private Image findLeadingWikiImage(Paragraph paragraph) {
 
-	    Node firstChild =
-	            paragraph.getFirstChild();
+		Node firstChild = paragraph.getFirstChild();
 
+		if (!(firstChild instanceof Image image)) {
+			return null;
+		}
 
-	    if (
-	            !(firstChild instanceof Image image)
-	    ) {
-	        return null;
-	    }
+		String title = image.getTitle();
 
+		if (title == null || !title.startsWith("wiki:")) {
+			return null;
+		}
 
-	    String title =
-	            image.getTitle();
-
-
-	    if (
-	            title == null
-	            || !title.startsWith(
-	                    "wiki:"
-	            )
-	    ) {
-	        return null;
-	    }
-
-
-	    /*
-	     * Không yêu cầu ảnh phải là node duy nhất.
-	     *
-	     * Nếu phía sau ảnh còn text,
-	     * transform sẽ tự tách text thành
-	     * paragraph riêng.
-	     */
-	    return image;
+		/*
+		 * Không yêu cầu ảnh phải là node duy nhất.
+		 *
+		 * Nếu phía sau ảnh còn text, transform sẽ tự tách text thành paragraph riêng.
+		 */
+		return image;
 	}
-	private void transformWikiImageParagraph(
-	        Paragraph paragraph
-	) {
 
-	    Image image =
-	            findLeadingWikiImage(
-	                    paragraph
-	            );
+	private void transformWikiImageParagraph(Paragraph paragraph) {
 
+		Image image = findLeadingWikiImage(paragraph);
 
-	    if (image == null) {
-	        return;
-	    }
+		if (image == null) {
+			return;
+		}
 
+		/*
+		 * Có thể phía sau Image vẫn còn:
+		 *
+		 * SoftLineBreak Text
+		 *
+		 * vì Admin không để dòng trống.
+		 */
+		Node trailingNode = image.getNext();
 
-	    /*
-	     * Có thể phía sau Image vẫn còn:
-	     *
-	     * SoftLineBreak
-	     * Text
-	     *
-	     * vì Admin không để dòng trống.
-	     */
-	    Node trailingNode =
-	            image.getNext();
+		WikiImageMetadata metadata = parseWikiImageMetadata(image.getTitle());
 
+		/*
+		 * Caption theo format:
+		 *
+		 * ![ảnh](...)
+		 *
+		 * *caption*
+		 *
+		 * chỉ được lấy khi paragraph ảnh thực sự không chứa text phía sau.
+		 */
+		Paragraph captionParagraph = trailingNode == null ? findCaptionParagraph(paragraph.getNext()) : null;
 
-	    WikiImageMetadata metadata =
-	            parseWikiImageMetadata(
-	                    image.getTitle()
-	            );
+		String caption = captionParagraph == null ? null : extractCaptionText(captionParagraph);
 
+		WikiImageBlock imageBlock = new WikiImageBlock(metadata.width(), metadata.layout(), caption);
 
-	    /*
-	     * Caption theo format:
-	     *
-	     * ![ảnh](...)
-	     *
-	     * *caption*
-	     *
-	     * chỉ được lấy khi paragraph ảnh
-	     * thực sự không chứa text phía sau.
-	     */
-	    Paragraph captionParagraph =
-	            trailingNode == null
-	                    ? findCaptionParagraph(
-	                            paragraph.getNext()
-	                    )
-	                    : null;
+		/*
+		 * Figure nằm tại vị trí paragraph cũ.
+		 */
+		paragraph.insertBefore(imageBlock);
 
+		/*
+		 * ===================================================== TEXT ĐANG DÍNH CHUNG
+		 * VỚI ẢNH =====================================================
+		 *
+		 * Ví dụ:
+		 *
+		 * ![ảnh](...) Cuộc sống hiện đại...
+		 *
+		 * CommonMark có thể parse thành:
+		 *
+		 * Paragraph Image SoftLineBreak Text
+		 *
+		 * Ta tách Text thành Paragraph mới.
+		 */
+		if (trailingNode != null) {
 
-	    String caption =
-	            captionParagraph == null
-	                    ? null
-	                    : extractCaptionText(
-	                            captionParagraph
-	                    );
+			Paragraph trailingParagraph = new Paragraph();
 
+			imageBlock.insertAfter(trailingParagraph);
 
-	    WikiImageBlock imageBlock =
-	            new WikiImageBlock(
-	                    metadata.size(),
-	                    metadata.layout(),
-	                    caption
-	            );
+			Node current = trailingNode;
 
+			boolean firstTrailingNode = true;
 
-	    /*
-	     * Figure nằm tại vị trí paragraph cũ.
-	     */
-	    paragraph.insertBefore(
-	            imageBlock
-	    );
+			while (current != null) {
 
+				Node next = current.getNext();
 
-	    /*
-	     * =====================================================
-	     * TEXT ĐANG DÍNH CHUNG VỚI ẢNH
-	     * =====================================================
-	     *
-	     * Ví dụ:
-	     *
-	     * ![ảnh](...)
-	     * Cuộc sống hiện đại...
-	     *
-	     * CommonMark có thể parse thành:
-	     *
-	     * Paragraph
-	     *   Image
-	     *   SoftLineBreak
-	     *   Text
-	     *
-	     * Ta tách Text thành Paragraph mới.
-	     */
-	    if (
-	            trailingNode != null
-	    ) {
+				current.unlink();
 
-	        Paragraph trailingParagraph =
-	                new Paragraph();
+				/*
+				 * Không giữ newline đầu tiên, vì paragraph mới tự tạo boundary rồi.
+				 */
+				if (firstTrailingNode && (current instanceof SoftLineBreak || current instanceof HardLineBreak)) {
 
+					firstTrailingNode = false;
 
-	        imageBlock.insertAfter(
-	                trailingParagraph
-	        );
+					current = next;
 
+					continue;
+				}
 
-	        Node current =
-	                trailingNode;
+				trailingParagraph.appendChild(current);
 
+				firstTrailingNode = false;
 
-	        boolean firstTrailingNode =
-	                true;
+				current = next;
+			}
 
+			/*
+			 * Trường hợp phía sau ảnh chỉ có newline nhưng không có text thật.
+			 */
+			if (trailingParagraph.getFirstChild() == null) {
 
-	        while (
-	                current != null
-	        ) {
+				trailingParagraph.unlink();
+			}
+		}
 
-	            Node next =
-	                    current.getNext();
+		/*
+		 * Chuyển Image node vào figure.
+		 */
+		image.unlink();
 
+		imageBlock.appendChild(image);
 
-	            current.unlink();
+		/*
+		 * Paragraph cũ không còn cần nữa.
+		 */
+		paragraph.unlink();
 
+		/*
+		 * Caption cũ giờ đã nằm trong figure.
+		 */
+		if (captionParagraph != null) {
 
-	            /*
-	             * Không giữ newline đầu tiên,
-	             * vì paragraph mới tự tạo boundary rồi.
-	             */
-	            if (
-	                    firstTrailingNode
-	                    && (
-	                        current instanceof SoftLineBreak
-	                        || current instanceof HardLineBreak
-	                    )
-	            ) {
-
-	                firstTrailingNode =
-	                        false;
-
-	                current =
-	                        next;
-
-	                continue;
-	            }
-
-
-	            trailingParagraph.appendChild(
-	                    current
-	            );
-
-
-	            firstTrailingNode =
-	                    false;
-
-
-	            current =
-	                    next;
-	        }
-
-
-	        /*
-	         * Trường hợp phía sau ảnh chỉ có newline
-	         * nhưng không có text thật.
-	         */
-	        if (
-	                trailingParagraph
-	                        .getFirstChild()
-	                == null
-	        ) {
-
-	            trailingParagraph.unlink();
-	        }
-	    }
-
-
-	    /*
-	     * Chuyển Image node vào figure.
-	     */
-	    image.unlink();
-
-
-	    imageBlock.appendChild(
-	            image
-	    );
-
-
-	    /*
-	     * Paragraph cũ không còn cần nữa.
-	     */
-	    paragraph.unlink();
-
-
-	    /*
-	     * Caption cũ giờ đã nằm trong figure.
-	     */
-	    if (
-	            captionParagraph != null
-	    ) {
-
-	        captionParagraph.unlink();
-	    }
+			captionParagraph.unlink();
+		}
 	}
 
 	private Paragraph findCaptionParagraph(Node possibleCaption) {
@@ -495,14 +398,21 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 	private WikiImageMetadata parseWikiImageMetadata(String title) {
 
-		String size = "medium";
+		int width = DEFAULT_IMAGE_WIDTH;
 
 		String layout = "block-center";
 
+		String legacySize = null;
+
 		String legacyAlign = null;
 
+		boolean hasWidth = false;
+
+		boolean hasLayout = false;
+
 		if (title == null || !title.startsWith("wiki:")) {
-			return new WikiImageMetadata(size, layout);
+
+			return new WikiImageMetadata(width, layout);
 		}
 
 		String metadata = title.substring("wiki:".length());
@@ -521,18 +431,51 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 			String value = pair[1].trim();
 
-			if ("size".equals(key) && isAllowedImageSize(value)) {
+			/*
+			 * =========================== NEW WIDTH FORMAT ===========================
+			 *
+			 * wiki:width=50
+			 */
+			if ("width".equals(key)) {
 
-				size = value;
-			}
+				Integer parsedWidth = parseAllowedImageWidth(value);
 
-			if ("layout".equals(key) && isAllowedImageLayout(value)) {
+				if (parsedWidth != null) {
 
-				layout = value;
+					width = parsedWidth;
+
+					hasWidth = true;
+				}
+
+				continue;
 			}
 
 			/*
-			 * Tương thích Markdown ảnh cũ.
+			 * =========================== LEGACY SIZE FORMAT ===========================
+			 *
+			 * wiki:size=small
+			 */
+			if ("size".equals(key) && isAllowedLegacyImageSize(value)) {
+
+				legacySize = value;
+
+				continue;
+			}
+
+			/*
+			 * =========================== LAYOUT ===========================
+			 */
+			if ("layout".equals(key) && isAllowedImageLayout(value)) {
+
+				layout = value;
+
+				hasLayout = true;
+
+				continue;
+			}
+
+			/*
+			 * =========================== VERY OLD ALIGN FORMAT ===========================
 			 */
 			if ("align".equals(key) && isAllowedLegacyAlign(value)) {
 
@@ -541,11 +484,19 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 		}
 
 		/*
-		 * Chỉ dùng align cũ nếu Markdown chưa có layout mới.
+		 * Nếu Markdown chưa có width mới, convert size cũ sang %.
 		 */
-		boolean hasNewLayout = metadata.contains("layout=");
+		if (!hasWidth && legacySize != null) {
 
-		if (!hasNewLayout && legacyAlign != null) {
+			width = mapLegacyImageSizeToWidth(legacySize);
+		}
+
+		/*
+		 * Markdown rất cũ:
+		 *
+		 * align=left/right/center
+		 */
+		if (!hasLayout && legacyAlign != null) {
 
 			layout = switch (legacyAlign) {
 
@@ -558,19 +509,60 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 		}
 
 		/*
-		 * Wrap + full width không có ý nghĩa, vì sẽ không còn chỗ cho text.
+		 * Wrap quá rộng sẽ làm phần text bên cạnh gần như không còn chỗ.
 		 */
-		if ("full".equals(size) && isWrappingLayout(layout)) {
+		if (isWrappingLayout(layout) && width > MAX_WRAPPING_IMAGE_WIDTH) {
 
-			size = "large";
+			width = MAX_WRAPPING_IMAGE_WIDTH;
 		}
 
-		return new WikiImageMetadata(size, layout);
+		return new WikiImageMetadata(width, layout);
 	}
 
-	private boolean isAllowedImageSize(String value) {
+	private Integer parseAllowedImageWidth(String value) {
+
+		try {
+
+			int width = Integer.parseInt(value);
+
+			if (width < MIN_IMAGE_WIDTH || width > MAX_IMAGE_WIDTH) {
+
+				return null;
+			}
+
+			if (width % IMAGE_WIDTH_STEP != 0) {
+
+				return null;
+			}
+
+			return width;
+
+		} catch (NumberFormatException exception) {
+
+			return null;
+		}
+	}
+
+	private boolean isAllowedLegacyImageSize(String value) {
 
 		return "small".equals(value) || "medium".equals(value) || "large".equals(value) || "full".equals(value);
+	}
+
+	private int mapLegacyImageSizeToWidth(String size) {
+
+		return switch (size) {
+
+		case "small" -> 30;
+
+		case "large" -> 70;
+
+		case "full" -> 100;
+
+		/*
+		 * medium
+		 */
+		default -> DEFAULT_IMAGE_WIDTH;
+		};
 	}
 
 	private boolean isAllowedImageLayout(String value) {
@@ -656,23 +648,19 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 				 * javascript:... không được dùng cho link và image.
 				 */
 				.sanitizeUrls(true)
-				
+
 				/*
-	             * Giữ xuống dòng đơn trong Markdown
-	             * khi render ra HTML.
-	             *
-	             * Ví dụ:
-	             *
-	             * Dòng 1
-	             * Dòng 2
-	             *
-	             * =>
-	             *
-	             * Dòng 1<br>
-	             * Dòng 2
-	             */
-	            .softbreak("<br />\n")
-	            
+				 * Giữ xuống dòng đơn trong Markdown khi render ra HTML.
+				 *
+				 * Ví dụ:
+				 *
+				 * Dòng 1 Dòng 2
+				 *
+				 * =>
+				 *
+				 * Dòng 1<br> Dòng 2
+				 */
+				.softbreak("<br />\n")
 
 				/*
 				 * Custom figure renderer.
@@ -724,30 +712,33 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 	private static final class WikiImageBlock extends CustomBlock {
 
-		private final String size;
+		private final int width;
 
 		private final String layout;
 
 		private final String caption;
 
-		private WikiImageBlock(String size, String layout, String caption) {
+		private WikiImageBlock(int width, String layout, String caption) {
 
-			this.size = size;
+			this.width = width;
 
 			this.layout = layout;
 
 			this.caption = caption;
 		}
 
-		private String getSize() {
-			return size;
+		private int getWidth() {
+
+			return width;
 		}
 
 		private String getLayout() {
+
 			return layout;
 		}
 
 		private String getCaption() {
+
 			return caption;
 		}
 	}
@@ -755,7 +746,7 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 	private static final class WikiClearBlock extends CustomBlock {
 	}
 
-	private record WikiImageMetadata(String size, String layout) {
+	private record WikiImageMetadata(int width, String layout) {
 	}
 
 	/*
@@ -784,39 +775,24 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 		@Override
 		public void render(Node node) {
-			
-			if (
-			        node instanceof WikiClearBlock
-			) {
 
-			    html.line();
+			if (node instanceof WikiClearBlock) {
 
+				html.line();
 
-			    html.tag(
-			            "div",
-			            Map.of(
-			                    "class",
-			                    "wiki-clear-wrap",
-			                    "aria-hidden",
-			                    "true"
-			            )
-			    );
+				html.tag("div", Map.of("class", "wiki-clear-wrap", "aria-hidden", "true"));
 
+				html.tag("/div");
 
-			    html.tag(
-			            "/div"
-			    );
+				html.line();
 
-
-			    html.line();
-
-			    return;
+				return;
 			}
 
 			WikiImageBlock block = (WikiImageBlock) node;
 
 			Map<String, String> attributes = Map.of("class",
-					"wiki-media " + "wiki-media--" + block.getSize() + " " + "wiki-media--" + block.getLayout());
+					"wiki-media " + "wiki-media--width-" + block.getWidth() + " " + "wiki-media--" + block.getLayout());
 
 			html.line();
 

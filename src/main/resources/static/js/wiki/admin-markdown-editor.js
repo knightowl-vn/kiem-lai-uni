@@ -133,23 +133,23 @@ document.addEventListener(
                 /*
                  * Ctrl + I
                  */
-				if (key === "i") {
+                if (key === "i") {
 
-				    event.preventDefault();
+                    event.preventDefault();
 
-				    history.flush();
+                    history.flush();
 
-				    toggleInline(
-				        editor,
-				        "_",
-				        "_",
-				        "văn bản in nghiêng"
-				    );
+                    toggleInline(
+                        editor,
+                        "_",
+                        "_",
+                        "văn bản in nghiêng"
+                    );
 
-				    history.record();
+                    history.record();
 
-				    return;
-				}
+                    return;
+                }
 
                 /*
                  * Ctrl + K
@@ -506,137 +506,137 @@ function toggleInline(
 
         return;
     }
-	
-	/*
-	 * CASE 2B
-	 *
-	 * Chuẩn hóa Bold + Italic.
-	 *
-	 * Quy ước của Wiki Editor:
-	 *
-	 * **_Content_**
-	 *
-	 * thay vì:
-	 *
-	 * _**Content**_
-	 *
-	 * Chỉ cần xử lý đặc biệt khi action hiện tại
-	 * là Bold (**).
-	 */
-	if (
-	    selected.length > 0
-	    && before === "**"
-	    && after === "**"
-	) {
 
-	    /*
-	     * CASE 2B.1
-	     *
-	     * Source:
-	     *
-	     * **_Content_**
-	     *
-	     * Người dùng chỉ select:
-	     *
-	     * Content
-	     *
-	     * rồi bấm Bold lần nữa.
-	     *
-	     * → bỏ Bold
-	     * → giữ Italic:
-	     *
-	     * _Content_
-	     */
-	    if (
-	        start >= 3
-	        && value.substring(
-	            start - 3,
-	            start
-	        ) === "**_"
-	        && value.substring(
-	            end,
-	            end + 3
-	        ) === "_**"
-	    ) {
-	        const replacement =
-	            "_"
-	            + selected
-	            + "_";
+    /*
+     * CASE 2B
+     *
+     * Chuẩn hóa Bold + Italic.
+     *
+     * Quy ước của Wiki Editor:
+     *
+     * **_Content_**
+     *
+     * thay vì:
+     *
+     * _**Content**_
+     *
+     * Chỉ cần xử lý đặc biệt khi action hiện tại
+     * là Bold (**).
+     */
+    if (
+        selected.length > 0
+        && before === "**"
+        && after === "**"
+    ) {
 
-	        replaceRange(
-	            editor,
-	            start - 3,
-	            end + 3,
-	            replacement
-	        );
+        /*
+         * CASE 2B.1
+         *
+         * Source:
+         *
+         * **_Content_**
+         *
+         * Người dùng chỉ select:
+         *
+         * Content
+         *
+         * rồi bấm Bold lần nữa.
+         *
+         * → bỏ Bold
+         * → giữ Italic:
+         *
+         * _Content_
+         */
+        if (
+            start >= 3
+            && value.substring(
+                start - 3,
+                start
+            ) === "**_"
+            && value.substring(
+                end,
+                end + 3
+            ) === "_**"
+        ) {
+            const replacement =
+                "_"
+                + selected
+                + "_";
 
-	        editor.focus();
+            replaceRange(
+                editor,
+                start - 3,
+                end + 3,
+                replacement
+            );
 
-	        editor.setSelectionRange(
-	            start - 2,
-	            start - 2
-	            + selected.length
-	        );
+            editor.focus();
 
-	        return;
-	    }
+            editor.setSelectionRange(
+                start - 2,
+                start - 2
+                + selected.length
+            );
+
+            return;
+        }
 
 
-	    /*
-	     * CASE 2B.2
-	     *
-	     * Source:
-	     *
-	     * _Content_
-	     *
-	     * Người dùng chỉ select:
-	     *
-	     * Content
-	     *
-	     * rồi bấm Bold.
-	     *
-	     * Thay vì:
-	     *
-	     * _**Content**_
-	     *
-	     * chuẩn hóa thành:
-	     *
-	     * **_Content_**
-	     */
-	    if (
-	        start >= 1
-	        && value.substring(
-	            start - 1,
-	            start
-	        ) === "_"
-	        && value.substring(
-	            end,
-	            end + 1
-	        ) === "_"
-	    ) {
-	        const replacement =
-	            "**_"
-	            + selected
-	            + "_**";
+        /*
+         * CASE 2B.2
+         *
+         * Source:
+         *
+         * _Content_
+         *
+         * Người dùng chỉ select:
+         *
+         * Content
+         *
+         * rồi bấm Bold.
+         *
+         * Thay vì:
+         *
+         * _**Content**_
+         *
+         * chuẩn hóa thành:
+         *
+         * **_Content_**
+         */
+        if (
+            start >= 1
+            && value.substring(
+                start - 1,
+                start
+            ) === "_"
+            && value.substring(
+                end,
+                end + 1
+            ) === "_"
+        ) {
+            const replacement =
+                "**_"
+                + selected
+                + "_**";
 
-	        replaceRange(
-	            editor,
-	            start - 1,
-	            end + 1,
-	            replacement
-	        );
+            replaceRange(
+                editor,
+                start - 1,
+                end + 1,
+                replacement
+            );
 
-	        editor.focus();
+            editor.focus();
 
-	        editor.setSelectionRange(
-	            start + 2,
-	            start + 2
-	            + selected.length
-	        );
+            editor.setSelectionRange(
+                start + 2,
+                start + 2
+                + selected.length
+            );
 
-	        return;
-	    }
-	}
+            return;
+        }
+    }
 
 
     /*
@@ -2783,6 +2783,21 @@ function setupImageUpload(
             "wikiImageCaption"
         );
 
+    const sizeDecreaseButton =
+        document.getElementById(
+            "wikiImageSizeDecrease"
+        );
+
+    const sizeValueButton =
+        document.getElementById(
+            "wikiImageSizeValue"
+        );
+
+    const sizeIncreaseButton =
+        document.getElementById(
+            "wikiImageSizeIncrease"
+        );
+
     const confirmButton =
         document.getElementById(
             "wikiImageEditorConfirm"
@@ -2834,6 +2849,9 @@ function setupImageUpload(
         || !altInput
         || !captionInput
         || !confirmButton
+        || !sizeDecreaseButton
+        || !sizeValueButton
+        || !sizeIncreaseButton
     ) {
         return;
     }
@@ -2856,6 +2874,25 @@ function setupImageUpload(
     let editingBlock = null;
 
     let mode = "insert";
+
+    const MIN_IMAGE_WIDTH =
+        20;
+
+    const DEFAULT_IMAGE_WIDTH =
+        50;
+
+    const MAX_IMAGE_WIDTH =
+        100;
+
+    const MAX_WRAP_IMAGE_WIDTH =
+        70;
+
+    const IMAGE_WIDTH_STEP =
+        10;
+
+
+    let currentImageWidth =
+        DEFAULT_IMAGE_WIDTH;
 
 
     /* =====================================================
@@ -2883,6 +2920,175 @@ function setupImageUpload(
             fileInput.click();
         }
     );
+
+    /* =====================================================
+       IMAGE WIDTH
+       ===================================================== */
+
+    function normalizeImageWidth(
+        width
+    ) {
+
+        const numericWidth =
+            Number(
+                width
+            );
+
+
+        if (
+            !Number.isFinite(
+                numericWidth
+            )
+        ) {
+
+            return DEFAULT_IMAGE_WIDTH;
+        }
+
+
+        const steppedWidth =
+            Math.round(
+                numericWidth
+                / IMAGE_WIDTH_STEP
+            )
+            * IMAGE_WIDTH_STEP;
+
+
+        return Math.min(
+            MAX_IMAGE_WIDTH,
+            Math.max(
+                MIN_IMAGE_WIDTH,
+                steppedWidth
+            )
+        );
+    }
+
+    function isWrappingImageLayout() {
+
+        const layout =
+            getRadioValue(
+                "wikiImageLayout",
+                "block-center"
+            );
+
+        return (
+            layout === "wrap-left"
+            || layout === "wrap-right"
+        );
+    }
+
+
+    function getCurrentImageWidthLimit() {
+
+        return isWrappingImageLayout()
+            ? MAX_WRAP_IMAGE_WIDTH
+            : MAX_IMAGE_WIDTH;
+    }
+
+    function updateImageSizeControls() {
+
+        const maxWidth =
+            getCurrentImageWidthLimit();
+
+
+        sizeValueButton.textContent =
+            currentImageWidth
+            + "%";
+
+
+        sizeDecreaseButton.disabled =
+            currentImageWidth
+            <= MIN_IMAGE_WIDTH;
+
+
+        sizeIncreaseButton.disabled =
+            currentImageWidth
+            >= maxWidth;
+    }
+
+
+    function setImageWidth(
+        width
+    ) {
+
+        currentImageWidth =
+            normalizeImageWidth(
+                width
+            );
+
+
+        updateImageSizeControls();
+    }
+
+
+    sizeDecreaseButton.addEventListener(
+        "click",
+        function() {
+
+            setImageWidth(
+                currentImageWidth
+                - IMAGE_WIDTH_STEP
+            );
+        }
+    );
+
+
+    sizeIncreaseButton.addEventListener(
+        "click",
+        function() {
+
+            setImageWidth(
+                currentImageWidth
+                + IMAGE_WIDTH_STEP
+            );
+        }
+    );
+
+
+    sizeValueButton.addEventListener(
+        "click",
+        function() {
+
+            setImageWidth(
+                DEFAULT_IMAGE_WIDTH
+            );
+        }
+    );
+
+    document
+        .querySelectorAll(
+            'input[name="wikiImageLayout"]'
+        )
+        .forEach(
+            function(input) {
+
+                input.addEventListener(
+                    "change",
+                    function() {
+
+                        if (!input.checked) {
+                            return;
+                        }
+
+
+                        if (
+                            isWrappingImageLayout()
+                            && currentImageWidth
+                            > MAX_WRAP_IMAGE_WIDTH
+                        ) {
+
+                            setImageWidth(
+                                MAX_WRAP_IMAGE_WIDTH
+                            );
+
+                            return;
+                        }
+
+
+                        updateImageSizeControls();
+                    }
+                );
+            }
+        );
 
 
     /* =====================================================
@@ -2935,13 +3141,12 @@ function setupImageUpload(
 
 
             setRadioValue(
-                "wikiImageSize",
-                "medium"
-            );
-
-            setRadioValue(
                 "wikiImageLayout",
                 "block-center"
+            );
+
+            setImageWidth(
+                DEFAULT_IMAGE_WIDTH
             );
 
 
@@ -2985,10 +3190,35 @@ function setupImageUpload(
                     );
 
 
+                const sameUrlImages =
+                    Array.from(
+                        previewBody.querySelectorAll(
+                            "img.wiki-content-image"
+                        )
+                    ).filter(
+                        function(candidate) {
+
+                            return candidate.getAttribute(
+                                "src"
+                            ) === imageUrl;
+                        }
+                    );
+
+
+                const occurrenceIndex =
+                    Math.max(
+                        0,
+                        sameUrlImages.indexOf(
+                            image
+                        )
+                    );
+
+
                 const block =
                     findWikiImageBlockByUrl(
                         editor.value,
-                        imageUrl
+                        imageUrl,
+                        occurrenceIndex
                     );
 
 
@@ -3033,13 +3263,12 @@ function setupImageUpload(
 
 
                 setRadioValue(
-                    "wikiImageSize",
-                    block.size
-                );
-
-                setRadioValue(
                     "wikiImageLayout",
                     block.layout
+                );
+
+                setImageWidth(
+                    block.width
                 );
 
 
@@ -3079,12 +3308,6 @@ function setupImageUpload(
             const caption =
                 captionInput.value.trim();
 
-            const size =
-                getRadioValue(
-                    "wikiImageSize",
-                    "medium"
-                );
-
             let layout =
                 getRadioValue(
                     "wikiImageLayout",
@@ -3092,23 +3315,30 @@ function setupImageUpload(
                 );
 
 
-            let normalizedSize =
-                size;
+            let normalizedWidth =
+                currentImageWidth;
 
 
             /*
-             * Full width + wrap không có nghĩa
-             * vì sẽ không còn chỗ cho chữ.
+             * Bố trí bọc chữ chỉ cho phép
+             * kích thước tối đa 70%.
              */
             if (
-                normalizedSize === "full"
-                && (
+                (
                     layout === "wrap-left"
                     || layout === "wrap-right"
                 )
+                && normalizedWidth
+                > MAX_WRAP_IMAGE_WIDTH
             ) {
-                normalizedSize =
-                    "large";
+
+                normalizedWidth =
+                    MAX_WRAP_IMAGE_WIDTH;
+
+
+                setImageWidth(
+                    normalizedWidth
+                );
             }
 
 
@@ -3180,7 +3410,7 @@ function setupImageUpload(
                         altText,
                         imageUrl,
                         caption,
-                        normalizedSize,
+                        normalizedWidth,
                         layout
                     );
 
@@ -3463,9 +3693,10 @@ function buildWikiImageMarkdown(
     alt,
     url,
     caption,
-    size,
+    width,
     layout
 ) {
+
     const safeAlt =
         escapeMarkdownAltText(
             alt
@@ -3477,14 +3708,16 @@ function buildWikiImageMarkdown(
         + safeAlt
         + "]("
         + url
-        + ' "wiki:size='
-        + size
+        + ' "wiki:width='
+        + width
         + ";layout="
         + layout
         + '")';
 
 
-    if (caption) {
+    if (
+        caption
+    ) {
 
         markdown +=
             "\n\n*"
@@ -3505,14 +3738,19 @@ function buildWikiImageMarkdown(
 
 function findWikiImageBlockByUrl(
     markdown,
-    url
+    url,
+    targetOccurrence = 0
 ) {
     /*
-     * Hỗ trợ cả format mới:
+     * Format hiện tại:
+     *
+     * wiki:width=50;layout=wrap-right
+     *
+     * Legacy format:
      *
      * wiki:size=medium;layout=wrap-right
      *
-     * và format cũ:
+     * Very old format:
      *
      * wiki:size=medium;align=right
      */
@@ -3521,6 +3759,7 @@ function findWikiImageBlockByUrl(
 
 
     let match;
+    let currentOccurrence = 0;
 
 
     while (
@@ -3537,6 +3776,18 @@ function findWikiImageBlockByUrl(
         ) {
             continue;
         }
+
+        if (
+            currentOccurrence
+            !== targetOccurrence
+        ) {
+
+            currentOccurrence++;
+
+            continue;
+        }
+
+        currentOccurrence++;
 
 
         const metadata =
@@ -3562,8 +3813,8 @@ function findWikiImageBlockByUrl(
             url:
                 match[2],
 
-            size:
-                metadata.size,
+            width:
+                metadata.width,
 
             layout:
                 metadata.layout,
@@ -3582,14 +3833,21 @@ function findWikiImageBlockByUrl(
 function parseWikiImageMetadata(
     metadata
 ) {
-    let size =
-        "medium";
+
+    let width =
+        50;
 
     let layout =
         "block-center";
 
+    let legacySize =
+        null;
+
     let legacyAlign =
         null;
+
+    let hasWidth =
+        false;
 
     let hasLayout =
         false;
@@ -3628,6 +3886,45 @@ function parseWikiImageMetadata(
                         .trim();
 
 
+                /* =========================
+                   NEW WIDTH
+                   ========================= */
+
+                if (
+                    key === "width"
+                ) {
+
+                    const parsedWidth =
+                        Number(
+                            value
+                        );
+
+
+                    if (
+                        Number.isInteger(
+                            parsedWidth
+                        )
+                        && parsedWidth >= 20
+                        && parsedWidth <= 100
+                        && parsedWidth % 10 === 0
+                    ) {
+
+                        width =
+                            parsedWidth;
+
+                        hasWidth =
+                            true;
+                    }
+
+
+                    return;
+                }
+
+
+                /* =========================
+                   LEGACY SIZE
+                   ========================= */
+
                 if (
                     key === "size"
                     && [
@@ -3640,10 +3937,16 @@ function parseWikiImageMetadata(
                     )
                 ) {
 
-                    size =
+                    legacySize =
                         value;
+
+                    return;
                 }
 
+
+                /* =========================
+                   LAYOUT
+                   ========================= */
 
                 if (
                     key === "layout"
@@ -3663,8 +3966,14 @@ function parseWikiImageMetadata(
 
                     hasLayout =
                         true;
+
+                    return;
                 }
 
+
+                /* =========================
+                   OLD ALIGN
+                   ========================= */
 
                 if (
                     key === "align"
@@ -3685,7 +3994,51 @@ function parseWikiImageMetadata(
 
 
     /*
-     * Markdown ảnh cũ.
+     * Convert size cũ.
+     */
+    if (
+        !hasWidth
+        && legacySize
+    ) {
+
+        switch (
+        legacySize
+        ) {
+
+            case "small":
+
+                width =
+                    30;
+
+                break;
+
+
+            case "large":
+
+                width =
+                    70;
+
+                break;
+
+
+            case "full":
+
+                width =
+                    100;
+
+                break;
+
+
+            default:
+
+                width =
+                    50;
+        }
+    }
+
+
+    /*
+     * Align rất cũ.
      */
     if (
         !hasLayout
@@ -3697,37 +4050,47 @@ function parseWikiImageMetadata(
         ) {
 
             case "left":
+
                 layout =
                     "block-left";
+
                 break;
+
 
             case "right":
+
                 layout =
                     "block-right";
+
                 break;
 
+
             default:
+
                 layout =
                     "block-center";
         }
     }
 
 
+    /*
+     * Wrap tối đa 70%.
+     */
     if (
-        size === "full"
-        && (
+        (
             layout === "wrap-left"
             || layout === "wrap-right"
         )
+        && width > 70
     ) {
 
-        size =
-            "large";
+        width =
+            70;
     }
 
 
     return {
-        size,
+        width,
         layout
     };
 }
@@ -5129,9 +5492,10 @@ function validateMalformedWikiImages(
              *
              * Đúng:
              *
-             * ![alt](URL "wiki:size=small;layout=wrap-right")
-             * =================================================
-             */
+             * 			![alt](URL "wiki:width=40;layout=wrap-right")
+            *
+            * Legacy size=... vẫn được hỗ trợ.
+            */
             const validSyntax =
                 /^!\[(?:\\.|[^\]])*\]\([^\s)\r\n]+[ \t]+"wiki:[^"\r\n]*"\)$/
                     .test(
@@ -5274,6 +5638,7 @@ function validateWikiImageMetadata(
     markdown,
     diagnostics
 ) {
+
     const imagePattern =
         /!\[[^\]]*\]\([^\)]*"wiki:([^"]*)"\)/g;
 
@@ -5286,11 +5651,34 @@ function validateWikiImageMetadata(
         );
 
 
+    const allowedLegacySizes = [
+        "small",
+        "medium",
+        "large",
+        "full"
+    ];
+
+
+    const allowedLayouts = [
+        "block-left",
+        "block-center",
+        "block-right",
+        "wrap-left",
+        "wrap-right"
+    ];
+
+
     matches.forEach(
         function(match) {
 
             const metadata =
                 match[1];
+
+
+            const widthMatch =
+                metadata.match(
+                    /(?:^|;)width=([^;]+)/
+                );
 
 
             const sizeMatch =
@@ -5305,21 +5693,84 @@ function validateWikiImageMetadata(
                 );
 
 
+            /*
+             * =================================================
+             * WIDTH MỚI
+             *
+             * Hợp lệ:
+             *
+             * 20, 30, 40, ... 100
+             * =================================================
+             */
+
+            let parsedWidth =
+                null;
+
+
+            if (
+                widthMatch
+            ) {
+
+                parsedWidth =
+                    Number(
+                        widthMatch[1]
+                    );
+
+
+                const validWidth =
+                    Number.isInteger(
+                        parsedWidth
+                    )
+                    && parsedWidth >= 20
+                    && parsedWidth <= 100
+                    && parsedWidth % 10 === 0;
+
+
+                if (
+                    !validWidth
+                ) {
+
+                    diagnostics.push({
+
+                        message:
+                            "Ảnh Wiki sử dụng kích thước không hợp lệ: "
+                            + widthMatch[1]
+                            + "%. Kích thước phải từ 20% đến 100% "
+                            + "và tăng theo bước 10%. "
+                            + "Nhấn để tìm vị trí.",
+
+                        start:
+                            match.index,
+
+                        end:
+                            match.index
+                            + match[0].length
+                    });
+                }
+            }
+
+
+            /*
+             * =================================================
+             * LEGACY SIZE
+             *
+             * Bài/revision cũ vẫn hợp lệ:
+             *
+             * small / medium / large / full
+             * =================================================
+             */
+
             if (
                 sizeMatch
-                && ![
-                    "small",
-                    "medium",
-                    "large",
-                    "full"
-                ].includes(
+                && !allowedLegacySizes.includes(
                     sizeMatch[1]
                 )
             ) {
 
                 diagnostics.push({
+
                     message:
-                        "Ảnh Wiki sử dụng kích thước không hợp lệ: "
+                        "Ảnh Wiki sử dụng kích thước cũ không hợp lệ: "
                         + sizeMatch[1]
                         + ". Nhấn để tìm vị trí.",
 
@@ -5333,20 +5784,21 @@ function validateWikiImageMetadata(
             }
 
 
+            /*
+             * =================================================
+             * LAYOUT
+             * =================================================
+             */
+
             if (
                 layoutMatch
-                && ![
-                    "block-left",
-                    "block-center",
-                    "block-right",
-                    "wrap-left",
-                    "wrap-right"
-                ].includes(
+                && !allowedLayouts.includes(
                     layoutMatch[1]
                 )
             ) {
 
                 diagnostics.push({
+
                     message:
                         "Ảnh Wiki sử dụng bố trí không hợp lệ: "
                         + layoutMatch[1]
@@ -5362,19 +5814,75 @@ function validateWikiImageMetadata(
             }
 
 
+            /*
+             * Layout không hợp lệ thì không kiểm tra
+             * rule wrap phía dưới nữa.
+             */
+            const layout =
+                layoutMatch
+                    && allowedLayouts.includes(
+                        layoutMatch[1]
+                    )
+                    ? layoutMatch[1]
+                    : null;
+
+
+            const wrapping =
+                layout === "wrap-left"
+                || layout === "wrap-right";
+
+
+            /*
+             * =================================================
+             * WIDTH MỚI + WRAP
+             *
+             * wrap chỉ được tối đa 70%.
+             * =================================================
+             */
+
             if (
-                sizeMatch
-                && layoutMatch
-                && sizeMatch[1] === "full"
-                && (
-                    layoutMatch[1]
-                    === "wrap-left"
-                    || layoutMatch[1]
-                    === "wrap-right"
+                wrapping
+                && parsedWidth !== null
+                && Number.isInteger(
+                    parsedWidth
                 )
+                && parsedWidth > 70
             ) {
 
                 diagnostics.push({
+
+                    message:
+                        "Ảnh Wiki dùng bố trí bọc chữ chỉ được rộng tối đa 70%. "
+                        + "Kích thước hiện tại là "
+                        + parsedWidth
+                        + "%. Nhấn để tìm vị trí.",
+
+                    start:
+                        match.index,
+
+                    end:
+                        match.index
+                        + match[0].length
+                });
+            }
+
+
+            /*
+             * =================================================
+             * LEGACY FULL + WRAP
+             *
+             * Giữ kiểm tra cho Markdown cũ.
+             * =================================================
+             */
+
+            if (
+                wrapping
+                && sizeMatch
+                && sizeMatch[1] === "full"
+            ) {
+
+                diagnostics.push({
+
                     message:
                         "Ảnh Wiki toàn chiều rộng không thể dùng bố trí bọc chữ. "
                         + "Nhấn để tìm vị trí.",

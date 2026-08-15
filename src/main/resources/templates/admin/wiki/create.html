@@ -569,31 +569,36 @@
 								</div>
 
 
-								<!-- SIZE -->
+								<!-- ================================================= -->
+								<!-- IMAGE SIZE                                        -->
+								<!-- ================================================= -->
 
 								<fieldset class="wiki-image-editor-fieldset">
 
-									<legend> Kích thước </legend>
+									<legend>Kích thước ảnh</legend>
+
+									<div class="wiki-image-size-stepper">
+
+										<button id="wikiImageSizeDecrease" type="button"
+											class="wiki-image-size-button"
+											aria-label="Giảm kích thước ảnh">−</button>
 
 
-									<div class="wiki-image-choice-group">
+										<button id="wikiImageSizeValue" type="button"
+											class="wiki-image-size-value"
+											title="Đặt lại kích thước mặc định">50%</button>
 
-										<label class="wiki-image-choice"> <input type="radio"
-											name="wikiImageSize" value="small"> <span>Nhỏ</span>
 
-										</label> <label class="wiki-image-choice"> <input type="radio"
-											name="wikiImageSize" value="medium" checked> <span>Vừa</span>
-
-										</label> <label class="wiki-image-choice"> <input type="radio"
-											name="wikiImageSize" value="large"> <span>Lớn</span>
-
-										</label> <label class="wiki-image-choice"> <input type="radio"
-											name="wikiImageSize" value="full"> <span>Toàn
-												chiều rộng</span>
-
-										</label>
+										<button id="wikiImageSizeIncrease" type="button"
+											class="wiki-image-size-button"
+											aria-label="Tăng kích thước ảnh">+</button>
 
 									</div>
+
+
+									<small class="wiki-image-size-help"> Điều chỉnh từ 20%
+										đến 100%. Mỗi lần tăng hoặc giảm 10%. Nhấn vào phần trăm để
+										trở về 50%. </small>
 
 								</fieldset>
 

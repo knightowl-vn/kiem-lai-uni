@@ -29,79 +29,203 @@
 
 	<div th:replace="~{fragments/navbar :: navbar}"></div>
 
-	<main class="container py-5">
+	<main class="container py-5 wiki-public-main">
 
-		<div class="mb-4">
 
-			<a th:href="@{/wiki}" class="text-decoration-none"> ← Quay lại
-				Wiki </a>
+		<!-- ================================================= -->
+		<!-- BACK TO WIKI                                      -->
+		<!-- ================================================= -->
+
+		<div class="wiki-public-back">
+
+			<a th:href="@{/wiki}"> ← Quay lại Wiki </a>
 
 		</div>
 
-		<article class="card border-0 shadow-sm">
 
-			<div class="card-body p-4 p-lg-5">
 
-				<!-- ========================= -->
-				<!-- ARTICLE HEADER            -->
-				<!-- ========================= -->
+		<!-- ================================================= -->
+		<!-- ARTICLE HERO                                      -->
+		<!-- ================================================= -->
 
-				<header class="border-bottom pb-4 mb-4">
+		<article class="card wiki-public-article">
 
-					<span class="badge text-bg-secondary mb-3"
+			<div class="card-body wiki-public-article-inner">
+
+				<header class="wiki-public-article-header">
+
+
+					<!-- TYPE -->
+
+					<span class="wiki-public-type-badge"
 						th:text="${#strings.replace(
-                            article.articleType,
-                            '_',
-                            ' '
-                        )}">
+                        article.articleType,
+                        '_',
+                        ' '
+                    )}">
+
 						CHARACTER </span>
 
-					<h1 class="display-5 fw-semibold" th:text="${article.title}">
-						Trần Bình An</h1>
+
+					<!-- TITLE -->
+
+					<h1 class="wiki-public-title" th:text="${article.title}">Trần
+						Bình An</h1>
+
+
+					<!-- SUMMARY -->
 
 					<p
 						th:if="${article.summary != null
-        and !#strings.isEmpty(#strings.trim(article.summary))}"
-						class="lead text-body-secondary mb-3" th:text="${article.summary}">
-						Nhân vật chính của Kiếm Lai.</p>
+                        and !#strings.isEmpty(
+                            #strings.trim(article.summary)
+                        )}"
+						class="wiki-public-summary" th:text="${article.summary}">Nhân
+						vật chính của Kiếm Lai.</p>
 
-					<div class="small text-body-secondary">
 
-						<span> Xuất bản: <span th:text="${article.publishedAt}">
-								2026-08-06T09:00:00Z </span>
-						</span> <span class="mx-2"> • </span> <span> Cập nhật: <span
-							th:text="${article.updatedAt}"> 2026-08-06T10:00:00Z </span>
+					<!-- METADATA -->
+
+					<div class="wiki-public-meta">
+
+						<span th:if="${article.publishedAt != null}"> <span
+							class="wiki-public-meta-label"> Xuất bản </span> <strong
+							th:text="${#temporals.format(
+                                article.publishedAt,
+                                'dd/MM/yyyy HH:mm'
+                            )}">
+
+								14/08/2026 18:38 </strong>
+
+						</span> <span
+							th:if="${article.publishedAt != null
+        and article.updatedAt != null}"
+							class="wiki-public-meta-separator" aria-hidden="true"> • </span>
+						<span th:if="${article.updatedAt != null}"> <span
+							class="wiki-public-meta-label"> Cập nhật </span> <strong
+							th:text="${#temporals.format(
+                                article.updatedAt,
+                                'dd/MM/yyyy HH:mm'
+                            )}">
+
+								14/08/2026 19:38 </strong>
+
 						</span>
 
 					</div>
 
 				</header>
 
-				<!-- ========================= -->
-				<!-- TABLE OF CONTENTS         -->
-				<!-- ========================= -->
+			</div>
 
-				<nav class="wiki-table-of-contents" aria-label="Mục lục bài viết"
-					th:if="${!#lists.isEmpty(
-                        renderedContent.tableOfContents
-                    )}">
+		</article>
+
+		<!-- ================================================= -->
+		<!-- READING SETTINGS                                  -->
+		<!-- ================================================= -->
+
+		<div class="wiki-public-reading-toolbar"
+			aria-label="Tùy chỉnh đọc bài">
+
+			<span class="wiki-public-reading-toolbar-label"> Cỡ chữ </span>
+
+			<div class="wiki-public-font-controls" role="group"
+				aria-label="Điều chỉnh cỡ chữ">
+
+				<button type="button" class="wiki-public-font-button"
+					data-wiki-font-action="decrease" aria-label="Giảm cỡ chữ">
+
+					A−</button>
+
+
+				<button type="button" class="wiki-public-font-button"
+					data-wiki-font-action="reset"
+					aria-label="Khôi phục cỡ chữ mặc định">A</button>
+
+
+				<button type="button" class="wiki-public-font-button"
+					data-wiki-font-action="increase" aria-label="Tăng cỡ chữ">
+
+					A+</button>
+
+			</div>
+
+		</div>
+
+		<!-- ================================================= -->
+		<!-- READING WORKSPACE                                 -->
+		<!-- ================================================= -->
+
+		<div class="wiki-public-reading-layout"
+			th:classappend="${#lists.isEmpty(
+        renderedContent.tableOfContents
+    )} ? ' has-no-toc' : ''">
+
+
+			<!-- ARTICLE -->
+
+			<article class="wiki-public-reading-content">
+
+				<section class="wiki-article-content"
+					th:utext="${renderedContent.html}"></section>
+
+			</article>
+
+
+			<!-- TOC -->
+
+			<aside class="wiki-public-reading-sidebar"
+				th:if="${!#lists.isEmpty(
+            renderedContent.tableOfContents
+        )}">
+
+				<!-- ================================================= -->
+				<!-- MOBILE TOC TOGGLE                                 -->
+				<!-- ================================================= -->
+
+				<button type="button" class="wiki-public-toc-toggle"
+					aria-expanded="false" aria-controls="wikiPublicToc"
+					data-wiki-toc-toggle>
+
+					<span class="wiki-public-toc-toggle-main"> <span
+						class="wiki-public-toc-toggle-label"> Mục lục </span> <span
+						class="wiki-public-toc-count"
+						th:text="${#lists.size(
+                renderedContent.tableOfContents
+            )}">
+							7 </span>
+
+					</span> <span class="wiki-public-toc-toggle-icon" aria-hidden="true">
+						▾ </span>
+
+				</button>
+				<nav id="wikiPublicToc" class="wiki-table-of-contents"
+					aria-label="Mục lục bài viết">
 
 					<div class="wiki-toc-header">
 
-						<h2>Mục lục</h2>
+						<div>
+
+							<span class="wiki-toc-eyebrow"> NỘI DUNG </span>
+
+							<h2>Mục lục</h2>
+
+						</div>
 
 					</div>
 
+
 					<ol class="wiki-toc-list">
 
-						<li th:each="tocItem : ${renderedContent.tableOfContents}"
-							th:classappend="${
-                                tocItem.level == 3
-                                ? ' wiki-toc-level-3'
-                                : ' wiki-toc-level-2'
-                            }">
+						<li
+							th:each="tocItem :
+                        ${renderedContent.tableOfContents}"
+							th:classappend="${tocItem.level == 3
+                        ? ' wiki-toc-level-3'
+                        : ' wiki-toc-level-2'}">
 
 							<a th:href="${'#' + tocItem.anchor}" th:text="${tocItem.title}">
+
 								Tổng quan </a>
 
 						</li>
@@ -110,34 +234,20 @@
 
 				</nav>
 
-				<!-- ========================= -->
-				<!-- ARTICLE CONTENT           -->
-				<!-- ========================= -->
 
-				<!--
-                renderedContent.html được tạo bởi
-                WikiMarkdownRenderer.
+				<a class="wiki-public-back-to-top" href="#"> ↑ Đầu trang </a>
 
-                Raw HTML trong Markdown đã bị escape,
-                URL nguy hiểm đã được sanitize.
+			</aside>
 
-                Không được đổi thành:
-                th:utext="${article.content}"
-
-                vì article.content là source Markdown
-                chưa qua renderer.
-            -->
-				<section class="wiki-article-content"
-					th:utext="${renderedContent.html}">Nội dung chi tiết của
-					bài Wiki.</section>
-
-			</div>
-
-		</article>
+		</div>
 
 	</main>
 
 	<script th:src="@{/js/theme.js}"></script>
+
+	<script th:src="@{/js/wiki/wiki-reading-settings.js}"></script>
+	<script th:src="@{/js/wiki/wiki-toc-scrollspy.js}"></script>
+	<script th:src="@{/js/wiki/wiki-mobile-toc.js}"></script>
 
 </body>
 </html>
