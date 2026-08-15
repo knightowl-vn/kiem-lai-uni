@@ -774,14 +774,13 @@ a::before {
    PUBLIC WIKI — READING FONT SIZE
    ========================================================= */
 :root {
-	--wiki-reading-font-size: 16px;
-	--wiki-reading-line-height: 1.85;
+    --wiki-reading-line-height: 1.85;
 }
 
 .wiki-public-reading-content
 .wiki-article-content {
-	font-size: var(--wiki-reading-font-size);
-	line-height: var(--wiki-reading-line-height);
+    font-size: var(--reading-font-size, 16px);
+    line-height: var(--wiki-reading-line-height);
 }
 
 /* =========================================================

@@ -250,12 +250,47 @@
 
 					<section class="wiki-admin-revision-section">
 
-						<div class="wiki-admin-revision-section-heading">
+						<div
+							class="wiki-admin-revision-section-heading
+           wiki-admin-revision-content-heading">
 
-							<span class="wiki-admin-revision-section-eyebrow"> NỘI
-								DUNG </span>
+							<div>
 
-							<h3>Nội dung tại revision này</h3>
+								<span class="wiki-admin-revision-section-eyebrow"> NỘI
+									DUNG </span>
+
+								<h3>Nội dung tại revision này</h3>
+
+							</div>
+
+
+							<!-- ============================================= -->
+							<!-- GLOBAL READING PREFERENCE                     -->
+							<!-- ============================================= -->
+
+							<div class="wiki-admin-reading-toolbar"
+								aria-label="Tùy chỉnh cỡ chữ đọc bài">
+
+								<span class="wiki-admin-reading-toolbar-label"> Cỡ chữ </span>
+
+								<div class="wiki-admin-reading-controls" role="group"
+									aria-label="Điều chỉnh cỡ chữ">
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
+										A−</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="reset"
+										aria-label="Khôi phục cỡ chữ mặc định">A</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="increase" aria-label="Tăng cỡ chữ">
+										A+</button>
+
+								</div>
+
+							</div>
 
 						</div>
 
@@ -518,6 +553,8 @@
 					+ 'Lịch sử phiên bản cũ vẫn được giữ nguyên.');
 		}
 	</script>
+
+	<script th:src="@{/js/reading/reading-preferences.js}"></script>
 
 </body>
 

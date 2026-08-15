@@ -423,24 +423,65 @@
 
 					<section class="wiki-admin-detail-section">
 
-						<div class="wiki-admin-detail-section-heading">
+						<div
+							class="wiki-admin-detail-section-heading
+               wiki-admin-detail-content-heading">
 
-							<span class="wiki-admin-detail-section-eyebrow"> NỘI DUNG
-							</span>
+							<div>
 
-							<h3>Nội dung bài viết</h3>
+								<span class="wiki-admin-detail-section-eyebrow"> NỘI DUNG
+								</span>
+
+								<h3>Nội dung bài viết</h3>
+
+							</div>
+
+
+							<!-- ============================================= -->
+							<!-- GLOBAL READING PREFERENCE                     -->
+							<!-- ============================================= -->
+
+							<div class="wiki-admin-reading-toolbar"
+								aria-label="Tùy chỉnh cỡ chữ đọc bài">
+
+								<span class="wiki-admin-reading-toolbar-label"> Cỡ chữ </span>
+
+								<div class="wiki-admin-reading-controls" role="group"
+									aria-label="Điều chỉnh cỡ chữ">
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
+										A−</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="reset"
+										aria-label="Khôi phục cỡ chữ mặc định">A</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="increase" aria-label="Tăng cỡ chữ">
+										A+</button>
+
+								</div>
+
+							</div>
 
 						</div>
 
 
+						<!-- ============================================= -->
+						<!-- RENDERED ARTICLE CONTENT                      -->
+						<!-- ============================================= -->
 
 						<div
 							class="wiki-admin-detail-content
-                               wiki-markdown-preview"
+               wiki-markdown-preview"
 							th:if="${!#strings.isEmpty(article.content)}"
 							th:utext="${renderedContent}"></div>
 
 
+						<!-- ============================================= -->
+						<!-- EMPTY CONTENT                                 -->
+						<!-- ============================================= -->
 
 						<div class="wiki-admin-detail-empty-content"
 							th:if="${#strings.isEmpty(article.content)}">Bài viết hiện
@@ -448,11 +489,8 @@
 
 					</section>
 
-
 				</section>
-
 			</section>
-
 		</main>
 
 	</div>
@@ -560,6 +598,8 @@ document.addEventListener(
 );
 
 </script>
+
+	<script th:src="@{/js/reading/reading-preferences.js}"></script>
 
 </body>
 
