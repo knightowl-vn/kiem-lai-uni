@@ -35,6 +35,8 @@ jobs:
       DB_USERNAME: kiemlai
       DB_PASSWORD: kiemlai_test_password
 
+      REMEMBER_ME_KEY: ci-remember-me-key-for-tests-only
+
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
