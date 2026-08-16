@@ -8,7 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   build-and-test:
     runs-on: ubuntu-latest
 
@@ -32,11 +31,36 @@ jobs:
           --health-retries=10
 
     env:
+      # ===============================
+      # DATABASE
+      # ===============================
       DB_URL: jdbc:mysql://127.0.0.1:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       DB_USERNAME: kiemlai
       DB_PASSWORD: kiemlai_test_password
 
+      # ===============================
+      # REMEMBER ME
+      # ===============================
       REMEMBER_ME_KEY: ci-remember-me-key-for-tests-only
+
+      # ===============================
+      # MAIL
+      # ===============================
+      MAIL_USERNAME: ci@example.com
+      MAIL_PASSWORD: ci-mail-password
+
+      # ===============================
+      # GOOGLE OAUTH
+      # ===============================
+      GOOGLE_CLIENT_ID: ci-google-client-id
+      GOOGLE_CLIENT_SECRET: ci-google-client-secret
+
+      # ===============================
+      # CLOUDINARY
+      # ===============================
+      CLOUDINARY_CLOUD_NAME: ci-cloud-name
+      CLOUDINARY_API_KEY: ci-api-key
+      CLOUDINARY_API_SECRET: ci-api-secret
 
     steps:
       - name: Checkout source code
@@ -54,12 +78,19 @@ jobs:
 
       - name: Verify CI environment
         run: |
-          if [ -n "$REMEMBER_ME_KEY" ]; then
-            echo "REMEMBER_ME_KEY is set"
-          else
-            echo "REMEMBER_ME_KEY is missing"
-            exit 1
-          fi
+          test -n "$DB_URL"
+          test -n "$DB_USERNAME"
+          test -n "$DB_PASSWORD"
+          test -n "$REMEMBER_ME_KEY"
+          test -n "$MAIL_USERNAME"
+          test -n "$MAIL_PASSWORD"
+          test -n "$GOOGLE_CLIENT_ID"
+          test -n "$GOOGLE_CLIENT_SECRET"
+          test -n "$CLOUDINARY_CLOUD_NAME"
+          test -n "$CLOUDINARY_API_KEY"
+          test -n "$CLOUDINARY_API_SECRET"
+
+          echo "All required CI environment variables are set"
 
       - name: Build and run tests
         run: ./mvnw -B test
