@@ -106,33 +106,25 @@ class AdminWikiArticleCommandControllerTest {
 
 	@Mock
 	private GetWikiArticleDetailUseCase getWikiArticleDetailUseCase;
-	
+
 	@Mock
-	private RestoreWikiArticleUseCase
-	        restoreWikiArticleUseCase;
+	private RestoreWikiArticleUseCase restoreWikiArticleUseCase;
 
 	private AdminWikiArticleCommandController controller;
 
 	@BeforeEach
 	void setUp() {
-		controller = new AdminWikiArticleCommandController(
-		        createWikiArticleUseCase,
-		        createAndPublishWikiArticleUseCase,
+		controller = new AdminWikiArticleCommandController(createWikiArticleUseCase, createAndPublishWikiArticleUseCase,
 
-		        updateDraftWikiArticleUseCase,
-		        updateDraftAndPublishWikiArticleUseCase,
-		        updatePublishedWikiArticleUseCase,
+				updateDraftWikiArticleUseCase, updateDraftAndPublishWikiArticleUseCase,
+				updatePublishedWikiArticleUseCase,
 
-		        getWikiArticleDetailUseCase,
+				getWikiArticleDetailUseCase,
 
-		        publishWikiArticleUseCase,
-		        unpublishWikiArticleUseCase,
-		        archiveWikiArticleUseCase,
-		        restoreWikiArticleUseCase,
-		        deleteWikiArticleUseCase,
+				publishWikiArticleUseCase, unpublishWikiArticleUseCase, archiveWikiArticleUseCase,
+				restoreWikiArticleUseCase, deleteWikiArticleUseCase,
 
-		        userIdentityContract
-		);
+				userIdentityContract);
 	}
 
 	/*
@@ -252,855 +244,307 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(createAndPublishWikiArticleUseCase, never()).execute(any(CreateAndPublishWikiArticleCommand.class));
 	}
-	
+
 	/*
-	 * =====================================================
-	 * UPDATE DRAFT
+	 * ===================================================== UPDATE DRAFT
 	 * =====================================================
 	 */
 
 	@Test
-	@DisplayName(
-	        "Chỉnh sửa bài Wiki DRAFT bằng UpdateDraftWikiArticleUseCase"
-	)
+	@DisplayName("Chỉnh sửa bài Wiki DRAFT bằng UpdateDraftWikiArticleUseCase")
 	void shouldUpdateDraftWikiArticle() {
 
-	    EditWikiArticleForm form =
-	            new EditWikiArticleForm();
+		EditWikiArticleForm form = new EditWikiArticleForm();
 
-	    form.setTitle(
-	            "  Trần Bình An cập nhật  "
-	    );
+		form.setTitle("  Trần Bình An cập nhật  ");
 
-	    form.setArticleType(
-	            ArticleType.CHARACTER
-	    );
+		form.setArticleType(ArticleType.CHARACTER);
 
-	    form.setSummary(
-	            "  Tóm tắt mới  "
-	    );
+		form.setSummary("  Tóm tắt mới  ");
 
-	    form.setContent(
-	            "  Nội dung mới  "
-	    );
+		form.setContent("  Nội dung mới  ");
 
-	    form.setEditSummary(
-	            "  Cập nhật bản nháp  "
-	    );
+		form.setEditSummary("  Cập nhật bản nháp  ");
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createDraftArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		WikiArticleDTO updatedArticle = new WikiArticleDTO(ARTICLE_ID, "Trần Bình An cập nhật", "tran-binh-an-cap-nhat",
+				"CHARACTER", "Tóm tắt mới", "Nội dung mới", "DRAFT", ADMIN_ID, ADMIN_ID, null, null, NOW, NOW, null,
+				null, 2L, 2L);
 
+		when(updateDraftWikiArticleUseCase
+				.execute(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
+						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID)))
+				.thenReturn(updatedArticle);
 
-	    when(
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            ARTICLE_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createDraftArticleDTO()
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES, authentication,
+				redirectAttributes);
 
-	    WikiArticleDTO updatedArticle =
-	            new WikiArticleDTO(
-	                    ARTICLE_ID,
-	                    "Trần Bình An cập nhật",
-	                    "tran-binh-an-cap-nhat",
-	                    "CHARACTER",
-	                    "Tóm tắt mới",
-	                    "Nội dung mới",
-	                    "DRAFT",
-	                    ADMIN_ID,
-	                    ADMIN_ID,
-	                    null,
-	                    null,
-	                    NOW,
-	                    NOW,
-	                    null,
-	                    null,
-	                    2L,
-	                    2L
-	            );
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
 
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã cập nhật bài Wiki \"Trần Bình An cập nhật\".");
 
-	    when(
-	            updateDraftWikiArticleUseCase.execute(
-	                    new UpdateDraftWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            "Trần Bình An cập nhật",
-	                            ArticleType.CHARACTER,
-	                            "Tóm tắt mới",
-	                            "Nội dung mới",
-	                            "Cập nhật bản nháp",
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            updatedArticle
-	    );
+		verify(updateDraftWikiArticleUseCase)
+				.execute(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
+						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID));
 
+		verify(updateDraftAndPublishWikiArticleUseCase, never())
+				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
 
-	    RedirectAttributesModelMap redirectAttributes =
-	            new RedirectAttributesModelMap();
-
-
-	    String result =
-	            controller.updateArticle(
-	                    ARTICLE_ID,
-	                    form,
-	                    EditWikiArticleAction.SAVE_CHANGES,
-	                    authentication,
-	                    redirectAttributes
-	            );
-
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles/"
-	                            + ARTICLE_ID
-	            );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("successMessage")
-	    ).isEqualTo(
-	            "Đã cập nhật bài Wiki \"Trần Bình An cập nhật\"."
-	    );
-
-
-	    verify(
-	            updateDraftWikiArticleUseCase
-	    ).execute(
-	            new UpdateDraftWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    "Trần Bình An cập nhật",
-	                    ArticleType.CHARACTER,
-	                    "Tóm tắt mới",
-	                    "Nội dung mới",
-	                    "Cập nhật bản nháp",
-	                    ADMIN_ID
-	            )
-	    );
-
-
-	    verify(
-	            updateDraftAndPublishWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftAndPublishWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updatePublishedWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdatePublishedWikiArticleCommand.class)
-	    );
+		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
 	}
 
-
-
 	/*
-	 * =====================================================
-	 * UPDATE DRAFT + PUBLISH
+	 * ===================================================== UPDATE DRAFT + PUBLISH
 	 * =====================================================
 	 */
 
 	@Test
-	@DisplayName(
-	        "Lưu thay đổi và xuất bản bài Wiki DRAFT trong cùng một hành động"
-	)
+	@DisplayName("Lưu thay đổi và xuất bản bài Wiki DRAFT trong cùng một hành động")
 	void shouldUpdateDraftAndPublishWikiArticle() {
 
-	    EditWikiArticleForm form =
-	            new EditWikiArticleForm();
+		EditWikiArticleForm form = new EditWikiArticleForm();
 
-	    form.setTitle(
-	            "  Trần Bình An hoàn thiện  "
-	    );
+		form.setTitle("  Trần Bình An hoàn thiện  ");
 
-	    form.setArticleType(
-	            ArticleType.CHARACTER
-	    );
+		form.setArticleType(ArticleType.CHARACTER);
 
-	    form.setSummary(
-	            "  Tóm tắt hoàn thiện  "
-	    );
+		form.setSummary("  Tóm tắt hoàn thiện  ");
 
-	    form.setContent(
-	            "  Nội dung hoàn thiện để xuất bản  "
-	    );
+		form.setContent("  Nội dung hoàn thiện để xuất bản  ");
 
-	    form.setEditSummary(
-	            "  Hoàn thiện và xuất bản  "
-	    );
+		form.setEditSummary("  Hoàn thiện và xuất bản  ");
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createDraftArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		WikiArticleDTO publishedArticle = new WikiArticleDTO(ARTICLE_ID, "Trần Bình An hoàn thiện",
+				"tran-binh-an-hoan-thien", "CHARACTER", "Tóm tắt hoàn thiện", "Nội dung hoàn thiện để xuất bản",
+				"PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW, NOW, NOW, null, 2L, 2L);
 
+		when(updateDraftAndPublishWikiArticleUseCase.execute(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
+				"Trần Bình An hoàn thiện", ArticleType.CHARACTER, "Tóm tắt hoàn thiện",
+				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID))).thenReturn(publishedArticle);
 
-	    when(
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            ARTICLE_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createDraftArticleDTO()
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_AND_PUBLISH,
+				authentication, redirectAttributes);
 
-	    WikiArticleDTO publishedArticle =
-	            new WikiArticleDTO(
-	                    ARTICLE_ID,
-	                    "Trần Bình An hoàn thiện",
-	                    "tran-binh-an-hoan-thien",
-	                    "CHARACTER",
-	                    "Tóm tắt hoàn thiện",
-	                    "Nội dung hoàn thiện để xuất bản",
-	                    "PUBLISHED",
-	                    ADMIN_ID,
-	                    ADMIN_ID,
-	                    ADMIN_ID,
-	                    null,
-	                    NOW,
-	                    NOW,
-	                    NOW,
-	                    null,
-	                    2L,
-	                    2L
-	            );
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
 
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã lưu thay đổi và xuất bản bài Wiki " + "\"Trần Bình An hoàn thiện\".");
 
-	    when(
-	            updateDraftAndPublishWikiArticleUseCase.execute(
-	                    new UpdateDraftAndPublishWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            "Trần Bình An hoàn thiện",
-	                            ArticleType.CHARACTER,
-	                            "Tóm tắt hoàn thiện",
-	                            "Nội dung hoàn thiện để xuất bản",
-	                            "Hoàn thiện và xuất bản",
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            publishedArticle
-	    );
+		assertThat(redirectAttributes.getFlashAttributes().get("wikiAutosaveCleanupKey"))
+				.isEqualTo("kiemlai:wiki:autosave:edit:" + ARTICLE_ID);
 
+		verify(updateDraftAndPublishWikiArticleUseCase).execute(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
+				"Trần Bình An hoàn thiện", ArticleType.CHARACTER, "Tóm tắt hoàn thiện",
+				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID));
 
-	    RedirectAttributesModelMap redirectAttributes =
-	            new RedirectAttributesModelMap();
+		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
 
-
-	    String result =
-	            controller.updateArticle(
-	                    ARTICLE_ID,
-	                    form,
-	                    EditWikiArticleAction.SAVE_AND_PUBLISH,
-	                    authentication,
-	                    redirectAttributes
-	            );
-
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles/"
-	                            + ARTICLE_ID
-	            );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("successMessage")
-	    ).isEqualTo(
-	            "Đã lưu thay đổi và xuất bản bài Wiki "
-	                    + "\"Trần Bình An hoàn thiện\"."
-	    );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("wikiAutosaveCleanupKey")
-	    ).isEqualTo(
-	            "kiemlai:wiki:autosave:edit:"
-	                    + ARTICLE_ID
-	    );
-
-
-	    verify(
-	            updateDraftAndPublishWikiArticleUseCase
-	    ).execute(
-	            new UpdateDraftAndPublishWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    "Trần Bình An hoàn thiện",
-	                    ArticleType.CHARACTER,
-	                    "Tóm tắt hoàn thiện",
-	                    "Nội dung hoàn thiện để xuất bản",
-	                    "Hoàn thiện và xuất bản",
-	                    ADMIN_ID
-	            )
-	    );
-
-
-	    verify(
-	            updateDraftWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updatePublishedWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdatePublishedWikiArticleCommand.class)
-	    );
+		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
 	}
 
-
 	@Test
-	@DisplayName(
-	        "Không cho SAVE_AND_PUBLISH khi bài Wiki đã PUBLISHED"
-	)
+	@DisplayName("Không cho SAVE_AND_PUBLISH khi bài Wiki đã PUBLISHED")
 	void shouldRejectSaveAndPublishForPublishedArticle() {
 
-	    EditWikiArticleForm form =
-	            new EditWikiArticleForm();
+		EditWikiArticleForm form = new EditWikiArticleForm();
 
-	    form.setSummary(
-	            "Tóm tắt"
-	    );
+		form.setSummary("Tóm tắt");
 
-	    form.setContent(
-	            "Nội dung"
-	    );
+		form.setContent("Nội dung");
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createPublishedArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_AND_PUBLISH,
+				authentication, redirectAttributes);
 
-	    when(
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            ARTICLE_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createPublishedArticleDTO()
-	    );
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID + "/edit");
 
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isEqualTo("Bài Wiki đã được xuất bản.");
 
-	    assertThatThrownBy(() ->
-	            controller.updateArticle(
-	                    ARTICLE_ID,
-	                    form,
-	                    EditWikiArticleAction.SAVE_AND_PUBLISH,
-	                    authentication,
-	                    new RedirectAttributesModelMap()
-	            )
-	    )
-	            .isInstanceOf(
-	                    IllegalStateException.class
-	            )
-	            .hasMessage(
-	                    "Bài Wiki đã được xuất bản."
-	            );
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
 
+		verify(updateDraftAndPublishWikiArticleUseCase, never())
+				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
 
-	    verify(
-	            updateDraftAndPublishWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftAndPublishWikiArticleCommand.class)
-	    );
+		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
 
-
-	    verify(
-	            updateDraftWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updatePublishedWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdatePublishedWikiArticleCommand.class)
-	    );
+		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
 	}
 
-
 	/*
-	 * =====================================================
-	 * UPDATE PUBLISHED
+	 * ===================================================== UPDATE PUBLISHED
 	 * =====================================================
 	 */
 
 	@Test
-	@DisplayName(
-	        "Chỉnh sửa bài Wiki PUBLISHED bằng UpdatePublishedWikiArticleUseCase"
-	)
+	@DisplayName("Chỉnh sửa bài Wiki PUBLISHED bằng UpdatePublishedWikiArticleUseCase")
 	void shouldUpdatePublishedWikiArticle() {
 
-	    EditWikiArticleForm form =
-	            new EditWikiArticleForm();
+		EditWikiArticleForm form = new EditWikiArticleForm();
 
-	    /*
-	     * Cố tình truyền title/type khác.
-	     *
-	     * Controller phải bỏ qua hai field này khi bài
-	     * đang PUBLISHED.
-	     */
-	    form.setTitle(
-	            "Tên giả từ browser"
-	    );
+		/*
+		 * Cố tình truyền title/type khác.
+		 *
+		 * Controller phải bỏ qua hai field này khi bài đang PUBLISHED.
+		 */
+		form.setTitle("Tên giả từ browser");
 
-	    form.setArticleType(
-	            ArticleType.LOCATION
-	    );
+		form.setArticleType(ArticleType.LOCATION);
 
-	    form.setSummary(
-	            "  Tóm tắt published mới  "
-	    );
+		form.setSummary("  Tóm tắt published mới  ");
 
-	    form.setContent(
-	            "  Nội dung published mới  "
-	    );
+		form.setContent("  Nội dung published mới  ");
 
-	    form.setEditSummary(
-	            "  Bổ sung nội dung  "
-	    );
+		form.setEditSummary("  Bổ sung nội dung  ");
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createPublishedArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		WikiArticleDTO updatedArticle = new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Tóm tắt published mới", "Nội dung published mới", "PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW,
+				NOW, NOW, null, 2L, 2L);
 
+		when(updatePublishedWikiArticleUseCase.execute(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID)))
+				.thenReturn(updatedArticle);
 
-	    when(
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            ARTICLE_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createPublishedArticleDTO()
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES, authentication,
+				redirectAttributes);
 
-	    WikiArticleDTO updatedArticle =
-	            new WikiArticleDTO(
-	                    ARTICLE_ID,
-	                    "Trần Bình An",
-	                    "tran-binh-an",
-	                    "CHARACTER",
-	                    "Tóm tắt published mới",
-	                    "Nội dung published mới",
-	                    "PUBLISHED",
-	                    ADMIN_ID,
-	                    ADMIN_ID,
-	                    ADMIN_ID,
-	                    null,
-	                    NOW,
-	                    NOW,
-	                    NOW,
-	                    null,
-	                    2L,
-	                    2L
-	            );
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
 
+		verify(updatePublishedWikiArticleUseCase).execute(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID));
 
-	    when(
-	            updatePublishedWikiArticleUseCase.execute(
-	                    new UpdatePublishedWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            "Tóm tắt published mới",
-	                            "Nội dung published mới",
-	                            "Bổ sung nội dung",
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            updatedArticle
-	    );
+		verify(updateDraftAndPublishWikiArticleUseCase, never())
+				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
 
-
-	    RedirectAttributesModelMap redirectAttributes =
-	            new RedirectAttributesModelMap();
-
-
-	    String result =
-	            controller.updateArticle(
-	                    ARTICLE_ID,
-	                    form,
-	                    EditWikiArticleAction.SAVE_CHANGES,
-	                    authentication,
-	                    redirectAttributes
-	            );
-
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles/"
-	                            + ARTICLE_ID
-	            );
-
-
-	    verify(
-	            updatePublishedWikiArticleUseCase
-	    ).execute(
-	            new UpdatePublishedWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    "Tóm tắt published mới",
-	                    "Nội dung published mới",
-	                    "Bổ sung nội dung",
-	                    ADMIN_ID
-	            )
-	    );
-
-
-	    verify(
-	            updateDraftAndPublishWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftAndPublishWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updateDraftWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftWikiArticleCommand.class)
-	    );
+		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
 	}
 
-
 	/*
-	 * =====================================================
-	 * UPDATE ARCHIVED
+	 * ===================================================== UPDATE ARCHIVED
 	 * =====================================================
 	 */
 
 	@Test
-	@DisplayName(
-	        "Không cho phép chỉnh sửa trực tiếp bài Wiki ARCHIVED"
-	)
+	@DisplayName("Không cho phép chỉnh sửa trực tiếp bài Wiki ARCHIVED")
 	void shouldRejectUpdateArchivedWikiArticle() {
 
-	    EditWikiArticleForm form =
-	            new EditWikiArticleForm();
+		EditWikiArticleForm form = new EditWikiArticleForm();
 
-	    form.setSummary(
-	            "Tóm tắt mới"
-	    );
+		form.setSummary("Tóm tắt mới");
 
-	    form.setContent(
-	            "Nội dung mới"
-	    );
+		form.setContent("Nội dung mới");
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createArchivedArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES, authentication,
+				redirectAttributes);
 
-	    when(
-	            getWikiArticleDetailUseCase.execute(
-	                    new GetWikiArticleDetailQuery(
-	                            ARTICLE_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createArchivedArticleDTO()
-	    );
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+				.isEqualTo("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
 
-	    assertThatThrownBy(() ->
-	            controller.updateArticle(
-	                    ARTICLE_ID,
-	                    form,
-	                    EditWikiArticleAction.SAVE_CHANGES,
-	                    authentication,
-	                    new RedirectAttributesModelMap()
-	            )
-	    )
-	            .isInstanceOf(
-	                    IllegalStateException.class
-	            )
-	            .hasMessage(
-	                    "Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp."
-	            );
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
+		verify(updateDraftAndPublishWikiArticleUseCase, never())
+				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
 
+		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
 
-	    verify(
-	            updateDraftAndPublishWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftAndPublishWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updateDraftWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdateDraftWikiArticleCommand.class)
-	    );
-
-
-	    verify(
-	            updatePublishedWikiArticleUseCase,
-	            never()
-	    ).execute(
-	            any(UpdatePublishedWikiArticleCommand.class)
-	    );
+		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
 	}
-	
+
 	@Test
-	@DisplayName(
-	        "Khôi phục một revision cũ của bài Wiki thành DRAFT"
-	)
+	@DisplayName("Khôi phục một revision cũ của bài Wiki thành DRAFT")
 	void shouldRestoreWikiArticleRevision() {
 
-	    long revisionNumber =
-	            3L;
+		long revisionNumber = 3L;
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		WikiArticleDTO restoredArticle = createDraftArticleDTO();
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		when(restoreWikiArticleUseCase
+				.execute(new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber, "Khôi phục nội dung cũ", ADMIN_ID)))
+				.thenReturn(restoredArticle);
 
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-	    WikiArticleDTO restoredArticle =
-	            createDraftArticleDTO();
+		String result = controller.restoreRevision(ARTICLE_ID, revisionNumber, "  Khôi phục nội dung cũ  ",
+				authentication, redirectAttributes);
 
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID + "/revisions");
 
-	    when(
-	            restoreWikiArticleUseCase.execute(
-	                    new RestoreWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            revisionNumber,
-	                            "Khôi phục nội dung cũ",
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            restoredArticle
-	    );
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã khôi phục Revision #3 " + "của bài Wiki \"Trần Bình An\" " + "thành bản nháp.");
 
-
-	    RedirectAttributesModelMap redirectAttributes =
-	            new RedirectAttributesModelMap();
-
-
-	    String result =
-	            controller.restoreRevision(
-	                    ARTICLE_ID,
-	                    revisionNumber,
-	                    "  Khôi phục nội dung cũ  ",
-	                    authentication,
-	                    redirectAttributes
-	            );
-
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles/"
-	                            + ARTICLE_ID
-	                            + "/revisions"
-	            );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("successMessage")
-	    )
-	            .isEqualTo(
-	                    "Đã khôi phục Revision #3 "
-	                            + "của bài Wiki \"Trần Bình An\" "
-	                            + "thành bản nháp."
-	            );
-
-
-	    verify(
-	            restoreWikiArticleUseCase
-	    ).execute(
-	            new RestoreWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    revisionNumber,
-	                    "Khôi phục nội dung cũ",
-	                    ADMIN_ID
-	            )
-	    );
+		verify(restoreWikiArticleUseCase)
+				.execute(new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber, "Khôi phục nội dung cũ", ADMIN_ID));
 	}
-	
+
 	@Test
-	@DisplayName(
-	        "Cho phép khôi phục revision mà không nhập ghi chú"
-	)
+	@DisplayName("Cho phép khôi phục revision mà không nhập ghi chú")
 	void shouldRestoreRevisionWithoutEditSummary() {
 
-	    long revisionNumber =
-	            2L;
+		long revisionNumber = 2L;
 
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
-	    when(
-	            authentication.getName()
-	    ).thenReturn(
-	            ADMIN_EMAIL
-	    );
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 
+		when(restoreWikiArticleUseCase
+				.execute(new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber, null, ADMIN_ID)))
+				.thenReturn(createDraftArticleDTO());
 
-	    when(
-	            userIdentityContract.findByEmail(
-	                    ADMIN_EMAIL
-	            )
-	    ).thenReturn(
-	            Optional.of(
-	                    createAdminDTO()
-	            )
-	    );
+		String result = controller.restoreRevision(ARTICLE_ID, revisionNumber, "   ", authentication,
+				new RedirectAttributesModelMap());
 
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID + "/revisions");
 
-	    when(
-	            restoreWikiArticleUseCase.execute(
-	                    new RestoreWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            revisionNumber,
-	                            null,
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenReturn(
-	            createDraftArticleDTO()
-	    );
-
-
-	    String result =
-	            controller.restoreRevision(
-	                    ARTICLE_ID,
-	                    revisionNumber,
-	                    "   ",
-	                    authentication,
-	                    new RedirectAttributesModelMap()
-	            );
-
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles/"
-	                            + ARTICLE_ID
-	                            + "/revisions"
-	            );
-
-
-	    verify(
-	            restoreWikiArticleUseCase
-	    ).execute(
-	            new RestoreWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    revisionNumber,
-	                    null,
-	                    ADMIN_ID
-	            )
-	    );
+		verify(restoreWikiArticleUseCase)
+				.execute(new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber, null, ADMIN_ID));
 	}
 
 	/*
@@ -1153,12 +597,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.publishArticle(
-		        ARTICLE_ID,
-		        "list",
-		        authentication,
-		        redirectAttributes
-		);
+		String result = controller.publishArticle(ARTICLE_ID, "list", authentication, redirectAttributes);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1177,12 +616,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.unpublishArticle(
-		        ARTICLE_ID,
-		        "list",
-		        authentication,
-		        redirectAttributes
-		);
+		String result = controller.unpublishArticle(ARTICLE_ID, "list", authentication, redirectAttributes);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1190,7 +624,6 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(unpublishWikiArticleUseCase).execute(new UnpublishWikiArticleCommand(ARTICLE_ID, null, ADMIN_ID));
 	}
-
 
 	@Test
 	@DisplayName("Lưu trữ bài Wiki từ trang quản trị")
@@ -1202,12 +635,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.archiveArticle(
-		        ARTICLE_ID,
-		        "list",
-		        authentication,
-		        redirectAttributes
-		);
+		String result = controller.archiveArticle(ARTICLE_ID, "list", authentication, redirectAttributes);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1229,76 +657,28 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
 	}
-	
+
 	@Test
-	@DisplayName(
-	        "Publish không hợp lệ phải quay lại danh sách và hiển thị lỗi"
-	)
+	@DisplayName("Publish không hợp lệ phải quay lại danh sách và hiển thị lỗi")
 	void shouldRedirectWithErrorMessageWhenPublishFails() {
 
-	    prepareAuthenticatedAdmin();
+		prepareAuthenticatedAdmin();
 
+		when(publishWikiArticleUseCase.execute(new PublishWikiArticleCommand(ARTICLE_ID, null, ADMIN_ID)))
+				.thenThrow(new IllegalStateException("Bài viết phải có nội dung trước khi xuất bản."));
 
-	    when(
-	            publishWikiArticleUseCase.execute(
-	                    new PublishWikiArticleCommand(
-	                            ARTICLE_ID,
-	                            null,
-	                            ADMIN_ID
-	                    )
-	            )
-	    ).thenThrow(
-	            new IllegalStateException(
-	                    "Bài viết phải có nội dung trước khi xuất bản."
-	            )
-	    );
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
+		String result = controller.publishArticle(ARTICLE_ID, "list", authentication, redirectAttributes);
 
-	    RedirectAttributesModelMap redirectAttributes =
-	            new RedirectAttributesModelMap();
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+				.isEqualTo("Không thể xuất bản bài Wiki. " + "Bài viết phải có nội dung trước khi xuất bản.");
 
-	    String result =
-	            controller.publishArticle(
-	                    ARTICLE_ID,
-	                    "list",
-	                    authentication,
-	                    redirectAttributes
-	            );
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
 
-
-	    assertThat(result)
-	            .isEqualTo(
-	                    "redirect:/admin/wiki/articles"
-	            );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("errorMessage")
-	    ).isEqualTo(
-	            "Không thể xuất bản bài Wiki. "
-	                    + "Bài viết phải có nội dung trước khi xuất bản."
-	    );
-
-
-	    assertThat(
-	            redirectAttributes
-	                    .getFlashAttributes()
-	                    .get("successMessage")
-	    ).isNull();
-
-
-	    verify(
-	            publishWikiArticleUseCase
-	    ).execute(
-	            new PublishWikiArticleCommand(
-	                    ARTICLE_ID,
-	                    null,
-	                    ADMIN_ID
-	            )
-	    );
+		verify(publishWikiArticleUseCase).execute(new PublishWikiArticleCommand(ARTICLE_ID, null, ADMIN_ID));
 	}
 
 	private void prepareAuthenticatedAdmin() {
@@ -1306,27 +686,11 @@ class AdminWikiArticleCommandControllerTest {
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
 	}
-	
+
 	private WikiArticleDTO createArchivedArticleDTO() {
 
-	    return new WikiArticleDTO(
-	            ARTICLE_ID,
-	            "Trần Bình An",
-	            "tran-binh-an",
-	            "CHARACTER",
-	            "Nhân vật chính của Kiếm Lai.",
-	            "Nội dung ban đầu của bài viết.",
-	            "ARCHIVED",
-	            ADMIN_ID,
-	            ADMIN_ID,
-	            ADMIN_ID,
-	            ADMIN_ID,
-	            NOW,
-	            NOW,
-	            NOW,
-	            NOW,
-	            3L,
-	            1L
-	    );
+		return new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Nhân vật chính của Kiếm Lai.", "Nội dung ban đầu của bài viết.", "ARCHIVED", ADMIN_ID, ADMIN_ID,
+				ADMIN_ID, ADMIN_ID, NOW, NOW, NOW, NOW, 3L, 1L);
 	}
 }
