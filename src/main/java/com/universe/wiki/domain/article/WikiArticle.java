@@ -294,172 +294,97 @@ public class WikiArticle {
 		return true;
 	}
 	/*
-	 * =====================================================
-	 * UPDATE DRAFT + PUBLISH
+	 * ===================================================== UPDATE DRAFT + PUBLISH
 	 * =====================================================
 	 */
 
 	/**
-	 * Cập nhật bản nháp và xuất bản trong cùng một
-	 * hành động nghiệp vụ.
+	 * Cập nhật bản nháp và xuất bản trong cùng một hành động nghiệp vụ.
 	 *
-	 * Trả về:
-	 * - true  : nội dung biên tập thực sự thay đổi;
-	 * - false : dữ liệu biên tập giữ nguyên, chỉ publish.
+	 * Trả về: - true : nội dung biên tập thực sự thay đổi; - false : dữ liệu biên
+	 * tập giữ nguyên, chỉ publish.
 	 *
-	 * aggregateVersion:
-	 * - luôn tăng đúng 1 vì đây là một business action.
+	 * aggregateVersion: - luôn tăng đúng 1 vì đây là một business action.
 	 *
-	 * contentVersion:
-	 * - chỉ tăng khi nội dung biên tập thực sự thay đổi.
+	 * contentVersion: - chỉ tăng khi nội dung biên tập thực sự thay đổi.
 	 */
-	public boolean updateDraftAndPublish(
-	        String title,
-	        Slug slug,
-	        ArticleType articleType,
-	        String summary,
-	        String content,
-	        UUID actorId,
-	        Instant now
-	) {
-	    requireStatus(
-	            ArticleStatus.DRAFT,
-	            "Chỉ bài viết ở trạng thái DRAFT "
-	                    + "mới được cập nhật và xuất bản."
-	    );
+	public boolean updateDraftAndPublish(String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID actorId, Instant now) {
+		requireStatus(ArticleStatus.DRAFT, "Chỉ bài viết ở trạng thái DRAFT " + "mới được cập nhật và xuất bản.");
 
-	    /*
-	     * Validate toàn bộ trước khi mutate.
-	     */
-	    String normalizedTitle =
-	            validateTitle(
-	                    title
-	            );
+		/*
+		 * Validate toàn bộ trước khi mutate.
+		 */
+		String normalizedTitle = validateTitle(title);
 
-	    Slug normalizedSlug =
-	            Objects.requireNonNull(
-	                    slug,
-	                    "Slug không được để trống."
-	            );
+		Slug normalizedSlug = Objects.requireNonNull(slug, "Slug không được để trống.");
 
-	    ArticleType normalizedArticleType =
-	            Objects.requireNonNull(
-	                    articleType,
-	                    "Article type không được để trống."
-	            );
+		ArticleType normalizedArticleType = Objects.requireNonNull(articleType, "Article type không được để trống.");
 
-	    String normalizedSummary =
-	            validateSummary(
-	                    summary
-	            );
+		String normalizedSummary = validateSummary(summary);
 
-	    String normalizedContent =
-	            validateContent(
-	                    content
-	            );
+		String normalizedContent = validateContent(content);
 
-	    UUID normalizedActorId =
-	            Objects.requireNonNull(
-	                    actorId,
-	                    "Người cập nhật và xuất bản "
-	                            + "không được để trống."
-	            );
+		UUID normalizedActorId = Objects.requireNonNull(actorId,
+				"Người cập nhật và xuất bản " + "không được để trống.");
 
-	    Instant normalizedNow =
-	            Objects.requireNonNull(
-	                    now,
-	                    "Thời gian cập nhật và xuất bản "
-	                            + "không được để trống."
-	            );
+		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian cập nhật và xuất bản " + "không được để trống.");
 
+		/*
+		 * Publish bắt buộc phải có content.
+		 *
+		 * Kiểm tra TRƯỚC khi mutate aggregate.
+		 */
+		if (normalizedContent.isBlank()) {
+			throw new IllegalStateException("Bài viết phải có nội dung trước khi xuất bản.");
+		}
 
-	    /*
-	     * Publish bắt buộc phải có content.
-	     *
-	     * Kiểm tra TRƯỚC khi mutate aggregate.
-	     */
-	    if (
-	            normalizedContent.isBlank()
-	    ) {
-	        throw new IllegalStateException(
-	                "Bài viết phải có nội dung trước khi xuất bản."
-	        );
-	    }
+		boolean contentChanged = hasEditorialContentChanged(normalizedTitle, normalizedSlug, normalizedArticleType,
+				normalizedSummary, normalizedContent);
 
+		/*
+		 * Apply editorial state.
+		 */
+		this.title = normalizedTitle;
 
-	    boolean contentChanged =
-	            hasEditorialContentChanged(
-	                    normalizedTitle,
-	                    normalizedSlug,
-	                    normalizedArticleType,
-	                    normalizedSummary,
-	                    normalizedContent
-	            );
+		this.slug = normalizedSlug;
 
+		this.articleType = normalizedArticleType;
 
-	    /*
-	     * Apply editorial state.
-	     */
-	    this.title =
-	            normalizedTitle;
+		this.summary = normalizedSummary;
 
-	    this.slug =
-	            normalizedSlug;
+		this.content = normalizedContent;
 
-	    this.articleType =
-	            normalizedArticleType;
+		/*
+		 * Apply lifecycle state.
+		 */
+		this.status = ArticleStatus.PUBLISHED;
 
-	    this.summary =
-	            normalizedSummary;
+		this.publishedBy = normalizedActorId;
 
-	    this.content =
-	            normalizedContent;
+		this.publishedAt = normalizedNow;
 
+		this.archivedBy = null;
 
-	    /*
-	     * Apply lifecycle state.
-	     */
-	    this.status =
-	            ArticleStatus.PUBLISHED;
+		this.archivedAt = null;
 
-	    this.publishedBy =
-	            normalizedActorId;
+		this.updatedBy = normalizedActorId;
 
-	    this.publishedAt =
-	            normalizedNow;
+		this.updatedAt = normalizedNow;
 
-	    this.archivedBy =
-	            null;
+		/*
+		 * Chỉ nội dung thực sự đổi mới tạo content version mới.
+		 */
+		if (contentChanged) {
+			increaseContentVersion();
+		}
 
-	    this.archivedAt =
-	            null;
+		/*
+		 * Một click "Lưu & xuất bản" = một mutation nghiệp vụ.
+		 */
+		increaseVersion();
 
-	    this.updatedBy =
-	            normalizedActorId;
-
-	    this.updatedAt =
-	            normalizedNow;
-
-
-	    /*
-	     * Chỉ nội dung thực sự đổi
-	     * mới tạo content version mới.
-	     */
-	    if (
-	            contentChanged
-	    ) {
-	        increaseContentVersion();
-	    }
-
-
-	    /*
-	     * Một click "Lưu & xuất bản"
-	     * = một mutation nghiệp vụ.
-	     */
-	    increaseVersion();
-
-
-	    return contentChanged;
+		return contentChanged;
 	}
 
 	/*
@@ -478,6 +403,10 @@ public class WikiArticle {
 		String normalizedSummary = validateSummary(summary);
 
 		String normalizedContent = validateContent(content);
+
+		if (normalizedContent.isBlank()) {
+			throw new IllegalStateException("Bài viết đã xuất bản phải có nội dung.");
+		}
 
 		UUID normalizedEditorId = Objects.requireNonNull(editorId, "Người cập nhật không được để trống.");
 

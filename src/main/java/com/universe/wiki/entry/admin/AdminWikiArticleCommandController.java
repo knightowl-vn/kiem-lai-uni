@@ -32,6 +32,7 @@ import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishW
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleCommand;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleUseCase;
 import com.universe.wiki.application.exceptions.WikiArticleRevisionAlreadyCurrentException;
+import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsException;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 
 import com.universe.wiki.domain.article.ArticleStatus;
@@ -183,21 +184,30 @@ public class AdminWikiArticleCommandController {
 
 		WikiArticleDTO article;
 
-		switch (action) {
+		try {
 
-		case SAVE_DRAFT ->
+			switch (action) {
 
-			article = createWikiArticleUseCase.execute(new CreateWikiArticleCommand(form.getTitle().trim(),
-					form.getArticleType(), normalizeText(form.getSummary()), normalizeText(form.getContent()),
-					normalizeEditSummary(form.getEditSummary()), actorId));
+			case SAVE_DRAFT ->
 
-		case PUBLISH ->
+				article = createWikiArticleUseCase.execute(new CreateWikiArticleCommand(form.getTitle().trim(),
+						form.getArticleType(), normalizeText(form.getSummary()), normalizeText(form.getContent()),
+						normalizeEditSummary(form.getEditSummary()), actorId));
 
-			article = createAndPublishWikiArticleUseCase.execute(new CreateAndPublishWikiArticleCommand(
-					form.getTitle().trim(), form.getArticleType(), normalizeText(form.getSummary()),
-					normalizeText(form.getContent()), normalizePublishEditSummary(form.getEditSummary()), actorId));
+			case PUBLISH ->
 
-		default -> throw new IllegalArgumentException("Hành động tạo bài Wiki không hợp lệ.");
+				article = createAndPublishWikiArticleUseCase.execute(new CreateAndPublishWikiArticleCommand(
+						form.getTitle().trim(), form.getArticleType(), normalizeText(form.getSummary()),
+						normalizeText(form.getContent()), normalizePublishEditSummary(form.getEditSummary()), actorId));
+
+			default -> throw new IllegalArgumentException("Hành động tạo bài Wiki không hợp lệ.");
+			}
+
+		} catch (ArticleSlugAlreadyExistsException | IllegalStateException exception) {
+
+			redirectAttributes.addFlashAttribute("errorMessage", exception.getMessage());
+
+			return "redirect:/admin/wiki/articles/new";
 		}
 
 		String successMessage = switch (action) {
@@ -265,95 +275,110 @@ public class AdminWikiArticleCommandController {
 
 		boolean publishedNow = false;
 
-		switch (status) {
+		try {
 
-		/*
-		 * ================================================= DRAFT
-		 * =================================================
-		 */
-		case DRAFT -> {
-
-			validateDraftEditForm(form);
-
-			switch (action) {
+			switch (status) {
 
 			/*
-			 * Chỉ lưu thay đổi, giữ article ở DRAFT.
+			 * ================================================= DRAFT
+			 * =================================================
 			 */
-			case SAVE_CHANGES ->
+			case DRAFT -> {
 
-				updatedArticle = updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(articleId,
+				validateDraftEditForm(form);
 
-						form.getTitle().trim(),
+				switch (action) {
 
-						form.getArticleType(),
+				/*
+				 * Chỉ lưu thay đổi, giữ article ở DRAFT.
+				 */
+				case SAVE_CHANGES ->
 
-						normalizeText(form.getSummary()),
+					updatedArticle = updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(articleId,
 
-						normalizeText(form.getContent()),
+							form.getTitle().trim(),
 
-						normalizeDraftUpdateEditSummary(form.getEditSummary()),
+							form.getArticleType(),
 
-						actorId));
+							normalizeText(form.getSummary()),
+
+							normalizeText(form.getContent()),
+
+							normalizeDraftUpdateEditSummary(form.getEditSummary()),
+
+							actorId));
+
+				/*
+				 * Lưu dữ liệu hiện tại và publish trong cùng transaction.
+				 */
+				case SAVE_AND_PUBLISH -> {
+
+					updatedArticle = updateDraftAndPublishWikiArticleUseCase
+							.execute(new UpdateDraftAndPublishWikiArticleCommand(articleId,
+
+									form.getTitle().trim(),
+
+									form.getArticleType(),
+
+									normalizeText(form.getSummary()),
+
+									normalizeText(form.getContent()),
+
+									normalizeNullableText(form.getEditSummary()),
+
+									actorId));
+
+					publishedNow = true;
+				}
+
+				default -> throw new IllegalArgumentException("Hành động chỉnh sửa bài Wiki không hợp lệ.");
+				}
+			}
 
 			/*
-			 * Lưu dữ liệu hiện tại và publish trong cùng transaction.
+			 * ================================================= PUBLISHED
+			 *
+			 * Article đã publish không được nhận SAVE_AND_PUBLISH từ browser.
+			 * =================================================
 			 */
-			case SAVE_AND_PUBLISH -> {
+			case PUBLISHED -> {
 
-				updatedArticle = updateDraftAndPublishWikiArticleUseCase
-						.execute(new UpdateDraftAndPublishWikiArticleCommand(articleId,
+				if (action != EditWikiArticleAction.SAVE_CHANGES) {
 
-								form.getTitle().trim(),
+					throw new IllegalStateException("Bài Wiki đã được xuất bản.");
+				}
 
-								form.getArticleType(),
+				updatedArticle = updatePublishedWikiArticleUseCase
+						.execute(new UpdatePublishedWikiArticleCommand(articleId,
 
 								normalizeText(form.getSummary()),
 
 								normalizeText(form.getContent()),
 
-								normalizeNullableText(form.getEditSummary()),
+								normalizePublishedUpdateEditSummary(form.getEditSummary()),
 
 								actorId));
-
-				publishedNow = true;
 			}
 
-			default -> throw new IllegalArgumentException("Hành động chỉnh sửa bài Wiki " + "không hợp lệ.");
-			}
-		}
+			/*
+			 * ================================================= ARCHIVED
+			 * =================================================
+			 */
+			case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
 
-		/*
-		 * ================================================= PUBLISHED
-		 *
-		 * Article đã publish không được nhận SAVE_AND_PUBLISH từ browser.
-		 * =================================================
-		 */
-		case PUBLISHED -> {
-
-			if (action != EditWikiArticleAction.SAVE_CHANGES) {
-
-				throw new IllegalStateException("Bài Wiki đã được xuất bản.");
+			default -> throw new IllegalStateException("Trạng thái bài Wiki không hỗ trợ chỉnh sửa: " + status.name());
 			}
 
-			updatedArticle = updatePublishedWikiArticleUseCase.execute(new UpdatePublishedWikiArticleCommand(articleId,
+		} catch (ArticleSlugAlreadyExistsException | IllegalStateException exception) {
 
-					normalizeText(form.getSummary()),
+			redirectAttributes.addFlashAttribute("errorMessage", exception.getMessage());
 
-					normalizeText(form.getContent()),
+			if (status == ArticleStatus.ARCHIVED) {
 
-					normalizePublishedUpdateEditSummary(form.getEditSummary()),
+				return redirectToArticleList();
+			}
 
-					actorId));
-		}
-
-		/*
-		 * ================================================= ARCHIVED
-		 * =================================================
-		 */
-		case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ " + "không thể chỉnh sửa trực tiếp.");
-
-		default -> throw new IllegalStateException("Trạng thái bài Wiki " + "không hỗ trợ chỉnh sửa: " + status.name());
+			return "redirect:/admin/wiki/articles/" + articleId + "/edit";
 		}
 
 		String successMessage = publishedNow

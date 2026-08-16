@@ -2612,7 +2612,14 @@ function setupWikiLocalAutosave(
 
     form.addEventListener(
         "submit",
-        function() {
+        function(event) {
+
+            if (submitting) {
+
+                event.preventDefault();
+
+                return;
+            }
 
             /*
              * Flush thay đổi cuối cùng vào localStorage
@@ -2875,6 +2882,13 @@ function setupImageUpload(
 
     let mode = "insert";
 
+    /*
+     * Element đã mở Image Editor.
+     * Dùng để trả keyboard focus khi modal đóng.
+     */
+    let returnFocusElement =
+        null;
+
     const MIN_IMAGE_WIDTH =
         20;
 
@@ -2903,6 +2917,9 @@ function setupImageUpload(
         "click",
         function() {
 
+            returnFocusElement =
+                imageButton;
+
             insertionStart =
                 editor.selectionStart;
 
@@ -2920,6 +2937,8 @@ function setupImageUpload(
             fileInput.click();
         }
     );
+
+
 
     /* =====================================================
        IMAGE WIDTH
@@ -3183,6 +3202,9 @@ function setupImageUpload(
                     return;
                 }
 
+                returnFocusElement =
+                    image;
+
 
                 const imageUrl =
                     image.getAttribute(
@@ -3273,6 +3295,42 @@ function setupImageUpload(
 
 
                 openImageModal();
+            }
+        );
+    }
+
+    if (previewBody) {
+
+        previewBody.addEventListener(
+            "keydown",
+            function(event) {
+
+                if (
+                    event.key !== "Enter"
+                    && event.key !== " "
+                ) {
+                    return;
+                }
+
+
+                const image =
+                    event.target.closest(
+                        "img.wiki-content-image"
+                    );
+
+
+                if (!image) {
+                    return;
+                }
+
+
+                event.preventDefault();
+
+
+                /*
+                 * Tái sử dụng logic click đang có.
+                 */
+                image.click();
             }
         );
     }
@@ -3445,7 +3503,9 @@ function setupImageUpload(
                 history.record();
 
 
-                closeImageModal();
+                closeImageModal(
+                    false
+                );
 
 
                 /*
@@ -3496,19 +3556,34 @@ function setupImageUpload(
 
     cancelButton?.addEventListener(
         "click",
-        closeImageModal
+        function() {
+
+            closeImageModal(
+                true
+            );
+        }
     );
 
 
     closeButton?.addEventListener(
         "click",
-        closeImageModal
+        function() {
+
+            closeImageModal(
+                true
+            );
+        }
     );
 
 
     backdrop?.addEventListener(
         "click",
-        closeImageModal
+        function() {
+
+            closeImageModal(
+                true
+            );
+        }
     );
 
 
@@ -3517,10 +3592,102 @@ function setupImageUpload(
         function(event) {
 
             if (
-                event.key === "Escape"
-                && !modal.hidden
+                modal.hidden
             ) {
-                closeImageModal();
+                return;
+            }
+
+
+            /* =============================================
+               ESCAPE
+               ============================================= */
+
+            if (
+                event.key === "Escape"
+            ) {
+
+                event.preventDefault();
+
+                closeImageModal(
+                    true
+                );
+
+                return;
+            }
+
+
+            /* =============================================
+               FOCUS TRAP
+               ============================================= */
+
+            if (
+                event.key !== "Tab"
+            ) {
+                return;
+            }
+
+
+            const focusableElements =
+                Array.from(
+                    modal.querySelectorAll(
+                        [
+                            'button:not([disabled])',
+                            'input:not([disabled])',
+                            '[tabindex]:not([tabindex="-1"])'
+                        ].join(",")
+                    )
+                )
+                    .filter(
+                        function(element) {
+
+                            return (
+                                !element.hidden
+                                && element.offsetParent
+                                !== null
+                            );
+                        }
+                    );
+
+
+            if (
+                focusableElements.length === 0
+            ) {
+                return;
+            }
+
+
+            const firstElement =
+                focusableElements[0];
+
+            const lastElement =
+                focusableElements[
+                focusableElements.length - 1
+                ];
+
+
+            if (
+                event.shiftKey
+                && document.activeElement
+                === firstElement
+            ) {
+
+                event.preventDefault();
+
+                lastElement.focus();
+
+                return;
+            }
+
+
+            if (
+                !event.shiftKey
+                && document.activeElement
+                === lastElement
+            ) {
+
+                event.preventDefault();
+
+                firstElement.focus();
             }
         }
     );
@@ -3543,7 +3710,9 @@ function setupImageUpload(
     }
 
 
-    function closeImageModal() {
+    function closeImageModal(
+        restoreFocus = true
+    ) {
 
         modal.hidden =
             true;
@@ -3573,7 +3742,36 @@ function setupImageUpload(
         fileInput.value =
             "";
 
+
         hideImageModalError();
+
+
+        if (
+            restoreFocus
+            && returnFocusElement
+        ) {
+
+            const focusTarget =
+                returnFocusElement;
+
+
+            returnFocusElement =
+                null;
+
+
+            requestAnimationFrame(
+                function() {
+
+                    focusTarget.focus();
+                }
+            );
+
+        }
+        else {
+
+            returnFocusElement =
+                null;
+        }
     }
 
 
@@ -3608,7 +3806,9 @@ function setupImageUpload(
     function hideImageModalError() {
 
         if (modalError) {
-            modalError.hidden = true;
+
+            modalError.hidden =
+                true;
         }
     }
 }
@@ -4402,8 +4602,6 @@ function setupMarkdownPreview(
             activateTab(
                 "write"
             );
-
-            editor.focus();
         }
     );
 
@@ -4421,6 +4619,75 @@ function setupMarkdownPreview(
             );
 
             await renderPreview();
+        }
+    );
+
+    /* =====================================================
+       TAB KEYBOARD NAVIGATION
+       ===================================================== */
+
+    [
+        writeTab,
+        previewTab
+    ].forEach(
+        function(tab) {
+
+            tab.addEventListener(
+                "keydown",
+                function(event) {
+
+                    if (
+                        ![
+                            "ArrowLeft",
+                            "ArrowRight",
+                            "Home",
+                            "End"
+                        ].includes(
+                            event.key
+                        )
+                    ) {
+                        return;
+                    }
+
+
+                    event.preventDefault();
+
+
+                    let targetTab;
+
+
+                    if (
+                        event.key === "Home"
+                        || event.key === "ArrowLeft"
+                    ) {
+
+                        targetTab =
+                            writeTab;
+
+                    }
+                    else {
+
+                        targetTab =
+                            previewTab;
+                    }
+
+
+                    targetTab.click();
+
+
+                    /*
+                     * Click Write sẽ focus textarea.
+                     * Với điều hướng tab bằng arrow,
+                     * đưa focus trở lại tab.
+                     */
+                    requestAnimationFrame(
+                        function() {
+
+                            targetTab.focus();
+                        }
+                    );
+                }
+            );
         }
     );
 
@@ -4456,6 +4723,21 @@ function setupMarkdownPreview(
             "aria-selected",
             String(!writeActive)
         );
+
+
+        /*
+         * Chỉ tab đang active nằm trong
+         * thứ tự Tab chính của trang.
+         */
+        writeTab.tabIndex =
+            writeActive
+                ? 0
+                : -1;
+
+        previewTab.tabIndex =
+            writeActive
+                ? -1
+                : 0;
 
 
         writePanel.hidden =
@@ -4593,6 +4875,17 @@ function setupMarkdownPreview(
                         image.setAttribute(
                             "tabindex",
                             "0"
+                        );
+                        image.setAttribute(
+                            "role",
+                            "button"
+                        );
+
+                        image.setAttribute(
+                            "aria-label",
+                            image.alt
+                                ? "Chỉnh ảnh: " + image.alt
+                                : "Chỉnh ảnh Wiki"
                         );
                     }
                 );

@@ -92,7 +92,7 @@
 								<label for="wikiTitle"> Tiêu đề bài viết <span
 									class="required-marker">*</span>
 								</label> <input id="wikiTitle" type="text" th:field="*{title}"
-									maxlength="255" autocomplete="off"
+									maxlength="200" autocomplete="off"
 									placeholder="Ví dụ: Trần Bình An" required> <small>
 									Slug sẽ được hệ thống tự động tạo từ tiêu đề. </small>
 
@@ -172,16 +172,14 @@
 
 									<button id="wikiWriteTab" type="button"
 										class="wiki-markdown-editor-tab is-active" role="tab"
-										aria-selected="true" aria-controls="wikiWritePanel">
-
-										Write</button>
+										aria-selected="true" aria-controls="wikiWritePanel"
+										tabindex="0">Write</button>
 
 
 									<button id="wikiPreviewTab" type="button"
 										class="wiki-markdown-editor-tab" role="tab"
-										aria-selected="false" aria-controls="wikiPreviewPanel">
-
-										Preview</button>
+										aria-selected="false" aria-controls="wikiPreviewPanel"
+										tabindex="-1">Preview</button>
 
 								</div>
 

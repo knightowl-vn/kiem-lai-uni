@@ -579,8 +579,11 @@
 }
 
 .wiki-markdown-tool:focus-visible {
-	outline: 2px solid var(--bs-primary);
-	outline-offset: 2px;
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
+	border-color: var(--primary);
+	background: var(--primary-light);
+	color: var(--primary);
 }
 
 .wiki-markdown-tool:disabled {
@@ -1378,6 +1381,13 @@ img.wiki-content-image:hover {
 	transform: translateY(-1px);
 }
 
+.wiki-markdown-preview
+img.wiki-content-image:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 3px;
+	box-shadow: 0 0 0 3px rgba(93, 77, 168, 0.12);
+}
+
 body.wiki-modal-open {
 	overflow: hidden;
 }
@@ -1546,6 +1556,12 @@ figcaption {
 	border-color: var(--primary);
 	background: var(--primary-light);
 	box-shadow: 0 0 0 2px rgba(93, 77, 168, 0.08);
+}
+
+.wiki-image-layout-choice>input:focus-visible
++.wiki-image-layout-card {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(93, 77, 168, 0.18);
 }
 
 .wiki-image-layout-card strong {
@@ -2409,6 +2425,21 @@ body.wiki-autosave-recovery-open {
 	color: var(--primary);
 }
 
+/*
+ * Keyboard focus của Markdown toolbar.
+ *
+ * Dùng inset box-shadow để focus ring
+ * không bị toolbar overflow-y:hidden cắt mất.
+ */
+#wikiWritePanel
+.wiki-markdown-tool:focus {
+	outline: none;
+	border-color: var(--primary);
+	background: var(--primary-light);
+	color: var(--primary);
+	box-shadow: inset 0 0 0 2px var(--primary);
+}
+
 /* =========================================================
    MOBILE
    ========================================================= */
@@ -2488,6 +2519,20 @@ body.wiki-autosave-recovery-open {
 	left: 8px;
 	height: 2px;
 	background: var(--primary);
+}
+
+/* =========================================================
+   EDITOR — KEYBOARD FOCUS
+   ========================================================= */
+
+.wiki-markdown-editor-tab:focus-visible,
+.wiki-image-editor-close:focus-visible,
+.wiki-image-size-button:focus-visible,
+.wiki-image-size-value:focus-visible,
+.wiki-editor-diagnostic-link:focus-visible,
+.wiki-editor-diagnostic-fix:focus-visible {
+	outline: 2px solid rgba(93, 77, 168, 0.45);
+	outline-offset: 2px;
 }
 
 /* =========================================================
@@ -3023,6 +3068,20 @@ body.wiki-autosave-recovery-open {
 .wiki-admin-reading-button:disabled {
 	opacity: 0.35;
 	cursor: not-allowed;
+}
+
+/* =========================================================
+   ADMIN WIKI — KEYBOARD FOCUS
+   ========================================================= */
+
+.wiki-admin-back-link:focus-visible,
+.wiki-admin-primary-button:focus-visible,
+.wiki-admin-secondary-button:focus-visible,
+.wiki-admin-page-button:focus-visible,
+.wiki-admin-detail-action-trigger:focus-visible,
+.wiki-admin-detail-action-item:focus-visible {
+	outline: 2px solid rgba(93, 77, 168, 0.45);
+	outline-offset: 2px;
 }
 
 /* =========================================================

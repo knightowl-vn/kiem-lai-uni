@@ -130,7 +130,7 @@
 								<!-- DRAFT: được phép sửa -->
 
 								<input th:if="${draft}" id="wikiTitle" type="text"
-									th:field="*{title}" maxlength="255" autocomplete="off"
+									th:field="*{title}" maxlength="200" autocomplete="off"
 									placeholder="Ví dụ: Trần Bình An" required>
 
 
@@ -241,12 +241,14 @@
 								<!-- ============================================= -->
 								<div aria-label="Chế độ soạn thảo nội dung"
 									class="wiki-markdown-editor-tabs" role="tablist">
-									<button aria-controls="wikiWritePanel" aria-selected="true"
-										class="wiki-markdown-editor-tab is-active" id="wikiWriteTab"
-										role="tab" type="button">Write</button>
-									<button aria-controls="wikiPreviewPanel" aria-selected="false"
-										class="wiki-markdown-editor-tab" id="wikiPreviewTab"
-										role="tab" type="button">Preview</button>
+									<button id="wikiWriteTab" type="button"
+										class="wiki-markdown-editor-tab is-active" role="tab"
+										aria-selected="true" aria-controls="wikiWritePanel"
+										tabindex="0">Write</button>
+									<button id="wikiPreviewTab" type="button"
+										class="wiki-markdown-editor-tab" role="tab"
+										aria-selected="false" aria-controls="wikiPreviewPanel"
+										tabindex="-1">Preview</button>
 								</div>
 								<!-- ============================================= -->
 								<!-- WRITE PANEL                                   -->

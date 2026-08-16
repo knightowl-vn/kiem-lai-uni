@@ -441,13 +441,13 @@
 							<!-- GLOBAL READING PREFERENCE                     -->
 							<!-- ============================================= -->
 
-							<div class="wiki-admin-reading-toolbar"
-								aria-label="Tùy chỉnh cỡ chữ đọc bài">
+							<div class="wiki-admin-reading-toolbar">
 
-								<span class="wiki-admin-reading-toolbar-label"> Cỡ chữ </span>
+								<span id="wikiAdminReadingFontLabel"
+									class="wiki-admin-reading-toolbar-label"> Cỡ chữ </span>
 
 								<div class="wiki-admin-reading-controls" role="group"
-									aria-label="Điều chỉnh cỡ chữ">
+									aria-labelledby="wikiAdminReadingFontLabel">
 
 									<button type="button" class="wiki-admin-reading-button"
 										data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
@@ -594,6 +594,45 @@ document.addEventListener(
             event.preventDefault();
         }
 
+    }
+);
+
+</script>
+	<script>
+
+document.addEventListener(
+    "keydown",
+    function(event) {
+
+        if (event.key !== "Escape") {
+            return;
+        }
+
+
+        const menu =
+            document.querySelector(
+                ".wiki-admin-detail-action-menu[open]"
+            );
+
+
+        if (!menu) {
+            return;
+        }
+
+
+        menu.open =
+            false;
+
+
+        const trigger =
+            menu.querySelector(
+                "summary"
+            );
+
+
+        if (trigger) {
+            trigger.focus();
+        }
     }
 );
 

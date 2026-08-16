@@ -314,7 +314,11 @@
 												<!-- Chỉ bài đã publish mới có trang public -->
 												<a th:if="${article.status == 'PUBLISHED'}"
 													th:href="@{/wiki/{type}/{slug}(
-        type=${#strings.toLowerCase(article.articleType)},
+        type=${#strings.replace(
+    #strings.toLowerCase(article.articleType),
+    '_',
+    '-'
+)},
         slug=${article.slug}
     )}"
 													target="_blank" rel="noopener"

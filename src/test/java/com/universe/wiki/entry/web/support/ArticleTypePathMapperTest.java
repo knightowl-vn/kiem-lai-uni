@@ -145,7 +145,7 @@ class ArticleTypePathMapperTest {
                 )
         )
                 .isInstanceOf(
-                        IllegalArgumentException.class
+                        InvalidArticleTypePathException.class
                 )
                 .hasMessage(
                         "Article type path không hợp lệ: "
@@ -164,10 +164,10 @@ class ArticleTypePathMapperTest {
                 )
         )
                 .isInstanceOf(
-                        IllegalArgumentException.class
+                        InvalidArticleTypePathException.class
                 )
-                .hasMessage(
-                        "Article type path không được để trống."
+                .hasMessageStartingWith(
+                        "Article type path không hợp lệ:"
                 );
     }
 }

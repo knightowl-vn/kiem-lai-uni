@@ -343,7 +343,7 @@ class CommonMarkWikiMarkdownRendererTest {
                         """
                         Nội dung phía trước.
 
-                        ![Trần Bình An](https://example.com/tran-binh-an.webp "wiki:size=medium;layout=wrap-right")
+                        ![Trần Bình An](https://example.com/tran-binh-an.webp "wiki:width=50;layout=wrap-right")
 
                         *Trần Bình An tại Kiếm Khí Trường Thành*
 
@@ -360,7 +360,7 @@ class CommonMarkWikiMarkdownRendererTest {
                         "wiki-media"
                 )
                 .contains(
-                        "wiki-media--medium"
+                        "wiki-media--width-50"
                 )
                 .contains(
                         "wiki-media--wrap-right"
@@ -398,7 +398,7 @@ class CommonMarkWikiMarkdownRendererTest {
 
         assertThat(result.html())
                 .contains(
-                        "wiki-media--small"
+                        "wiki-media--width-30"
                 )
                 .contains(
                         "wiki-media--block-right"
@@ -500,7 +500,7 @@ class CommonMarkWikiMarkdownRendererTest {
         RenderedWikiContent result =
                 renderer.render(
                         """
-                        ![Ảnh](https://example.com/image.webp "wiki:size=small;layout=wrap-right")
+                        ![Ảnh](https://example.com/image.webp "wiki:width=30;layout=wrap-right")
                         Đoạn văn phải chạy bên trái ảnh.
                         """
                 );
@@ -508,7 +508,7 @@ class CommonMarkWikiMarkdownRendererTest {
 
         assertThat(result.html())
                 .contains(
-                        "wiki-media--small"
+                        "wiki-media--width-30"
                 )
                 .contains(
                         "wiki-media--wrap-right"

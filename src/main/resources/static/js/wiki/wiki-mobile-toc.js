@@ -8,47 +8,50 @@
        ===================================================== */
 
     const MOBILE_BREAKPOINT =
-            991.98;
-
+        991.98;
+    const mobileMediaQuery =
+        window.matchMedia(
+            `(max-width: ${MOBILE_BREAKPOINT}px)`
+        );
 
     /* =====================================================
        ELEMENTS
        ===================================================== */
 
     const toggleButton =
-            document.querySelector(
-                "[data-wiki-toc-toggle]"
-            );
+        document.querySelector(
+            "[data-wiki-toc-toggle]"
+        );
 
     const sidebar =
-            document.querySelector(
-                ".wiki-public-reading-sidebar"
-            );
+        document.querySelector(
+            ".wiki-public-reading-sidebar"
+        );
 
     const toc =
-            document.getElementById(
-                "wikiPublicToc"
-            );
+        document.getElementById(
+            "wikiPublicToc"
+        );
 
 
     /*
      * Bài không có TOC.
      */
     if (
-            !toggleButton
-            || !sidebar
-            || !toc
+        !toggleButton
+        || !sidebar
+        || !toc
     ) {
         return;
     }
 
 
     const tocLinks =
-            Array.from(
-                toc.querySelectorAll(
-                    'a[href^="#"]'
-                )
-            );
+        Array.from(
+            toc.querySelectorAll(
+                'a[href^="#"]'
+            )
+        );
 
 
     /* =====================================================
@@ -56,14 +59,12 @@
        ===================================================== */
 
     let opened =
-            false;
+        false;
 
 
     function isMobileLayout() {
 
-        return window.matchMedia(
-            `(max-width: ${MOBILE_BREAKPOINT}px)`
-        ).matches;
+        return mobileMediaQuery.matches;
     }
 
 
@@ -86,17 +87,17 @@
 
 
         const icon =
-                toggleButton.querySelector(
-                    ".wiki-public-toc-toggle-icon"
-                );
+            toggleButton.querySelector(
+                ".wiki-public-toc-toggle-icon"
+            );
 
 
         if (icon) {
 
             icon.textContent =
-                    opened
-                            ? "▴"
-                            : "▾";
+                opened
+                    ? "▴"
+                    : "▾";
         }
     }
 
@@ -116,6 +117,109 @@
         render();
     }
 
+    /* =====================================================
+       FOCUS MANAGEMENT
+       ===================================================== */
+
+    function resolveTargetHeading(
+        link
+    ) {
+
+        const href =
+            link.getAttribute(
+                "href"
+            );
+
+
+        if (
+            !href
+            || !href.startsWith("#")
+            || href === "#"
+        ) {
+            return null;
+        }
+
+
+        let headingId;
+
+
+        try {
+
+            headingId =
+                decodeURIComponent(
+                    href.slice(1)
+                );
+
+        } catch (error) {
+
+            headingId =
+                href.slice(1);
+        }
+
+
+        return document.getElementById(
+            headingId
+        );
+    }
+
+
+    function focusHeading(
+        heading
+    ) {
+
+        if (!heading) {
+            return;
+        }
+
+
+        const previousTabIndex =
+            heading.getAttribute(
+                "tabindex"
+            );
+
+
+        heading.setAttribute(
+            "tabindex",
+            "-1"
+        );
+
+
+        window.requestAnimationFrame(
+            () => {
+
+                heading.focus(
+                    {
+                        preventScroll: true
+                    }
+                );
+            }
+        );
+
+
+        heading.addEventListener(
+            "blur",
+            () => {
+
+                if (previousTabIndex === null) {
+
+                    heading.removeAttribute(
+                        "tabindex"
+                    );
+
+                } else {
+
+                    heading.setAttribute(
+                        "tabindex",
+                        previousTabIndex
+                    );
+                }
+            },
+            {
+                once: true
+            }
+        );
+    }
+
 
     /* =====================================================
        EVENTS
@@ -126,9 +230,28 @@
         () => {
 
             opened =
-                    !opened;
+                !opened;
 
             render();
+        }
+    );
+
+    document.addEventListener(
+        "keydown",
+        (event) => {
+
+            if (
+                event.key !== "Escape"
+                || !isMobileLayout()
+                || !opened
+            ) {
+                return;
+            }
+
+
+            closeToc();
+
+            toggleButton.focus();
         }
     );
 
@@ -146,10 +269,29 @@
                 () => {
 
                     if (
-                            isMobileLayout()
+                        !isMobileLayout()
                     ) {
-                        closeToc();
+                        return;
                     }
+
+
+                    const targetHeading =
+                        resolveTargetHeading(
+                            link
+                        );
+
+
+                    closeToc();
+
+
+                    /*
+                     * TOC vừa bị ẩn.
+                     * Chuyển focus tới section
+                     * mà người dùng vừa chọn.
+                     */
+                    focusHeading(
+                        targetHeading
+                    );
                 }
             );
         }
@@ -160,14 +302,23 @@
      * Nếu đổi từ desktop sang mobile
      * thì bắt đầu ở trạng thái thu gọn.
      */
-    window.addEventListener(
-        "resize",
-        () => {
+    mobileMediaQuery.addEventListener(
+        "change",
+        (event) => {
 
-            if (
-                    isMobileLayout()
-            ) {
+            if (event.matches) {
+
+                /*
+                 * Desktop → mobile.
+                 */
                 closeToc();
+
+            } else {
+
+                /*
+                 * Mobile → desktop.
+                 */
+                openToc();
             }
         }
     );
@@ -178,7 +329,7 @@
        ===================================================== */
 
     if (
-            isMobileLayout()
+        isMobileLayout()
     ) {
         closeToc();
 

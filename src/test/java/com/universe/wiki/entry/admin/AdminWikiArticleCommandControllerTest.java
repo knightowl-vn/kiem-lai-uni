@@ -1153,8 +1153,12 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.publishArticle(ARTICLE_ID, authentication, redirectAttributes);
-
+		String result = controller.publishArticle(
+		        ARTICLE_ID,
+		        "list",
+		        authentication,
+		        redirectAttributes
+		);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1173,8 +1177,12 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.unpublishArticle(ARTICLE_ID, authentication, redirectAttributes);
-
+		String result = controller.unpublishArticle(
+		        ARTICLE_ID,
+		        "list",
+		        authentication,
+		        redirectAttributes
+		);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1194,8 +1202,12 @@ class AdminWikiArticleCommandControllerTest {
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
-		String result = controller.archiveArticle(ARTICLE_ID, authentication, redirectAttributes);
-
+		String result = controller.archiveArticle(
+		        ARTICLE_ID,
+		        "list",
+		        authentication,
+		        redirectAttributes
+		);
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
@@ -1249,6 +1261,7 @@ class AdminWikiArticleCommandControllerTest {
 	    String result =
 	            controller.publishArticle(
 	                    ARTICLE_ID,
+	                    "list",
 	                    authentication,
 	                    redirectAttributes
 	            );

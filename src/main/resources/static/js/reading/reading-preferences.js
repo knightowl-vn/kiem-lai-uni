@@ -8,19 +8,19 @@
        ===================================================== */
 
     const STORAGE_KEY =
-            "kiemlai:reading:font-size";
+        "kiemlai:reading:font-size";
 
     const MIN_SIZE =
-            14;
+        14;
 
     const DEFAULT_SIZE =
-            16;
+        16;
 
     const MAX_SIZE =
-            24;
+        24;
 
     const STEP =
-            2;
+        2;
 
 
     /* =====================================================
@@ -28,8 +28,53 @@
        ===================================================== */
 
     const root =
-            document.documentElement;
+        document.documentElement;
 
+    /* =====================================================
+       ACCESSIBILITY ANNOUNCER
+       ===================================================== */
+
+    const liveRegion =
+        document.createElement(
+            "span"
+        );
+
+
+    liveRegion.setAttribute(
+        "role",
+        "status"
+    );
+
+    liveRegion.setAttribute(
+        "aria-live",
+        "polite"
+    );
+
+    liveRegion.setAttribute(
+        "aria-atomic",
+        "true"
+    );
+
+
+    Object.assign(
+        liveRegion.style,
+        {
+            position: "absolute",
+            width: "1px",
+            height: "1px",
+            padding: "0",
+            margin: "-1px",
+            overflow: "hidden",
+            clip: "rect(0, 0, 0, 0)",
+            whiteSpace: "nowrap",
+            border: "0"
+        }
+    );
+
+
+    document.body.appendChild(
+        liveRegion
+    );
 
     /* =====================================================
        STORAGE
@@ -38,33 +83,33 @@
     function normalizeSize(value) {
 
         const numericValue =
-                Number(value);
+            Number(value);
 
         if (
-                !Number.isFinite(
-                    numericValue
-                )
+            !Number.isFinite(
+                numericValue
+            )
         ) {
             return DEFAULT_SIZE;
         }
 
         const steppedValue =
-                Math.round(
-                    (
-                        numericValue
-                        - MIN_SIZE
-                    )
-                    / STEP
+            Math.round(
+                (
+                    numericValue
+                    - MIN_SIZE
                 )
-                * STEP
-                + MIN_SIZE;
+                / STEP
+            )
+            * STEP
+            + MIN_SIZE;
 
         return Math.min(
-                MAX_SIZE,
-                Math.max(
-                    MIN_SIZE,
-                    steppedValue
-                )
+            MAX_SIZE,
+            Math.max(
+                MIN_SIZE,
+                steppedValue
+            )
         );
     }
 
@@ -74,9 +119,9 @@
         try {
 
             const savedValue =
-                    localStorage.getItem(
-                        STORAGE_KEY
-                    );
+                localStorage.getItem(
+                    STORAGE_KEY
+                );
 
             if (savedValue === null) {
                 return DEFAULT_SIZE;
@@ -122,7 +167,13 @@
        ===================================================== */
 
     let currentSize =
-            loadSavedSize();
+        loadSavedSize();
+
+    function announceSize() {
+
+        liveRegion.textContent =
+            `Cỡ chữ hiện tại ${currentSize}px`;
+    }
 
 
     /* =====================================================
@@ -130,24 +181,24 @@
        ===================================================== */
 
     function applySize(
-            size,
-            persist
+        size,
+        persist
     ) {
 
         currentSize =
-                normalizeSize(
-                    size
-                );
+            normalizeSize(
+                size
+            );
 
 
         root.style.setProperty(
-                "--reading-font-size",
-                `${currentSize}px`
+            "--reading-font-size",
+            `${currentSize}px`
         );
 
 
         root.dataset.readingFontSize =
-                String(currentSize);
+            String(currentSize);
 
 
         if (persist) {
@@ -155,8 +206,9 @@
             saveSize(
                 currentSize
             );
-        }
 
+            announceSize();
+        }
 
         updateControls();
     }
@@ -167,38 +219,38 @@
        ===================================================== */
 
     const decreaseButtons =
-            document.querySelectorAll(
-                '[data-reading-font-action="decrease"]'
-            );
+        document.querySelectorAll(
+            '[data-reading-font-action="decrease"]'
+        );
 
     const resetButtons =
-            document.querySelectorAll(
-                '[data-reading-font-action="reset"]'
-            );
+        document.querySelectorAll(
+            '[data-reading-font-action="reset"]'
+        );
 
     const increaseButtons =
-            document.querySelectorAll(
-                '[data-reading-font-action="increase"]'
-            );
+        document.querySelectorAll(
+            '[data-reading-font-action="increase"]'
+        );
 
 
     function updateControls() {
 
         const isMinimum =
-                currentSize <= MIN_SIZE;
+            currentSize <= MIN_SIZE;
 
         const isDefault =
-                currentSize === DEFAULT_SIZE;
+            currentSize === DEFAULT_SIZE;
 
         const isMaximum =
-                currentSize >= MAX_SIZE;
+            currentSize >= MAX_SIZE;
 
 
         decreaseButtons.forEach(
             button => {
 
                 button.disabled =
-                        isMinimum;
+                    isMinimum;
 
                 button.setAttribute(
                     "aria-disabled",
@@ -212,7 +264,7 @@
             button => {
 
                 button.disabled =
-                        isMaximum;
+                    isMaximum;
 
                 button.setAttribute(
                     "aria-disabled",
@@ -230,13 +282,8 @@
                     isDefault
                 );
 
-                button.setAttribute(
-                    "aria-pressed",
-                    String(isDefault)
-                );
-
                 button.title =
-                        `Cỡ chữ hiện tại: ${currentSize}px`;
+                    `Cỡ chữ hiện tại: ${currentSize}px`;
             }
         );
     }

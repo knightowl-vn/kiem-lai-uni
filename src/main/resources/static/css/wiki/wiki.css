@@ -892,6 +892,19 @@ a::before {
 }
 
 /* =========================================================
+   PUBLIC WIKI — KEYBOARD FOCUS
+   ========================================================= */
+
+.wiki-public-toc-toggle:focus-visible,
+.wiki-public-reading-sidebar
+.wiki-toc-list a:focus-visible,
+.wiki-public-back-to-top:focus-visible,
+.wiki-public-back a:focus-visible {
+	outline: 2px solid var(--bs-primary);
+	outline-offset: 3px;
+}
+
+/* =========================================================
    PUBLIC WIKI — TOC SCROLL SPY
    ========================================================= */
 .wiki-public-reading-sidebar
@@ -1047,6 +1060,21 @@ a.is-parent-active:not(.is-active) {
     .wiki-toc-list a {
 		padding: 9px 7px;
 		font-size: 0.8rem;
+	}
+}
+
+/* =========================================================
+   PUBLIC WIKI — REDUCED MOTION
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+
+	.wiki-public-font-button,
+	.wiki-public-reading-sidebar
+	.wiki-toc-list a,
+	.wiki-public-back-to-top,
+	.wiki-public-toc-toggle-icon {
+		transition: none;
 	}
 }
 
