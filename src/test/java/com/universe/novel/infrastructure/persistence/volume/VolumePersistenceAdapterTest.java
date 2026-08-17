@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ConcurrentModificationException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -672,5 +673,107 @@ class VolumePersistenceAdapterTest {
                 .save(
                         any(VolumeJpaEntity.class)
                 );
+    }
+    
+    @Test
+    @DisplayName(
+            "Lấy danh sách Volume theo sortOrder ASC"
+    )
+    void shouldFindAllOrderBySortOrder() {
+
+        VolumeJpaEntity first =
+                createDraftEntity();
+
+        first.setId(
+                "11111111-1111-1111-1111-111111111111"
+        );
+
+        first.setTitle(
+                "Kiếm Lai - Tập 1"
+        );
+
+        first.setSlug(
+                "kiem-lai-tap-1"
+        );
+
+        first.setSortOrder(
+                1
+        );
+
+        VolumeJpaEntity second =
+                createDraftEntity();
+
+        second.setId(
+                "22222222-2222-2222-2222-222222222222"
+        );
+
+        second.setTitle(
+                "Kiếm Lai - Tập 2"
+        );
+
+        second.setSlug(
+                "kiem-lai-tap-2"
+        );
+
+        second.setSortOrder(
+                2
+        );
+
+        when(
+                repository
+                        .findAllByOrderBySortOrderAsc()
+        ).thenReturn(
+                List.of(
+                        first,
+                        second
+                )
+        );
+
+        List<Volume> result =
+                adapter.findAllOrderBySortOrder();
+
+        assertThat(
+                result
+        ).hasSize(
+                2
+        );
+
+        assertThat(
+                result
+                        .stream()
+                        .map(
+                                Volume::getSortOrder
+                        )
+        ).containsExactly(
+                1,
+                2
+        );
+
+        assertThat(
+                result
+                        .stream()
+                        .map(
+                                Volume::getTitle
+                        )
+        ).containsExactly(
+                "Kiếm Lai - Tập 1",
+                "Kiếm Lai - Tập 2"
+        );
+
+        assertThat(
+                result
+                        .stream()
+                        .map(
+                                volume ->
+                                        volume.getSlug().value()
+                        )
+        ).containsExactly(
+                "kiem-lai-tap-1",
+                "kiem-lai-tap-2"
+        );
+
+        verify(
+                repository
+        ).findAllByOrderBySortOrderAsc();
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.ConcurrentModificationException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 @Component
 public class VolumePersistenceAdapter implements VolumeRepositoryPort {
@@ -36,6 +37,15 @@ public class VolumePersistenceAdapter implements VolumeRepositoryPort {
 		}
 
 		return repository.findBySlug(slug.value()).map(this::toDomain);
+	}
+	
+	@Override
+	public List<Volume> findAllOrderBySortOrder() {
+	    return repository
+	            .findAllByOrderBySortOrderAsc()
+	            .stream()
+	            .map(this::toDomain)
+	            .toList();
 	}
 
 	@Override
