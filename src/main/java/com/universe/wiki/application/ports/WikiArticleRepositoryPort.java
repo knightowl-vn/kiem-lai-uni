@@ -26,4 +26,7 @@ public interface WikiArticleRepositoryPort {
     void save(
             WikiArticle article
     );
+    void deleteById(
+            UUID articleId
+    );
 }
