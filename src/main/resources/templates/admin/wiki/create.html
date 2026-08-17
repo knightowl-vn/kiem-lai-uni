@@ -54,45 +54,74 @@
 
 				<section class="wiki-admin-form-panel">
 
-					<form method="post" th:action="@{/admin/wiki/articles}"
-						th:object="${form}" class="wiki-admin-create-form">
+					<form id="wikiArticleForm" method="post"
+						th:action="@{/admin/wiki/articles}" th:object="${form}"
+						class="wiki-admin-create-form" data-wiki-autosave-mode="create">
 
 						<div id="wikiCsrf" th:data-token="${_csrf.token}"
 							th:data-header="${_csrf.headerName}" hidden></div>
 
 						<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
 							th:text="${errorMessage}">Có lỗi xảy ra.</div>
+						<div class="wiki-admin-create-note wiki-admin-autosave-note">
 
-						<div class="wiki-admin-form-group">
+							<div class="wiki-admin-autosave-indicator" aria-hidden="true">
+							</div>
 
-							<label for="wikiTitle"> Tiêu đề bài viết <span
-								class="required-marker">*</span>
-							</label> <input id="wikiTitle" type="text" th:field="*{title}"
-								maxlength="255" autocomplete="off"
-								placeholder="Ví dụ: Trần Bình An" required> <small>
-								Slug sẽ được hệ thống tự động tạo từ tiêu đề. </small>
+							<div class="wiki-admin-autosave-content">
+
+								<strong> Tự động lưu cục bộ </strong>
+
+								<p id="wikiAutosaveStatus" aria-live="polite">Chưa có thay
+									đổi cần tự lưu.</p>
+
+							</div>
 
 						</div>
 
-						<div class="wiki-admin-form-group">
+						<!-- ================================================= -->
+						<!-- ARTICLE BASIC INFO                                -->
+						<!-- ================================================= -->
 
-							<label for="wikiArticleType"> Loại nội dung <span
-								class="required-marker">*</span>
-							</label> <select id="wikiArticleType" th:field="*{articleType}" required>
+						<div class="wiki-admin-metadata-grid">
 
-								<option value="" disabled>Chọn loại nội dung</option>
+							<!-- TITLE -->
 
-								<option th:each="type : ${articleTypes}"
-									th:value="${type.name()}"
-									th:text="${#strings.replace(
-                                        type.name(),
-                                        '_',
-                                        ' '
-                                    )}">
-									CHARACTER</option>
+							<div class="wiki-admin-form-group">
 
-							</select> <small> Loại bài có thể ảnh hưởng tới URL và cách phân
-								loại trong Wiki. </small>
+								<label for="wikiTitle"> Tiêu đề bài viết <span
+									class="required-marker">*</span>
+								</label> <input id="wikiTitle" type="text" th:field="*{title}"
+									maxlength="200" autocomplete="off"
+									placeholder="Ví dụ: Trần Bình An" required> <small>
+									Slug sẽ được hệ thống tự động tạo từ tiêu đề. </small>
+
+							</div>
+
+
+							<!-- ARTICLE TYPE -->
+
+							<div class="wiki-admin-form-group">
+
+								<label for="wikiArticleType"> Loại nội dung <span
+									class="required-marker">*</span>
+								</label> <select id="wikiArticleType" th:field="*{articleType}" required>
+
+									<option value="" disabled>Chọn loại nội dung</option>
+
+									<option th:each="type : ${articleTypes}"
+										th:value="${type.name()}"
+										th:text="${#strings.replace(
+                    type.name(),
+                    '_',
+                    ' '
+                )}">
+										CHARACTER</option>
+
+								</select> <small> Loại bài ảnh hưởng tới URL và cách phân loại
+									trong Wiki. </small>
+
+							</div>
 
 						</div>
 
@@ -127,108 +156,226 @@
 								gợi ý. Bạn có thể thêm, xóa, đổi tên hoặc sắp xếp các đề mục tùy
 								ý.</div>
 
-							<!-- ================================ -->
-							<!-- MARKDOWN TOOLBAR                 -->
-							<!-- ================================ -->
+							<!-- ================================================= -->
+							<!-- MARKDOWN EDITOR                                   -->
+							<!-- ================================================= -->
 
-							<div class="wiki-markdown-toolbar" role="toolbar"
-								aria-label="Công cụ soạn thảo Markdown">
-
-								<!-- UNDO / REDO -->
-								<div class="wiki-markdown-toolbar-group">
-
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="undo" title="Hoàn tác (Ctrl+Z)"
-										aria-label="Hoàn tác">↶</button>
-
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="redo" title="Làm lại (Ctrl+Y)"
-										aria-label="Làm lại">↷</button>
-
-								</div>
-
-								<div class="wiki-markdown-toolbar-divider"></div>
+							<div class="wiki-markdown-editor-shell">
 
 
-								<!-- HEADINGS -->
-								<div class="wiki-markdown-toolbar-group">
+								<!-- ============================================= -->
+								<!-- WRITE / PREVIEW TABS                          -->
+								<!-- ============================================= -->
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="h2" title="Đề mục chính">H2</button>
+								<div class="wiki-markdown-editor-tabs" role="tablist"
+									aria-label="Chế độ soạn thảo nội dung">
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="h3" title="Đề mục con">H3</button>
+									<button id="wikiWriteTab" type="button"
+										class="wiki-markdown-editor-tab is-active" role="tab"
+										aria-selected="true" aria-controls="wikiWritePanel"
+										tabindex="0">Write</button>
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="h4" title="Đề mục chi tiết">H4
-									</button>
+
+									<button id="wikiPreviewTab" type="button"
+										class="wiki-markdown-editor-tab" role="tab"
+										aria-selected="false" aria-controls="wikiPreviewPanel"
+										tabindex="-1">Preview</button>
 
 								</div>
 
-								<div class="wiki-markdown-toolbar-divider"></div>
+
+								<!-- ============================================= -->
+								<!-- WRITE PANEL                                   -->
+								<!-- ============================================= -->
+
+								<div id="wikiWritePanel" class="wiki-markdown-editor-panel"
+									role="tabpanel" aria-labelledby="wikiWriteTab">
 
 
-								<!-- INLINE FORMAT -->
-								<div class="wiki-markdown-toolbar-group">
+									<!-- ========================================= -->
+									<!-- MARKDOWN TOOLBAR                         -->
+									<!-- ========================================= -->
 
-									<button type="button"
-										class="wiki-markdown-tool wiki-markdown-tool-bold"
-										data-markdown-action="bold" title="In đậm (Ctrl+B)">
-										B</button>
+									<div class="wiki-markdown-toolbar" role="toolbar"
+										aria-label="Công cụ soạn thảo Markdown">
 
-									<button type="button"
-										class="wiki-markdown-tool wiki-markdown-tool-italic"
-										data-markdown-action="italic" title="In nghiêng (Ctrl+I)">
-										I</button>
+
+										<!-- UNDO / REDO -->
+
+										<div class="wiki-markdown-toolbar-group">
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="undo" title="Hoàn tác (Ctrl+Z)"
+												aria-label="Hoàn tác">↶</button>
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="redo" title="Làm lại (Ctrl+Y)"
+												aria-label="Làm lại">↷</button>
+
+										</div>
+
+
+										<div class="wiki-markdown-toolbar-divider"></div>
+
+
+										<!-- HEADINGS -->
+
+										<div class="wiki-markdown-toolbar-group">
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="h2" title="Đề mục chính">H2</button>
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="h3" title="Đề mục con">H3</button>
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="h4" title="Đề mục chi tiết">
+
+												H4</button>
+
+										</div>
+
+
+										<div class="wiki-markdown-toolbar-divider"></div>
+
+
+										<!-- INLINE FORMAT -->
+
+										<div class="wiki-markdown-toolbar-group">
+
+											<button type="button"
+												class="
+						wiki-markdown-tool
+						wiki-markdown-tool-bold
+					"
+												data-markdown-action="bold" title="In đậm (Ctrl+B)">
+
+												B</button>
+
+											<button type="button"
+												class="
+						wiki-markdown-tool
+						wiki-markdown-tool-italic
+					"
+												data-markdown-action="italic" title="In nghiêng (Ctrl+I)">
+
+												I</button>
+
+										</div>
+
+
+										<div class="wiki-markdown-toolbar-divider"></div>
+
+
+										<!-- INSERT / BLOCK -->
+
+										<div class="wiki-markdown-toolbar-group">
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="link" title="Chèn liên kết (Ctrl+K)">
+
+												Link</button>
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="quote" title="Trích dẫn">
+
+												Quote</button>
+
+											<button type="button" class="wiki-markdown-tool"
+												data-markdown-action="list" title="Danh sách">List
+
+											</button>
+
+										</div>
+
+
+										<div class="wiki-markdown-toolbar-divider"></div>
+
+
+										<!-- IMAGE -->
+
+										<button id="wikiImageButton" type="button"
+											class="wiki-markdown-tool" title="Chèn ảnh">Ảnh</button>
+
+
+										<input id="wikiImageFileInput" type="file"
+											accept="image/jpeg,image/png,image/webp" hidden>
+
+										<div class="wiki-markdown-toolbar-divider"></div>
+
+										<!-- STOP IMAGE WRAPPING -->
+
+										<button type="button"
+											class="
+   									     		wiki-markdown-tool
+        										wiki-markdown-tool-clear-wrap
+    			                             "
+											data-markdown-action="clear-wrap"
+											title="Dừng văn bản bọc quanh ảnh">↵ Ngắt bọc</button>
+
+									</div>
+
+
+									<!-- ========================================= -->
+									<!-- TEXTAREA                                 -->
+									<!-- ========================================= -->
+
+									<textarea id="wikiContent" th:field="*{content}" rows="24"
+										placeholder="Nhập nội dung bài Wiki..."></textarea>
+
+
+									<div class="wiki-admin-markdown-help">
+
+										<span> <strong>##</strong> Đề mục chính
+										</span> <span> <strong>###</strong> Đề mục con
+										</span> <span> <strong>####</strong> Đề mục chi tiết
+										</span> <span> <strong>↵</strong> Ngắt bọc ảnh
+										</span>
+
+
+									</div>
+
+									<div id="wikiEditorDiagnostics" class="wiki-editor-diagnostics"
+										hidden>
+
+										<div class="wiki-editor-diagnostics-header">
+
+											<strong> ⚠ Nội dung có thể chưa được trình bày đúng
+											</strong>
+
+										</div>
+
+										<ul id="wikiEditorDiagnosticList"></ul>
+
+									</div>
 
 								</div>
 
-								<div class="wiki-markdown-toolbar-divider"></div>
+
+								<!-- ============================================= -->
+								<!-- PREVIEW PANEL                                 -->
+								<!-- ============================================= -->
+
+								<div id="wikiPreviewPanel" class="wiki-markdown-editor-panel"
+									role="tabpanel" aria-labelledby="wikiPreviewTab" hidden>
 
 
-								<!-- INSERT / BLOCK -->
-								<div class="wiki-markdown-toolbar-group">
+									<div id="wikiPreviewLoading"
+										class="wiki-markdown-preview-state" hidden>Đang tạo bản
+										xem trước...</div>
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="link" title="Chèn liên kết (Ctrl+K)">
-										Link</button>
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="quote" title="Trích dẫn">Quote
-									</button>
+									<div id="wikiPreviewEmpty" class="wiki-markdown-preview-state"
+										hidden>Chưa có nội dung để xem trước.</div>
 
-									<button type="button" class="wiki-markdown-tool"
-										data-markdown-action="list" title="Danh sách">List</button>
+
+									<article id="wikiMarkdownPreview" class="wiki-markdown-preview">
+									</article>
 
 								</div>
-
-								<div class="wiki-markdown-toolbar-divider"></div>
-
-
-								<!-- IMAGE -->
-								<button id="wikiImageButton" type="button"
-									class="wiki-markdown-tool" title="Chèn ảnh">Ảnh</button>
-
-								<input id="wikiImageFileInput" type="file"
-									accept="image/jpeg,image/png,image/webp" hidden>
 
 							</div>
 
-							<!-- ================================ -->
-							<!-- EDITOR                           -->
-							<!-- ================================ -->
-
-							<textarea id="wikiContent" th:field="*{content}" rows="24"
-								placeholder="Nhập nội dung bài Wiki..."></textarea>
-
-							<div class="wiki-admin-markdown-help">
-
-								<span> <strong>##</strong> Đề mục chính
-								</span> <span> <strong>###</strong> Đề mục con
-								</span> <span> <strong>####</strong> Đề mục chi tiết
-								</span>
-
-							</div>
 
 							<small> Có thể để nội dung chưa hoàn thiện nếu chỉ lưu
 								bản nháp. </small>
@@ -247,15 +394,37 @@
 
 						</div>
 
-						<div class="wiki-admin-create-note">
+						<div class="wiki-admin-create-note wiki-admin-publish-note">
 
-							<strong> Bạn có hai lựa chọn </strong>
+							<span class="wiki-admin-publish-note-label"> LƯU Ý KHI TẠO
+								BÀI </span>
 
-							<p>Nếu nội dung chưa hoàn thiện, hãy lưu bản nháp để tiếp tục
-								chỉnh sửa sau. Nếu bài viết đã đầy đủ, bạn có thể xuất bản ngay
-								để hiển thị trên Wiki công khai.</p>
+							<div class="wiki-admin-publish-options">
+
+								<div class="wiki-admin-publish-option">
+
+									<strong> Lưu bản nháp </strong>
+
+									<p>Dùng khi nội dung chưa hoàn thiện và cần tiếp tục chỉnh
+										sửa sau.</p>
+
+								</div>
+
+
+								<div class="wiki-admin-publish-option">
+
+									<strong> Xuất bản ngay </strong>
+
+									<p>Dùng khi bài viết đã sẵn sàng để hiển thị trên Wiki công
+										khai.</p>
+
+								</div>
+
+							</div>
 
 						</div>
+
+
 						<div class="wiki-admin-form-actions">
 
 							<a th:href="@{/admin/wiki/articles}"
@@ -272,6 +441,298 @@
 
 
 					</form>
+
+					<!-- ===================================================== -->
+					<!-- WIKI AUTO-SAVE RECOVERY MODAL                         -->
+					<!-- ===================================================== -->
+
+					<div id="wikiAutosaveRecovery" class="wiki-autosave-recovery-modal"
+						hidden>
+
+						<div class="wiki-autosave-recovery-backdrop"></div>
+
+
+						<section class="wiki-autosave-recovery-dialog" role="dialog"
+							aria-modal="true" aria-labelledby="wikiAutosaveRecoveryTitle"
+							aria-describedby="wikiAutosaveRecoveryMessage">
+
+
+							<div class="wiki-autosave-recovery-content">
+
+								<span class="wiki-admin-eyebrow"> WIKI AUTO-SAVE </span>
+
+
+								<h3 id="wikiAutosaveRecoveryTitle">Phát hiện bản chỉnh sửa
+									chưa lưu</h3>
+
+
+								<p id="wikiAutosaveRecoveryMessage">Phát hiện bản chỉnh sửa
+									cục bộ chưa được lưu lên hệ thống.</p>
+
+
+								<p class="wiki-autosave-recovery-help">Hãy chọn cách xử lý
+									bản tự lưu trước khi tiếp tục chỉnh sửa.</p>
+
+							</div>
+
+
+							<div class="wiki-autosave-recovery-actions">
+
+								<button id="wikiAutosaveDiscard" type="button"
+									class="wiki-admin-secondary-button">Bỏ bản tự lưu</button>
+
+
+								<button id="wikiAutosaveRestore" type="button"
+									class="wiki-admin-primary-button">Khôi phục bản tự lưu
+
+								</button>
+
+							</div>
+
+						</section>
+
+					</div>
+
+					<!-- ===================================================== -->
+					<!-- WIKI IMAGE EDITOR MODAL                               -->
+					<!-- ===================================================== -->
+
+					<div id="wikiImageEditorModal" class="wiki-image-editor-modal"
+						hidden>
+
+						<div class="wiki-image-editor-backdrop" data-wiki-image-close>
+						</div>
+
+
+						<section class="wiki-image-editor-dialog" role="dialog"
+							aria-modal="true" aria-labelledby="wikiImageEditorTitle">
+
+
+							<!-- HEADER -->
+
+							<div class="wiki-image-editor-header">
+
+								<div>
+
+									<span class="wiki-admin-eyebrow"> WIKI IMAGE </span>
+
+									<h3 id="wikiImageEditorTitle">Chèn ảnh</h3>
+
+								</div>
+
+
+								<button id="wikiImageEditorClose" type="button"
+									class="wiki-image-editor-close" aria-label="Đóng">×</button>
+
+							</div>
+
+
+							<!-- BODY -->
+
+							<div class="wiki-image-editor-body">
+
+
+								<!-- PREVIEW -->
+
+								<div class="wiki-image-editor-preview">
+
+									<img id="wikiImageEditorPreview" alt="Xem trước ảnh">
+
+								</div>
+
+
+								<!-- ALT -->
+
+								<div class="wiki-image-editor-field">
+
+									<label for="wikiImageAlt"> Mô tả ảnh </label> <input
+										id="wikiImageAlt" type="text" maxlength="255"
+										placeholder="Ví dụ: Trần Bình An tại Kiếm Khí Trường Thành">
+
+									<small> Dùng cho accessibility và khi ảnh không thể
+										hiển thị. </small>
+
+								</div>
+
+
+								<!-- CAPTION -->
+
+								<div class="wiki-image-editor-field">
+
+									<label for="wikiImageCaption"> Chú thích </label> <input
+										id="wikiImageCaption" type="text" maxlength="500"
+										placeholder="Chú thích hiển thị bên dưới ảnh..."> <small>
+										Có thể để trống. </small>
+
+								</div>
+
+
+								<!-- ================================================= -->
+								<!-- IMAGE SIZE                                        -->
+								<!-- ================================================= -->
+
+								<fieldset class="wiki-image-editor-fieldset">
+
+									<legend>Kích thước ảnh</legend>
+
+									<div class="wiki-image-size-stepper">
+
+										<button id="wikiImageSizeDecrease" type="button"
+											class="wiki-image-size-button"
+											aria-label="Giảm kích thước ảnh">−</button>
+
+
+										<button id="wikiImageSizeValue" type="button"
+											class="wiki-image-size-value"
+											title="Đặt lại kích thước mặc định">50%</button>
+
+
+										<button id="wikiImageSizeIncrease" type="button"
+											class="wiki-image-size-button"
+											aria-label="Tăng kích thước ảnh">+</button>
+
+									</div>
+
+
+									<small class="wiki-image-size-help"> Điều chỉnh từ 20%
+										đến 100%. Mỗi lần tăng hoặc giảm 10%. Nhấn vào phần trăm để
+										trở về 50%. </small>
+
+								</fieldset>
+
+
+								<!-- ALIGN -->
+
+								<!-- ================================================= -->
+								<!-- IMAGE LAYOUT                                      -->
+								<!-- ================================================= -->
+
+								<fieldset class="wiki-image-editor-fieldset">
+
+									<legend> Bố trí ảnh </legend>
+
+
+									<div class="wiki-image-layout-grid">
+
+
+										<!-- BLOCK LEFT -->
+
+										<label class="wiki-image-layout-choice"> <input
+											type="radio" name="wikiImageLayout" value="block-left">
+
+											<span class="wiki-image-layout-card"> <span
+												class="wiki-image-layout-icon is-block-left"> <i></i>
+													<b></b>
+
+											</span> <strong>Ảnh trái</strong> <small> Ảnh nằm riêng một
+													dòng. </small>
+
+										</span>
+
+										</label>
+
+
+										<!-- BLOCK CENTER -->
+
+										<label class="wiki-image-layout-choice"> <input
+											type="radio" name="wikiImageLayout" value="block-center"
+											checked> <span class="wiki-image-layout-card">
+
+												<span class="wiki-image-layout-icon is-block-center">
+
+													<i></i> <b></b>
+
+											</span> <strong>Ảnh giữa</strong> <small> Kiểu mặc định. </small>
+
+										</span>
+
+										</label>
+
+
+										<!-- BLOCK RIGHT -->
+
+										<label class="wiki-image-layout-choice"> <input
+											type="radio" name="wikiImageLayout" value="block-right">
+
+											<span class="wiki-image-layout-card"> <span
+												class="wiki-image-layout-icon is-block-right"> <i></i>
+													<b></b>
+
+											</span> <strong>Ảnh phải</strong> <small> Ảnh nằm riêng một
+													dòng. </small>
+
+										</span>
+
+										</label>
+
+
+										<!-- WRAP LEFT -->
+
+										<label class="wiki-image-layout-choice"> <input
+											type="radio" name="wikiImageLayout" value="wrap-left">
+
+											<span class="wiki-image-layout-card"> <span
+												class="wiki-image-layout-icon is-wrap-left"> <i></i>
+													<b></b>
+
+											</span> <strong>Ảnh trái · bọc chữ</strong> <small> Chữ chạy
+													bên phải ảnh. </small>
+
+										</span>
+
+										</label>
+
+
+										<!-- WRAP RIGHT -->
+
+										<label class="wiki-image-layout-choice"> <input
+											type="radio" name="wikiImageLayout" value="wrap-right">
+
+											<span class="wiki-image-layout-card"> <span
+												class="wiki-image-layout-icon is-wrap-right"> <i></i>
+													<b></b>
+
+											</span> <strong>Bọc chữ · ảnh phải</strong> <small> Chữ chạy
+													bên trái ảnh. </small>
+
+										</span>
+
+										</label>
+
+
+									</div>
+
+
+									<small class="wiki-image-layout-help"> Với bố trí bọc
+										chữ, đoạn văn phía sau ảnh sẽ tự chạy song song bên cạnh ảnh.
+
+									</small>
+
+								</fieldset>
+
+
+								<div id="wikiImageEditorError" class="wiki-admin-form-error"
+									hidden>Không thể xử lý ảnh.</div>
+
+							</div>
+
+
+							<!-- FOOTER -->
+
+							<div class="wiki-image-editor-footer">
+
+								<button id="wikiImageEditorCancel" type="button"
+									class="wiki-admin-secondary-button">Hủy</button>
+
+
+								<button id="wikiImageEditorConfirm" type="button"
+									class="wiki-admin-primary-button">Chèn ảnh</button>
+
+							</div>
+
+						</section>
+
+					</div>
 
 				</section>
 

@@ -246,7 +246,8 @@ return new PublishedWikiArticleListItemDTO(
                 entity.getUpdatedAt(),
                 entity.getPublishedAt(),
                 entity.getArchivedAt(),
-                entity.getAggregateVersion()
+                entity.getAggregateVersion(),
+                entity.getContentVersion()
         );
     }
 
@@ -266,7 +267,7 @@ return new PublishedWikiArticleListItemDTO(
                 ),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
-                entity.getAggregateVersion()
+                entity.getContentVersion()
         );
     }
 

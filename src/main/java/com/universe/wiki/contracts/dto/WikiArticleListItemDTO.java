@@ -17,6 +17,6 @@ public record WikiArticleListItemDTO(
         UUID updatedBy,
         Instant createdAt,
         Instant updatedAt,
-        long aggregateVersion
+        long contentVersion
 ) {
 }

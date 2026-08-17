@@ -553,6 +553,71 @@ button {
     text-align: center;
 }
 
+/* =========================================================
+   ADMIN MOBILE NAVIGATION
+   ========================================================= */
+
+.admin-header-main {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+
+    gap: 14px;
+}
+
+
+.admin-header-title {
+    min-width: 0;
+}
+
+
+.admin-mobile-menu-button,
+.admin-sidebar-mobile-close {
+    display: none;
+}
+
+
+/* =========================================================
+   MOBILE NAV BACKDROP
+   ========================================================= */
+
+.admin-sidebar-mobile-backdrop {
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 1900;
+
+    padding: 0;
+
+    border: 0;
+
+    background:
+        rgba(
+            15,
+            16,
+            24,
+            0.56
+        );
+
+    opacity: 0;
+    visibility: hidden;
+
+    cursor: default;
+
+    transition:
+        opacity 0.2s ease,
+        visibility 0.2s ease;
+}
+
+
+body.admin-mobile-nav-open
+.admin-sidebar-mobile-backdrop {
+    opacity: 1;
+    visibility: visible;
+}
+
 @media (max-width: 1100px) {
     .stats-grid {
         grid-template-columns:
@@ -565,33 +630,226 @@ button {
 }
 
 @media (max-width: 760px) {
+
     :root {
         --sidebar-width: 0px;
     }
 
-    .admin-sidebar {
-        display: none;
-    }
+
+    /* =====================================================
+       MAIN
+       ===================================================== */
 
     .admin-main {
         margin-left: 0;
     }
 
-    .admin-header,
+
     .dashboard-content {
-        padding-left: 18px;
-        padding-right: 18px;
+        padding:
+            22px
+            18px
+            36px;
     }
+
+
+    /* =====================================================
+       HEADER
+       ===================================================== */
+
+    .admin-header {
+        min-height: 76px;
+
+        padding:
+            14px
+            18px;
+
+        gap: 12px;
+    }
+
+
+    .admin-header-main {
+        min-width: 0;
+
+        flex: 1;
+    }
+
+
+    .admin-header-title {
+        min-width: 0;
+    }
+
+
+    .admin-header h1 {
+        overflow: hidden;
+
+        font-size: 20px;
+
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+
+    .admin-header p {
+        overflow: hidden;
+
+        margin-top: 4px;
+
+        font-size: 11px;
+
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
 
     .header-actions {
         display: none;
     }
 
+
+    /* =====================================================
+       HAMBURGER
+       ===================================================== */
+
+    .admin-mobile-menu-button {
+        width: 42px;
+        height: 42px;
+
+        flex: 0 0 auto;
+
+        display: grid;
+        place-items: center;
+
+        padding: 0;
+
+        border: 1px solid var(--border);
+        border-radius: 11px;
+
+        background: var(--surface);
+        color: var(--text-primary);
+
+        font-size: 20px;
+        line-height: 1;
+
+        cursor: pointer;
+    }
+
+
+    .admin-mobile-menu-button:hover {
+        border-color: var(--primary);
+
+        background: var(--primary-light);
+        color: var(--primary);
+    }
+
+
+    /* =====================================================
+       OFF-CANVAS SIDEBAR
+       ===================================================== */
+
+    .admin-sidebar {
+        display: flex;
+
+        width: min(
+            300px,
+            86vw
+        );
+
+        z-index: 2000;
+
+        transform:
+            translateX(-100%);
+
+        box-shadow:
+            18px
+            0
+            45px
+            rgba(
+                10,
+                10,
+                16,
+                0.22
+            );
+
+        transition:
+            transform
+            0.22s
+            ease;
+    }
+
+
+    body.admin-mobile-nav-open
+    .admin-sidebar {
+        transform:
+            translateX(0);
+    }
+
+
+    body.admin-mobile-nav-open {
+        overflow: hidden;
+    }
+
+
+    /* =====================================================
+       SIDEBAR BRAND
+       ===================================================== */
+
+    .sidebar-brand {
+        padding-right: 0;
+    }
+
+
+    .sidebar-brand-text {
+        min-width: 0;
+    }
+
+
+    .admin-sidebar-mobile-close {
+        width: 36px;
+        height: 36px;
+
+        flex: 0 0 auto;
+
+        display: grid;
+        place-items: center;
+
+        margin-left: auto;
+
+        padding: 0;
+
+        border: 1px solid #33323c;
+        border-radius: 9px;
+
+        background: transparent;
+        color: #aaa9b2;
+
+        font-size: 23px;
+        line-height: 1;
+
+        cursor: pointer;
+    }
+
+
+    .admin-sidebar-mobile-close:hover {
+        border-color: #514b6b;
+
+        background: #24232b;
+        color: #ffffff;
+    }
+
+
+    /* =====================================================
+       EXISTING DASHBOARD
+       ===================================================== */
+
     .welcome-panel {
         align-items: flex-start;
+
         flex-direction: column;
+
         gap: 20px;
     }
+
 
     .stats-grid {
         grid-template-columns: 1fr;

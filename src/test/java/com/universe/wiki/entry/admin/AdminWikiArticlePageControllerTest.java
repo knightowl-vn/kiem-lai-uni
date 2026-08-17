@@ -1,19 +1,21 @@
 package com.universe.wiki.entry.admin;
 
-import com.universe.wiki.application.article.query.list
-        .ListWikiArticlesQuery;
-import com.universe.wiki.application.article.query.list
-        .ListWikiArticlesUseCase;
-import com.universe.wiki.application.article.template
-        .WikiArticleContentTemplateProvider;
-import com.universe.wiki.contracts.dto
-        .WikiArticleListItemDTO;
-import com.universe.wiki.contracts.dto
-        .WikiArticlePageDTO;
+import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailQuery;
+import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailUseCase;
+import com.universe.wiki.application.article.query.list.ListWikiArticlesQuery;
+import com.universe.wiki.application.article.query.list.ListWikiArticlesUseCase;
+import com.universe.wiki.application.article.render.RenderedWikiContent;
+import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
+import com.universe.wiki.application.article.template.WikiArticleContentTemplateProvider;
+import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailUseCase;
+import com.universe.wiki.application.revision.query.list.ListWikiArticleRevisionsUseCase;
+import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
+import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
-import com.universe.wiki.entry.admin.form
-        .CreateWikiArticleForm;
+import com.universe.wiki.entry.admin.form.CreateWikiArticleForm;
+import com.universe.wiki.entry.admin.form.EditWikiArticleForm;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +30,7 @@ import org.springframework.ui.ExtendedModelMap;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,435 +43,366 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AdminWikiArticlePageControllerTest {
 
-    private static final UUID ARTICLE_ID =
-            UUID.fromString(
-                    "11111111-1111-1111-1111-111111111111"
-            );
+	private static final UUID ARTICLE_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
-    private static final UUID ADMIN_ID =
-            UUID.fromString(
-                    "22222222-2222-2222-2222-222222222222"
-            );
+	private static final UUID ADMIN_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
-    private static final Instant CREATED_AT =
-            Instant.parse(
-                    "2026-08-07T01:00:00Z"
-            );
+	private static final Instant CREATED_AT = Instant.parse("2026-08-07T01:00:00Z");
 
-    private static final Instant UPDATED_AT =
-            Instant.parse(
-                    "2026-08-07T02:00:00Z"
-            );
+	private static final Instant UPDATED_AT = Instant.parse("2026-08-07T02:00:00Z");
 
-    @Mock
-    private ListWikiArticlesUseCase
-            listWikiArticlesUseCase;
+	@Mock
+	private ListWikiArticlesUseCase listWikiArticlesUseCase;
 
-    @Mock
-    private WikiArticleContentTemplateProvider
-            contentTemplateProvider;
+	@Mock
+	private WikiArticleContentTemplateProvider contentTemplateProvider;
 
-    private AdminWikiArticlePageController
-            controller;
+	@Mock
+	private GetWikiArticleDetailUseCase getWikiArticleDetailUseCase;
 
-    @BeforeEach
-    void setUp() {
-        controller =
-                new AdminWikiArticlePageController(
-                        listWikiArticlesUseCase,
-                        contentTemplateProvider
-                );
-    }
+	@Mock
+	private ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase;
 
-    /*
-     * =====================================================
-     * LIST PAGE
-     * =====================================================
-     */
+	@Mock
+	private GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase;
 
-    @Test
-    @DisplayName(
-            "Hiển thị danh sách Wiki có đầy đủ bộ lọc"
-    )
-    void shouldShowWikiArticleListWithFilters() {
-        WikiArticlePageDTO expectedPage =
-                createPageDTO();
+	@Mock
+	private WikiMarkdownRenderer wikiMarkdownRenderer;
 
-        when(
-                listWikiArticlesUseCase.execute(
-                        new ListWikiArticlesQuery(
-                                "Trần Bình",
-                                ArticleType.CHARACTER,
-                                ArticleStatus.PUBLISHED,
-                                0,
-                                20
-                        )
-                )
-        ).thenReturn(
-                expectedPage
-        );
+	private AdminWikiArticlePageController controller;
 
-        ExtendedModelMap model =
-                new ExtendedModelMap();
+	@BeforeEach
+	void setUp() {
 
-        String viewName =
-                controller.listPage(
-                        "Trần Bình",
-                        "character",
-                        "published",
-                        0,
-                        20,
-                        model
-                );
+		controller = new AdminWikiArticlePageController(listWikiArticlesUseCase, contentTemplateProvider,
+				getWikiArticleDetailUseCase, listWikiArticleRevisionsUseCase, getWikiArticleRevisionDetailUseCase,
+				wikiMarkdownRenderer);
+	}
+	/*
+	 * ===================================================== LIST PAGE
+	 * =====================================================
+	 */
 
-        assertThat(viewName)
-                .isEqualTo(
-                        "admin/wiki/articles"
-                );
+	@Test
+	@DisplayName("Hiển thị danh sách Wiki có đầy đủ bộ lọc")
+	void shouldShowWikiArticleListWithFilters() {
+		WikiArticlePageDTO expectedPage = createPageDTO();
 
-        assertThat(
-                model.getAttribute(
-                        "articlePage"
-                )
-        ).isEqualTo(
-                expectedPage
-        );
+		when(listWikiArticlesUseCase
+				.execute(new ListWikiArticlesQuery("Trần Bình", ArticleType.CHARACTER, ArticleStatus.PUBLISHED, 0, 20)))
+				.thenReturn(expectedPage);
 
-        assertThat(
-                model.getAttribute(
-                        "keyword"
-                )
-        ).isEqualTo(
-                "Trần Bình"
-        );
+		ExtendedModelMap model = new ExtendedModelMap();
+		MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(
-                model.getAttribute(
-                        "selectedType"
-                )
-        ).isEqualTo(
-                ArticleType.CHARACTER
-        );
+		String viewName = controller.listPage("Trần Bình", "character", "published", 0, 20, model, response);
 
-        assertThat(
-                model.getAttribute(
-                        "selectedStatus"
-                )
-        ).isEqualTo(
-                ArticleStatus.PUBLISHED
-        );
+		assertThat(viewName).isEqualTo("admin/wiki/articles");
 
-        assertThat(
-                model.getAttribute(
-                        "pageTitle"
-                )
-        ).isEqualTo(
-                "Quản lý Wiki"
-        );
+		assertThat(model.getAttribute("articlePage")).isEqualTo(expectedPage);
 
-        assertThat(
-                model.getAttribute(
-                        "activeMenu"
-                )
-        ).isEqualTo(
-                "wiki"
-        );
+		assertThat(model.getAttribute("keyword")).isEqualTo("Trần Bình");
 
-        ArticleType[] articleTypes =
-                (ArticleType[])
-                        model.getAttribute(
-                                "articleTypes"
-                        );
+		assertThat(model.getAttribute("selectedType")).isEqualTo(ArticleType.CHARACTER);
 
-        assertThat(articleTypes)
-                .containsExactly(
-                        ArticleType.values()
-                );
+		assertThat(model.getAttribute("selectedStatus")).isEqualTo(ArticleStatus.PUBLISHED);
 
-        ArticleStatus[] articleStatuses =
-                (ArticleStatus[])
-                        model.getAttribute(
-                                "articleStatuses"
-                        );
+		assertThat(model.getAttribute("pageTitle")).isEqualTo("Quản lý Wiki");
 
-        assertThat(articleStatuses)
-                .containsExactly(
-                        ArticleStatus.values()
-                );
+		assertThat(model.getAttribute("activeMenu")).isEqualTo("wiki");
 
-        verify(listWikiArticlesUseCase)
-                .execute(
-                        new ListWikiArticlesQuery(
-                                "Trần Bình",
-                                ArticleType.CHARACTER,
-                                ArticleStatus.PUBLISHED,
-                                0,
-                                20
-                        )
-                );
-    }
+		ArticleType[] articleTypes = (ArticleType[]) model.getAttribute("articleTypes");
 
-    @Test
-    @DisplayName(
-            "Không áp dụng bộ lọc khi tham số để trống"
-    )
-    void shouldListArticlesWithoutFilters() {
-        WikiArticlePageDTO emptyPage =
-                new WikiArticlePageDTO(
-                        List.of(),
-                        0,
-                        20,
-                        0L,
-                        0,
-                        true,
-                        true
-                );
+		assertThat(articleTypes).containsExactly(ArticleType.values());
 
-        when(
-                listWikiArticlesUseCase.execute(
-                        new ListWikiArticlesQuery(
-                                null,
-                                null,
-                                null,
-                                0,
-                                20
-                        )
-                )
-        ).thenReturn(
-                emptyPage
-        );
+		ArticleStatus[] articleStatuses = (ArticleStatus[]) model.getAttribute("articleStatuses");
 
-        ExtendedModelMap model =
-                new ExtendedModelMap();
+		assertThat(articleStatuses).containsExactly(ArticleStatus.values());
 
-        String viewName =
-                controller.listPage(
-                        null,
-                        "   ",
-                        "",
-                        0,
-                        20,
-                        model
-                );
+		verify(listWikiArticlesUseCase)
+				.execute(new ListWikiArticlesQuery("Trần Bình", ArticleType.CHARACTER, ArticleStatus.PUBLISHED, 0, 20));
+		assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store, no-cache, must-revalidate, max-age=0");
 
-        assertThat(viewName)
-                .isEqualTo(
-                        "admin/wiki/articles"
-                );
+		assertThat(response.getHeader("Pragma")).isEqualTo("no-cache");
 
-        assertThat(
-                model.getAttribute(
-                        "keyword"
-                )
-        ).isEqualTo("");
+		assertThat(response.getDateHeader("Expires")).isEqualTo(0L);
+	}
 
-        assertThat(
-                model.getAttribute(
-                        "selectedType"
-                )
-        ).isNull();
+	@Test
+	@DisplayName("Không áp dụng bộ lọc khi tham số để trống")
+	void shouldListArticlesWithoutFilters() {
+		WikiArticlePageDTO emptyPage = new WikiArticlePageDTO(List.of(), 0, 20, 0L, 0, true, true);
 
-        assertThat(
-                model.getAttribute(
-                        "selectedStatus"
-                )
-        ).isNull();
+		when(listWikiArticlesUseCase.execute(new ListWikiArticlesQuery(null, null, null, 0, 20))).thenReturn(emptyPage);
 
-        verify(listWikiArticlesUseCase)
-                .execute(
-                        new ListWikiArticlesQuery(
-                                null,
-                                null,
-                                null,
-                                0,
-                                20
-                        )
-                );
-    }
+		ExtendedModelMap model = new ExtendedModelMap();
+		MockHttpServletResponse response = new MockHttpServletResponse();
 
-    @Test
-    @DisplayName(
-            "Từ chối article type không hợp lệ"
-    )
-    void shouldRejectInvalidArticleType() {
-        ExtendedModelMap model =
-                new ExtendedModelMap();
+		String viewName = controller.listPage(null, "   ", "", 0, 20, model, response);
 
-        assertThatThrownBy(() ->
-                controller.listPage(
-                        null,
-                        "unknown-type",
-                        null,
-                        0,
-                        20,
-                        model
-                )
-        )
-                .isInstanceOf(
-                        IllegalArgumentException.class
-                )
-                .hasMessage(
-                        "Article type không hợp lệ: "
-                                + "unknown-type"
-                );
+		assertThat(viewName).isEqualTo("admin/wiki/articles");
 
-        verify(
-                listWikiArticlesUseCase,
-                never()
-        ).execute(
-                any(ListWikiArticlesQuery.class)
-        );
-    }
+		assertThat(model.getAttribute("keyword")).isEqualTo("");
 
-    /*
-     * =====================================================
-     * CREATE PAGE
-     * =====================================================
-     */
+		assertThat(model.getAttribute("selectedType")).isNull();
 
-    @Test
-    @DisplayName(
-            "Hiển thị trang tạo bài Wiki mới"
-    )
-    void shouldShowCreateWikiArticlePage() {
-        ExtendedModelMap model =
-                new ExtendedModelMap();
+		assertThat(model.getAttribute("selectedStatus")).isNull();
 
-        String viewName =
-                controller.createPage(
-                        model
-                );
+		verify(listWikiArticlesUseCase).execute(new ListWikiArticlesQuery(null, null, null, 0, 20));
+	}
 
-        assertThat(viewName)
-                .isEqualTo(
-                        "admin/wiki/create"
-                );
+	@Test
+	@DisplayName("Từ chối article type không hợp lệ")
+	void shouldRejectInvalidArticleType() {
+		ExtendedModelMap model = new ExtendedModelMap();
+		MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(
-                model.getAttribute(
-                        "form"
-                )
-        ).isInstanceOf(
-                CreateWikiArticleForm.class
-        );
+		assertThatThrownBy(() -> controller.listPage(null, "unknown-type", null, 0, 20, model, response))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("Article type không hợp lệ: " + "unknown-type");
 
-        ArticleType[] articleTypes =
-                (ArticleType[])
-                        model.getAttribute(
-                                "articleTypes"
-                        );
+		verify(listWikiArticlesUseCase, never()).execute(any(ListWikiArticlesQuery.class));
+	}
 
-        assertThat(articleTypes)
-                .containsExactly(
-                        ArticleType.values()
-                );
+	/*
+	 * ===================================================== CREATE PAGE
+	 * =====================================================
+	 */
 
-        assertThat(
-                model.getAttribute(
-                        "pageTitle"
-                )
-        ).isEqualTo(
-                "Tạo bài Wiki"
-        );
+	@Test
+	@DisplayName("Hiển thị trang tạo bài Wiki mới")
+	void shouldShowCreateWikiArticlePage() {
+		ExtendedModelMap model = new ExtendedModelMap();
 
-        assertThat(
-                model.getAttribute(
-                        "activeMenu"
-                )
-        ).isEqualTo(
-                "wiki"
-        );
-    }
+		String viewName = controller.createPage(model);
 
-    /*
-     * =====================================================
-     * CONTENT TEMPLATE
-     * =====================================================
-     */
+		assertThat(viewName).isEqualTo("admin/wiki/create");
 
-    @Test
-    @DisplayName(
-            "Trả về content template theo ArticleType"
-    )
-    void shouldReturnContentTemplate() {
-        String expectedTemplate =
-                """
-                ## Tổng quan
+		assertThat(model.getAttribute("form")).isInstanceOf(CreateWikiArticleForm.class);
 
-                ## Tu hành và năng lực
+		ArticleType[] articleTypes = (ArticleType[]) model.getAttribute("articleTypes");
 
-                ### Cảnh giới
+		assertThat(articleTypes).containsExactly(ArticleType.values());
 
-                ### Công pháp
-                """;
+		assertThat(model.getAttribute("pageTitle")).isEqualTo("Tạo bài Wiki");
 
-        when(
-                contentTemplateProvider.getTemplate(
-                        ArticleType.CHARACTER
-                )
-        ).thenReturn(
-                expectedTemplate
-        );
+		assertThat(model.getAttribute("activeMenu")).isEqualTo("wiki");
+	}
 
-        String result =
-                controller.contentTemplate(
-                        ArticleType.CHARACTER
-                );
+	/*
+	 * ===================================================== DETAIL PAGE
+	 * =====================================================
+	 */
 
-        assertThat(result)
-                .isEqualTo(
-                        expectedTemplate
-                );
+	@Test
+	@DisplayName("Hiển thị trang chi tiết bài Wiki")
+	void shouldShowWikiArticleDetailPage() {
 
-        assertThat(result)
-                .contains(
-                        "## Tổng quan"
-                )
-                .contains(
-                        "## Tu hành và năng lực"
-                )
-                .contains(
-                        "### Cảnh giới"
-                )
-                .contains(
-                        "### Công pháp"
-                );
+		WikiArticleDTO article = createDraftArticleDTO();
 
-        verify(
-                contentTemplateProvider
-        ).getTemplate(
-                ArticleType.CHARACTER
-        );
-    }
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID))).thenReturn(article);
 
-    /*
-     * =====================================================
-     * TEST DATA
-     * =====================================================
-     */
+		String renderedHtml = "<p>Nội dung bài viết.</p>";
 
-    private WikiArticlePageDTO createPageDTO() {
-        WikiArticleListItemDTO item =
-                new WikiArticleListItemDTO(
-                        ARTICLE_ID,
-                        "Trần Bình An",
-                        "tran-binh-an",
-                        "CHARACTER",
-                        "PUBLISHED",
-                        ADMIN_ID,
-                        CREATED_AT,
-                        UPDATED_AT,
-                        3L
-                );
+		when(wikiMarkdownRenderer.render(article.content()))
+				.thenReturn(new RenderedWikiContent(renderedHtml, List.of()));
 
-        return new WikiArticlePageDTO(
-                List.of(item),
-                0,
-                20,
-                1L,
-                1,
-                true,
-                true
-        );
-    }
+		ExtendedModelMap model = new ExtendedModelMap();
+
+		String viewName = controller.detailPage(ARTICLE_ID, model);
+
+		assertThat(viewName).isEqualTo("admin/wiki/detail");
+
+		assertThat(model.getAttribute("article")).isEqualTo(article);
+
+		assertThat(model.getAttribute("renderedContent")).isEqualTo(renderedHtml);
+
+		assertThat(model.getAttribute("pageTitle")).isEqualTo("Chi tiết bài Wiki");
+
+		assertThat(model.getAttribute("activeMenu")).isEqualTo("wiki");
+
+		verify(getWikiArticleDetailUseCase).execute(new GetWikiArticleDetailQuery(ARTICLE_ID));
+
+		verify(wikiMarkdownRenderer).render(article.content());
+	}
+
+	/*
+	 * ===================================================== EDIT DRAFT PAGE
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Hiển thị trang chỉnh sửa bài Wiki DRAFT")
+	void shouldShowEditDraftWikiArticlePage() {
+
+		WikiArticleDTO article = createDraftArticleDTO();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID))).thenReturn(article);
+
+		ExtendedModelMap model = new ExtendedModelMap();
+
+		String viewName = controller.editPage(ARTICLE_ID, model);
+
+		assertThat(viewName).isEqualTo("admin/wiki/edit");
+
+		assertThat(model.getAttribute("article")).isEqualTo(article);
+
+		assertThat(model.getAttribute("draft")).isEqualTo(true);
+
+		EditWikiArticleForm form = (EditWikiArticleForm) model.getAttribute("form");
+
+		assertThat(form).isNotNull();
+
+		assertThat(form.getTitle()).isEqualTo("Trần Bình An");
+
+		assertThat(form.getArticleType()).isEqualTo(ArticleType.CHARACTER);
+
+		assertThat(form.getSummary()).isEqualTo("Nhân vật chính của Kiếm Lai.");
+
+		assertThat(form.getContent()).isEqualTo("Nội dung bài viết.");
+
+		ArticleType[] articleTypes = (ArticleType[]) model.getAttribute("articleTypes");
+
+		assertThat(articleTypes).containsExactly(ArticleType.values());
+
+		assertThat(model.getAttribute("pageTitle")).isEqualTo("Chỉnh sửa bài Wiki");
+	}
+
+	/*
+	 * ===================================================== EDIT PUBLISHED PAGE
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Hiển thị trang chỉnh sửa bài Wiki PUBLISHED ở chế độ hạn chế")
+	void shouldShowEditPublishedWikiArticlePage() {
+
+		WikiArticleDTO article = createPublishedArticleDTO();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID))).thenReturn(article);
+
+		ExtendedModelMap model = new ExtendedModelMap();
+
+		String viewName = controller.editPage(ARTICLE_ID, model);
+
+		assertThat(viewName).isEqualTo("admin/wiki/edit");
+
+		assertThat(model.getAttribute("draft")).isEqualTo(false);
+
+		EditWikiArticleForm form = (EditWikiArticleForm) model.getAttribute("form");
+
+		assertThat(form).isNotNull();
+
+		assertThat(form.getTitle()).isEqualTo("Trần Bình An");
+
+		assertThat(form.getArticleType()).isEqualTo(ArticleType.CHARACTER);
+
+		assertThat(form.getSummary()).isEqualTo("Nhân vật chính của Kiếm Lai.");
+
+		assertThat(form.getContent()).isEqualTo("Nội dung bài viết.");
+	}
+
+	/*
+	 * ===================================================== EDIT ARCHIVED PAGE
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Không mở trang chỉnh sửa trực tiếp cho bài Wiki ARCHIVED")
+	void shouldRejectEditArchivedWikiArticlePage() {
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createArchivedArticleDTO());
+
+		assertThatThrownBy(() -> controller.editPage(ARTICLE_ID, new ExtendedModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
+	}
+
+	/*
+	 * ===================================================== CONTENT TEMPLATE
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Trả về content template theo ArticleType")
+	void shouldReturnContentTemplate() {
+		String expectedTemplate = """
+				## Tổng quan
+
+				## Tu hành và năng lực
+
+				### Cảnh giới
+
+				### Công pháp
+				""";
+
+		when(contentTemplateProvider.getTemplate(ArticleType.CHARACTER)).thenReturn(expectedTemplate);
+
+		String result = controller.contentTemplate(ArticleType.CHARACTER);
+
+		assertThat(result).isEqualTo(expectedTemplate);
+
+		assertThat(result).contains("## Tổng quan").contains("## Tu hành và năng lực").contains("### Cảnh giới")
+				.contains("### Công pháp");
+
+		verify(contentTemplateProvider).getTemplate(ArticleType.CHARACTER);
+	}
+
+	@Test
+	@DisplayName("Render Markdown preview bằng WikiMarkdownRenderer")
+	void shouldPreviewWikiMarkdownContent() {
+
+		String markdown = """
+				## Tổng quan
+
+				**Trần Bình An** là nhân vật chính.
+				""";
+
+		String expectedHtml = """
+				<h2 id="tong-quan">Tổng quan</h2>
+				<p><strong>Trần Bình An</strong> là nhân vật chính.</p>
+				""";
+
+		when(wikiMarkdownRenderer.render(markdown)).thenReturn(new RenderedWikiContent(expectedHtml, List.of()));
+
+		String result = controller.previewContent(markdown);
+
+		assertThat(result).isEqualTo(expectedHtml);
+
+		verify(wikiMarkdownRenderer).render(markdown);
+	}
+
+	/*
+	 * ===================================================== TEST DATA
+	 * =====================================================
+	 */
+
+	private WikiArticlePageDTO createPageDTO() {
+		WikiArticleListItemDTO item = new WikiArticleListItemDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an",
+				"CHARACTER", "PUBLISHED", ADMIN_ID, CREATED_AT, UPDATED_AT, 3L);
+
+		return new WikiArticlePageDTO(List.of(item), 0, 20, 1L, 1, true, true);
+	}
+
+	private WikiArticleDTO createDraftArticleDTO() {
+
+		return new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Nhân vật chính của Kiếm Lai.", "Nội dung bài viết.", "DRAFT", ADMIN_ID, ADMIN_ID, null, null,
+				CREATED_AT, UPDATED_AT, null, null, 1L, 1L);
+	}
+
+	private WikiArticleDTO createPublishedArticleDTO() {
+
+		return new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Nhân vật chính của Kiếm Lai.", "Nội dung bài viết.", "PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null,
+				CREATED_AT, UPDATED_AT, UPDATED_AT, null, 2L, 1L);
+	}
+
+	private WikiArticleDTO createArchivedArticleDTO() {
+
+		return new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Nhân vật chính của Kiếm Lai.", "Nội dung bài viết.", "ARCHIVED", ADMIN_ID, ADMIN_ID, ADMIN_ID,
+				ADMIN_ID, CREATED_AT, UPDATED_AT, UPDATED_AT, UPDATED_AT, 3L, 1L);
+	}
 }

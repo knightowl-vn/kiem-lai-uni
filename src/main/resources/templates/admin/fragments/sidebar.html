@@ -4,14 +4,22 @@
 
 <body>
 
-	<aside class="admin-sidebar" th:fragment="sidebar(activeMenu)">
+	<aside id="adminSidebar" class="admin-sidebar"
+		th:fragment="sidebar(activeMenu)" aria-label="Điều hướng quản trị">
 
 		<div class="sidebar-brand">
+
 			<div class="brand-logo">KL</div>
 
-			<div>
+			<div class="sidebar-brand-text">
 				<strong>Kiếm Lai</strong> <span>Quản trị hệ thống</span>
 			</div>
+
+			<button id="adminMobileSidebarClose" type="button"
+				class="admin-sidebar-mobile-close" aria-label="Đóng menu quản trị">
+
+				×</button>
+
 		</div>
 
 		<nav class="sidebar-menu">
@@ -52,32 +60,30 @@
 
 		</nav>
 
-		<div class="sidebar-user">
-			<div class="sidebar-user" th:if="${currentUser != null}">
+		<div class="sidebar-user" th:if="${currentUser != null}">
 
-				<div class="sidebar-user-avatar">
+			<div class="sidebar-user-avatar">
 
-					<img
-						th:if="${currentUser.avatarUrl != null
+				<img
+					th:if="${currentUser.avatarUrl != null
                     and !currentUser.avatarUrl.isBlank()}"
-						th:src="${currentUser.avatarUrl}"
-						th:attr="referrerpolicy='no-referrer'" alt="Avatar quản trị viên">
+					th:src="${currentUser.avatarUrl}"
+					th:attr="referrerpolicy='no-referrer'" alt="Avatar quản trị viên">
 
-					<img
-						th:unless="${currentUser.avatarUrl != null
+				<img
+					th:unless="${currentUser.avatarUrl != null
                     and !currentUser.avatarUrl.isBlank()}"
-						th:src="@{/images/default_avatar.jpg}" alt="Avatar mặc định">
+					th:src="@{/images/default_avatar.jpg}" alt="Avatar mặc định">
 
-				</div>
-
-				<div class="sidebar-user-info">
-
-					<strong th:text="${currentUser.displayName}"> Quản trị
-						viên </strong> <span th:text="${currentUser.email}">
-						admin@example.com </span>
-
-				</div>
 			</div>
+
+			<div class="sidebar-user-info">
+
+				<strong th:text="${currentUser.displayName}"> Quản trị viên
+				</strong> <span th:text="${currentUser.email}"> admin@example.com </span>
+
+			</div>
+
 		</div>
 
 	</aside>

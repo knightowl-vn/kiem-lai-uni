@@ -47,6 +47,7 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String id;
 
+
     @Column(
             name = "article_id",
             nullable = false,
@@ -55,11 +56,26 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String articleId;
 
+
+    /*
+     * Thứ tự lịch sử mutation.
+     */
     @Column(
             name = "revision_number",
             nullable = false
     )
     private long revisionNumber;
+
+
+    /*
+     * Phiên bản nội dung.
+     */
+    @Column(
+            name = "content_version",
+            nullable = false
+    )
+    private long contentVersion;
+
 
     @Column(
             name = "title",
@@ -68,12 +84,14 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String title;
 
+
     @Column(
             name = "slug",
             nullable = false,
             length = 180
     )
     private String slug;
+
 
     @Column(
             name = "article_type",
@@ -82,12 +100,14 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String articleType;
 
+
     @Column(
             name = "summary",
             nullable = false,
             length = 1000
     )
     private String summary;
+
 
     @Column(
             name = "content",
@@ -96,12 +116,14 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String content;
 
+
     @Column(
             name = "status",
             nullable = false,
             length = 20
     )
     private String status;
+
 
     @Column(
             name = "change_type",
@@ -110,11 +132,13 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String changeType;
 
+
     @Column(
             name = "edit_summary",
             length = 500
     )
     private String editSummary;
+
 
     @Column(
             name = "edited_by",
@@ -124,18 +148,22 @@ public class WikiArticleRevisionJpaEntity {
     )
     private String editedBy;
 
+
     @Column(
             name = "created_at",
             nullable = false
     )
     private Instant createdAt;
 
+
     public WikiArticleRevisionJpaEntity() {
     }
+
 
     public String getId() {
         return id;
     }
+
 
     public void setId(
             String id
@@ -143,9 +171,11 @@ public class WikiArticleRevisionJpaEntity {
         this.id = id;
     }
 
+
     public String getArticleId() {
         return articleId;
     }
+
 
     public void setArticleId(
             String articleId
@@ -153,9 +183,11 @@ public class WikiArticleRevisionJpaEntity {
         this.articleId = articleId;
     }
 
+
     public long getRevisionNumber() {
         return revisionNumber;
     }
+
 
     public void setRevisionNumber(
             long revisionNumber
@@ -164,9 +196,24 @@ public class WikiArticleRevisionJpaEntity {
                 revisionNumber;
     }
 
+
+    public long getContentVersion() {
+        return contentVersion;
+    }
+
+
+    public void setContentVersion(
+            long contentVersion
+    ) {
+        this.contentVersion =
+                contentVersion;
+    }
+
+
     public String getTitle() {
         return title;
     }
+
 
     public void setTitle(
             String title
@@ -174,9 +221,11 @@ public class WikiArticleRevisionJpaEntity {
         this.title = title;
     }
 
+
     public String getSlug() {
         return slug;
     }
+
 
     public void setSlug(
             String slug
@@ -184,9 +233,11 @@ public class WikiArticleRevisionJpaEntity {
         this.slug = slug;
     }
 
+
     public String getArticleType() {
         return articleType;
     }
+
 
     public void setArticleType(
             String articleType
@@ -195,9 +246,11 @@ public class WikiArticleRevisionJpaEntity {
                 articleType;
     }
 
+
     public String getSummary() {
         return summary;
     }
+
 
     public void setSummary(
             String summary
@@ -205,9 +258,11 @@ public class WikiArticleRevisionJpaEntity {
         this.summary = summary;
     }
 
+
     public String getContent() {
         return content;
     }
+
 
     public void setContent(
             String content
@@ -215,9 +270,11 @@ public class WikiArticleRevisionJpaEntity {
         this.content = content;
     }
 
+
     public String getStatus() {
         return status;
     }
+
 
     public void setStatus(
             String status
@@ -225,9 +282,11 @@ public class WikiArticleRevisionJpaEntity {
         this.status = status;
     }
 
+
     public String getChangeType() {
         return changeType;
     }
+
 
     public void setChangeType(
             String changeType
@@ -236,9 +295,11 @@ public class WikiArticleRevisionJpaEntity {
                 changeType;
     }
 
+
     public String getEditSummary() {
         return editSummary;
     }
+
 
     public void setEditSummary(
             String editSummary
@@ -247,9 +308,11 @@ public class WikiArticleRevisionJpaEntity {
                 editSummary;
     }
 
+
     public String getEditedBy() {
         return editedBy;
     }
+
 
     public void setEditedBy(
             String editedBy
@@ -257,9 +320,11 @@ public class WikiArticleRevisionJpaEntity {
         this.editedBy = editedBy;
     }
 
+
     public Instant getCreatedAt() {
         return createdAt;
     }
+
 
     public void setCreatedAt(
             Instant createdAt

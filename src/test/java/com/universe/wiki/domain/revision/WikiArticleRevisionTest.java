@@ -60,6 +60,12 @@ class WikiArticleRevisionTest {
 
         assertThat(revision.revisionNumber())
                 .isEqualTo(1L);
+        
+        assertThat(
+                revision.contentVersion()
+        ).isEqualTo(
+                1L
+        );
 
         assertThat(revision.title())
                 .isEqualTo("Trần Bình An");
@@ -124,9 +130,21 @@ class WikiArticleRevisionTest {
 
         assertThat(article.getAggregateVersion())
                 .isEqualTo(2L);
+        
+        assertThat(
+                article.getContentVersion()
+        ).isEqualTo(
+                2L
+        );
 
         assertThat(revision.revisionNumber())
                 .isEqualTo(2L);
+        
+        assertThat(
+                revision.contentVersion()
+        ).isEqualTo(
+                2L
+        );
 
         assertThat(revision.summary())
                 .isEqualTo(
@@ -190,6 +208,69 @@ class WikiArticleRevisionTest {
                 ArticleType.CHARACTER,
                 ADMIN_ID,
                 NOW
+        );
+    }
+    
+    @Test
+    @DisplayName(
+            "Revision lifecycle tăng revision number nhưng giữ content version"
+    )
+    void shouldKeepContentVersionForLifecycleRevision() {
+        WikiArticle article =
+                WikiArticle.createDraft(
+                        ARTICLE_ID,
+                        "Trần Bình An",
+                        new Slug(
+                                "tran-binh-an"
+                        ),
+                        ArticleType.CHARACTER,
+                        "",
+                        "Nội dung đầy đủ.",
+                        ADMIN_ID,
+                        NOW
+                );
+
+        assertThat(
+                article.getAggregateVersion()
+        ).isEqualTo(
+                1L
+        );
+
+        assertThat(
+                article.getContentVersion()
+        ).isEqualTo(
+                1L
+        );
+
+        article.publish(
+                ADMIN_ID,
+                NOW.plusSeconds(60)
+        );
+
+        WikiArticleRevision revision =
+                WikiArticleRevision.createSnapshot(
+                        REVISION_ID,
+                        article,
+                        RevisionChangeType.PUBLISH,
+                        "Xuất bản"
+                );
+
+        /*
+         * Publish là mutation thứ 2.
+         */
+        assertThat(
+                revision.revisionNumber()
+        ).isEqualTo(
+                2L
+        );
+
+        /*
+         * Nhưng nội dung vẫn là phiên bản đầu tiên.
+         */
+        assertThat(
+                revision.contentVersion()
+        ).isEqualTo(
+                1L
         );
     }
 }

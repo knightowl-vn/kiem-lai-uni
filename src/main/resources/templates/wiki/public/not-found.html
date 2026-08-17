@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+
+<html
+    lang="vi"
+    xmlns:th="http://www.thymeleaf.org"
+    xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1">
+
+
+    <title>
+        Bài viết không tồn tại - Kiếm Lai Wiki
+    </title>
+
+
+    <link
+        rel="icon"
+        type="image/png"
+        th:href="@{/images/favicon.png}">
+
+
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+        rel="stylesheet">
+
+
+    <link
+        rel="stylesheet"
+        th:href="@{/css/theme.css}">
+
+
+    <link
+        rel="stylesheet"
+        th:href="@{/css/navbar.css}">
+
+
+    <link
+        rel="stylesheet"
+        th:href="@{/css/wiki/wiki.css}">
+
+</head>
+
+
+<body>
+
+
+<div
+    th:replace="~{fragments/navbar :: navbar}">
+</div>
+
+
+<main class="wiki-public-not-found-page">
+
+    <section class="wiki-public-not-found-card">
+
+
+        <!-- STATUS -->
+
+        <div class="wiki-public-not-found-status">
+
+            <span>404</span>
+
+        </div>
+
+
+        <!-- CONTENT -->
+
+        <span class="wiki-public-not-found-eyebrow">
+            KIẾM LAI WIKI
+        </span>
+
+
+        <h1
+            th:text="${errorTitle != null
+                ? errorTitle
+                : 'Bài viết không tồn tại'}">
+
+            Bài viết không tồn tại
+
+        </h1>
+
+
+        <p
+            th:text="${errorMessage != null
+                ? errorMessage
+                : 'Không thể tìm thấy bài viết Wiki mà bạn yêu cầu.'}">
+
+            Bài viết bạn đang tìm không tồn tại,
+            đã được gỡ khỏi Wiki
+            hoặc chưa được xuất bản.
+
+        </p>
+
+
+        <!-- ACTIONS -->
+
+        <div class="wiki-public-not-found-actions">
+
+            <a
+                th:href="@{/wiki}"
+                class="wiki-public-not-found-primary">
+
+                ← Quay lại Wiki
+
+            </a>
+
+
+            <a
+                th:href="@{/home}"
+                class="wiki-public-not-found-secondary">
+
+                Về trang chủ
+
+            </a>
+
+        </div>
+
+    </section>
+
+</main>
+
+
+<script th:src="@{/js/theme.js}"></script>
+
+</body>
+</html>

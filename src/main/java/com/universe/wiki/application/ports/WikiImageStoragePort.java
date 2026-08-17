@@ -1,4 +1,6 @@
-package com.universe.wiki.application.image;
+package com.universe.wiki.application.ports;
+
+import com.universe.wiki.application.image.WikiImageUploadResult;
 
 public interface WikiImageStoragePort {
 
@@ -6,5 +8,9 @@ public interface WikiImageStoragePort {
             String originalFilename,
             String contentType,
             byte[] content
+    );
+    
+    void delete(
+            String publicId
     );
 }
