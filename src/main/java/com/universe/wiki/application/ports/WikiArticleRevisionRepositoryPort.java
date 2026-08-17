@@ -22,4 +22,7 @@ public interface WikiArticleRevisionRepositoryPort {
                     UUID articleId,
                     long revisionNumber
             );
+    void deleteAllByArticleId(
+            UUID articleId
+    );
 }

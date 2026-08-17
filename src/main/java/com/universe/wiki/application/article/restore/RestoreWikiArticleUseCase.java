@@ -5,10 +5,12 @@ import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
 import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsException;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiArticleRevisionAlreadyCurrentException;
 import com.universe.wiki.application.exceptions.WikiArticleRevisionNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
@@ -92,6 +94,13 @@ public class RestoreWikiArticleUseCase {
                         articleId,
                         command.sourceRevisionNumber()
                 );
+
+
+        ensureSourceRevisionIsRestorable(
+                article,
+                sourceRevision
+        );
+
 
         ensureSlugAvailable(
                 article,
@@ -221,5 +230,31 @@ public class RestoreWikiArticleUseCase {
         }
 
         return editSummary.trim();
+    }
+    
+    private void ensureSourceRevisionIsRestorable(
+            WikiArticle article,
+            WikiArticleRevision sourceRevision
+    ) {
+        boolean sameContentVersion =
+                article.getContentVersion()
+                == sourceRevision.contentVersion();
+
+
+        /*
+         * ARCHIVED là ngoại lệ.
+         *
+         * Dù source revision có cùng contentVersion,
+         * Admin vẫn được Restore để đưa bài từ
+         * ARCHIVED trở lại DRAFT.
+         */
+        if (
+                sameContentVersion
+                && article.getStatus() != ArticleStatus.ARCHIVED
+        ) {
+            throw new WikiArticleRevisionAlreadyCurrentException(
+                    article.getContentVersion()
+            );
+        }
     }
 }

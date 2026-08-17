@@ -5,6 +5,7 @@ import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
+import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
 import org.springframework.stereotype.Component;
 
@@ -17,12 +18,18 @@ public class WikiArticlePersistenceAdapter
 
     private final SpringDataWikiArticleJpaRepository
             repository;
-
+    private final WikiImageReferenceSynchronizer
+    imageReferenceSynchronizer;
+    
     public WikiArticlePersistenceAdapter(
-            SpringDataWikiArticleJpaRepository repository
+            SpringDataWikiArticleJpaRepository repository,
+            WikiImageReferenceSynchronizer imageReferenceSynchronizer
     ) {
         this.repository =
                 repository;
+
+        this.imageReferenceSynchronizer =
+                imageReferenceSynchronizer;
     }
 
     @Override
@@ -112,6 +119,27 @@ public class WikiArticlePersistenceAdapter
         repository.save(
                 entity
         );
+        
+        imageReferenceSynchronizer
+        .syncArticleReferences(
+                article.getId(),
+                article.getContent()
+        );
+    }
+    
+    @Override
+    public void deleteById(
+            UUID articleId
+    ) {
+        if (articleId == null) {
+            throw new IllegalArgumentException(
+                    "Article ID không được để trống."
+            );
+        }
+
+        repository.deleteById(
+                articleId.toString()
+        );
     }
 
     private void mapToEntity(
@@ -171,6 +199,10 @@ public class WikiArticlePersistenceAdapter
         entity.setAggregateVersion(
                 article.getAggregateVersion()
         );
+        
+        entity.setContentVersion(
+                article.getContentVersion()
+        );
 
         entity.setCreatedAt(
                 article.getCreatedAt()
@@ -224,7 +256,8 @@ public class WikiArticlePersistenceAdapter
                 entity.getUpdatedAt(),
                 entity.getPublishedAt(),
                 entity.getArchivedAt(),
-                entity.getAggregateVersion()
+                entity.getAggregateVersion(),
+                entity.getContentVersion()
         );
     }
 

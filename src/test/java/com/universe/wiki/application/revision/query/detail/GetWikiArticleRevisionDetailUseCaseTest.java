@@ -257,6 +257,7 @@ class GetWikiArticleRevisionDetailUseCaseTest {
                 REVISION_ID,
                 ARTICLE_ID,
                 REVISION_NUMBER,
+                2L,
                 "Trần Bình An",
                 "tran-binh-an",
                 "CHARACTER",

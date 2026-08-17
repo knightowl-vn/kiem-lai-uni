@@ -34,7 +34,8 @@ public final class WikiArticleDTOMapper {
                 article.getUpdatedAt(),
                 article.getPublishedAt(),
                 article.getArchivedAt(),
-                article.getAggregateVersion()
+                article.getAggregateVersion(),
+                article.getContentVersion()
         );
     }
 }

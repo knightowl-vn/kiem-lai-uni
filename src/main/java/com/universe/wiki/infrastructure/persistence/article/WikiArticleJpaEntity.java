@@ -132,6 +132,12 @@ public class WikiArticleJpaEntity {
             nullable = false
     )
     private long aggregateVersion;
+    
+    @Column(
+            name = "content_version",
+            nullable = false
+    )
+    private long contentVersion;
 
     @Version
     @Column(
@@ -283,6 +289,17 @@ public class WikiArticleJpaEntity {
             long aggregateVersion
     ) {
         this.aggregateVersion = aggregateVersion;
+    }
+    
+    public long getContentVersion() {
+        return contentVersion;
+    }
+
+    public void setContentVersion(
+            long contentVersion
+    ) {
+        this.contentVersion =
+                contentVersion;
     }
 
     public Long getPersistenceVersion() {

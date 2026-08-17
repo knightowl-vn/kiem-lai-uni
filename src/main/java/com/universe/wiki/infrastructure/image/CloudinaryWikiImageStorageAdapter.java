@@ -3,7 +3,7 @@ package com.universe.wiki.infrastructure.image;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
 
-import com.universe.wiki.application.image
+import com.universe.wiki.application.ports
         .WikiImageStoragePort;
 import com.universe.wiki.application.image
         .WikiImageUploadResult;
@@ -120,6 +120,84 @@ public class CloudinaryWikiImageStorageAdapter
         } catch (IOException exception) {
             throw new IllegalStateException(
                     "Không thể tải ảnh Wiki lên Cloudinary.",
+                    exception
+            );
+        }
+    }
+    
+    @Override
+    public void delete(
+            String publicId
+    ) {
+        if (
+                publicId == null
+                || publicId.isBlank()
+        ) {
+            throw new IllegalArgumentException(
+                    "Cloudinary public ID "
+                            + "không được để trống."
+            );
+        }
+
+        try {
+            Map<?, ?> destroyResult =
+                    cloudinary
+                            .uploader()
+                            .destroy(
+                                    publicId.trim(),
+                                    ObjectUtils.asMap(
+                                            "resource_type",
+                                            "image",
+
+                                            "type",
+                                            "upload",
+
+                                            /*
+                                             * Xóa cache CDN của asset
+                                             * sau khi destroy.
+                                             */
+                                            "invalidate",
+                                            true
+                                    )
+                            );
+
+            String result =
+                    requireResultValue(
+                            destroyResult,
+                            "result",
+                            "Cloudinary không trả về "
+                                    + "kết quả xóa ảnh."
+                    );
+
+            /*
+             * "ok":
+             * asset vừa được xóa.
+             *
+             * "not found":
+             * asset không còn trên Cloudinary.
+             * Với cleanup idempotent, trạng thái này
+             * cũng được xem là đã đạt mục tiêu.
+             */
+            if (
+                    !"ok".equalsIgnoreCase(
+                            result
+                    )
+                    && !"not found"
+                            .equalsIgnoreCase(
+                                    result
+                            )
+            ) {
+                throw new IllegalStateException(
+                        "Cloudinary không thể xóa ảnh Wiki. "
+                                + "Kết quả: "
+                                + result
+                );
+            }
+
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Không thể xóa ảnh Wiki "
+                            + "khỏi Cloudinary.",
                     exception
             );
         }

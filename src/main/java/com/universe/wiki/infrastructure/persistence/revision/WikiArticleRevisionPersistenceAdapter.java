@@ -1,11 +1,14 @@
 package com.universe.wiki.infrastructure.persistence.revision;
 
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
+
 import com.universe.wiki.domain.revision.RevisionChangeType;
 import com.universe.wiki.domain.revision.WikiArticleRevision;
+import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
 import org.springframework.stereotype.Component;
 
@@ -18,13 +21,28 @@ public class WikiArticleRevisionPersistenceAdapter
 
     private final SpringDataWikiArticleRevisionJpaRepository
             repository;
+    
+    private final WikiImageReferenceSynchronizer
+    imageReferenceSynchronizer;
+
 
     public WikiArticleRevisionPersistenceAdapter(
-            SpringDataWikiArticleRevisionJpaRepository repository
+            SpringDataWikiArticleRevisionJpaRepository repository,
+            WikiImageReferenceSynchronizer imageReferenceSynchronizer
     ) {
         this.repository =
                 repository;
+
+        this.imageReferenceSynchronizer =
+                imageReferenceSynchronizer;
     }
+
+
+    /*
+     * =====================================================
+     * SAVE
+     * =====================================================
+     */
 
     @Override
     public void save(
@@ -37,10 +55,49 @@ public class WikiArticleRevisionPersistenceAdapter
         }
 
         WikiArticleRevisionJpaEntity entity =
-                toEntity(revision);
+                toEntity(
+                        revision
+                );
 
-        repository.save(entity);
+        repository.save(
+                entity
+        );
+        
+        imageReferenceSynchronizer
+        .syncRevisionReferences(
+                revision.id(),
+                revision.content()
+        );
     }
+
+
+    /*
+     * =====================================================
+     * DELETE
+     * =====================================================
+     */
+
+    @Override
+    public void deleteAllByArticleId(
+            UUID articleId
+    ) {
+        if (articleId == null) {
+            throw new IllegalArgumentException(
+                    "Article ID không được để trống."
+            );
+        }
+
+        repository.deleteAllByArticleId(
+                articleId.toString()
+        );
+    }
+
+
+    /*
+     * =====================================================
+     * FIND
+     * =====================================================
+     */
 
     @Override
     public Optional<WikiArticleRevision>
@@ -49,9 +106,10 @@ public class WikiArticleRevisionPersistenceAdapter
                     long revisionNumber
             ) {
 
-        if (articleId == null
-                || revisionNumber < 1L) {
-
+        if (
+                articleId == null
+                || revisionNumber < 1L
+        ) {
             return Optional.empty();
         }
 
@@ -60,8 +118,17 @@ public class WikiArticleRevisionPersistenceAdapter
                         articleId.toString(),
                         revisionNumber
                 )
-                .map(this::toDomain);
+                .map(
+                        this::toDomain
+                );
     }
+
+
+    /*
+     * =====================================================
+     * DOMAIN → JPA
+     * =====================================================
+     */
 
     private WikiArticleRevisionJpaEntity toEntity(
             WikiArticleRevision revision
@@ -70,15 +137,26 @@ public class WikiArticleRevisionPersistenceAdapter
                 new WikiArticleRevisionJpaEntity();
 
         entity.setId(
-                revision.id().toString()
+                revision
+                        .id()
+                        .toString()
         );
 
         entity.setArticleId(
-                revision.articleId().toString()
+                revision
+                        .articleId()
+                        .toString()
         );
 
         entity.setRevisionNumber(
                 revision.revisionNumber()
+        );
+
+        /*
+         * Phiên bản nội dung tại thời điểm snapshot.
+         */
+        entity.setContentVersion(
+                revision.contentVersion()
         );
 
         entity.setTitle(
@@ -86,11 +164,15 @@ public class WikiArticleRevisionPersistenceAdapter
         );
 
         entity.setSlug(
-                revision.slug().value()
+                revision
+                        .slug()
+                        .value()
         );
 
         entity.setArticleType(
-                revision.articleType().name()
+                revision
+                        .articleType()
+                        .name()
         );
 
         entity.setSummary(
@@ -102,11 +184,15 @@ public class WikiArticleRevisionPersistenceAdapter
         );
 
         entity.setStatus(
-                revision.status().name()
+                revision
+                        .status()
+                        .name()
         );
 
         entity.setChangeType(
-                revision.changeType().name()
+                revision
+                        .changeType()
+                        .name()
         );
 
         entity.setEditSummary(
@@ -114,7 +200,9 @@ public class WikiArticleRevisionPersistenceAdapter
         );
 
         entity.setEditedBy(
-                revision.editedBy().toString()
+                revision
+                        .editedBy()
+                        .toString()
         );
 
         entity.setCreatedAt(
@@ -124,6 +212,13 @@ public class WikiArticleRevisionPersistenceAdapter
         return entity;
     }
 
+
+    /*
+     * =====================================================
+     * JPA → DOMAIN
+     * =====================================================
+     */
+
     private WikiArticleRevision toDomain(
             WikiArticleRevisionJpaEntity entity
     ) {
@@ -131,29 +226,43 @@ public class WikiArticleRevisionPersistenceAdapter
                 UUID.fromString(
                         entity.getId()
                 ),
+
                 UUID.fromString(
                         entity.getArticleId()
                 ),
+
                 entity.getRevisionNumber(),
+
+                entity.getContentVersion(),
+
                 entity.getTitle(),
+
                 new Slug(
                         entity.getSlug()
                 ),
+
                 ArticleType.valueOf(
                         entity.getArticleType()
                 ),
+
                 entity.getSummary(),
+
                 entity.getContent(),
+
                 ArticleStatus.valueOf(
                         entity.getStatus()
                 ),
+
                 RevisionChangeType.valueOf(
                         entity.getChangeType()
                 ),
+
                 entity.getEditSummary(),
+
                 UUID.fromString(
                         entity.getEditedBy()
                 ),
+
                 entity.getCreatedAt()
         );
     }

@@ -27,177 +27,292 @@
 
 	<main class="container py-5">
 
-		<section class="wiki-heading mb-5">
-			<h1 class="display-5 fw-semibold">Bách khoa Kiếm Lai</h1>
+		<section class="wiki-public-index-hero">
 
-			<p class="lead text-body-secondary mb-0">Khám phá nhân vật, cảnh
-				giới, thế lực, công pháp, địa danh và những tòa thiên hạ trong Kiếm
-				Lai.</p>
+			<span class="wiki-public-index-eyebrow"> KIẾM LAI WIKI </span>
+
+			<h1>Bách khoa Kiếm Lai</h1>
+
+			<p>Khám phá nhân vật, cảnh giới, thế lực, công pháp, địa danh và
+				những tòa thiên hạ trong Kiếm Lai.</p>
+
 		</section>
 
 		<!-- Trạng thái tìm kiếm -->
-		<section class="wiki-result-toolbar mb-4">
+		<section class="wiki-public-index-toolbar">
 
-			<div>
+			<div class="wiki-public-index-result">
 
-				<h2 class="h4 mb-1"
-					th:if="${keyword != null and !keyword.isBlank()}">
+				<span class="wiki-public-index-section-label"> KHÁM PHÁ WIKI
+				</span>
 
-					Kết quả tìm kiếm cho “<span th:text="${keyword}">Trần Bình
-						An</span>”
+				<h2 th:if="${keyword != null and !keyword.isBlank()}">
+
+					Kết quả cho “<span th:text="${keyword}"> Trần Bình An </span>”
 
 				</h2>
 
-				<h2 class="h4 mb-1"
-					th:unless="${keyword != null and !keyword.isBlank()}">Khám phá
-					Wiki</h2>
 
-				<p class="text-body-secondary mb-0">
+				<h2 th:unless="${keyword != null and !keyword.isBlank()}">Danh
+					sách bài viết</h2>
 
-					<span th:text="${articlePage.totalElements}"> 0 </span> bài viết
-					phù hợp
+
+				<p>
+
+					Tìm thấy <strong th:text="${articlePage.totalElements}"> 0
+					</strong> bài viết phù hợp
 
 				</p>
 
 			</div>
 
-			<!-- Bộ lọc loại bài -->
-			<form method="get" th:action="@{/wiki}" class="wiki-type-filter-form">
 
-				<!-- Giữ từ khóa hiện tại khi đổi loại -->
-				<input type="hidden" name="keyword" th:value="${keyword}"> <label
-					class="visually-hidden" for="wikiArticleType"> Lọc theo
-					loại nội dung </label> <select id="wikiArticleType" name="type"
-					class="form-select" onchange="this.form.submit()">
+			<div class="wiki-public-index-tools">
 
-					<option value="">Tất cả loại bài</option>
+				<!-- ============================================= -->
+				<!-- ARTICLE TYPE FILTER                           -->
+				<!-- ============================================= -->
 
-					<option th:each="type : ${articleTypes}"
-						th:value="${#strings.toLowerCase(
+				<form method="get" th:action="@{/wiki}"
+					class="wiki-type-filter-form">
+
+					<input type="hidden" name="keyword" th:value="${keyword}">
+
+
+					<label for="wikiArticleType" class="wiki-public-filter-label">
+
+						Loại nội dung </label> <select id="wikiArticleType" name="type"
+						class="form-select" onchange="this.form.submit()">
+
+						<option value="">Tất cả loại bài</option>
+
+
+						<option th:each="type : ${articleTypes}"
+							th:value="${#strings.toLowerCase(
                         #strings.replace(
                             type.name(),
                             '_',
                             '-'
                         )
                     )}"
-						th:selected="${selectedType == type}"
-						th:text="${#strings.replace(
+							th:selected="${selectedType == type}"
+							th:text="${#strings.replace(
                         type.name(),
                         '_',
                         ' '
                     )}">
-						CHARACTER</option>
 
-				</select>
+							CHARACTER</option>
 
-			</form>
+					</select>
 
-		</section>
+				</form>
 
-		<!-- Không có bài viết -->
-		<section th:if="${articlePage.items.isEmpty()}"
-			class="text-center border rounded-4 py-5 px-3">
 
-			<h2 class="h4 mb-3">Chưa có bài Wiki phù hợp</h2>
+				<!-- ============================================= -->
+				<!-- CLEAR CURRENT SEARCH                          -->
+				<!-- ============================================= -->
 
-			<p class="text-body-secondary mb-4">Hiện chưa có bài viết đã xuất
-				bản phù hợp với điều kiện tìm kiếm.</p>
-
-			<a th:href="@{/wiki}" class="wiki-reset-link"> Xem toàn bộ Wiki </a>
-
-		</section>
-
-		<!-- Danh sách bài viết -->
-		<section th:unless="${articlePage.items.isEmpty()}" class="row g-4">
-
-			<div th:each="article : ${articlePage.items}"
-				class="col-12 col-md-6 col-xl-4">
-
-				<article class="card wiki-card h-100 shadow-sm">
-
-					<div class="card-body d-flex flex-column p-4">
-
-						<div class="mb-3">
-							<span class="badge text-bg-secondary"
-								th:text="${#strings.replace(
-                                    article.articleType,
-                                    '_',
-                                    ' '
-                                )}">
-								CHARACTER </span>
-						</div>
-
-						<h2 class="h4 card-title" th:text="${article.title}">Trần
-							Bình An</h2>
-
-						<p class="card-text text-body-secondary flex-grow-1"
-							th:text="${article.summary}">Tóm tắt bài viết.</p>
-
-						<div class="small text-body-secondary mb-3">
-							Cập nhật: <span th:text="${article.updatedAt}">
-								2026-08-06T10:00:00Z </span>
-						</div>
-
-						<a class="btn btn-outline-dark stretched-link"
-							th:href="@{/wiki/{type}/{slug}(
-                                type=${#strings.toLowerCase(
-                                    #strings.replace(
-                                        article.articleType,
-                                        '_',
-                                        '-'
-                                    )
-                                )},
-                                slug=${article.slug}
-                            )}">
-							Đọc bài viết </a>
-
-					</div>
-
-				</article>
+				<a th:if="${keyword != null and !keyword.isBlank()}"
+					th:href="@{/wiki(
+                type=${selectedType == null
+                    ? ''
+                    : #strings.toLowerCase(
+                        #strings.replace(
+                            selectedType.name(),
+                            '_',
+                            '-'
+                        )
+                    )}
+            )}"
+					class="wiki-public-clear-search"> × Xóa tìm kiếm </a>
 
 			</div>
 
 		</section>
 
-		<!-- Phân trang -->
-		<nav th:if="${articlePage.totalPages > 1}"
-			class="d-flex justify-content-center align-items-center gap-3 mt-5"
-			aria-label="Phân trang Wiki">
+		<!-- ================================================= -->
+		<!-- EMPTY STATE                                       -->
+		<!-- ================================================= -->
 
-			<a th:if="${!articlePage.first}" class="btn btn-outline-dark"
+		<section th:if="${articlePage.items.isEmpty()}"
+			class="wiki-public-empty-state">
+
+			<div class="wiki-public-empty-icon" aria-hidden="true">⌕</div>
+
+
+			<span class="wiki-public-empty-eyebrow"> KHÔNG CÓ KẾT QUẢ </span>
+
+
+			<h2>Chưa tìm thấy bài Wiki phù hợp</h2>
+
+
+			<p th:if="${keyword != null and !keyword.isBlank()}">
+
+				Không tìm thấy bài viết phù hợp với từ khóa <strong
+					th:text="${keyword}"> Viên Hoàng </strong> và bộ lọc hiện tại.
+
+			</p>
+
+
+			<p th:unless="${keyword != null and !keyword.isBlank()}">Hiện
+				chưa có bài viết đã xuất bản phù hợp với loại nội dung bạn đang
+				chọn.</p>
+
+
+			<a th:href="@{/wiki}" class="wiki-public-empty-reset"> Xem toàn
+				bộ Wiki </a>
+
+		</section>
+
+		<!-- Danh sách bài viết -->
+		<section th:unless="${articlePage.items.isEmpty()}"
+			class="wiki-public-card-grid">
+
+			<article th:each="article : ${articlePage.items}"
+				class="wiki-public-index-card">
+
+				<a class="wiki-public-index-card-link"
+					th:href="@{/wiki/{type}/{slug}(
+                type=${#strings.toLowerCase(
+                    #strings.replace(
+                        article.articleType,
+                        '_',
+                        '-'
+                    )
+                )},
+                slug=${article.slug}
+            )}">
+
+					<!-- TYPE -->
+
+					<div class="wiki-public-index-card-top">
+
+						<span class="wiki-public-index-card-type"
+							th:text="${#strings.replace(
+                        article.articleType,
+                        '_',
+                        ' '
+                    )}">
+
+							CHARACTER </span> <span class="wiki-public-index-card-arrow"> ↗ </span>
+
+					</div> <!-- TITLE -->
+
+					<h2 class="wiki-public-index-card-title" th:text="${article.title}">
+
+						Trần Bình An</h2> <!-- SUMMARY -->
+
+					<p class="wiki-public-index-card-summary"
+						th:if="${article.summary != null
+                    and !#strings.isEmpty(
+                        #strings.trim(article.summary)
+                    )}"
+						th:text="${article.summary}">Tóm tắt bài viết.</p>
+
+
+					<p
+						class="
+                    wiki-public-index-card-summary
+                    is-empty
+                "
+						th:unless="${article.summary != null
+                    and !#strings.isEmpty(
+                        #strings.trim(article.summary)
+                    )}">
+
+						Chưa có phần tóm tắt.</p> <!-- META -->
+
+					<div class="wiki-public-index-card-meta">
+
+						<span>Cập nhật</span> <strong th:if="${article.updatedAt != null}"
+							th:text="${#temporals.format(
+                        article.updatedAt,
+                        'dd/MM/yyyy HH:mm'
+                    )}">
+
+							15/08/2026 15:24 </strong> <strong
+							th:unless="${article.updatedAt != null}"> Chưa có thông
+							tin </strong>
+
+					</div>
+
+				</a>
+
+			</article>
+
+		</section>
+
+		<!-- ================================================= -->
+		<!-- PAGINATION                                        -->
+		<!-- ================================================= -->
+
+		<nav th:if="${articlePage.totalPages > 1}"
+			class="wiki-public-pagination" aria-label="Phân trang Wiki">
+
+
+			<!-- PREVIOUS -->
+
+			<a th:if="${!articlePage.first}"
+				class="wiki-public-pagination-button"
 				th:href="@{/wiki(
-                    keyword=${keyword},
-                    type=${selectedType == null
-                        ? ''
-                        : #strings.toLowerCase(
-                            #strings.replace(
-                                selectedType.name(),
-                                '_',
-                                '-'
-                            )
-                        )},
-                    page=${articlePage.page - 1},
-                    size=${articlePage.size}
-                )}">
-				Trang trước </a> <span class="text-body-secondary"> Trang <strong
-				th:text="${articlePage.page + 1}">1</strong> / <strong
-				th:text="${articlePage.totalPages}">1</strong>
-			</span> <a th:if="${!articlePage.last}" class="btn btn-outline-dark"
+            keyword=${keyword},
+            type=${selectedType == null
+                ? ''
+                : #strings.toLowerCase(
+                    #strings.replace(
+                        selectedType.name(),
+                        '_',
+                        '-'
+                    )
+                )},
+            page=${articlePage.page - 1},
+            size=${articlePage.size}
+        )}">
+
+				← Trang trước </a> <span th:if="${articlePage.first}"
+				class="
+            wiki-public-pagination-button
+            is-disabled
+        "
+				aria-disabled="true"> ← Trang trước </span>
+
+
+			<!-- CURRENT PAGE -->
+
+			<div class="wiki-public-pagination-status">
+
+				<span>Trang</span> <strong th:text="${articlePage.page + 1}">
+					1 </strong> <span>/</span> <strong th:text="${articlePage.totalPages}">
+					2 </strong>
+
+			</div>
+
+
+			<!-- NEXT -->
+
+			<a th:if="${!articlePage.last}" class="wiki-public-pagination-button"
 				th:href="@{/wiki(
-                    keyword=${keyword},
-                    type=${selectedType == null
-                        ? ''
-                        : #strings.toLowerCase(
-                            #strings.replace(
-                                selectedType.name(),
-                                '_',
-                                '-'
-                            )
-                        )},
-                    page=${articlePage.page + 1},
-                    size=${articlePage.size}
-                )}">
-				Trang sau </a>
+            keyword=${keyword},
+            type=${selectedType == null
+                ? ''
+                : #strings.toLowerCase(
+                    #strings.replace(
+                        selectedType.name(),
+                        '_',
+                        '-'
+                    )
+                )},
+            page=${articlePage.page + 1},
+            size=${articlePage.size}
+        )}">
+
+				Trang sau → </a> <span th:if="${articlePage.last}"
+				class="
+            wiki-public-pagination-button
+            is-disabled
+        "
+				aria-disabled="true"> Trang sau → </span>
 
 		</nav>
 

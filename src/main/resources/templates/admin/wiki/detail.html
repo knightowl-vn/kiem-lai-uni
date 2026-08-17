@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Chi tiết bài Wiki | Kiếm Lai Universe</title>
+
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/wiki/admin.css}">
+
+</head>
+
+
+<body>
+
+	<div class="admin-layout">
+
+
+		<!-- ================================================= -->
+		<!-- SIDEBAR                                           -->
+		<!-- ================================================= -->
+
+		<div
+			th:replace="~{
+            admin/fragments/sidebar
+            :: sidebar(${activeMenu})
+        }">
+		</div>
+
+
+
+		<main class="admin-main">
+
+
+			<!-- ================================================= -->
+			<!-- HEADER                                            -->
+			<!-- ================================================= -->
+
+			<div
+				th:replace="~{
+                admin/fragments/header
+                :: header(${pageTitle})
+            }">
+			</div>
+
+
+
+			<section class="dashboard-content">
+
+
+				<!-- ================================================= -->
+				<!-- AUTOSAVE CLEANUP SIGNAL                           -->
+				<!-- ================================================= -->
+
+				<div id="wikiAutosaveCleanupSignal"
+					th:if="${wikiAutosaveCleanupKey != null}"
+					th:data-storage-key="${wikiAutosaveCleanupKey}" hidden></div>
+
+
+
+				<!-- ================================================= -->
+				<!-- PAGE HEADING                                       -->
+				<!-- ================================================= -->
+
+				<div class="wiki-admin-detail-heading">
+
+
+					<div class="wiki-admin-detail-heading-content">
+
+						<a class="wiki-admin-back-link" th:href="@{/admin/wiki/articles}">
+
+							← Quay lại danh sách </a> <span class="wiki-admin-eyebrow">
+							WIKI MODULE </span>
+
+
+						<div class="wiki-admin-detail-title-row">
+
+							<h2 th:text="${article.title}">Trần Bình An</h2>
+
+
+							<span class="wiki-admin-status-badge"
+								th:classappend="${article.status == 'DRAFT'
+                                ? ' is-draft'
+                                : (article.status == 'PUBLISHED'
+                                    ? ' is-published'
+                                    : ' is-archived')}"
+								th:text="${article.status}"> DRAFT </span>
+
+						</div>
+
+
+						<p>Xem thông tin, nội dung và lịch sử của bài viết trong hệ
+							thống quản trị Wiki.</p>
+
+					</div>
+
+
+
+					<!-- ================================================= -->
+					<!-- QUICK ACTIONS                                      -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-detail-actions"
+						th:classappend="${article.status == 'ARCHIVED'}
+        ? ' is-archived'">
+
+
+						<!-- ================================================= -->
+						<!-- HISTORY                                            -->
+						<!-- ================================================= -->
+
+						<a
+							class="wiki-admin-secondary-button
+               wiki-admin-detail-history-button"
+							th:href="@{/admin/wiki/articles/{id}/revisions(
+            id=${article.id}
+        )}">
+
+							Lịch sử </a>
+
+
+						<!-- ================================================= -->
+						<!-- LIFECYCLE MENU                                     -->
+						<!-- ================================================= -->
+
+						<details class="wiki-admin-detail-action-menu"
+							th:if="${article.status == 'DRAFT'
+            or article.status == 'PUBLISHED'}">
+
+							<summary
+								class="wiki-admin-secondary-button
+                   wiki-admin-detail-action-trigger">
+
+								<span> Thao tác </span> <span
+									class="wiki-admin-detail-action-chevron" aria-hidden="true">
+
+									▾ </span>
+
+							</summary>
+
+
+							<div class="wiki-admin-detail-action-dropdown">
+
+
+								<!-- ============================================= -->
+								<!-- DRAFT → PUBLISH                               -->
+								<!-- ============================================= -->
+
+								<form th:if="${article.status == 'DRAFT'}" method="post"
+									th:action="@{/admin/wiki/articles/{id}/publish(
+                    id=${article.id}
+                )}"
+									data-wiki-confirm="Xuất bản bài viết này? Bài viết sẽ được hiển thị trên Wiki công khai.">
+
+									<input type="hidden" name="returnTo" value="detail">
+
+									<button
+										class="wiki-admin-detail-action-item
+                           is-positive"
+										type="submit">
+
+										<span class="wiki-admin-detail-action-icon" aria-hidden="true">
+
+											↑ </span> <span> Xuất bản </span>
+
+									</button>
+
+								</form>
+
+
+								<!-- ============================================= -->
+								<!-- PUBLISHED → UNPUBLISH                         -->
+								<!-- ============================================= -->
+
+								<form th:if="${article.status == 'PUBLISHED'}" method="post"
+									th:action="@{/admin/wiki/articles/{id}/unpublish(
+                    id=${article.id}
+                )}"
+									data-wiki-confirm="Gỡ xuất bản bài viết này? Bài viết sẽ trở về trạng thái bản nháp.">
+
+									<input type="hidden" name="returnTo" value="detail">
+
+									<button class="wiki-admin-detail-action-item" type="submit">
+
+										<span class="wiki-admin-detail-action-icon" aria-hidden="true">
+
+											↓ </span> <span> Gỡ xuất bản </span>
+
+									</button>
+
+								</form>
+
+
+								<div class="wiki-admin-detail-action-separator"></div>
+
+
+								<!-- ============================================= -->
+								<!-- ARCHIVE                                       -->
+								<!-- ============================================= -->
+
+								<form method="post"
+									th:action="@{/admin/wiki/articles/{id}/archive(
+                    id=${article.id}
+                )}"
+									data-wiki-confirm="Lưu trữ bài viết này? Bài viết sẽ không còn ở trạng thái đang sử dụng.">
+
+									<input type="hidden" name="returnTo" value="detail">
+
+									<button
+										class="wiki-admin-detail-action-item
+                           is-warning"
+										type="submit">
+
+										<span class="wiki-admin-detail-action-icon" aria-hidden="true">
+
+											□ </span> <span> Lưu trữ </span>
+
+									</button>
+
+								</form>
+
+							</div>
+
+						</details>
+
+
+						<!-- ================================================= -->
+						<!-- EDIT                                               -->
+						<!-- ================================================= -->
+
+						<a
+							th:if="${article.status == 'DRAFT'
+            or article.status == 'PUBLISHED'}"
+							class="wiki-admin-primary-button
+               wiki-admin-detail-edit-button"
+							th:href="@{/admin/wiki/articles/{id}/edit(
+            id=${article.id}
+        )}">
+
+							Chỉnh sửa </a>
+
+					</div>
+
+				</div>
+
+
+
+				<!-- ================================================= -->
+				<!-- DETAIL CARD                                        -->
+				<!-- ================================================= -->
+
+				<section class="wiki-admin-detail-panel">
+
+
+					<!-- ================================================= -->
+					<!-- METADATA                                          -->
+					<!-- ================================================= -->
+
+					<div class="wiki-admin-detail-metadata">
+
+
+						<!-- STATUS -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Trạng thái </span> <span
+								class="wiki-admin-status-badge"
+								th:classappend="${article.status == 'DRAFT'
+                                ? ' is-draft'
+                                : (article.status == 'PUBLISHED'
+                                    ? ' is-published'
+                                    : ' is-archived')}"
+								th:text="${article.status}"> DRAFT </span>
+
+						</div>
+
+
+
+						<!-- TYPE -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Loại bài </span> <span
+								class="wiki-admin-type-badge" th:text="${article.articleType}">
+
+								CHARACTER </span>
+
+						</div>
+
+
+
+						<!-- SLUG -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Slug </span>
+
+
+							<code class="wiki-admin-detail-slug" th:text="${article.slug}">
+
+								tran-binh-an </code>
+
+						</div>
+
+
+
+						<!-- CONTENT VERSION -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Phiên bản nội
+								dung </span> <span class="wiki-admin-version"
+								th:text="'v' + ${article.contentVersion}"> v1 </span>
+
+						</div>
+
+
+
+						<!-- CREATED -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Ngày tạo </span> <strong
+								class="wiki-admin-detail-meta-value"
+								th:text="${#temporals.format(
+                                article.createdAt,
+                                'dd/MM/yyyy HH:mm'
+                            )}">
+
+								14/08/2026 14:38 </strong>
+
+						</div>
+
+
+
+						<!-- UPDATED -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Cập nhật gần
+								nhất </span> <strong class="wiki-admin-detail-meta-value"
+								th:text="${#temporals.format(
+                                article.updatedAt,
+                                'dd/MM/yyyy HH:mm'
+                            )}">
+
+								14/08/2026 14:38 </strong>
+
+						</div>
+
+
+
+						<!-- PUBLISHED -->
+
+						<div class="wiki-admin-detail-meta-item"
+							th:if="${article.publishedAt != null}">
+
+							<span class="wiki-admin-detail-meta-label"> Xuất bản </span> <strong
+								class="wiki-admin-detail-meta-value"
+								th:text="${#temporals.format(
+                                article.publishedAt,
+                                'dd/MM/yyyy HH:mm'
+                            )}">
+
+								14/08/2026 14:38 </strong>
+
+						</div>
+
+
+
+						<!-- AGGREGATE VERSION -->
+
+						<div class="wiki-admin-detail-meta-item">
+
+							<span class="wiki-admin-detail-meta-label"> Aggregate
+								version </span> <strong class="wiki-admin-detail-meta-value"
+								th:text="${article.aggregateVersion}"> 1 </strong>
+
+						</div>
+
+					</div>
+
+
+
+					<!-- ================================================= -->
+					<!-- SUMMARY                                           -->
+					<!-- ================================================= -->
+
+					<section class="wiki-admin-detail-section">
+
+						<div class="wiki-admin-detail-section-heading">
+
+							<span class="wiki-admin-detail-section-eyebrow"> TÓM TẮT </span>
+
+							<h3>Giới thiệu ngắn</h3>
+
+						</div>
+
+
+						<p class="wiki-admin-detail-summary"
+							th:classappend="${#strings.isEmpty(article.summary)}
+                            ? ' is-empty'"
+							th:text="${#strings.isEmpty(article.summary)
+                            ? 'Bài viết hiện chưa có phần tóm tắt.'
+                            : article.summary}">
+
+							Chưa có tóm tắt.</p>
+
+					</section>
+
+
+
+					<!-- ================================================= -->
+					<!-- CONTENT                                           -->
+					<!-- ================================================= -->
+
+					<section class="wiki-admin-detail-section">
+
+						<div
+							class="wiki-admin-detail-section-heading
+               wiki-admin-detail-content-heading">
+
+							<div>
+
+								<span class="wiki-admin-detail-section-eyebrow"> NỘI DUNG
+								</span>
+
+								<h3>Nội dung bài viết</h3>
+
+							</div>
+
+
+							<!-- ============================================= -->
+							<!-- GLOBAL READING PREFERENCE                     -->
+							<!-- ============================================= -->
+
+							<div class="wiki-admin-reading-toolbar">
+
+								<span id="wikiAdminReadingFontLabel"
+									class="wiki-admin-reading-toolbar-label"> Cỡ chữ </span>
+
+								<div class="wiki-admin-reading-controls" role="group"
+									aria-labelledby="wikiAdminReadingFontLabel">
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
+										A−</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="reset"
+										aria-label="Khôi phục cỡ chữ mặc định">A</button>
+
+									<button type="button" class="wiki-admin-reading-button"
+										data-reading-font-action="increase" aria-label="Tăng cỡ chữ">
+										A+</button>
+
+								</div>
+
+							</div>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- RENDERED ARTICLE CONTENT                      -->
+						<!-- ============================================= -->
+
+						<div
+							class="wiki-admin-detail-content
+               wiki-markdown-preview"
+							th:if="${!#strings.isEmpty(article.content)}"
+							th:utext="${renderedContent}"></div>
+
+
+						<!-- ============================================= -->
+						<!-- EMPTY CONTENT                                 -->
+						<!-- ============================================= -->
+
+						<div class="wiki-admin-detail-empty-content"
+							th:if="${#strings.isEmpty(article.content)}">Bài viết hiện
+							chưa có nội dung.</div>
+
+					</section>
+
+				</section>
+			</section>
+		</main>
+
+	</div>
+
+
+
+	<!-- ===================================================== -->
+	<!-- AUTOSAVE SERVER SUCCESS CLEANUP                       -->
+	<!-- ===================================================== -->
+
+	<script>
+
+document.addEventListener(
+    "DOMContentLoaded",
+    function() {
+
+        const signal =
+            document.getElementById(
+                "wikiAutosaveCleanupSignal"
+            );
+
+
+        if (!signal) {
+            return;
+        }
+
+
+        const storageKey =
+            signal.dataset.storageKey?.trim();
+
+
+        if (
+            !storageKey
+            || !storageKey.startsWith(
+                "kiemlai:wiki:autosave:"
+            )
+        ) {
+            return;
+        }
+
+
+        try {
+
+            localStorage.removeItem(
+                storageKey
+            );
+
+
+            console.info(
+                "Đã cleanup Wiki Auto-save:",
+                storageKey
+            );
+
+        }
+        catch (error) {
+
+            console.warn(
+                "Không thể cleanup Wiki Auto-save:",
+                error
+            );
+        }
+
+    }
+);
+
+</script>
+
+	<script>
+
+document.addEventListener(
+    "submit",
+    function(event) {
+
+        const form =
+            event.target.closest(
+                "[data-wiki-confirm]"
+            );
+
+
+        if (!form) {
+            return;
+        }
+
+
+        const message =
+            form.dataset.wikiConfirm?.trim();
+
+
+        if (!message) {
+            return;
+        }
+
+
+        const confirmed =
+            window.confirm(
+                message
+            );
+
+
+        if (!confirmed) {
+            event.preventDefault();
+        }
+
+    }
+);
+
+</script>
+	<script>
+
+document.addEventListener(
+    "keydown",
+    function(event) {
+
+        if (event.key !== "Escape") {
+            return;
+        }
+
+
+        const menu =
+            document.querySelector(
+                ".wiki-admin-detail-action-menu[open]"
+            );
+
+
+        if (!menu) {
+            return;
+        }
+
+
+        menu.open =
+            false;
+
+
+        const trigger =
+            menu.querySelector(
+                "summary"
+            );
+
+
+        if (trigger) {
+            trigger.focus();
+        }
+    }
+);
+
+</script>
+
+	<script th:src="@{/js/reading/reading-preferences.js}"></script>
+
+</body>
+
+</html>
