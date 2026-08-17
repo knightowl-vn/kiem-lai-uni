@@ -30,6 +30,7 @@ public interface ChapterRepositoryPort {
     );
 
     Chapter save(
-            Chapter chapter
+            Chapter chapter,
+            long expectedAggregateVersion
     );
 }

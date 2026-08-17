@@ -25,6 +25,7 @@ public interface VolumeRepositoryPort {
     );
 
     Volume save(
-            Volume volume
+            Volume volume,
+            long expectedAggregateVersion
     );
 }
