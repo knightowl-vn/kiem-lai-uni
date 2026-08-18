@@ -59,7 +59,7 @@ public class ArchiveVolumeUseCase {
 
         Volume volume =
                 volumeRepositoryPort
-                        .findById(
+                        .findByIdForUpdate(
                                 volumeId
                         )
                         .orElseThrow(() ->

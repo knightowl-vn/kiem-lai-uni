@@ -111,6 +111,56 @@ class VolumePersistenceAdapterTest {
         assertThat(result.getAggregateVersion())
                 .isEqualTo(1L);
     }
+    
+    @Test
+    @DisplayName(
+            "findByIdForUpdate delegate xuống repository và ánh xạ Domain"
+    )
+    void shouldFindByIdForUpdate() {
+
+        VolumeJpaEntity entity =
+                createDraftEntity();
+
+        when(
+                repository.findByIdForUpdate(
+                        VOLUME_ID.toString()
+                )
+        ).thenReturn(
+                Optional.of(
+                        entity
+                )
+        );
+
+        Volume result =
+                adapter.findByIdForUpdate(
+                                VOLUME_ID
+                        )
+                        .orElseThrow();
+
+        assertThat(
+                result.getId()
+        ).isEqualTo(
+                VOLUME_ID
+        );
+
+        assertThat(
+                result.getStatus()
+        ).isEqualTo(
+                VolumeStatus.DRAFT
+        );
+
+        assertThat(
+                result.getAggregateVersion()
+        ).isEqualTo(
+                1L
+        );
+
+        verify(
+                repository
+        ).findByIdForUpdate(
+                VOLUME_ID.toString()
+        );
+    }
 
     @Test
     @DisplayName(

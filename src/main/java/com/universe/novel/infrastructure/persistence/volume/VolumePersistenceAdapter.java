@@ -29,6 +29,23 @@ public class VolumePersistenceAdapter implements VolumeRepositoryPort {
 
 		return repository.findById(id.toString()).map(this::toDomain);
 	}
+	
+	@Override
+	public Optional<Volume> findByIdForUpdate(
+	        UUID id
+	) {
+	    if (id == null) {
+	        return Optional.empty();
+	    }
+
+	    return repository
+	            .findByIdForUpdate(
+	                    id.toString()
+	            )
+	            .map(
+	                    this::toDomain
+	            );
+	}
 
 	@Override
 	public Optional<Volume> findBySlug(Slug slug) {

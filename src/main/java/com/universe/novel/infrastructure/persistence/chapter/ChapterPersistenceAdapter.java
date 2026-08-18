@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.ConcurrentModificationException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 @Component
 public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
@@ -45,6 +46,25 @@ public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
 		}
 
 		return repository.existsBySlug(slug.value());
+	}
+	
+	@Override
+	public List<Chapter> findAllByVolumeIdOrderBySortOrder(
+	        UUID volumeId
+	) {
+	    if (volumeId == null) {
+	        return List.of();
+	    }
+
+	    return repository
+	            .findAllByVolumeIdOrderBySortOrderAsc(
+	                    volumeId.toString()
+	            )
+	            .stream()
+	            .map(
+	                    this::toDomain
+	            )
+	            .toList();
 	}
 
 	@Override

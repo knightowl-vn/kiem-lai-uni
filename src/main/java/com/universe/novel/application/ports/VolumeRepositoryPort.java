@@ -12,6 +12,10 @@ public interface VolumeRepositoryPort {
     Optional<Volume> findById(
             UUID id
     );
+    
+    Optional<Volume> findByIdForUpdate(
+            UUID id
+    );
 
     Optional<Volume> findBySlug(
             Slug slug

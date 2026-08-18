@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.ConcurrentModificationException;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -665,6 +666,128 @@ class ChapterPersistenceAdapterTest {
                         any(ChapterJpaEntity.class)
                 );
     }
+    
+    @Test
+    @DisplayName(
+            "Lấy danh sách Chapter trong Volume theo sortOrder ASC"
+    )
+    void shouldFindAllByVolumeIdOrderBySortOrder() {
+
+        ChapterJpaEntity first =
+                createDraftEntity();
+
+        first.setId(
+                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1"
+        );
+
+        first.setChapterNumber(
+                1
+        );
+
+        first.setSortOrder(
+                1
+        );
+
+        first.setTitle(
+                "Chương Một"
+        );
+
+        first.setSlug(
+                "chuong-mot"
+        );
+
+        ChapterJpaEntity second =
+                createDraftEntity();
+
+        second.setId(
+                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
+        );
+
+        second.setChapterNumber(
+                2
+        );
+
+        second.setSortOrder(
+                2
+        );
+
+        second.setTitle(
+                "Chương Hai"
+        );
+
+        second.setSlug(
+                "chuong-hai"
+        );
+
+        when(
+                repository
+                        .findAllByVolumeIdOrderBySortOrderAsc(
+                                VOLUME_ID.toString()
+                        )
+        ).thenReturn(
+                List.of(
+                        first,
+                        second
+                )
+        );
+
+        List<Chapter> result =
+                adapter.findAllByVolumeIdOrderBySortOrder(
+                        VOLUME_ID
+                );
+
+        assertThat(
+                result
+        ).hasSize(
+                2
+        );
+
+        assertThat(
+                result.stream()
+                        .map(
+                                Chapter::getSortOrder
+                        )
+        ).containsExactly(
+                1,
+                2
+        );
+
+        assertThat(
+                result.stream()
+                        .map(
+                                Chapter::getTitle
+                        )
+        ).containsExactly(
+                "Chương Một",
+                "Chương Hai"
+        );
+
+        assertThat(
+                result.stream()
+                        .map(
+                                chapter ->
+                                        chapter.getSlug().value()
+                        )
+        ).containsExactly(
+                "chuong-mot",
+                "chuong-hai"
+        );
+
+        assertThat(
+                result.stream()
+                        .map(
+                                Chapter::getVolumeId
+                        )
+        ).containsOnly(
+                VOLUME_ID
+        );
+
+        verify(
+                repository
+        ).findAllByVolumeIdOrderBySortOrderAsc(
+                VOLUME_ID.toString()
+        );
+    }
 
     @Test
     @DisplayName(
@@ -708,6 +831,12 @@ class ChapterPersistenceAdapterTest {
                         null
                 )
         ).isFalse();
+        
+        assertThat(
+                adapter.findAllByVolumeIdOrderBySortOrder(
+                        null
+                )
+        ).isEmpty();
 
         verifyNoInteractions(
                 repository
