@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Quản lý Volume | Kiếm Lai Universe</title>
+
+<!-- Admin shell -->
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<!-- Novel-owned Admin styles -->
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<!-- ================================================= -->
+		<!-- SIDEBAR                                           -->
+		<!-- ================================================= -->
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+				:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+			<!-- ================================================= -->
+			<!-- HEADER                                            -->
+			<!-- ================================================= -->
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+					:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+
+					Thao tác thành công.</div>
+
+
+				<div th:if="${errorMessage != null}" class="novel-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
+				<!-- ================================================= -->
+				<!-- PAGE HEADING                                       -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-heading">
+
+					<div>
+
+						<span class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+						<h2>Quản lý Volume</h2>
+
+						<p>Quản lý các tập truyện, thứ tự hiển thị và trạng thái xuất
+							bản.</p>
+
+					</div>
+
+
+					<a th:href="@{/admin/novel/volumes/new}"
+						class="novel-admin-primary-button"> + Tạo Volume </a>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- RESULT SUMMARY                                    -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-result-summary">
+
+					<span> Tổng cộng <strong th:text="${#lists.size(volumes)}">
+							0 </strong> Volume
+					</span> <span> Sắp xếp theo thứ tự nội dung </span>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- EMPTY STATE                                       -->
+				<!-- ================================================= -->
+
+				<section th:if="${#lists.isEmpty(volumes)}"
+					class="novel-admin-empty-state">
+
+					<div class="novel-admin-empty-icon" aria-hidden="true">▤</div>
+
+					<h3>Chưa có Volume nào</h3>
+
+					<p>Hệ thống hiện chưa có Volume để hiển thị.</p>
+
+				</section>
+
+
+				<!-- ================================================= -->
+				<!-- VOLUME TABLE                                      -->
+				<!-- ================================================= -->
+
+				<section th:unless="${#lists.isEmpty(volumes)}"
+					class="novel-admin-table-panel">
+
+					<div class="novel-admin-table-wrapper">
+
+						<table class="novel-admin-table">
+
+							<caption class="novel-admin-visually-hidden">Danh sách
+								Volume trong hệ thống quản trị</caption>
+
+
+							<thead>
+
+								<tr>
+
+									<th scope="col">Thứ tự</th>
+
+									<th scope="col">Volume</th>
+
+									<th scope="col">Trạng thái</th>
+
+									<th scope="col">Cập nhật</th>
+
+								</tr>
+
+							</thead>
+
+
+							<tbody>
+
+								<tr th:each="volume : ${volumes}">
+
+									<!-- ================================= -->
+									<!-- SORT ORDER                        -->
+									<!-- ================================= -->
+
+									<td class="novel-admin-order-cell"><span
+										class="novel-admin-order-badge" th:text="${volume.sortOrder}">
+											1 </span></td>
+
+
+									<!-- ================================= -->
+									<!-- VOLUME                            -->
+									<!-- ================================= -->
+
+									<td class="novel-admin-volume-cell"><a
+										class="novel-admin-volume-link"
+										th:href="@{/admin/novel/volumes/{id}(
+			id=${volume.id}
+		)}">
+
+											<strong th:text="${volume.title}"> Volume 1 </strong> <span
+											th:text="${volume.slug}"> volume-1 </span>
+
+									</a></td>
+
+
+									<!-- ================================= -->
+									<!-- STATUS                            -->
+									<!-- ================================= -->
+
+									<td><span class="novel-admin-status-badge"
+										th:classappend="${volume.status == 'PUBLISHED'}
+												? ' is-published'
+												: (${volume.status == 'ARCHIVED'}
+													? ' is-archived'
+													: ' is-draft')"
+										th:text="${volume.status}"> DRAFT </span></td>
+
+
+									<!-- ================================= -->
+									<!-- UPDATED                           -->
+									<!-- ================================= -->
+
+									<td class="novel-admin-updated-cell"><span
+										th:if="${volume.updatedAt != null}"
+										th:text="${#temporals.format(
+												volume.updatedAt,
+												'dd/MM/yyyy HH:mm'
+											)}">
+											19/08/2026 18:00 </span> <span
+										th:unless="${volume.updatedAt != null}"
+										class="novel-admin-muted"> Chưa cập nhật </span></td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+
+</html>

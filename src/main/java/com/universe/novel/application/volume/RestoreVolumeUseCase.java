@@ -1,7 +1,6 @@
 package com.universe.novel.application.volume;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
-import com.universe.novel.application.exceptions.VolumeSortOrderAlreadyExistsException;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.domain.Volume;
@@ -15,7 +14,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Service
-public class ReorderVolumeUseCase {
+public class RestoreVolumeUseCase {
 
     private final VolumeRepositoryPort
             volumeRepositoryPort;
@@ -23,7 +22,7 @@ public class ReorderVolumeUseCase {
     private final ClockPort
             clockPort;
 
-    public ReorderVolumeUseCase(
+    public RestoreVolumeUseCase(
             VolumeRepositoryPort volumeRepositoryPort,
             ClockPort clockPort
     ) {
@@ -36,11 +35,11 @@ public class ReorderVolumeUseCase {
 
     @Transactional
     public VolumeDTO execute(
-            ReorderVolumeCommand command
+            RestoreVolumeCommand command
     ) {
         Objects.requireNonNull(
                 command,
-                "Reorder volume command không được để trống."
+                "Restore volume command không được để trống."
         );
 
         UUID volumeId =
@@ -60,22 +59,13 @@ public class ReorderVolumeUseCase {
                                 )
                         );
 
-        int newSortOrder =
-                command.sortOrder();
-
-        ensureSortOrderAvailable(
-                volume,
-                newSortOrder
-        );
-
         long expectedVersion =
                 volume.getAggregateVersion();
 
         Instant now =
                 clockPort.now();
 
-        volume.reorder(
-                newSortOrder,
+        volume.restoreToDraft(
                 command.actorId(),
                 now
         );
@@ -89,28 +79,5 @@ public class ReorderVolumeUseCase {
         return VolumeDTOMapper.toDTO(
                 savedVolume
         );
-    }
-
-    private void ensureSortOrderAvailable(
-            Volume currentVolume,
-            int newSortOrder
-    ) {
-        /*
-         * Nếu giữ nguyên sortOrder hiện tại,
-         * giá trị đó đương nhiên đã thuộc chính Volume này.
-         */
-        if (currentVolume.getSortOrder()
-                == newSortOrder) {
-            return;
-        }
-
-        if (volumeRepositoryPort.existsBySortOrder(
-                newSortOrder
-        )) {
-            throw new VolumeSortOrderAlreadyExistsException(
-                    "Thứ tự sắp xếp của tập đã tồn tại: "
-                            + newSortOrder
-            );
-        }
     }
 }

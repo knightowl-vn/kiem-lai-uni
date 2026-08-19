@@ -52,9 +52,16 @@ public class CreateVolumeUseCase {
                 "Create volume command không được để trống."
         );
 
+        if (command.sortOrder() < 1) {
+            throw new IllegalArgumentException(
+                    "Thứ tự sắp xếp phải lớn hơn hoặc bằng 1."
+            );
+        }
+
         Slug slug =
                 new Slug(
-                        command.slug()
+                        "quyen-"
+                                + command.sortOrder()
                 );
 
         ensureSlugAvailable(

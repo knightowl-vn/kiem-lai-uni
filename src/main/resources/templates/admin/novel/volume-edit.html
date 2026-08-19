@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html lang="vi"
+	xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+	content="width=device-width, initial-scale=1">
+
+<title>Chỉnh sửa Volume | Kiếm Lai Universe</title>
+
+<link rel="stylesheet"
+	th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet"
+	th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+
+	<div class="admin-layout">
+
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+					:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+						:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+
+				<!-- ================================================= -->
+				<!-- HEADING                                            -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-create-heading">
+
+					<div>
+
+						<a
+							th:href="@{/admin/novel/volumes/{id}(
+								id=${volume.id}
+							)}"
+							class="novel-admin-back-link">
+
+							← Quay lại chi tiết
+
+						</a>
+
+
+						<span class="novel-admin-eyebrow">
+							NOVEL MODULE
+						</span>
+
+
+						<h2>Chỉnh sửa Volume</h2>
+
+
+						<p>
+							Cập nhật thông tin của Volume
+							đang ở trạng thái bản nháp.
+						</p>
+
+					</div>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- FORM                                               -->
+				<!-- ================================================= -->
+
+				<section class="novel-admin-form-panel">
+
+
+					<form
+						method="post"
+						th:action="@{/admin/novel/volumes/{id}/update(
+							id=${volume.id}
+						)}"
+						th:object="${form}"
+						class="novel-admin-form">
+
+
+						<div
+							th:if="${errorMessage != null}"
+							class="novel-admin-form-error"
+							th:text="${errorMessage}">
+
+							Có lỗi xảy ra.
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- CURRENT SYSTEM DATA                           -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-edit-system-panel">
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Trạng thái
+								</span>
+
+								<span
+									class="novel-admin-status-badge is-draft">
+
+									DRAFT
+
+								</span>
+
+							</div>
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Slug
+								</span>
+
+								<code th:text="${volume.slug}">
+									quyen-1
+								</code>
+
+							</div>
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Thứ tự
+								</span>
+
+								<strong th:text="${volume.sortOrder}">
+									1
+								</strong>
+
+							</div>
+
+						</div>
+
+
+						<div class="novel-admin-create-note">
+
+							<strong>Slug và thứ tự được xác định khi tạo Volume và không thay đổi sau đó.</strong>
+
+							<p>
+								Trang này chỉ cho phép chỉnh sửa tên và mô tả của Volume bản nháp.
+							</p>
+
+						</div>
+
+
+						<!-- TITLE -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="volumeTitle">
+
+								Tên Volume
+
+								<span class="novel-admin-required">
+									*
+								</span>
+
+							</label>
+
+							<input
+								id="volumeTitle"
+								type="text"
+								th:field="*{title}"
+								maxlength="200"
+								autocomplete="off"
+								required>
+
+							<small>
+								Tên này được hiển thị đầy đủ
+								trên giao diện người đọc.
+							</small>
+
+						</div>
+
+
+						<!-- DESCRIPTION -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="volumeDescription">
+								Mô tả
+							</label>
+
+							<textarea
+								id="volumeDescription"
+								th:field="*{description}"
+								rows="7"
+								maxlength="1000"
+								placeholder="Mô tả ngắn về nội dung của Volume...">
+							</textarea>
+
+							<small>
+								Có thể để trống. Tối đa 1000 ký tự.
+							</small>
+
+						</div>
+
+
+						<!-- ACTIONS -->
+
+						<div class="novel-admin-form-actions">
+
+							<a
+								th:href="@{/admin/novel/volumes/{id}(
+									id=${volume.id}
+								)}"
+								class="novel-admin-secondary-button">
+
+								Hủy
+
+							</a>
+
+
+							<button
+								type="submit"
+								class="novel-admin-primary-button">
+
+								Lưu thay đổi
+
+							</button>
+
+						</div>
+
+					</form>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+
+</html>

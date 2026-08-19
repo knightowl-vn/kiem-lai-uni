@@ -2,9 +2,8 @@ package com.universe.novel.application.volume;
 
 import java.util.UUID;
 
-public record ReorderVolumeCommand(
+public record RestoreVolumeCommand(
         UUID volumeId,
-        int sortOrder,
         UUID actorId
 ) {
 }

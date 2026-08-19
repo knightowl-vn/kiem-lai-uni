@@ -83,7 +83,7 @@ class CreateVolumeUseCaseTest {
 
         Slug slug =
                 new Slug(
-                        "kiem-lai-tap-1"
+                        "quyen-1"
                 );
 
         when(
@@ -128,7 +128,6 @@ class CreateVolumeUseCaseTest {
                 useCase.execute(
                         new CreateVolumeCommand(
                                 "  Kiếm Lai - Tập 1  ",
-                                "  KIEM-LAI-TAP-1  ",
                                 "  Tập mở đầu của Kiếm Lai.  ",
                                 1,
                                 ADMIN_ID
@@ -164,9 +163,9 @@ class CreateVolumeUseCaseTest {
 
         assertThat(
                 savedVolume.getSlug().value()
-        ).isEqualTo(
-                "kiem-lai-tap-1"
-        );
+        )                .isEqualTo(
+                        "quyen-1"
+                );
 
         assertThat(
                 savedVolume.getDescription()
@@ -230,9 +229,9 @@ class CreateVolumeUseCaseTest {
 
         assertThat(
                 result.slug()
-        ).isEqualTo(
-                "kiem-lai-tap-1"
-        );
+        )                .isEqualTo(
+                        "quyen-1"
+                );
 
         assertThat(
                 result.status()
@@ -249,13 +248,85 @@ class CreateVolumeUseCaseTest {
 
     @Test
     @DisplayName(
+            "Tạo Volume với sortOrder 13 sinh slug quyen-13"
+    )
+    void shouldGenerateSlugFromSortOrderThirteen() {
+
+        Slug slug =
+                new Slug(
+                        "quyen-13"
+                );
+
+        when(
+                volumeRepositoryPort.existsBySlug(
+                        slug
+                )
+        ).thenReturn(
+                false
+        );
+
+        when(
+                volumeRepositoryPort.existsBySortOrder(
+                        13
+                )
+        ).thenReturn(
+                false
+        );
+
+        when(
+                idGeneratorPort.generate()
+        ).thenReturn(
+                VOLUME_ID
+        );
+
+        when(
+                clockPort.now()
+        ).thenReturn(
+                NOW
+        );
+
+        when(
+                volumeRepositoryPort.save(
+                        any(Volume.class),
+                        eq(0L)
+                )
+        ).thenAnswer(
+                invocation ->
+                        invocation.getArgument(0)
+        );
+
+        VolumeDTO result =
+                useCase.execute(
+                        new CreateVolumeCommand(
+                                "Kiếm Lai - Tập 13",
+                                "Tập mười ba.",
+                                13,
+                                ADMIN_ID
+                        )
+                );
+
+        assertThat(
+                result.slug()
+        ).isEqualTo(
+                "quyen-13"
+        );
+
+        assertThat(
+                result.sortOrder()
+        ).isEqualTo(
+                13
+        );
+    }
+
+    @Test
+    @DisplayName(
             "Từ chối tạo Volume khi slug đã tồn tại"
     )
     void shouldRejectDuplicateSlug() {
 
         Slug slug =
                 new Slug(
-                        "kiem-lai-tap-1"
+                        "quyen-1"
                 );
 
         when(
@@ -275,7 +346,7 @@ class CreateVolumeUseCaseTest {
                         VolumeSlugAlreadyExistsException.class
                 )
                 .hasMessage(
-                        "Slug của tập đã tồn tại: kiem-lai-tap-1"
+                        "Slug của tập đã tồn tại: quyen-1"
                 );
 
         verify(
@@ -312,7 +383,7 @@ class CreateVolumeUseCaseTest {
 
         Slug slug =
                 new Slug(
-                        "kiem-lai-tap-1"
+                        "quyen-1"
                 );
 
         when(
@@ -405,10 +476,65 @@ class CreateVolumeUseCaseTest {
         ).now();
     }
 
+    @Test
+    @DisplayName(
+            "Từ chối sortOrder nhỏ hơn 1 trước khi tra cứu repository"
+    )
+    void shouldRejectNonPositiveSortOrderBeforeRepositoryLookups() {
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        new CreateVolumeCommand(
+                                "Kiếm Lai - Tập 1",
+                                "Tập mở đầu của Kiếm Lai.",
+                                0,
+                                ADMIN_ID
+                        )
+                )
+        )
+                .isInstanceOf(
+                        IllegalArgumentException.class
+                )
+                .hasMessage(
+                        "Thứ tự sắp xếp phải lớn hơn hoặc bằng 1."
+                );
+
+        verify(
+                volumeRepositoryPort,
+                never()
+        ).existsBySlug(
+                any(Slug.class)
+        );
+
+        verify(
+                volumeRepositoryPort,
+                never()
+        ).existsBySortOrder(
+                any(Integer.class)
+        );
+
+        verify(
+                idGeneratorPort,
+                never()
+        ).generate();
+
+        verify(
+                clockPort,
+                never()
+        ).now();
+
+        verify(
+                volumeRepositoryPort,
+                never()
+        ).save(
+                any(Volume.class),
+                any(Long.class)
+        );
+    }
+
     private CreateVolumeCommand createCommand() {
         return new CreateVolumeCommand(
                 "Kiếm Lai - Tập 1",
-                "kiem-lai-tap-1",
                 "Tập mở đầu của Kiếm Lai.",
                 1,
                 ADMIN_ID

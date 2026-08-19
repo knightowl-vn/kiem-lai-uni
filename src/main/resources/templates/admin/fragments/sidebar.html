@@ -42,6 +42,11 @@
             : ''">
 
 				<span class="menu-icon">▤</span> <span>Quản lý Wiki</span>
+			</a> <a th:href="@{/admin/novel/volumes}" class="sidebar-link"
+				th:classappend="${activeMenu == 'novel'}
+? ' active'
+: ''"> <span
+				class="menu-icon">☷</span> <span>Quản lý Novel</span>
 			</a>
 
 			<div class="sidebar-divider"></div>

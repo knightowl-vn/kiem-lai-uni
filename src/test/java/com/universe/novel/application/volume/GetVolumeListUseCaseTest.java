@@ -67,7 +67,7 @@ class GetVolumeListUseCaseTest {
 
     @Test
     @DisplayName(
-            "Lấy danh sách Volume theo thứ tự repository trả về"
+            "Lấy danh sách Volume theo sortOrder ASC và giữ số thứ tự thực"
     )
     void shouldGetVolumeList() {
 
@@ -75,7 +75,7 @@ class GetVolumeListUseCaseTest {
                 createVolume(
                         VOLUME_1_ID,
                         "Kiếm Lai - Tập 1",
-                        "kiem-lai-tap-1",
+                        "quyen-1",
                         1
                 );
 
@@ -83,16 +83,16 @@ class GetVolumeListUseCaseTest {
                 createVolume(
                         VOLUME_2_ID,
                         "Kiếm Lai - Tập 2",
-                        "kiem-lai-tap-2",
+                        "quyen-2",
                         2
                 );
 
         Volume volume3 =
                 createVolume(
                         VOLUME_3_ID,
-                        "Kiếm Lai - Tập 3",
-                        "kiem-lai-tap-3",
-                        3
+                        "Kiếm Lai - Tập 13",
+                        "quyen-13",
+                        13
                 );
 
         when(
@@ -124,7 +124,7 @@ class GetVolumeListUseCaseTest {
         ).containsExactly(
                 1,
                 2,
-                3
+                13
         );
 
         assertThat(
@@ -136,7 +136,7 @@ class GetVolumeListUseCaseTest {
         ).containsExactly(
                 "Kiếm Lai - Tập 1",
                 "Kiếm Lai - Tập 2",
-                "Kiếm Lai - Tập 3"
+                "Kiếm Lai - Tập 13"
         );
 
         assertThat(
@@ -146,9 +146,9 @@ class GetVolumeListUseCaseTest {
                                 VolumeDTO::slug
                         )
         ).containsExactly(
-                "kiem-lai-tap-1",
-                "kiem-lai-tap-2",
-                "kiem-lai-tap-3"
+                "quyen-1",
+                "quyen-2",
+                "quyen-13"
         );
 
         verify(

@@ -380,14 +380,11 @@ class VolumeTest {
         Volume volume =
                 createDraft();
 
-        Slug newSlug =
-                new Slug(
-                        "quyen-mot-moi"
-                );
+        Slug slugBefore =
+                volume.getSlug();
 
         volume.updateDraft(
                 "Quyển Một Mới",
-                newSlug,
                 "Mô tả đã cập nhật",
                 OTHER_ADMIN_ID,
                 UPDATED_AT
@@ -399,7 +396,10 @@ class VolumeTest {
                 );
 
         assertThat(volume.getSlug())
-                .isEqualTo(newSlug);
+                .isEqualTo(slugBefore);
+
+        assertThat(volume.getSortOrder())
+                .isEqualTo(1);
 
         assertThat(volume.getDescription())
                 .isEqualTo(
@@ -414,6 +414,139 @@ class VolumeTest {
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName(
+            "Không mutate khi cập nhật bản nháp với cùng tiêu đề và mô tả"
+    )
+    void shouldNoOpUpdateDraftWhenTitleAndDescriptionUnchanged() {
+        Volume volume =
+                createDraft();
+
+        UUID updatedByBefore =
+                volume.getUpdatedBy();
+
+        Instant updatedAtBefore =
+                volume.getUpdatedAt();
+
+        long versionBefore =
+                volume.getAggregateVersion();
+
+        volume.updateDraft(
+                "Quyển Một",
+                "Mở đầu hành trình",
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(volume.getTitle())
+                .isEqualTo(
+                        "Quyển Một"
+                );
+
+        assertThat(volume.getDescription())
+                .isEqualTo(
+                        "Mở đầu hành trình"
+                );
+
+        assertThat(volume.getUpdatedBy())
+                .isEqualTo(updatedByBefore);
+
+        assertThat(volume.getUpdatedAt())
+                .isEqualTo(updatedAtBefore);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(versionBefore);
+    }
+
+    @Test
+    @DisplayName(
+            "Không mutate khi tiêu đề và mô tả chỉ khác khoảng trắng"
+    )
+    void shouldNoOpUpdateDraftWhenValuesDifferOnlyByWhitespace() {
+        Volume volume =
+                createDraft();
+
+        UUID updatedByBefore =
+                volume.getUpdatedBy();
+
+        Instant updatedAtBefore =
+                volume.getUpdatedAt();
+
+        long versionBefore =
+                volume.getAggregateVersion();
+
+        volume.updateDraft(
+                "  Quyển Một  ",
+                "  Mở đầu hành trình  ",
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(volume.getTitle())
+                .isEqualTo(
+                        "Quyển Một"
+                );
+
+        assertThat(volume.getDescription())
+                .isEqualTo(
+                        "Mở đầu hành trình"
+                );
+
+        assertThat(volume.getUpdatedBy())
+                .isEqualTo(updatedByBefore);
+
+        assertThat(volume.getUpdatedAt())
+                .isEqualTo(updatedAtBefore);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(versionBefore);
+    }
+
+    @Test
+    @DisplayName(
+            "Không mutate khi mô tả null tương đương mô tả rỗng"
+    )
+    void shouldNoOpUpdateDraftWhenNullDescriptionMatchesEmpty() {
+        Volume volume =
+                Volume.createDraft(
+                        VOLUME_ID,
+                        "Quyển Một",
+                        DEFAULT_SLUG,
+                        "",
+                        1,
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        UUID updatedByBefore =
+                volume.getUpdatedBy();
+
+        Instant updatedAtBefore =
+                volume.getUpdatedAt();
+
+        long versionBefore =
+                volume.getAggregateVersion();
+
+        volume.updateDraft(
+                "Quyển Một",
+                null,
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(volume.getDescription())
+                .isEqualTo("");
+
+        assertThat(volume.getUpdatedBy())
+                .isEqualTo(updatedByBefore);
+
+        assertThat(volume.getUpdatedAt())
+                .isEqualTo(updatedAtBefore);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(versionBefore);
     }
 
     @Test
@@ -438,7 +571,6 @@ class VolumeTest {
         assertThatThrownBy(() ->
                 volume.updateDraft(
                         "Tiêu đề mới",
-                        new Slug("tieu-de-moi"),
                         "Mô tả mới",
                         OTHER_ADMIN_ID,
                         UPDATED_AT.plusSeconds(60)
@@ -477,7 +609,6 @@ class VolumeTest {
         assertThatThrownBy(() ->
                 volume.updateDraft(
                         "Tiêu đề mới",
-                        new Slug("tieu-de-moi"),
                         "Mô tả mới",
                         OTHER_ADMIN_ID,
                         UPDATED_AT.plusSeconds(60)
@@ -514,7 +645,6 @@ class VolumeTest {
         assertThatThrownBy(() ->
                 volume.updateDraft(
                         " ",
-                        new Slug("quyen-mot-moi"),
                         "Mô tả mới",
                         OTHER_ADMIN_ID,
                         UPDATED_AT
@@ -532,139 +662,6 @@ class VolumeTest {
 
         assertThat(volume.getDescription())
                 .isEqualTo(descriptionBefore);
-
-        assertThat(volume.getAggregateVersion())
-                .isEqualTo(versionBefore);
-    }
-
-    @Test
-    @DisplayName(
-            "Sắp xếp lại tập DRAFT thành công"
-    )
-    void shouldReorderDraftVolume() {
-        Volume volume =
-                createDraft();
-
-        volume.reorder(
-                3,
-                OTHER_ADMIN_ID,
-                UPDATED_AT
-        );
-
-        assertThat(volume.getSortOrder())
-                .isEqualTo(3);
-
-        assertThat(volume.getUpdatedBy())
-                .isEqualTo(OTHER_ADMIN_ID);
-
-        assertThat(volume.getUpdatedAt())
-                .isEqualTo(UPDATED_AT);
-
-        assertThat(volume.getAggregateVersion())
-                .isEqualTo(2L);
-    }
-
-    @Test
-    @DisplayName(
-            "Sắp xếp lại tập PUBLISHED thành công"
-    )
-    void shouldReorderPublishedVolume() {
-        Volume volume =
-                createDraft();
-
-        volume.publish(
-                ADMIN_ID,
-                UPDATED_AT
-        );
-
-        Instant reorderedAt =
-                UPDATED_AT.plusSeconds(30);
-
-        volume.reorder(
-                5,
-                OTHER_ADMIN_ID,
-                reorderedAt
-        );
-
-        assertThat(volume.getSortOrder())
-                .isEqualTo(5);
-
-        assertThat(volume.getStatus())
-                .isEqualTo(
-                        VolumeStatus.PUBLISHED
-                );
-
-        assertThat(volume.getUpdatedBy())
-                .isEqualTo(OTHER_ADMIN_ID);
-
-        assertThat(volume.getUpdatedAt())
-                .isEqualTo(reorderedAt);
-
-        assertThat(volume.getAggregateVersion())
-                .isEqualTo(3L);
-    }
-
-    @Test
-    @DisplayName(
-            "Từ chối sắp xếp lại với sortOrder không hợp lệ"
-    )
-    void shouldRejectReorderWithNonPositiveSortOrder() {
-        Volume volume =
-                createDraft();
-
-        long versionBefore =
-                volume.getAggregateVersion();
-
-        int sortOrderBefore =
-                volume.getSortOrder();
-
-        assertThatThrownBy(() ->
-                volume.reorder(
-                        0,
-                        OTHER_ADMIN_ID,
-                        UPDATED_AT
-                )
-        )
-                .isInstanceOf(
-                        IllegalArgumentException.class
-                );
-
-        assertThat(volume.getSortOrder())
-                .isEqualTo(sortOrderBefore);
-
-        assertThat(volume.getAggregateVersion())
-                .isEqualTo(versionBefore);
-    }
-
-    @Test
-    @DisplayName(
-            "Từ chối sắp xếp lại tập ARCHIVED"
-    )
-    void shouldRejectReorderWhenArchived() {
-        Volume volume =
-                createDraft();
-
-        volume.archive(
-                ADMIN_ID,
-                UPDATED_AT
-        );
-
-        long versionBefore =
-                volume.getAggregateVersion();
-
-        assertThatThrownBy(() ->
-                volume.reorder(
-                        2,
-                        OTHER_ADMIN_ID,
-                        UPDATED_AT.plusSeconds(30)
-                )
-        )
-                .isInstanceOf(
-                        IllegalStateException.class
-                )
-                .hasMessage(
-                        "Không thể sắp xếp lại tập đã lưu trữ."
-                );
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(versionBefore);
@@ -702,6 +699,12 @@ class VolumeTest {
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(2L);
+
+        assertThat(volume.getSlug())
+                .isEqualTo(DEFAULT_SLUG);
+
+        assertThat(volume.getSortOrder())
+                .isEqualTo(1);
     }
 
     @Test
@@ -829,6 +832,12 @@ class VolumeTest {
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(2L);
+
+        assertThat(volume.getSlug())
+                .isEqualTo(DEFAULT_SLUG);
+
+        assertThat(volume.getSortOrder())
+                .isEqualTo(1);
     }
 
     @Test
@@ -877,6 +886,12 @@ class VolumeTest {
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(3L);
+
+        assertThat(volume.getSlug())
+                .isEqualTo(DEFAULT_SLUG);
+
+        assertThat(volume.getSortOrder())
+                .isEqualTo(1);
     }
 
     @Test
@@ -919,6 +934,169 @@ class VolumeTest {
 
         assertThat(volume.getArchivedAt())
                 .isEqualTo(archivedAtBefore);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(versionBefore);
+    }
+
+    @Test
+    @DisplayName(
+            "Khôi phục tập ARCHIVED về DRAFT và xóa metadata lưu trữ/xuất bản"
+    )
+    void shouldRestoreArchivedVolumeToDraftAndClearMetadata() {
+        Volume volume =
+                createDraft();
+
+        volume.publish(
+                ADMIN_ID,
+                UPDATED_AT
+        );
+
+        Instant archivedAt =
+                UPDATED_AT.plusSeconds(60);
+
+        volume.archive(
+                OTHER_ADMIN_ID,
+                archivedAt
+        );
+
+        Instant restoredAt =
+                archivedAt.plusSeconds(30);
+
+        volume.restoreToDraft(
+                ADMIN_ID,
+                restoredAt
+        );
+
+        assertThat(volume.getStatus())
+                .isEqualTo(VolumeStatus.DRAFT);
+
+        assertThat(volume.getArchivedBy())
+                .isNull();
+
+        assertThat(volume.getArchivedAt())
+                .isNull();
+
+        assertThat(volume.getPublishedBy())
+                .isNull();
+
+        assertThat(volume.getPublishedAt())
+                .isNull();
+
+        assertThat(volume.getUpdatedBy())
+                .isEqualTo(ADMIN_ID);
+
+        assertThat(volume.getUpdatedAt())
+                .isEqualTo(restoredAt);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(4L);
+
+        assertThat(volume.getId())
+                .isEqualTo(VOLUME_ID);
+
+        assertThat(volume.getTitle())
+                .isEqualTo("Quyển Một");
+
+        assertThat(volume.getSlug())
+                .isEqualTo(DEFAULT_SLUG);
+
+        assertThat(volume.getSortOrder())
+                .isEqualTo(1);
+
+        assertThat(volume.getCreatedBy())
+                .isEqualTo(ADMIN_ID);
+
+        assertThat(volume.getCreatedAt())
+                .isEqualTo(CREATED_AT);
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối khôi phục tập DRAFT mà không mutate"
+    )
+    void shouldRejectRestoreFromDraftWithoutMutation() {
+        Volume volume =
+                createDraft();
+
+        long versionBefore =
+                volume.getAggregateVersion();
+
+        UUID updatedByBefore =
+                volume.getUpdatedBy();
+
+        Instant updatedAtBefore =
+                volume.getUpdatedAt();
+
+        assertThatThrownBy(() ->
+                volume.restoreToDraft(
+                        OTHER_ADMIN_ID,
+                        UPDATED_AT
+                )
+        )
+                .isInstanceOf(
+                        IllegalStateException.class
+                )
+                .hasMessage(
+                        "Chỉ tập ở trạng thái ARCHIVED mới được khôi phục về bản nháp."
+                );
+
+        assertThat(volume.getStatus())
+                .isEqualTo(VolumeStatus.DRAFT);
+
+        assertThat(volume.getUpdatedBy())
+                .isEqualTo(updatedByBefore);
+
+        assertThat(volume.getUpdatedAt())
+                .isEqualTo(updatedAtBefore);
+
+        assertThat(volume.getAggregateVersion())
+                .isEqualTo(versionBefore);
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối khôi phục tập PUBLISHED mà không mutate"
+    )
+    void shouldRejectRestoreFromPublishedWithoutMutation() {
+        Volume volume =
+                createDraft();
+
+        volume.publish(
+                ADMIN_ID,
+                UPDATED_AT
+        );
+
+        long versionBefore =
+                volume.getAggregateVersion();
+
+        UUID publishedByBefore =
+                volume.getPublishedBy();
+
+        Instant publishedAtBefore =
+                volume.getPublishedAt();
+
+        assertThatThrownBy(() ->
+                volume.restoreToDraft(
+                        OTHER_ADMIN_ID,
+                        UPDATED_AT.plusSeconds(30)
+                )
+        )
+                .isInstanceOf(
+                        IllegalStateException.class
+                )
+                .hasMessage(
+                        "Chỉ tập ở trạng thái ARCHIVED mới được khôi phục về bản nháp."
+                );
+
+        assertThat(volume.getStatus())
+                .isEqualTo(VolumeStatus.PUBLISHED);
+
+        assertThat(volume.getPublishedBy())
+                .isEqualTo(publishedByBefore);
+
+        assertThat(volume.getPublishedAt())
+                .isEqualTo(publishedAtBefore);
 
         assertThat(volume.getAggregateVersion())
                 .isEqualTo(versionBefore);

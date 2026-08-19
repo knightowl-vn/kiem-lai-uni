@@ -9,8 +9,9 @@ import java.util.UUID;
  *
  * Quản lý:
  * - thông tin chung của tập;
- * - vòng đời DRAFT → PUBLISHED → ARCHIVED;
- * - các quy tắc chỉnh sửa, sắp xếp và xuất bản;
+ * - vòng đời DRAFT → PUBLISHED → ARCHIVED → DRAFT (restore);
+ * - các quy tắc chỉnh sửa và xuất bản;
+ * - slug và sortOrder bất biến sau khi tạo;
  * - aggregate version.
  *
  * Volume không chứa danh sách Chapter.
@@ -30,11 +31,11 @@ public class Volume {
 
     private String title;
 
-    private Slug slug;
+    private final Slug slug;
 
     private String description;
 
-    private int sortOrder;
+    private final int sortOrder;
 
     private VolumeStatus status;
 
@@ -228,12 +229,16 @@ public class Volume {
     /**
      * Cập nhật thông tin của bản nháp.
      *
-     * Tiêu đề, slug và mô tả chỉ được thay đổi
+     * Tiêu đề và mô tả chỉ được thay đổi
      * khi tập vẫn còn ở trạng thái DRAFT.
+     * Slug và sortOrder không đổi.
+     *
+     * Nếu tiêu đề và mô tả sau chuẩn hóa không đổi
+     * so với trạng thái hiện tại thì không mutate
+     * updatedBy, updatedAt hay aggregateVersion.
      */
     public void updateDraft(
             String title,
-            Slug slug,
             String description,
             UUID updatedBy,
             Instant updatedAt
@@ -246,14 +251,15 @@ public class Volume {
         String normalizedTitle =
                 validateTitle(title);
 
-        Slug normalizedSlug =
-                Objects.requireNonNull(
-                        slug,
-                        "Slug không được để trống."
-                );
-
         String normalizedDescription =
                 validateDescription(description);
+
+        if (normalizedTitle.equals(this.title)
+                && normalizedDescription.equals(
+                        this.description
+                )) {
+            return;
+        }
 
         UUID normalizedUpdatedBy =
                 Objects.requireNonNull(
@@ -270,54 +276,8 @@ public class Volume {
         this.title =
                 normalizedTitle;
 
-        this.slug =
-                normalizedSlug;
-
         this.description =
                 normalizedDescription;
-
-        this.updatedBy =
-                normalizedUpdatedBy;
-
-        this.updatedAt =
-                normalizedUpdatedAt;
-
-        increaseVersion();
-    }
-
-    /**
-     * Thay đổi thứ tự sắp xếp của tập.
-     *
-     * Được phép khi tập còn DRAFT hoặc PUBLISHED.
-     */
-    public void reorder(
-            int sortOrder,
-            UUID updatedBy,
-            Instant updatedAt
-    ) {
-        if (status == VolumeStatus.ARCHIVED) {
-            throw new IllegalStateException(
-                    "Không thể sắp xếp lại tập đã lưu trữ."
-            );
-        }
-
-        int normalizedSortOrder =
-                validateSortOrder(sortOrder);
-
-        UUID normalizedUpdatedBy =
-                Objects.requireNonNull(
-                        updatedBy,
-                        "Người cập nhật không được để trống."
-                );
-
-        Instant normalizedUpdatedAt =
-                Objects.requireNonNull(
-                        updatedAt,
-                        "Thời gian cập nhật không được để trống."
-                );
-
-        this.sortOrder =
-                normalizedSortOrder;
 
         this.updatedBy =
                 normalizedUpdatedBy;
@@ -411,6 +371,57 @@ public class Volume {
 
         this.updatedAt =
                 normalizedArchivedAt;
+
+        increaseVersion();
+    }
+
+    /**
+     * Khôi phục tập ARCHIVED về DRAFT để Admin rà soát rồi xuất bản lại.
+     *
+     * Không đổi id, title, slug, description, sortOrder, createdBy, createdAt.
+     * Xóa metadata lưu trữ và xuất bản hiện có vì tập đã trở lại DRAFT.
+     */
+    public void restoreToDraft(
+            UUID restoredBy,
+            Instant restoredAt
+    ) {
+        UUID normalizedRestoredBy =
+                Objects.requireNonNull(
+                        restoredBy,
+                        "Người khôi phục tập không được để trống."
+                );
+
+        Instant normalizedRestoredAt =
+                Objects.requireNonNull(
+                        restoredAt,
+                        "Thời gian khôi phục tập không được để trống."
+                );
+
+        requireStatus(
+                VolumeStatus.ARCHIVED,
+                "Chỉ tập ở trạng thái ARCHIVED mới được khôi phục về bản nháp."
+        );
+
+        this.status =
+                VolumeStatus.DRAFT;
+
+        this.archivedBy =
+                null;
+
+        this.archivedAt =
+                null;
+
+        this.publishedBy =
+                null;
+
+        this.publishedAt =
+                null;
+
+        this.updatedBy =
+                normalizedRestoredBy;
+
+        this.updatedAt =
+                normalizedRestoredAt;
 
         increaseVersion();
     }

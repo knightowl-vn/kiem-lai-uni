@@ -21,11 +21,11 @@ public interface SpringDataVolumeJpaRepository
 	Optional<VolumeJpaEntity> findByIdForUpdate(
 	        @Param("id") String id
 	);
-	
+
 	Optional<VolumeJpaEntity> findBySlug(
             String slug
     );
-    
+
     List<VolumeJpaEntity> findAllByOrderBySortOrderAsc();
 
     boolean existsBySlug(

@@ -1,10 +1,8 @@
 package com.universe.novel.application.volume;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
-import com.universe.novel.application.exceptions.VolumeSlugAlreadyExistsException;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.VolumeDTO;
-import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
 import com.universe.shared.time.ClockPort;
 
@@ -13,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -52,25 +49,16 @@ public class UpdateDraftVolumeUseCase {
                 );
 
         Volume volume =
-                findVolume(
-                        volumeId
-                );
+                volumeRepositoryPort
+                        .findById(
+                                volumeId
+                        )
+                        .orElseThrow(() ->
+                                new VolumeNotFoundException(
+                                        volumeId
+                                )
+                        );
 
-        Slug newSlug =
-                new Slug(
-                        command.slug()
-                );
-
-        ensureSlugAvailable(
-                volume,
-                newSlug
-        );
-
-        /*
-         * Cực kỳ quan trọng:
-         *
-         * phải lấy version TRƯỚC khi Domain mutate.
-         */
         long expectedVersion =
                 volume.getAggregateVersion();
 
@@ -79,11 +67,17 @@ public class UpdateDraftVolumeUseCase {
 
         volume.updateDraft(
                 command.title(),
-                newSlug,
                 command.description(),
                 command.actorId(),
                 now
         );
+
+        if (volume.getAggregateVersion()
+                == expectedVersion) {
+            return VolumeDTOMapper.toDTO(
+                    volume
+            );
+        }
 
         Volume savedVolume =
                 volumeRepositoryPort.save(
@@ -94,46 +88,5 @@ public class UpdateDraftVolumeUseCase {
         return VolumeDTOMapper.toDTO(
                 savedVolume
         );
-    }
-
-    private Volume findVolume(
-            UUID volumeId
-    ) {
-        return volumeRepositoryPort
-                .findById(
-                        volumeId
-                )
-                .orElseThrow(() ->
-                        new VolumeNotFoundException(
-                                volumeId
-                        )
-                );
-    }
-
-    private void ensureSlugAvailable(
-            Volume currentVolume,
-            Slug slug
-    ) {
-        Optional<Volume> existingVolume =
-                volumeRepositoryPort
-                        .findBySlug(
-                                slug
-                        );
-
-        boolean belongsToAnotherVolume =
-                existingVolume.isPresent()
-                        && !existingVolume
-                        .orElseThrow()
-                        .getId()
-                        .equals(
-                                currentVolume.getId()
-                        );
-
-        if (belongsToAnotherVolume) {
-            throw new VolumeSlugAlreadyExistsException(
-                    "Slug của tập đã tồn tại: "
-                            + slug.value()
-            );
-        }
     }
 }

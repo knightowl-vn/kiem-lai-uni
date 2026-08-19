@@ -12,7 +12,7 @@ public interface VolumeRepositoryPort {
     Optional<Volume> findById(
             UUID id
     );
-    
+
     Optional<Volume> findByIdForUpdate(
             UUID id
     );
@@ -20,7 +20,7 @@ public interface VolumeRepositoryPort {
     Optional<Volume> findBySlug(
             Slug slug
     );
-    
+
     List<Volume> findAllOrderBySortOrder();
 
     boolean existsBySlug(

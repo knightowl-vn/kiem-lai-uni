@@ -743,7 +743,7 @@ class VolumePersistenceAdapterTest {
         );
 
         first.setSlug(
-                "kiem-lai-tap-1"
+                "quyen-1"
         );
 
         first.setSortOrder(
@@ -762,11 +762,30 @@ class VolumePersistenceAdapterTest {
         );
 
         second.setSlug(
-                "kiem-lai-tap-2"
+                "quyen-2"
         );
 
         second.setSortOrder(
                 2
+        );
+
+        VolumeJpaEntity thirteenth =
+                createDraftEntity();
+
+        thirteenth.setId(
+                "33333333-3333-3333-3333-333333333333"
+        );
+
+        thirteenth.setTitle(
+                "Kiếm Lai - Tập 13"
+        );
+
+        thirteenth.setSlug(
+                "quyen-13"
+        );
+
+        thirteenth.setSortOrder(
+                13
         );
 
         when(
@@ -775,7 +794,8 @@ class VolumePersistenceAdapterTest {
         ).thenReturn(
                 List.of(
                         first,
-                        second
+                        second,
+                        thirteenth
                 )
         );
 
@@ -785,7 +805,7 @@ class VolumePersistenceAdapterTest {
         assertThat(
                 result
         ).hasSize(
-                2
+                3
         );
 
         assertThat(
@@ -796,7 +816,8 @@ class VolumePersistenceAdapterTest {
                         )
         ).containsExactly(
                 1,
-                2
+                2,
+                13
         );
 
         assertThat(
@@ -807,7 +828,8 @@ class VolumePersistenceAdapterTest {
                         )
         ).containsExactly(
                 "Kiếm Lai - Tập 1",
-                "Kiếm Lai - Tập 2"
+                "Kiếm Lai - Tập 2",
+                "Kiếm Lai - Tập 13"
         );
 
         assertThat(
@@ -818,8 +840,9 @@ class VolumePersistenceAdapterTest {
                                         volume.getSlug().value()
                         )
         ).containsExactly(
-                "kiem-lai-tap-1",
-                "kiem-lai-tap-2"
+                "quyen-1",
+                "quyen-2",
+                "quyen-13"
         );
 
         verify(

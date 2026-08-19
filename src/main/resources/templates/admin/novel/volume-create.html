@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Tạo Volume | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+
+	<div class="admin-layout">
+
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+					:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+						:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+
+				<!-- ================================================= -->
+				<!-- HEADING                                            -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-create-heading">
+
+					<div>
+
+						<a th:href="@{/admin/novel/volumes}" class="novel-admin-back-link">
+
+							← Quay lại danh sách </a> <span class="novel-admin-eyebrow">
+							NOVEL MODULE </span>
+
+						<h2>Tạo Volume mới</h2>
+
+						<p>Volume mới sẽ được tạo dưới trạng thái bản nháp.</p>
+
+					</div>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- FORM                                               -->
+				<!-- ================================================= -->
+
+				<section class="novel-admin-form-panel">
+
+
+					<form method="post" th:action="@{/admin/novel/volumes}"
+						th:object="${form}" class="novel-admin-form">
+
+
+						<div th:if="${errorMessage != null}"
+							class="novel-admin-form-error" th:text="${errorMessage}">
+
+							Có lỗi xảy ra.</div>
+
+
+						<div class="novel-admin-create-note">
+
+							<strong>Trạng thái ban đầu</strong>
+
+							<p>Volume sẽ được lưu ở trạng thái DRAFT. Bạn có thể chỉnh
+								sửa trước khi xuất bản.</p>
+
+						</div>
+
+
+						<div class="novel-admin-form-grid">
+
+
+							<!-- TITLE -->
+
+							<div class="novel-admin-form-group">
+
+								<label for="volumeTitle"> Tên Volume <span
+									class="novel-admin-required"> * </span>
+
+								</label> <input id="volumeTitle" type="text" th:field="*{title}"
+									maxlength="200" autocomplete="off"
+									placeholder="Ví dụ: Volume 1 - Khởi đầu" required> <small>
+									Tên hiển thị của tập truyện. </small>
+
+							</div>
+
+
+							<!-- SLUG PREVIEW -->
+
+							<div class="novel-admin-form-group">
+
+								<label for="volumeSlugPreview"> Slug hệ thống </label> <input
+									id="volumeSlugPreview" type="text" value="quyen-" readonly
+									aria-describedby="volumeSlugHelp"> <small
+									id="volumeSlugHelp"> Slug được hệ thống tự tạo từ thứ
+									tự Volume và không thể chỉnh sửa trực tiếp. </small>
+
+							</div>
+
+
+							<!-- SORT ORDER -->
+
+							<div class="novel-admin-form-group">
+
+								<label for="volumeSortOrder"> Thứ tự <span
+									class="novel-admin-required"> * </span>
+
+								</label> <input id="volumeSortOrder" type="number"
+									th:field="*{sortOrder}" min="1" step="1" placeholder="1"
+									required> <small> Thứ tự hiển thị của Volume
+									trong tiểu thuyết. </small>
+
+							</div>
+
+						</div>
+
+
+						<!-- DESCRIPTION -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="volumeDescription"> Mô tả </label>
+
+							<textarea id="volumeDescription" th:field="*{description}"
+								rows="6" maxlength="1000"
+								placeholder="Mô tả ngắn về nội dung của Volume...">
+							</textarea>
+
+							<small> Có thể để trống. Tối đa 1000 ký tự. </small>
+
+						</div>
+
+
+						<!-- ACTIONS -->
+
+						<div class="novel-admin-form-actions">
+
+							<a th:href="@{/admin/novel/volumes}"
+								class="novel-admin-secondary-button"> Hủy </a>
+
+
+							<button type="submit" class="novel-admin-primary-button">
+
+								Tạo Volume</button>
+
+						</div>
+
+					</form>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+	<script>
+		document.addEventListener("DOMContentLoaded", function() {
+
+			const sortOrderInput = document.getElementById("volumeSortOrder");
+
+			const slugPreview = document.getElementById("volumeSlugPreview");
+
+			if (!sortOrderInput || !slugPreview) {
+				return;
+			}
+
+			function updateSlugPreview() {
+
+				const value = sortOrderInput.value.trim();
+
+				if (!/^[0-9]+$/.test(value)) {
+					slugPreview.value = "quyen-";
+					return;
+				}
+
+				const parsed = Number.parseInt(value, 10);
+
+				if (Number.isNaN(parsed) || parsed < 1) {
+					slugPreview.value = "quyen-";
+					return;
+				}
+
+				slugPreview.value = "quyen-" + parsed;
+			}
+
+			sortOrderInput.addEventListener("input", updateSlugPreview);
+
+			updateSlugPreview();
+		});
+	</script>
+
+</body>
+
+</html>
