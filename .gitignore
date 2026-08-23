@@ -56,3 +56,6 @@ target/
 # ===============================
 .DS_Store
 Thumbs.db
+
+# Local AI agent workspace
+.agents/
