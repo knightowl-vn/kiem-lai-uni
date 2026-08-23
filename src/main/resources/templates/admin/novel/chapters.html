@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Quản lý chương | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+				:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+					:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+
+					Thao tác thành công.</div>
+
+
+				<div th:if="${errorMessage != null}" class="novel-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
+
+				<div class="novel-admin-heading">
+
+					<div>
+
+						<a th:href="@{/admin/novel/volumes/{id}(id=${volume.id})}"
+							class="novel-admin-back-link"> ← Quay lại Volume </a> <span
+							class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+						<h2>Quản lý chương</h2>
+
+						<p>
+							Volume: <strong th:text="${volume.title}">Quyển Một</strong>
+						</p>
+
+					</div>
+
+
+					<a
+						th:href="@{/admin/novel/volumes/{id}/chapters/new(id=${volume.id})}"
+						class="novel-admin-primary-button"> + Thêm chương </a>
+
+				</div>
+
+
+				<section class="novel-admin-filter-panel">
+
+					<form method="get"
+						th:action="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+						class="novel-admin-filter-form">
+
+						<div class="novel-admin-field keyword-field">
+
+							<label for="novelAdminChapterKeyword"> Tìm kiếm </label> <input
+								id="novelAdminChapterKeyword" type="search" name="keyword"
+								placeholder="Tiêu đề hoặc slug..." th:value="${keyword}">
+
+						</div>
+
+						<div class="novel-admin-field">
+
+							<label for="novelAdminChapterStatus"> Trạng thái </label> <select
+								id="novelAdminChapterStatus" name="status">
+
+								<option value="">Tất cả</option>
+
+								<option value="DRAFT" th:selected="${selectedStatus == 'DRAFT'}">DRAFT</option>
+
+								<option value="PUBLISHED"
+									th:selected="${selectedStatus == 'PUBLISHED'}">PUBLISHED</option>
+
+								<option value="ARCHIVED"
+									th:selected="${selectedStatus == 'ARCHIVED'}">ARCHIVED</option>
+
+							</select>
+
+						</div>
+
+						<div class="novel-admin-filter-actions">
+
+							<button type="submit" class="novel-admin-primary-button">
+								Lọc kết quả</button>
+
+							<a
+								th:href="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+								class="novel-admin-secondary-button"> Đặt lại </a>
+
+						</div>
+
+					</form>
+
+				</section>
+
+
+				<div class="novel-admin-result-summary">
+
+					<span> Tìm thấy <strong th:text="${pageResult.totalItems}">
+							0 </strong> Chapter
+					</span> <span> Sắp xếp theo số chương </span>
+
+				</div>
+
+
+				<section th:if="${#lists.isEmpty(chapters)}"
+					class="novel-admin-empty-state">
+
+					<div class="novel-admin-empty-icon" aria-hidden="true">▤</div>
+
+					<h3
+						th:text="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}
+							? 'Không có Chapter phù hợp'
+							: 'Chưa có Chapter nào'">
+						Chưa có Chapter nào</h3>
+
+					<p
+						th:text="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}
+							? 'Không có Chapter nào khớp với bộ lọc hiện tại.'
+							: 'Volume này hiện chưa có chương để hiển thị.'">
+						Volume này hiện chưa có chương để hiển thị.</p>
+
+					<a
+						th:if="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}"
+						th:href="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+						class="novel-admin-secondary-button"> Xem toàn bộ </a>
+
+				</section>
+
+
+				<section th:unless="${#lists.isEmpty(chapters)}"
+					class="novel-admin-table-panel novel-admin-table-panel--actions">
+
+					<div
+						class="novel-admin-table-wrapper novel-admin-table-wrapper--actions">
+
+						<table class="novel-admin-table">
+
+							<caption class="novel-admin-visually-hidden">Danh sách
+								Chapter trong Volume</caption>
+
+
+							<thead>
+
+								<tr>
+
+									<th scope="col">Số chương</th>
+
+									<th scope="col">Tiêu đề</th>
+
+									<th scope="col">Trạng thái</th>
+
+									<th scope="col">Cập nhật</th>
+
+									<th scope="col" class="novel-admin-actions-column">Thao
+										tác</th>
+
+								</tr>
+
+							</thead>
+
+
+							<tbody>
+
+								<tr th:each="chapter : ${chapters}">
+
+									<td class="novel-admin-order-cell"><span
+										class="novel-admin-order-badge"
+										th:text="${chapter.chapterNumber}"> 1 </span></td>
+
+
+									<td class="novel-admin-volume-cell"><a
+										class="novel-admin-volume-link"
+										th:href="@{/admin/novel/chapters/{id}(id=${chapter.id})}">
+
+											<strong th:text="${chapter.title}"> Chương Một </strong> <span
+											th:text="${chapter.slug}"> quyen-1-chuong-1 </span>
+
+									</a></td>
+
+
+									<td><span class="novel-admin-status-badge"
+										th:classappend="${chapter.status == 'PUBLISHED'}
+												? ' is-published'
+												: (${chapter.status == 'ARCHIVED'}
+													? ' is-archived'
+													: ' is-draft')"
+										th:text="${chapter.status}"> DRAFT </span></td>
+
+
+									<td class="novel-admin-updated-cell"><span
+										th:if="${chapter.updatedAt != null}"
+										th:text="${#temporals.format(
+												chapter.updatedAt,
+												'dd/MM/yyyy HH:mm'
+											)}">
+											19/08/2026 18:00 </span> <span
+										th:unless="${chapter.updatedAt != null}"
+										class="novel-admin-muted"> Chưa cập nhật </span></td>
+
+
+									<td class="novel-admin-actions-cell"><details
+											class="novel-admin-detail-action-menu
+											novel-admin-list-action-menu">
+
+											<summary
+												class="novel-admin-secondary-button
+													novel-admin-detail-action-trigger"
+												data-bs-boundary="window"
+												data-bs-popper-config='{"strategy":"fixed"}'>
+												<span> Thao tác </span> <span
+													class="novel-admin-detail-action-chevron"
+													aria-hidden="true"> ▾ </span>
+											</summary>
+
+											<div
+												class="novel-admin-detail-action-dropdown
+													novel-admin-chapter-action-dropdown">
+
+												<!-- 1. Xem chi tiết -->
+												<a class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/chapters/{id}(id=${chapter.id})}">
+													<span class="novel-admin-detail-action-icon"
+													aria-hidden="true">◉</span> <span> Xem chi tiết </span>
+												</a>
+
+												<!-- 2. Chỉnh sửa -->
+												<a th:if="${chapter.status == 'DRAFT'}"
+													class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/chapters/{id}/edit(id=${chapter.id})}">
+													<span class="novel-admin-detail-action-icon"
+													aria-hidden="true">✎</span> <span> Chỉnh sửa </span>
+												</a>
+
+												<!-- 3. Divider before Move / lifecycle -->
+												<div
+													th:if="${chapter.status == 'DRAFT'
+														or chapter.status == 'PUBLISHED'
+														or chapter.status == 'ARCHIVED'}"
+													class="novel-admin-detail-action-separator"></div>
+
+												<!-- 4. Di chuyển (DRAFT) -->
+												<div th:if="${chapter.status == 'DRAFT'}"
+													class="novel-admin-list-move-block">
+
+													<p class="novel-admin-detail-move-hint">Di chuyển sang
+														Volume khác. Số chương được giữ nguyên; slug sẽ được tạo
+														lại.</p>
+
+													<form method="post"
+														th:action="@{/admin/novel/chapters/{id}/move(id=${chapter.id})}"
+														class="novel-admin-move-form"
+														data-novel-confirm="Chuyển Chapter này sang Volume đã chọn?">
+
+														<div class="novel-admin-form-group">
+
+															<label th:for="'targetVolumeId-' + ${chapter.id}">
+																Volume đích </label> <select
+																th:id="'targetVolumeId-' + ${chapter.id}"
+																name="targetVolumeId" required>
+
+																<option value="" disabled selected>Chọn Volume</option>
+
+																<option th:each="candidate : ${volumes}"
+																	th:if="${candidate.id != volume.id}"
+																	th:value="${candidate.id}"
+																	th:text="${candidate.sortOrder + ' — ' + candidate.title}">
+																	13 — Quyển Mười Ba</option>
+
+															</select>
+
+														</div>
+
+														<button type="submit"
+															class="novel-admin-detail-action-item">
+															<span class="novel-admin-detail-action-icon"
+																aria-hidden="true">⇄</span> <span> Di chuyển </span>
+														</button>
+
+													</form>
+
+												</div>
+
+												<!-- 5. Xuất bản / Hủy xuất bản -->
+												<form th:if="${chapter.status == 'DRAFT'}" method="post"
+													th:action="@{/admin/novel/chapters/{id}/publish(id=${chapter.id})}"
+													data-novel-confirm="Xuất bản Chapter này?">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">↑</span> <span> Xuất bản </span>
+													</button>
+
+												</form>
+
+												<form th:if="${chapter.status == 'PUBLISHED'}" method="post"
+													th:action="@{/admin/novel/chapters/{id}/unpublish(id=${chapter.id})}"
+													data-novel-confirm="Hủy xuất bản Chapter này về bản nháp?">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">↓</span> <span> Hủy xuất bản </span>
+													</button>
+
+												</form>
+
+												<!-- 6. Lưu trữ / Khôi phục -->
+												<form
+													th:if="${chapter.status == 'DRAFT' or chapter.status == 'PUBLISHED'}"
+													method="post"
+													th:action="@{/admin/novel/chapters/{id}/archive(id=${chapter.id})}"
+													data-novel-confirm="Lưu trữ Chapter này?">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-warning">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">□</span> <span> Lưu trữ </span>
+													</button>
+
+												</form>
+
+												<form th:if="${chapter.status == 'ARCHIVED'}" method="post"
+													th:action="@{/admin/novel/chapters/{id}/restore(id=${chapter.id})}"
+													data-novel-confirm="Khôi phục Chapter này về bản nháp?">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">↺</span> <span> Khôi phục </span>
+													</button>
+
+												</form>
+
+												<!-- 7–8. Divider + Xóa -->
+												<th:block th:if="${chapter.status == 'DRAFT'}">
+
+													<div class="novel-admin-detail-action-separator"></div>
+
+													<form method="post"
+														th:action="@{/admin/novel/chapters/{id}/delete(id=${chapter.id})}"
+														data-novel-confirm="Bạn có chắc muốn xóa Chapter này? Chapter sẽ bị xóa vĩnh viễn.">
+
+														<button type="submit"
+															class="novel-admin-detail-action-item is-danger">
+															<span class="novel-admin-detail-action-icon"
+																aria-hidden="true">×</span> <span> Xóa </span>
+														</button>
+
+													</form>
+
+												</th:block>
+
+											</div>
+
+										</details></td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+					
+					<nav
+    th:if="${pageResult.totalPages > 1}"
+    class="novel-admin-pagination"
+    aria-label="Phân trang danh sách Chapter">
+
+    <div class="novel-admin-pagination-side">
+
+        <a
+            th:if="${pageResult.hasPrevious}"
+            class="novel-admin-secondary-button"
+            th:href="@{/admin/novel/volumes/{id}/chapters(
+                id=${volume.id},
+                page=${pageResult.page - 1},
+                keyword=${keyword},
+                status=${selectedStatus}
+            )}">
+            ← Trang trước
+        </a>
+
+        <span
+            th:unless="${pageResult.hasPrevious}"
+            class="novel-admin-secondary-button is-disabled"
+            aria-disabled="true">
+            ← Trang trước
+        </span>
+
+    </div>
+
+
+    <div class="novel-admin-pagination-info">
+
+        Trang
+        <strong th:text="${pageResult.page}">
+            1
+        </strong>
+
+        /
+
+        <strong th:text="${pageResult.totalPages}">
+            1
+        </strong>
+
+    </div>
+
+
+    <div class="novel-admin-pagination-side novel-admin-pagination-side--end">
+
+        <a
+            th:if="${pageResult.hasNext}"
+            class="novel-admin-secondary-button"
+            th:href="@{/admin/novel/volumes/{id}/chapters(
+                id=${volume.id},
+                page=${pageResult.page + 1},
+                keyword=${keyword},
+                status=${selectedStatus}
+            )}">
+            Trang sau →
+        </a>
+
+        <span
+            th:unless="${pageResult.hasNext}"
+            class="novel-admin-secondary-button is-disabled"
+            aria-disabled="true">
+            Trang sau →
+        </span>
+
+    </div>
+
+</nav>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+	<script th:src="@{/js/novel/admin-list-menus.js}"></script>
+
+</body>
+
+</html>

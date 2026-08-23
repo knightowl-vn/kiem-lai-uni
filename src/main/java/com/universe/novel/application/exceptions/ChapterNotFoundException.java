@@ -19,4 +19,14 @@ public class ChapterNotFoundException
                         + chapterId
         );
     }
+
+    public ChapterNotFoundException(
+            String slug
+    ) {
+        super(
+                "NOVEL_CHAPTER_NOT_FOUND",
+                "Không tìm thấy chương: "
+                        + slug
+        );
+    }
 }

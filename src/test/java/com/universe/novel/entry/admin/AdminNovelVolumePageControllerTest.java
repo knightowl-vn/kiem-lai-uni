@@ -73,6 +73,8 @@ class AdminNovelVolumePageControllerTest {
 
         String viewName =
                 controller.listPage(
+                        null,
+                        null,
                         model,
                         response
                 );
@@ -99,13 +101,16 @@ class AdminNovelVolumePageControllerTest {
                 "Quản lý tiểu thuyết"
         );
 
-        assertThat(
+		assertThat(
                 model.getAttribute(
                         "activeMenu"
                 )
         ).isEqualTo(
                 "novel"
         );
+
+        assertThat(model.getAttribute("keyword")).isEqualTo("");
+        assertThat(model.getAttribute("selectedStatus")).isEqualTo("");
 
         verify(
                 getVolumeListUseCase
@@ -134,6 +139,30 @@ class AdminNovelVolumePageControllerTest {
         ).isEqualTo(
                 0L
         );
+    }
+
+    @Test
+    @DisplayName("Lọc danh sách Volume theo keyword và status")
+    void shouldFilterVolumeListByKeywordAndStatus() {
+        Instant now = Instant.parse("2026-08-19T10:00:00Z");
+        UUID adminId = UUID.randomUUID();
+
+        VolumeDTO draft = new VolumeDTO(UUID.randomUUID(), "Quyển Một", "quyen-1", "Mô tả.", 1, "DRAFT", adminId,
+                adminId, null, null, now, now, null, null, 1L);
+        VolumeDTO published = new VolumeDTO(UUID.randomUUID(), "Quyển Hai", "quyen-2", "Mô tả.", 2, "PUBLISHED",
+                adminId, adminId, adminId, null, now, now, now, null, 1L);
+
+        when(getVolumeListUseCase.execute()).thenReturn(List.of(draft, published));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        String viewName = controller.listPage("quyen-1", "DRAFT", model, response);
+
+        assertThat(viewName).isEqualTo("admin/novel/volumes");
+        assertThat(model.getAttribute("volumes")).isEqualTo(List.of(draft));
+        assertThat(model.getAttribute("keyword")).isEqualTo("quyen-1");
+        assertThat(model.getAttribute("selectedStatus")).isEqualTo("DRAFT");
     }
     
     @Test

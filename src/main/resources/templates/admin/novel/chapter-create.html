@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Tạo Chapter | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+
+	<div class="admin-layout">
+
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+					:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+						:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+
+				<div class="novel-admin-create-heading">
+
+					<div>
+
+						<a
+							th:href="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+							class="novel-admin-back-link"> ← Quay lại danh sách chương </a> <span
+							class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+						<h2>Tạo Chapter mới</h2>
+
+						<p>
+							Volume: <strong th:text="${volume.title}">Quyển Một</strong>
+						</p>
+
+					</div>
+
+				</div>
+
+
+				<section class="novel-admin-form-panel">
+
+
+					<form method="post"
+						th:action="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+						th:object="${form}" class="novel-admin-form"
+						th:attr="data-volume-sort-order=${volume.sortOrder}">
+
+
+						<div th:if="${errorMessage != null}"
+							class="novel-admin-form-error" th:text="${errorMessage}">
+
+							Có lỗi xảy ra.</div>
+
+
+						<div class="novel-admin-create-note">
+
+							<strong>Trạng thái ban đầu</strong>
+
+							<p>Chapter sẽ được lưu ở trạng thái DRAFT. Số chương được
+								đánh số trên toàn bộ tiểu thuyết. Slug được hệ thống tự tạo và
+								không thể chỉnh sửa.</p>
+
+						</div>
+
+
+						<div class="novel-admin-form-grid">
+
+
+							<div class="novel-admin-form-group">
+
+								<label for="chapterNumber"> Số chương <span
+									class="novel-admin-required"> * </span>
+
+								</label> <input id="chapterNumber" type="number"
+									th:field="*{chapterNumber}" min="1" step="1" placeholder="1266"
+									required> <small> Số chương được đánh số trên
+									toàn bộ tiểu thuyết. </small>
+
+							</div>
+
+
+							<div class="novel-admin-form-group">
+
+								<label for="chapterSlugPreview"> Slug hệ thống </label> <input
+									id="chapterSlugPreview" type="text" value="quyen-" readonly
+									aria-describedby="chapterSlugHelp"> <small
+									id="chapterSlugHelp"> Slug có dạng
+									quyen-{thứ tự Volume}-chuong-{số chương} và không thể chỉnh
+									sửa. </small>
+
+							</div>
+
+						</div>
+
+
+						<div class="novel-admin-form-group">
+
+							<label for="chapterTitle"> Tiêu đề <span
+								class="novel-admin-required"> * </span>
+
+							</label> <input id="chapterTitle" type="text" th:field="*{title}"
+								maxlength="250" autocomplete="off"
+								placeholder="Ví dụ: Thiếu niên" required> <small>
+								Tên hiển thị của chương. </small>
+
+						</div>
+
+
+						<div class="novel-admin-form-group">
+
+							<label for="chapterSummary"> Tóm tắt </label>
+
+							<textarea id="chapterSummary" th:field="*{summary}" rows="4"
+								maxlength="1000" placeholder="Tóm tắt ngắn về chương...">
+							</textarea>
+
+							<small> Có thể để trống. Tối đa 1000 ký tự. </small>
+
+						</div>
+
+
+						<div class="novel-admin-form-group">
+
+							<label for="novelContent"> Nội dung </label>
+
+							<div id="novelCsrf" th:data-token="${_csrf.token}"
+								th:data-header="${_csrf.headerName}" hidden></div>
+
+							<div
+								th:replace="~{admin/novel/fragments/markdown-editor :: editor('Nhập nội dung chương bằng Markdown...')}">
+							</div>
+
+							<small> Có thể để trống khi còn là bản nháp. Hỗ trợ Markdown. </small>
+
+						</div>
+
+
+						<div class="novel-admin-form-actions">
+
+							<a
+								th:href="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}"
+								class="novel-admin-secondary-button"> Hủy </a>
+
+
+							<button type="submit" class="novel-admin-primary-button">
+
+								Tạo Chapter</button>
+
+						</div>
+
+					</form>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+	<script th:src="@{/js/novel/admin-markdown-editor.js}"></script>
+
+	<script>
+		document.addEventListener("DOMContentLoaded", function() {
+
+			const form = document.querySelector(".novel-admin-form");
+
+			const chapterNumberInput = document.getElementById("chapterNumber");
+
+			const slugPreview = document.getElementById("chapterSlugPreview");
+
+			if (!form || !chapterNumberInput || !slugPreview) {
+				return;
+			}
+
+			const volumeSortOrder = form.dataset.volumeSortOrder;
+
+			function updateSlugPreview() {
+
+				const value = chapterNumberInput.value.trim();
+
+				if (!/^[0-9]+$/.test(value) || !volumeSortOrder) {
+					slugPreview.value = "quyen-" + (volumeSortOrder || "") + "-chuong-";
+					return;
+				}
+
+				const parsed = Number.parseInt(value, 10);
+
+				if (Number.isNaN(parsed) || parsed < 1) {
+					slugPreview.value = "quyen-" + volumeSortOrder + "-chuong-";
+					return;
+				}
+
+				slugPreview.value = "quyen-" + volumeSortOrder + "-chuong-" + parsed;
+			}
+
+			chapterNumberInput.addEventListener("input", updateSlugPreview);
+
+			updateSlugPreview();
+		});
+	</script>
+
+</body>
+
+</html>

@@ -185,8 +185,7 @@ public class AdminNovelVolumeCommandController {
 	        );
 	    }
 
-	    return "redirect:/admin/novel/volumes/"
-	            + volumeId;
+	    return "redirect:/admin/novel/volumes";
 	}
 
 	/*
@@ -236,8 +235,7 @@ public class AdminNovelVolumeCommandController {
 	        );
 	    }
 
-	    return "redirect:/admin/novel/volumes/"
-	            + volumeId;
+	    return "redirect:/admin/novel/volumes";
 	}
 
 	/*
@@ -287,8 +285,7 @@ public class AdminNovelVolumeCommandController {
 	        );
 	    }
 
-	    return "redirect:/admin/novel/volumes/"
-	            + volumeId;
+	    return "redirect:/admin/novel/volumes";
 	}
 
 	/*

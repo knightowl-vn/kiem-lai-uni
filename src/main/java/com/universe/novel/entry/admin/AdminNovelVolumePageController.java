@@ -13,6 +13,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
@@ -43,7 +44,8 @@ public class AdminNovelVolumePageController {
 	 * GET /admin/novel/volumes
 	 */
 	@GetMapping({ "", "/" })
-	public String listPage(Model model, HttpServletResponse response) {
+	public String listPage(@RequestParam(required = false) String keyword,
+			@RequestParam(required = false) String status, Model model, HttpServletResponse response) {
 
 		/*
 		 * Volume có thể thay đổi trạng thái trong khu vực quản trị.
@@ -52,13 +54,20 @@ public class AdminNovelVolumePageController {
 		 */
 		disableCaching(response);
 
-		List<VolumeDTO> volumes = getVolumeListUseCase.execute();
+		String normalizedKeyword = NovelAdminListFilters.normalizeKeyword(keyword);
+		String selectedStatus = NovelAdminListFilters.normalizeStatus(status);
+
+		List<VolumeDTO> volumes = getVolumeListUseCase.execute().stream()
+				.filter(volume -> NovelAdminListFilters.matches(normalizedKeyword, selectedStatus, volume.title(),
+						volume.slug(), volume.status()))
+				.toList();
 
 		model.addAttribute("volumes", volumes);
-
+		model.addAttribute("keyword", normalizedKeyword);
+		model.addAttribute("selectedStatus", selectedStatus);
 		model.addAttribute("pageTitle", PAGE_TITLE);
-
 		model.addAttribute("activeMenu", ACTIVE_MENU);
+		model.addAttribute("activeSubMenu", "volumes");
 
 		return "admin/novel/volumes";
 	}

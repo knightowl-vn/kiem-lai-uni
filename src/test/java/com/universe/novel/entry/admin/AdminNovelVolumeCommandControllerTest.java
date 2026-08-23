@@ -381,7 +381,7 @@ class AdminNovelVolumeCommandControllerTest {
 
     @Test
     @DisplayName(
-            "Publish thành công rồi redirect về chi tiết"
+            "Publish thành công rồi redirect về danh sách"
     )
     void shouldPublishVolume() {
         stubCurrentActor();
@@ -413,9 +413,7 @@ class AdminNovelVolumeCommandControllerTest {
         assertThat(
                 viewName
         ).isEqualTo(
-                "redirect:/admin/novel/volumes/"
-                        + VOLUME_ID
-        );
+                "redirect:/admin/novel/volumes");
 
         assertThat(
                 redirectAttributes.getFlashAttributes()
@@ -506,9 +504,7 @@ class AdminNovelVolumeCommandControllerTest {
         assertThat(
                 viewName
         ).isEqualTo(
-                "redirect:/admin/novel/volumes/"
-                        + VOLUME_ID
-        );
+                "redirect:/admin/novel/volumes");
 
         assertThat(
                 redirectAttributes.getFlashAttributes()
@@ -639,9 +635,7 @@ class AdminNovelVolumeCommandControllerTest {
         assertThat(
                 viewName
         ).isEqualTo(
-                "redirect:/admin/novel/volumes/"
-                        + VOLUME_ID
-        );
+                "redirect:/admin/novel/volumes");
 
         assertThat(
                 redirectAttributes.getFlashAttributes()
