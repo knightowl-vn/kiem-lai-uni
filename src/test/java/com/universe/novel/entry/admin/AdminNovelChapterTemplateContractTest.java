@@ -21,6 +21,8 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(detail).contains("Content");
 		assertThat(detail).contains("Tóm tắt Chapter");
 		assertThat(detail).contains("Nội dung Chapter");
+		assertThat(detail).contains("Lịch sử chỉnh sửa");
+		assertThat(detail).contains("th:href=\"@{/admin/novel/chapters/{id}/revisions(id=${chapter.id})}\"");
 
 		assertThat(detail).doesNotContain("novel-admin-detail-actions");
 		assertThat(detail).doesNotContain("Chỉnh sửa");
@@ -31,6 +33,55 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(detail).doesNotContain("/chapters/{id}/edit");
 		assertThat(detail).doesNotContain("Reorder");
 		assertThat(detail).doesNotContain("targetSortOrder");
+	}
+
+	@Test
+	@DisplayName("List Chapter Revision có bảng lịch sử, phân trang, và link xem chi tiết")
+	void chapterRevisionListHasTablePaginationAndDetailLink() throws Exception {
+		String list = read("src/main/resources/templates/admin/novel/chapter-revisions.html");
+
+		assertThat(list).contains("Lịch sử chỉnh sửa");
+		assertThat(list).contains("Quay lại chi tiết chương");
+		assertThat(list).contains("th:href=\"@{/admin/novel/chapters/{id}(");
+		assertThat(list).contains("Phiên bản");
+		assertThat(list).contains("Thay đổi");
+		assertThat(list).contains("Tiêu đề");
+		assertThat(list).contains("Trạng thái");
+		assertThat(list).contains("Người sửa");
+		assertThat(list).contains("Ghi chú");
+		assertThat(list).contains("Thời gian");
+		assertThat(list).contains("Thao tác");
+		assertThat(list).contains("Xem chi tiết");
+		assertThat(list).contains("th:href=\"@{/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}(");
+		assertThat(list).contains("novel-admin-pagination");
+		assertThat(list).contains("Trang trước");
+		assertThat(list).contains("Trang sau");
+	}
+
+	@Test
+	@DisplayName("Detail Chapter Revision hiển thị snapshot chỉ đọc và không có form khôi phục")
+	void chapterRevisionDetailIsReadOnlyWithoutRestoreForm() throws Exception {
+		String detail = read("src/main/resources/templates/admin/novel/chapter-revision-detail.html");
+
+		assertThat(detail).contains("Quay lại lịch sử");
+		assertThat(detail).contains("Xem chi tiết chương hiện tại");
+		assertThat(detail).contains("Phiên bản");
+		assertThat(detail).contains("Số chương");
+		assertThat(detail).contains("Phiên bản nội dung");
+		assertThat(detail).contains("Loại thay đổi");
+		assertThat(detail).contains("Trạng thái snapshot");
+		assertThat(detail).contains("Slug snapshot");
+		assertThat(detail).contains("Người thực hiện");
+		assertThat(detail).contains("Thời gian ghi");
+		assertThat(detail).contains("Ghi chú chỉnh sửa");
+		assertThat(detail).contains("Tóm tắt tại phiên bản này");
+		assertThat(detail).contains("Nội dung tại phiên bản này");
+		assertThat(detail).contains("th:utext=\"${revision.contentHtml}\"");
+
+		// Task 2C.2 must NOT include any restore POST form or action
+		assertThat(detail).doesNotContain("<form");
+		assertThat(detail).doesNotContain("restore");
+		assertThat(detail).doesNotContain("Khôi phục phiên bản");
 	}
 
 	@Test

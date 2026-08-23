@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Lịch sử chỉnh sửa | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+            admin/fragments/sidebar
+            :: sidebar(${activeMenu})
+        }">
+		</div>
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                admin/fragments/header
+                :: header(${pageTitle})
+            }">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div class="novel-admin-create-heading">
+
+					<div>
+
+						<a
+							th:href="@{/admin/novel/chapters/{id}(
+                            id=${chapter.id}
+                        )}"
+							class="novel-admin-back-link"> ← Quay lại chi tiết chương </a> <span
+							class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+
+						<h2>Lịch sử chỉnh sửa</h2>
+
+
+						<p>
+							Lịch sử thay đổi của chương <strong th:text="${chapter.title}">
+								Chương Một </strong> (Tập: <strong th:text="${volume.title}">Quyển Một</strong>)
+						</p>
+
+					</div>
+
+				</div>
+
+
+				<!-- ========================================== -->
+				<!-- EMPTY                                      -->
+				<!-- ========================================== -->
+
+				<section th:if="${pageResult.items.isEmpty()}"
+					class="novel-admin-form-panel">
+
+					<p>Chương chưa có lịch sử chỉnh sửa.</p>
+
+				</section>
+
+
+				<!-- ========================================== -->
+				<!-- REVISION TABLE                             -->
+				<!-- ========================================== -->
+
+				<section th:unless="${pageResult.items.isEmpty()}"
+					class="novel-admin-table-panel novel-admin-revision-list-panel">
+
+					<div class="novel-admin-table-wrapper">
+
+						<table
+							class="novel-admin-table novel-admin-revision-list-table">
+
+							<thead>
+
+								<tr>
+
+									<th>Phiên bản</th>
+
+									<th>Thay đổi</th>
+
+									<th>Tiêu đề</th>
+
+									<th>Trạng thái</th>
+
+									<th>Người sửa</th>
+
+									<th>Ghi chú</th>
+
+									<th>Thời gian</th>
+
+									<th>Thao tác</th>
+
+								</tr>
+
+							</thead>
+
+
+							<tbody>
+
+								<tr th:each="revision : ${pageResult.items}">
+
+									<!-- REVISION NUMBER -->
+
+									<td class="novel-admin-revision-list-number"><strong
+										th:text="${'#' + revision.revisionNumber}"> #1 </strong></td>
+
+
+									<!-- CHANGE TYPE -->
+
+									<td class="novel-admin-revision-list-change"><span
+										class="novel-admin-revision-list-change-type"
+										th:text="${#strings.replace(
+        revision.changeType,
+        '_',
+        ' '
+    )}">
+											CREATE DRAFT </span></td>
+
+
+									<!-- TITLE -->
+
+									<td th:text="${revision.title}">Chương Một</td>
+
+
+									<!-- STATUS -->
+
+									<td class="novel-admin-revision-list-status"><span
+										class="novel-admin-status-badge"
+										th:classappend="${revision.status == 'PUBLISHED'}
+                                            ? ' is-published'
+                                            : (${revision.status == 'ARCHIVED'}
+                                                ? ' is-archived'
+                                                : ' is-draft')"
+										th:text="${revision.status}"> DRAFT </span></td>
+
+
+									<!-- EDITED BY -->
+
+									<td><small th:text="${revision.editedBy != null ? revision.editedBy : '—'}">—</small></td>
+
+
+									<!-- EDIT SUMMARY -->
+
+									<td class="novel-admin-revision-list-summary"><span
+										th:if="${revision.editSummary != null
+                                            and !#strings.isEmpty(
+                                                revision.editSummary
+                                            )}"
+										th:text="${revision.editSummary}"> Sửa nội dung </span> <span
+										th:unless="${revision.editSummary != null
+                                            and !#strings.isEmpty(
+                                                revision.editSummary
+                                            )}"
+										class="novel-admin-muted"> Không có ghi chú </span></td>
+
+
+									<!-- CREATED AT -->
+
+									<td class="novel-admin-revision-list-time"><span
+										th:if="${revision.createdAt != null}"
+										th:text="${#temporals.format(
+                                            revision.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+											10/08/2026 16:00 </span></td>
+
+
+									<!-- ACTION -->
+
+									<td class="novel-admin-revision-list-action"><a
+										th:href="@{/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}(
+                                            chapterId=${chapter.id},
+                                            revisionNumber=${revision.revisionNumber}
+                                        )}"
+										class="novel-admin-secondary-button novel-admin-revision-view-button">
+											Xem chi tiết </a></td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+
+				</section>
+
+
+				<!-- ========================================== -->
+				<!-- PAGINATION                                 -->
+				<!-- ========================================== -->
+
+				<nav th:if="${pageResult.totalPages > 1}"
+					class="novel-admin-pagination">
+
+					<a th:if="${pageResult.hasPrevious}"
+						th:href="@{/admin/novel/chapters/{id}/revisions(
+                        id=${chapter.id},
+                        page=${pageResult.page - 1},
+                        size=${pageResult.size}
+                    )}"
+						class="novel-admin-page-button"> ← Trang trước </a> <span>
+
+						Trang <strong th:text="${pageResult.page}"> 1 </strong> / <strong
+						th:text="${pageResult.totalPages}"> 1 </strong> (Tổng số: <strong
+						th:text="${pageResult.totalItems}"> 1 </strong> phiên bản)
+
+					</span> <a th:if="${pageResult.hasNext}"
+						th:href="@{/admin/novel/chapters/{id}/revisions(
+                        id=${chapter.id},
+                        page=${pageResult.page + 1},
+                        size=${pageResult.size}
+                    )}"
+						class="novel-admin-page-button"> Trang sau → </a>
+
+				</nav>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+
+</html>

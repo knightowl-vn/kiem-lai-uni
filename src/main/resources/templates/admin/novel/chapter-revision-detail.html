@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Chi tiết phiên bản | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+	<div class="admin-layout">
+
+		<!-- SIDEBAR -->
+		<div
+			th:replace="~{
+            admin/fragments/sidebar
+            :: sidebar(${activeMenu})
+        }">
+		</div>
+
+
+		<!-- MAIN -->
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+                admin/fragments/header
+                :: header(${pageTitle})
+            }">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<!-- PAGE HEADING -->
+				<div class="novel-admin-create-heading">
+
+					<div>
+
+						<div class="novel-admin-nav-links" style="margin-bottom: 0.5rem;">
+							<a
+								th:href="@{/admin/novel/chapters/{id}/revisions(
+                                id=${chapter.id}
+                            )}"
+								class="novel-admin-back-link"> ← Quay lại lịch sử </a>
+							<span style="margin: 0 0.5rem; color: #888;">|</span>
+							<a
+								th:href="@{/admin/novel/chapters/{id}(
+                                id=${chapter.id}
+                            )}"
+								class="novel-admin-back-link"> Xem chi tiết chương hiện tại → </a>
+						</div>
+
+						<span class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+						<h2 th:text="${'Phiên bản #' + revision.revisionNumber}">
+							Phiên bản #1</h2>
+
+						<p>
+							Tiêu đề snapshot: <strong th:text="${revision.title}">Chương Một</strong> (Tập: <strong th:text="${volume.title}">Quyển Một</strong>)
+						</p>
+
+					</div>
+
+				</div>
+
+
+				<!-- REVISION DETAIL PANEL -->
+				<section class="novel-admin-detail-panel novel-admin-revision-panel">
+
+					<!-- METADATA -->
+					<div class="novel-admin-detail-metadata">
+
+						<!-- REVISION -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Phiên bản </span>
+							<strong class="novel-admin-detail-meta-value"
+								th:text="${'#' + revision.revisionNumber}"> #1 </strong>
+						</div>
+
+						<!-- CHAPTER NUMBER -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Số chương </span>
+							<strong class="novel-admin-detail-meta-value"
+								th:text="${revision.chapterNumber}"> 1 </strong>
+						</div>
+
+						<!-- CONTENT VERSION -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Phiên bản nội dung </span>
+							<span class="novel-admin-detail-meta-value"
+								th:text="${'v' + revision.contentVersion}"> v1 </span>
+						</div>
+
+						<!-- CHANGE TYPE -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Loại thay đổi </span>
+							<span class="novel-admin-revision-change-badge"
+								th:text="${#strings.replace(
+                    revision.changeType,
+                    '_',
+                    ' '
+                )}">
+								CREATE DRAFT </span>
+						</div>
+
+						<!-- STATUS -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Trạng thái snapshot </span>
+							<span class="novel-admin-status-badge"
+								th:classappend="${revision.status == 'PUBLISHED'}
+                    ? ' is-published'
+                    : (${revision.status == 'ARCHIVED'}
+                        ? ' is-archived'
+                        : ' is-draft')"
+								th:text="${revision.status}"> DRAFT </span>
+						</div>
+
+						<!-- SLUG -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Slug snapshot </span>
+							<code class="novel-admin-detail-slug" th:text="${revision.slug}">
+								quyen-1-chuong-1 </code>
+						</div>
+
+						<!-- EDITED BY -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Người thực hiện </span>
+							<strong class="novel-admin-detail-meta-value"
+								th:text="${revision.editedBy != null ? revision.editedBy : '—'}">
+								— </strong>
+						</div>
+
+						<!-- CREATED AT -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Thời gian ghi </span>
+							<strong class="novel-admin-detail-meta-value"
+								th:if="${revision.createdAt != null}"
+								th:text="${#temporals.format(
+                    revision.createdAt,
+                    'dd/MM/yyyy HH:mm'
+                )}">
+								10/08/2026 17:30 </strong>
+						</div>
+
+						<!-- EDIT SUMMARY -->
+						<div class="novel-admin-detail-meta-item">
+							<span class="novel-admin-detail-meta-label"> Ghi chú chỉnh sửa </span>
+							<strong class="novel-admin-detail-meta-value"
+								th:classappend="${#strings.isEmpty(revision.editSummary)}
+                    ? ' is-muted'"
+								th:text="${#strings.isEmpty(revision.editSummary)
+                    ? 'Không có ghi chú.'
+                    : revision.editSummary}">
+								Không có ghi chú. </strong>
+						</div>
+
+					</div>
+
+
+					<!-- SUMMARY -->
+					<section class="novel-admin-detail-section">
+
+						<div class="novel-admin-detail-section-heading">
+							<span class="novel-admin-detail-section-eyebrow"> TÓM TẮT </span>
+							<h3>Tóm tắt tại phiên bản này</h3>
+						</div>
+
+						<p class="novel-admin-detail-description"
+							th:classappend="${#strings.isEmpty(revision.summary)}
+                ? ' is-empty'"
+							th:text="${#strings.isEmpty(revision.summary)
+                ? 'Phiên bản này không có phần tóm tắt.'
+                : revision.summary}">
+							Không có tóm tắt.</p>
+
+					</section>
+
+
+					<!-- CONTENT -->
+					<section class="novel-admin-detail-section">
+
+						<div class="novel-admin-detail-section-heading">
+							<span class="novel-admin-detail-section-eyebrow"> NỘI DUNG </span>
+							<h3>Nội dung tại phiên bản này</h3>
+						</div>
+
+						<!-- RENDERED CONTENT -->
+						<div th:if="${!#strings.isEmpty(revision.content)}"
+							class="novel-admin-detail-description novel-admin-chapter-rendered-content"
+							th:utext="${revision.contentHtml}"></div>
+
+						<!-- EMPTY CONTENT -->
+						<div th:if="${#strings.isEmpty(revision.content)}"
+							class="novel-admin-detail-empty-content">Phiên bản này không có nội dung.</div>
+
+						<!-- RAW MARKDOWN -->
+						<details class="novel-admin-revision-source" style="margin-top: 1.5rem;"
+							th:if="${!#strings.isEmpty(revision.content)}">
+							<summary style="cursor: pointer; color: #666; font-size: 0.9rem;"> Xem Markdown gốc </summary>
+							<pre class="novel-admin-revision-source-content"
+								style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem;"
+								th:text="${revision.content}"></pre>
+						</details>
+
+					</section>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+
+</html>
