@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Chương 1: Khởi Đầu | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='novel')}"></div>
+
+<main class="novel-chapter-reading">
+
+    <!-- =====================================================
+         UTILITY ROW: BREADCRUMB & READING SETTINGS TRIGGER
+         ===================================================== -->
+    <div class="novel-chapter-utility-row">
+
+        <nav class="novel-chapter-breadcrumb"
+             aria-label="Breadcrumb">
+
+            <a th:href="@{/novel}">
+                Kiếm Lai
+            </a>
+
+            <span class="novel-breadcrumb-separator"
+                  aria-hidden="true">
+                /
+            </span>
+
+            <span th:text="${'Quyển ' + chapter.volume.sortOrder + ' - ' + chapter.volume.title}">
+                Quyển 1 - Lung Trung Tước
+            </span>
+
+            <span class="novel-breadcrumb-separator"
+                  aria-hidden="true">
+                /
+            </span>
+
+            <span th:text="${'Chương ' + chapter.chapterNumber}"
+                  aria-current="page">
+                Chương 1
+            </span>
+
+        </nav>
+
+        <div class="novel-reading-settings-wrapper">
+
+            <button type="button"
+                    class="novel-reading-settings-trigger"
+                    id="novelReadingSettingsTrigger"
+                    data-reading-settings-trigger
+                    aria-expanded="false"
+                    aria-haspopup="dialog"
+                    aria-controls="novelReadingSettingsPopover"
+                    aria-label="Cài đặt đọc">
+                <svg class="novel-reading-settings-gear-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="20"
+                     height="20"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
+
+            <div class="novel-reading-settings-popover"
+                 id="novelReadingSettingsPopover"
+                 data-reading-settings-popover
+                 role="dialog"
+                 aria-label="Cài đặt đọc"
+                 hidden>
+
+                <div class="novel-reading-popover-header">
+                    <span class="novel-reading-popover-title">Cài đặt đọc</span>
+                </div>
+
+                <div class="novel-reading-popover-section">
+                    <span id="novelReadingSizeLabel"
+                          class="novel-reading-popover-label">Cỡ chữ</span>
+                    <div class="novel-font-controls"
+                         role="group"
+                         aria-labelledby="novelReadingSizeLabel">
+                        <button type="button"
+                                class="novel-font-button"
+                                data-reading-font-action="decrease"
+                                aria-label="Giảm cỡ chữ">A−</button>
+                        <button type="button"
+                                class="novel-font-button"
+                                data-reading-font-action="reset"
+                                aria-label="Khôi phục cỡ chữ mặc định">A</button>
+                        <button type="button"
+                                class="novel-font-button"
+                                data-reading-font-action="increase"
+                                aria-label="Tăng cỡ chữ">A+</button>
+                    </div>
+                </div>
+
+                <div class="novel-reading-popover-section">
+                    <span id="novelReadingFamilyLabel"
+                          class="novel-reading-popover-label">Kiểu chữ</span>
+                    <div class="novel-font-controls"
+                         role="group"
+                         aria-labelledby="novelReadingFamilyLabel">
+                        <button type="button"
+                                class="novel-font-button novel-font-button--family"
+                                data-reading-font-family="serif"
+                                aria-pressed="true"
+                                aria-label="Phông chữ có chân (Serif)">Serif</button>
+                        <button type="button"
+                                class="novel-font-button novel-font-button--family"
+                                data-reading-font-family="sans"
+                                aria-pressed="false"
+                                aria-label="Phông chữ không chân (Sans)">Sans</button>
+                    </div>
+                </div>
+
+                <div class="novel-reading-popover-section">
+                    <span id="novelReadingThemeLabel"
+                          class="novel-reading-popover-label">Giao diện</span>
+                    <div class="novel-font-controls"
+                         role="group"
+                         aria-labelledby="novelReadingThemeLabel">
+                        <button type="button"
+                                class="novel-font-button novel-font-button--theme"
+                                data-theme-set="light"
+                                aria-pressed="true"
+                                aria-label="Giao diện Sáng">Sáng</button>
+                        <button type="button"
+                                class="novel-font-button novel-font-button--theme"
+                                data-theme-set="dark"
+                                aria-pressed="false"
+                                aria-label="Giao diện Tối">Tối</button>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         CHAPTER HEADER
+         ===================================================== -->
+    <header class="novel-chapter-header">
+
+        <span class="novel-chapter-volume-tag"
+              th:text="${'Quyển ' + chapter.volume.sortOrder + ': ' + chapter.volume.title}">
+            Quyển 1: Lung Trung Tước
+        </span>
+
+        <h1 class="novel-chapter-title">
+            <span class="novel-chapter-number-prefix"
+                  th:text="${'Chương ' + chapter.chapterNumber + ': '}">
+                Chương 1:
+            </span>
+            <span th:text="${chapter.title}">
+                Khởi Đầu
+            </span>
+        </h1>
+
+    </header>
+
+
+    <!-- =====================================================
+         TOP NAVIGATION
+         ===================================================== -->
+    <nav class="novel-chapter-nav novel-chapter-nav--top"
+         aria-label="Điều hướng chương đầu bài">
+
+        <a th:if="${chapter.previousChapter != null}"
+           th:href="@{/novel/chapters/{slug}(slug=${chapter.previousChapter.slug})}"
+           class="novel-chapter-nav-btn novel-chapter-nav-btn--prev"
+           rel="prev">
+            « Chương trước
+        </a>
+
+        <span th:unless="${chapter.previousChapter != null}"
+              class="novel-chapter-nav-btn novel-chapter-nav-btn--disabled">
+            « Chương trước
+        </span>
+
+
+        <button type="button"
+                class="novel-chapter-nav-btn novel-chapter-nav-btn--toc js-novel-toc-trigger"
+                aria-expanded="false"
+                aria-controls="novelTocDrawer"
+                aria-label="Mở mục lục chương">
+            Mục lục
+        </button>
+
+
+        <a th:if="${chapter.nextChapter != null}"
+           th:href="@{/novel/chapters/{slug}(slug=${chapter.nextChapter.slug})}"
+           class="novel-chapter-nav-btn novel-chapter-nav-btn--next"
+           rel="next">
+            Chương sau »
+        </a>
+
+        <span th:unless="${chapter.nextChapter != null}"
+              class="novel-chapter-nav-btn novel-chapter-nav-btn--disabled">
+            Chương sau »
+        </span>
+
+    </nav>
+
+
+    <!-- =====================================================
+         CHAPTER BODY (RENDERED MARKDOWN HTML)
+         ===================================================== -->
+    <article class="novel-reader-chapter-body"
+             th:utext="${chapter.contentHtml}">
+        <p>Nội dung chương...</p>
+    </article>
+
+
+    <!-- =====================================================
+         BOTTOM NAVIGATION
+         ===================================================== -->
+    <nav class="novel-chapter-nav novel-chapter-nav--bottom"
+         aria-label="Điều hướng chương cuối bài">
+
+        <a th:if="${chapter.previousChapter != null}"
+           th:href="@{/novel/chapters/{slug}(slug=${chapter.previousChapter.slug})}"
+           class="novel-chapter-nav-btn novel-chapter-nav-btn--prev"
+           rel="prev">
+            « Chương trước
+        </a>
+
+        <span th:unless="${chapter.previousChapter != null}"
+              class="novel-chapter-nav-btn novel-chapter-nav-btn--disabled">
+            « Chương trước
+        </span>
+
+
+        <button type="button"
+                class="novel-chapter-nav-btn novel-chapter-nav-btn--toc js-novel-toc-trigger"
+                aria-expanded="false"
+                aria-controls="novelTocDrawer"
+                aria-label="Mở mục lục chương">
+            Mục lục
+        </button>
+
+
+        <a th:if="${chapter.nextChapter != null}"
+           th:href="@{/novel/chapters/{slug}(slug=${chapter.nextChapter.slug})}"
+           class="novel-chapter-nav-btn novel-chapter-nav-btn--next"
+           rel="next">
+            Chương sau »
+        </a>
+
+        <span th:unless="${chapter.nextChapter != null}"
+              class="novel-chapter-nav-btn novel-chapter-nav-btn--disabled">
+            Chương sau »
+        </span>
+
+    </nav>
+
+</main>
+
+
+<!-- =====================================================
+     TABLE OF CONTENTS DRAWER & BACKDROP
+     ===================================================== -->
+<div id="novelTocBackdrop"
+     class="novel-toc-backdrop"
+     hidden
+     tabindex="-1"
+     aria-hidden="true"></div>
+
+<aside id="novelTocDrawer"
+       class="novel-toc-drawer"
+       role="dialog"
+       aria-modal="true"
+       aria-label="Mục lục chương"
+       hidden>
+
+    <div class="novel-toc-header">
+        <div class="novel-toc-header-title">
+            <a th:href="@{/novel}"
+               class="novel-toc-back-link">
+                ← Về trang Novel
+            </a>
+            <h2>Mục lục</h2>
+        </div>
+        <button type="button"
+                id="novelTocCloseBtn"
+                class="novel-toc-close"
+                aria-label="Đóng mục lục">
+            <span aria-hidden="true">✕</span>
+        </button>
+    </div>
+
+    <nav class="novel-toc-scrollable"
+         aria-label="Danh sách tất cả các chương">
+        <ul class="novel-toc-list"
+            role="list">
+            <li th:each="tocItem : ${chapter.tableOfContents}"
+                class="novel-toc-item"
+                th:classappend="${tocItem.slug == chapter.slug} ? ' is-active' : ''">
+                <a th:href="@{/novel/chapters/{slug}(slug=${tocItem.slug})}"
+                   class="novel-toc-link"
+                   th:attr="aria-current=${tocItem.slug == chapter.slug ? 'page' : null}">
+                    <span class="novel-toc-item-number"
+                          th:text="${'Chương ' + tocItem.chapterNumber}">
+                        Chương 1
+                    </span>
+                    <span class="novel-toc-item-separator"
+                          aria-hidden="true">—</span>
+                    <span class="novel-toc-item-title"
+                          th:text="${tocItem.title}">
+                        Khởi Đầu
+                    </span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+
+</aside>
+
+
+<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/reading/reading-preferences.js}"></script>
+<script th:src="@{/js/novel/reader-reading-settings.js}"></script>
+<script th:src="@{/js/novel/reader-chapter-toc.js}"
+        defer></script>
+
+</body>
+</html>

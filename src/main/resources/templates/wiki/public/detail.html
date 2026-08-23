@@ -27,22 +27,107 @@
 
 <body>
 
-	<div th:replace="~{fragments/navbar :: navbar}"></div>
+	<div th:replace="~{fragments/navbar :: navbar(activeNav='wiki')}"></div>
 
 	<main class="container py-5 wiki-public-main">
 
 
 		<!-- ================================================= -->
-		<!-- BACK TO WIKI                                      -->
+		<!-- UTILITY ROW: BACK LINK & READING SETTINGS TRIGGER -->
 		<!-- ================================================= -->
 
-		<div class="wiki-public-back">
+		<div class="wiki-public-utility-row">
 
-			<a th:href="@{/wiki}"> ← Quay lại Wiki </a>
+			<div class="wiki-public-back">
+				<a th:href="@{/wiki}"> ← Quay lại Wiki </a>
+			</div>
+
+			<div class="wiki-reading-settings-wrapper">
+
+				<button type="button"
+					class="wiki-reading-settings-trigger"
+					id="wikiReadingSettingsTrigger"
+					data-reading-settings-trigger
+					aria-expanded="false"
+					aria-haspopup="dialog"
+					aria-controls="wikiReadingSettingsPopover"
+					aria-label="Cài đặt đọc">
+					<svg class="wiki-reading-settings-gear-icon"
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						width="20"
+						height="20"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true">
+						<circle cx="12" cy="12" r="3"></circle>
+						<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+					</svg>
+				</button>
+
+				<div class="wiki-reading-settings-popover"
+					id="wikiReadingSettingsPopover"
+					data-reading-settings-popover
+					role="dialog"
+					aria-label="Cài đặt đọc"
+					hidden>
+
+					<div class="wiki-reading-popover-header">
+						<span class="wiki-reading-popover-title">Cài đặt đọc</span>
+					</div>
+
+					<div class="wiki-reading-popover-section">
+						<span id="wikiReadingSizeLabel"
+							class="wiki-reading-popover-label">Cỡ chữ</span>
+
+						<div class="wiki-public-font-controls" role="group"
+							aria-labelledby="wikiReadingSizeLabel">
+
+							<button type="button" class="wiki-public-font-button"
+								data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
+								A−</button>
+
+							<button type="button" class="wiki-public-font-button"
+								data-reading-font-action="reset"
+								aria-label="Khôi phục cỡ chữ mặc định">A</button>
+
+							<button type="button" class="wiki-public-font-button"
+								data-reading-font-action="increase" aria-label="Tăng cỡ chữ">
+								A+</button>
+
+						</div>
+					</div>
+
+					<div class="wiki-reading-popover-section">
+						<span id="wikiReadingFamilyLabel"
+							class="wiki-reading-popover-label">Kiểu chữ</span>
+
+						<div class="wiki-public-font-controls" role="group"
+							aria-labelledby="wikiReadingFamilyLabel">
+
+							<button type="button" class="wiki-public-font-button wiki-public-font-button--family"
+								data-reading-font-family="serif"
+								aria-pressed="true"
+								aria-label="Phông chữ có chân (Serif)">
+								Serif</button>
+
+							<button type="button" class="wiki-public-font-button wiki-public-font-button--family"
+								data-reading-font-family="sans"
+								aria-pressed="false"
+								aria-label="Phông chữ không chân (Sans)">
+								Sans</button>
+
+						</div>
+					</div>
+
+				</div>
+
+			</div>
 
 		</div>
-
-
 
 		<!-- ================================================= -->
 		<!-- ARTICLE HERO                                      -->
@@ -119,34 +204,6 @@
 			</div>
 
 		</article>
-
-		<!-- ================================================= -->
-		<!-- READING SETTINGS                                  -->
-		<!-- ================================================= -->
-
-		<div class="wiki-public-reading-toolbar">
-
-			<span id="wikiReadingFontLabel"
-				class="wiki-public-reading-toolbar-label"> Cỡ chữ </span>
-
-			<div class="wiki-public-font-controls" role="group"
-				aria-labelledby="wikiReadingFontLabel">
-
-				<button type="button" class="wiki-public-font-button"
-					data-reading-font-action="decrease" aria-label="Giảm cỡ chữ">
-					A−</button>
-
-				<button type="button" class="wiki-public-font-button"
-					data-reading-font-action="reset"
-					aria-label="Khôi phục cỡ chữ mặc định">A</button>
-
-				<button type="button" class="wiki-public-font-button"
-					data-reading-font-action="increase" aria-label="Tăng cỡ chữ">
-					A+</button>
-
-			</div>
-
-		</div>
 
 		<!-- ================================================= -->
 		<!-- READING WORKSPACE                                 -->
@@ -242,6 +299,7 @@
 	<script th:src="@{/js/theme.js}"></script>
 
 	<script th:src="@{/js/reading/reading-preferences.js}"></script>
+	<script th:src="@{/js/wiki/wiki-reading-settings.js}"></script>
 	<script th:src="@{/js/wiki/wiki-toc-scrollspy.js}"></script>
 	<script th:src="@{/js/wiki/wiki-mobile-toc.js}"></script>
 
