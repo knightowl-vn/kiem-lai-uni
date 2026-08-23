@@ -20,6 +20,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.springframework.security.core.Authentication;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.time.Instant;
@@ -31,6 +33,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
 class AdminNovelChapterRevisionCommandControllerTest {
@@ -61,12 +68,15 @@ class AdminNovelChapterRevisionCommandControllerTest {
 
     private AdminNovelChapterRevisionCommandController controller;
 
+    private MockMvc mockMvc;
+
     @BeforeEach
     void setUp() {
         controller = new AdminNovelChapterRevisionCommandController(
                 restoreChapterRevisionUseCase,
                 userIdentityContract
         );
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
     @Test
@@ -249,6 +259,37 @@ class AdminNovelChapterRevisionCommandControllerTest {
         assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/revisions/1");
         assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
                 .isEqualTo("Expected aggregate version không được để trống.");
+    }
+
+    @Test
+    @DisplayName("MockMvc: POST /admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore định tuyến và redirect chính xác")
+    void shouldPerformPostRestoreThroughMockMvcRoute() throws Exception {
+        UserDTO user = createUserDTO();
+        when(authentication.getName()).thenReturn(ADMIN_EMAIL);
+        when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
+
+        ChapterDTO restoredChapter = createChapterDTO();
+        when(restoreChapterRevisionUseCase.execute(any(RestoreChapterRevisionCommand.class)))
+                .thenReturn(restoredChapter);
+
+        mockMvc.perform(
+                post("/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore", CHAPTER_ID, 2L)
+                        .principal(authentication)
+                        .param("expectedAggregateVersion", "1")
+                        .param("editSummary", "Khôi phục qua UI")
+        )
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/novel/chapters/" + CHAPTER_ID))
+                .andExpect(flash().attribute("successMessage", "Đã khôi phục nội dung từ phiên bản #2."));
+    }
+
+    @Test
+    @DisplayName("MockMvc: GET /admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore bị từ chối 405 Method Not Allowed (không thể mutate qua GET)")
+    void shouldRejectGetOnRestoreEndpointWithMethodNotAllowed() throws Exception {
+        mockMvc.perform(
+                get("/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore", CHAPTER_ID, 2L)
+        )
+                .andExpect(status().isMethodNotAllowed());
     }
 
     private ChapterDTO createChapterDTO() {
