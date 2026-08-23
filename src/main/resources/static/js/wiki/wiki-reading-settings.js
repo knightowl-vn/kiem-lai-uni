@@ -1,0 +1,75 @@
+(() => {
+
+    "use strict";
+
+    /* =====================================================
+       PUBLIC WIKI — READING SETTINGS POPOVER CONTROLLER
+       Manages open/close interactions for the Aa popover.
+       Preference state & storage remain in reading-preferences.js.
+       ===================================================== */
+
+    function initWikiReadingSettings() {
+        const trigger = document.getElementById("wikiReadingSettingsTrigger");
+        const popover = document.getElementById("wikiReadingSettingsPopover");
+
+        if (!trigger || !popover) {
+            return;
+        }
+
+        function openPopover() {
+            popover.removeAttribute("hidden");
+            trigger.setAttribute("aria-expanded", "true");
+            trigger.classList.add("is-active");
+        }
+
+        function closePopover(restoreFocus) {
+            if (popover.hasAttribute("hidden")) {
+                return;
+            }
+            popover.setAttribute("hidden", "");
+            trigger.setAttribute("aria-expanded", "false");
+            trigger.classList.remove("is-active");
+            if (restoreFocus) {
+                trigger.focus();
+            }
+        }
+
+        // Toggle popover on trigger click
+        trigger.addEventListener("click", event => {
+            event.stopPropagation();
+            const isHidden = popover.hasAttribute("hidden");
+            if (isHidden) {
+                openPopover();
+            } else {
+                closePopover(false);
+            }
+        });
+
+        // Prevent clicks inside popover from bubbling and closing it
+        popover.addEventListener("click", event => {
+            event.stopPropagation();
+        });
+
+        // Close on clicking outside
+        document.addEventListener("click", event => {
+            const target = event.target;
+            if (target instanceof Element && !popover.contains(target) && !trigger.contains(target)) {
+                closePopover(false);
+            }
+        });
+
+        // Close on Escape key and return focus to trigger
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !popover.hasAttribute("hidden")) {
+                closePopover(true);
+            }
+        });
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initWikiReadingSettings);
+    } else {
+        initWikiReadingSettings();
+    }
+
+})();

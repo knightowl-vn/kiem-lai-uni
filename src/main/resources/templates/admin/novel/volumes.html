@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Quản lý Volume | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+				:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+					:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div
+					th:replace="~{
+						admin/novel/fragments/navigation
+						:: subnav(${activeSubMenu != null ? activeSubMenu : 'volumes'})
+					}">
+				</div>
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+
+					Thao tác thành công.</div>
+
+
+				<div th:if="${errorMessage != null}" class="novel-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
+
+				<div class="novel-admin-heading">
+
+					<div>
+
+						<span class="novel-admin-eyebrow"> NOVEL MODULE </span>
+
+						<h2>Quản lý Volume</h2>
+
+						<p>Quản lý các tập truyện, thứ tự hiển thị và trạng thái xuất
+							bản.</p>
+
+					</div>
+
+
+					<a th:href="@{/admin/novel/volumes/new}"
+						class="novel-admin-primary-button"> + Tạo Volume </a>
+
+				</div>
+
+
+				<section class="novel-admin-filter-panel">
+
+					<form method="get" th:action="@{/admin/novel/volumes}"
+						class="novel-admin-filter-form">
+
+						<div class="novel-admin-field keyword-field">
+
+							<label for="novelAdminVolumeKeyword"> Tìm kiếm </label> <input
+								id="novelAdminVolumeKeyword" type="search" name="keyword"
+								placeholder="Tiêu đề hoặc slug..." th:value="${keyword}">
+
+						</div>
+
+						<div class="novel-admin-field">
+
+							<label for="novelAdminVolumeStatus"> Trạng thái </label> <select
+								id="novelAdminVolumeStatus" name="status">
+
+								<option value="">Tất cả</option>
+
+								<option value="DRAFT"
+									th:selected="${selectedStatus == 'DRAFT'}">DRAFT</option>
+
+								<option value="PUBLISHED"
+									th:selected="${selectedStatus == 'PUBLISHED'}">PUBLISHED</option>
+
+								<option value="ARCHIVED"
+									th:selected="${selectedStatus == 'ARCHIVED'}">ARCHIVED</option>
+
+							</select>
+
+						</div>
+
+						<div class="novel-admin-filter-actions">
+
+							<button type="submit" class="novel-admin-primary-button">
+								Lọc kết quả</button>
+
+							<a th:href="@{/admin/novel/volumes}"
+								class="novel-admin-secondary-button"> Đặt lại </a>
+
+						</div>
+
+					</form>
+
+				</section>
+
+
+				<div class="novel-admin-result-summary">
+
+					<span> Tìm thấy <strong th:text="${#lists.size(volumes)}">
+							0 </strong> Volume
+					</span> <span> Sắp xếp theo thứ tự nội dung </span>
+
+				</div>
+
+
+				<section th:if="${#lists.isEmpty(volumes)}"
+					class="novel-admin-empty-state">
+
+					<div class="novel-admin-empty-icon" aria-hidden="true">▤</div>
+
+					<h3
+						th:text="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}
+							? 'Không có Volume phù hợp'
+							: 'Chưa có Volume nào'">
+						Chưa có Volume nào</h3>
+
+					<p
+						th:text="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}
+							? 'Không có Volume nào khớp với bộ lọc hiện tại.'
+							: 'Hệ thống hiện chưa có Volume để hiển thị.'">
+						Hệ thống hiện chưa có Volume để hiển thị.</p>
+
+					<a
+						th:if="${(keyword != null and !#strings.isEmpty(keyword))
+							or (selectedStatus != null and !#strings.isEmpty(selectedStatus))}"
+						th:href="@{/admin/novel/volumes}"
+						class="novel-admin-secondary-button"> Xem toàn bộ </a>
+
+				</section>
+
+
+				<section th:unless="${#lists.isEmpty(volumes)}"
+					class="novel-admin-table-panel novel-admin-table-panel--actions">
+
+					<div
+						class="novel-admin-table-wrapper novel-admin-table-wrapper--actions">
+
+						<table class="novel-admin-table">
+
+							<caption class="novel-admin-visually-hidden">Danh sách
+								Volume trong hệ thống quản trị</caption>
+
+
+							<thead>
+
+								<tr>
+
+									<th scope="col">Thứ tự</th>
+
+									<th scope="col">Volume</th>
+
+									<th scope="col">Trạng thái</th>
+
+									<th scope="col">Cập nhật</th>
+
+									<th scope="col" class="novel-admin-actions-column">Thao tác</th>
+
+								</tr>
+
+							</thead>
+
+
+							<tbody>
+
+								<tr th:each="volume : ${volumes}">
+
+									<td class="novel-admin-order-cell"><span
+										class="novel-admin-order-badge" th:text="${volume.sortOrder}">
+											1 </span></td>
+
+
+									<td class="novel-admin-volume-cell"><a
+										class="novel-admin-volume-link"
+										th:href="@{/admin/novel/volumes/{id}(
+			id=${volume.id}
+		)}">
+
+											<strong th:text="${volume.title}"> Volume 1 </strong> <span
+											th:text="${volume.slug}"> volume-1 </span>
+
+									</a></td>
+
+
+									<td><span class="novel-admin-status-badge"
+										th:classappend="${volume.status == 'PUBLISHED'}
+												? ' is-published'
+												: (${volume.status == 'ARCHIVED'}
+													? ' is-archived'
+													: ' is-draft')"
+										th:text="${volume.status}"> DRAFT </span></td>
+
+
+									<td class="novel-admin-updated-cell"><span
+										th:if="${volume.updatedAt != null}"
+										th:text="${#temporals.format(
+												volume.updatedAt,
+												'dd/MM/yyyy HH:mm'
+											)}">
+											19/08/2026 18:00 </span> <span
+										th:unless="${volume.updatedAt != null}"
+										class="novel-admin-muted"> Chưa cập nhật </span></td>
+
+
+									<td class="novel-admin-actions-cell">
+
+										<details
+											class="novel-admin-detail-action-menu
+												novel-admin-list-action-menu">
+
+											<summary
+												class="novel-admin-secondary-button
+													novel-admin-detail-action-trigger"
+												data-bs-boundary="window"
+												data-bs-popper-config='{"strategy":"fixed"}'>
+												<span> Thao tác </span> <span
+													class="novel-admin-detail-action-chevron"
+													aria-hidden="true"> ▾ </span>
+											</summary>
+
+											<div
+												class="novel-admin-detail-action-dropdown
+													novel-admin-volume-action-dropdown">
+
+												<a class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/volumes/{id}(id=${volume.id})}">
+													<span class="novel-admin-detail-action-icon"
+														aria-hidden="true">◉</span> <span> Xem chi tiết </span>
+												</a>
+
+												<a th:if="${volume.status == 'DRAFT'}"
+													class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/volumes/{id}/edit(id=${volume.id})}">
+													<span class="novel-admin-detail-action-icon"
+														aria-hidden="true">✎</span> <span> Chỉnh sửa </span>
+												</a>
+
+												<div
+													th:if="${volume.status == 'DRAFT'
+														or volume.status == 'PUBLISHED'
+														or volume.status == 'ARCHIVED'}"
+													class="novel-admin-detail-action-separator"></div>
+
+												<form th:if="${volume.status == 'DRAFT'}" method="post"
+													th:action="@{/admin/novel/volumes/{id}/publish(id=${volume.id})}"
+													data-novel-confirm="Xuất bản Volume này? Sau khi xuất bản, thông tin chính của Volume sẽ không còn được chỉnh sửa bằng luồng Draft.">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">↑</span> <span> Xuất bản </span>
+													</button>
+
+												</form>
+
+												<form
+													th:if="${volume.status == 'DRAFT' or volume.status == 'PUBLISHED'}"
+													method="post"
+													th:action="@{/admin/novel/volumes/{id}/archive(id=${volume.id})}"
+													data-novel-confirm="Lưu trữ Volume này? Volume sẽ không còn ở trạng thái hoạt động. Nếu Volume còn Chapter đã xuất bản, hệ thống sẽ từ chối thao tác.">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-warning">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">□</span> <span> Lưu trữ </span>
+													</button>
+
+												</form>
+
+												<form th:if="${volume.status == 'ARCHIVED'}" method="post"
+													th:action="@{/admin/novel/volumes/{id}/restore(id=${volume.id})}"
+													data-novel-confirm="Khôi phục Volume này về bản nháp? Volume sẽ có thể chỉnh sửa và xuất bản lại sau khi được kiểm tra.">
+
+													<button type="submit"
+														class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon"
+															aria-hidden="true">↺</span> <span> Khôi phục </span>
+													</button>
+
+												</form>
+
+											</div>
+
+										</details>
+
+									</td>
+
+								</tr>
+
+							</tbody>
+
+						</table>
+
+					</div>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+	<script th:src="@{/js/novel/admin-list-menus.js}"></script>
+
+</body>
+
+</html>

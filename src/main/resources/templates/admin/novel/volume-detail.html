@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Chi tiết Volume | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+
+<body>
+
+	<div class="admin-layout">
+
+
+		<!-- ================================================= -->
+		<!-- SIDEBAR                                           -->
+		<!-- ================================================= -->
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+				:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+
+			<!-- ================================================= -->
+			<!-- HEADER                                            -->
+			<!-- ================================================= -->
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+						:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+
+					Thao tác thành công.</div>
+
+
+				<div th:if="${errorMessage != null}" class="novel-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
+
+				<!-- ================================================= -->
+				<!-- PAGE HEADING                                       -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-detail-heading">
+
+
+					<div class="novel-admin-detail-heading-content">
+
+						<a th:href="@{/admin/novel/volumes}" class="novel-admin-back-link">
+
+							← Quay lại danh sách </a> <span class="novel-admin-eyebrow">
+							NOVEL MODULE </span>
+
+
+						<div class="novel-admin-detail-title-row">
+
+							<h2 th:text="${volume.title}">Volume 1</h2>
+
+							<span class="novel-admin-status-badge"
+								th:classappend="${volume.status == 'PUBLISHED'}
+			? ' is-published'
+			: (${volume.status == 'ARCHIVED'}
+				? ' is-archived'
+				: ' is-draft')"
+								th:text="${volume.status}"> DRAFT </span>
+
+						</div>
+
+
+						<p>Xem thông tin và trạng thái hiện tại của Volume trong hệ
+							thống.</p>
+
+					</div>
+
+
+					<div class="novel-admin-detail-actions">
+
+						<a th:href="@{/admin/novel/volumes/{id}/chapters(
+			id=${volume.id}
+		)}"
+							class="novel-admin-primary-button"> Quản lý chương </a>
+
+					</div>
+
+				</div>
+
+
+
+				<!-- ================================================= -->
+				<!-- MAIN DETAIL PANEL                                  -->
+				<!-- ================================================= -->
+
+				<section class="novel-admin-detail-panel">
+
+
+					<!-- ================================================= -->
+					<!-- METADATA                                          -->
+					<!-- ================================================= -->
+
+					<div class="novel-admin-detail-metadata">
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Thứ tự </span> <strong
+								class="novel-admin-detail-meta-value"
+								th:text="${volume.sortOrder}"> 1 </strong>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Trạng thái </span> <span
+								class="novel-admin-status-badge"
+								th:classappend="${volume.status == 'PUBLISHED'}
+									? ' is-published'
+									: (${volume.status == 'ARCHIVED'}
+										? ' is-archived'
+										: ' is-draft')"
+								th:text="${volume.status}"> DRAFT </span>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Slug </span>
+
+							<code class="novel-admin-detail-slug" th:text="${volume.slug}">
+								volume-1 </code>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Aggregate
+								version </span> <strong class="novel-admin-detail-meta-value"
+								th:text="${volume.aggregateVersion}"> 1 </strong>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Ngày tạo </span> <strong
+								class="novel-admin-detail-meta-value"
+								th:text="${volume.createdAt != null
+									? #temporals.format(
+										volume.createdAt,
+										'dd/MM/yyyy HH:mm'
+									)
+									: '—'}">
+
+								19/08/2026 18:00 </strong>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item">
+
+							<span class="novel-admin-detail-meta-label"> Cập nhật gần
+								nhất </span> <strong class="novel-admin-detail-meta-value"
+								th:text="${volume.updatedAt != null
+									? #temporals.format(
+										volume.updatedAt,
+										'dd/MM/yyyy HH:mm'
+									)
+									: '—'}">
+
+								19/08/2026 18:00 </strong>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item"
+							th:if="${volume.publishedAt != null}">
+
+							<span class="novel-admin-detail-meta-label"> Xuất bản </span> <strong
+								class="novel-admin-detail-meta-value"
+								th:text="${#temporals.format(
+									volume.publishedAt,
+									'dd/MM/yyyy HH:mm'
+								)}">
+
+								19/08/2026 18:00 </strong>
+
+						</div>
+
+
+						<div class="novel-admin-detail-meta-item"
+							th:if="${volume.archivedAt != null}">
+
+							<span class="novel-admin-detail-meta-label"> Lưu trữ </span> <strong
+								class="novel-admin-detail-meta-value"
+								th:text="${#temporals.format(
+									volume.archivedAt,
+									'dd/MM/yyyy HH:mm'
+								)}">
+
+								19/08/2026 18:00 </strong>
+
+						</div>
+
+					</div>
+
+
+
+					<!-- ================================================= -->
+					<!-- DESCRIPTION                                       -->
+					<!-- ================================================= -->
+
+					<section class="novel-admin-detail-section">
+
+						<div class="novel-admin-detail-section-heading">
+
+							<span class="novel-admin-detail-section-eyebrow"> MÔ TẢ </span>
+
+							<h3>Giới thiệu Volume</h3>
+
+						</div>
+
+
+						<p class="novel-admin-detail-description"
+							th:classappend="${#strings.isEmpty(volume.description)}
+								? ' is-empty'"
+							th:text="${#strings.isEmpty(volume.description)
+								? 'Volume hiện chưa có phần mô tả.'
+								: volume.description}">
+
+							Volume hiện chưa có phần mô tả.</p>
+
+					</section>
+
+				</section>
+			</section>
+
+		</main>
+
+	</div>
+
+	<script>
+document.addEventListener(
+	"submit",
+	function(event) {
+
+		const form =
+			event.target.closest(
+				"[data-novel-confirm]"
+			);
+
+		if (!form) {
+			return;
+		}
+
+		const message =
+			form.dataset.novelConfirm?.trim();
+
+		if (!message) {
+			return;
+		}
+
+		const confirmed =
+			window.confirm(
+				message
+			);
+
+		if (!confirmed) {
+			event.preventDefault();
+		}
+	}
+);
+	</script>
+
+</body>
+
+</html>

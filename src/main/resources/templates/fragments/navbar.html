@@ -7,12 +7,40 @@
 	<nav th:fragment="navbar"
 		class="navbar navbar-dark bg-dark px-4 py-2 main-navbar">
 
-		<!-- Thương hiệu -->
-		<a class="navbar-brand flex-shrink-0" th:href="@{/home}"> Kiếm Lai
-			Universe </a>
+		<!-- Liên kết Home -->
+		<a class="navbar-home-link"
+			th:classappend="${activeNav == 'home'} ? ' active' : ''"
+			th:attr="aria-current=${activeNav == 'home' ? 'page' : null}"
+			th:href="@{/home}"
+			aria-label="Trang chủ">
+			<svg class="navbar-home-icon"
+				xmlns="http://www.w3.org/2000/svg"
+				viewBox="0 0 24 24"
+				width="18"
+				height="18"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				aria-hidden="true">
+				<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+				<polyline points="9 22 9 12 15 12 15 22"></polyline>
+			</svg>
+			<span class="navbar-home-text">Home</span>
+		</a>
+
+		<!-- Liên kết Novel -->
+		<a class="navbar-novel-link"
+			th:classappend="${activeNav == 'novel'} ? ' active' : ''"
+			th:attr="aria-current=${activeNav == 'novel' ? 'page' : null}"
+			th:href="@{/novel}"> Novel </a>
 
 		<!-- Liên kết Wiki -->
-		<a class="navbar-wiki-link" th:href="@{/wiki}"> Wiki </a>
+		<a class="navbar-wiki-link"
+			th:classappend="${activeNav == 'wiki'} ? ' active' : ''"
+			th:attr="aria-current=${activeNav == 'wiki' ? 'page' : null}"
+			th:href="@{/wiki}"> Wiki </a>
 
 		<!-- Tìm kiếm nhanh Wiki -->
 		<div class="navbar-wiki-search" id="navbarWikiSearch">

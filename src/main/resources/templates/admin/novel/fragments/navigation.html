@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<nav class="novel-admin-subnav" th:fragment="subnav(activeSubMenu)" aria-label="Điều hướng quản lý Novel">
+    <a th:href="@{/admin/novel/profile}"
+       class="novel-admin-subnav-link"
+       th:classappend="${activeSubMenu == 'profile'} ? ' is-active' : ''">
+        <span>Hồ sơ Novel</span>
+    </a>
+    <a th:href="@{/admin/novel/volumes}"
+       class="novel-admin-subnav-link"
+       th:classappend="${activeSubMenu == 'volumes'} ? ' is-active' : ''">
+        <span>Quyển & Chương</span>
+    </a>
+</nav>
+
+</body>
+</html>

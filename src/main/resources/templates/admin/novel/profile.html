@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Hồ sơ Novel | Kiếm Lai Universe</title>
+
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+
+</head>
+
+<body>
+
+	<div class="admin-layout">
+
+		<div
+			th:replace="~{
+				admin/fragments/sidebar
+					:: sidebar(${activeMenu})
+			}">
+		</div>
+
+
+		<main class="admin-main">
+
+			<div
+				th:replace="~{
+					admin/fragments/header
+						:: header(${pageTitle})
+				}">
+			</div>
+
+
+			<section class="dashboard-content">
+
+				<div
+					th:replace="~{
+						admin/novel/fragments/navigation
+						:: subnav(${activeSubMenu != null ? activeSubMenu : 'profile'})
+					}">
+				</div>
+
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+
+					Cập nhật thành công.
+
+				</div>
+
+
+				<div th:if="${errorMessage != null}"
+					class="novel-admin-form-error" th:text="${errorMessage}">
+
+					Có lỗi xảy ra.
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- HEADING                                            -->
+				<!-- ================================================= -->
+
+				<div class="novel-admin-heading">
+
+					<div>
+
+						<span class="novel-admin-eyebrow">
+							NOVEL MODULE
+						</span>
+
+						<h2>Hồ sơ Novel</h2>
+
+						<p>
+							Quản lý thông tin tổng quan, tác giả, mô tả và ảnh bìa của tiểu thuyết.
+						</p>
+
+					</div>
+
+				</div>
+
+
+				<!-- ================================================= -->
+				<!-- PROFILE FORM                                       -->
+				<!-- ================================================= -->
+
+				<section class="novel-admin-form-panel">
+
+					<form method="post"
+						th:action="@{/admin/novel/profile}"
+						th:object="${form}"
+						enctype="multipart/form-data"
+						class="novel-admin-form">
+
+
+						<!-- ============================================= -->
+						<!-- SYSTEM METADATA (READ-ONLY)                   -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-edit-system-panel"
+							th:if="${profile != null}">
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Mã định danh (ID)
+								</span>
+
+								<code th:text="${profile.id}">
+									aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+								</code>
+
+							</div>
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Slug cố định
+								</span>
+
+								<code th:text="${profile.slug}">
+									kiem-lai
+								</code>
+
+							</div>
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Ngày khởi tạo
+								</span>
+
+								<strong th:text="${profile.createdAt != null ? #temporals.format(profile.createdAt, 'dd/MM/yyyy HH:mm') : '-'}">
+									22/08/2026 11:30
+								</strong>
+
+							</div>
+
+
+							<div>
+
+								<span class="novel-admin-edit-system-label">
+									Cập nhật lần cuối
+								</span>
+
+								<strong th:text="${profile.updatedAt != null ? #temporals.format(profile.updatedAt, 'dd/MM/yyyy HH:mm') : '-'}">
+									22/08/2026 11:30
+								</strong>
+
+							</div>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- TITLE                                         -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="novelProfileTitle">
+								Tên tiểu thuyết <span class="novel-admin-required">*</span>
+							</label>
+
+							<input id="novelProfileTitle"
+								type="text"
+								th:field="*{title}"
+								maxlength="200"
+								required
+								placeholder="Nhập tên tiểu thuyết...">
+
+							<small>Tên chính thức hiển thị trên toàn bộ Novel Reader và trang quản trị.</small>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- AUTHOR                                        -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="novelProfileAuthor">
+								Tác giả <span class="novel-admin-required">*</span>
+							</label>
+
+							<input id="novelProfileAuthor"
+								type="text"
+								th:field="*{author}"
+								maxlength="200"
+								required
+								placeholder="Nhập tên tác giả...">
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- STATUS                                        -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="novelProfileStatus">
+								Trạng thái phát hành <span class="novel-admin-required">*</span>
+							</label>
+
+							<select id="novelProfileStatus"
+								th:field="*{status}"
+								required>
+
+								<option th:each="statusOption : ${statuses}"
+									th:value="${statusOption.name()}"
+									th:text="${statusOption.name()}"
+									th:selected="${form.status == statusOption.name()}">
+									ONGOING
+								</option>
+
+							</select>
+
+							<small>ONGOING: Đang ra, COMPLETED: Hoàn thành, HIATUS: Tạm ngưng.</small>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- COVER IMAGE UPLOAD                            -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="coverImageFile">
+								Ảnh bìa tiểu thuyết
+							</label>
+
+							<div class="novel-admin-cover-upload-card">
+
+								<!-- Preview Box (2:3 aspect ratio) -->
+								<div class="novel-admin-cover-preview-wrapper">
+
+									<div th:if="${profile.coverImageUrl != null and !profile.coverImageUrl.isBlank()}"
+										class="novel-admin-cover-preview">
+										<img th:src="${profile.coverImageUrl}"
+											alt="Ảnh bìa tiểu thuyết Kiếm Lai">
+									</div>
+
+									<div th:unless="${profile.coverImageUrl != null and !profile.coverImageUrl.isBlank()}"
+										class="novel-admin-cover-placeholder">
+										<span class="novel-admin-cover-placeholder-icon">📖</span>
+										<span class="novel-admin-cover-placeholder-text">Chưa có ảnh bìa</span>
+									</div>
+
+								</div>
+
+								<!-- Upload Controls -->
+								<div class="novel-admin-cover-upload-controls">
+
+									<input id="coverImageFile"
+										type="file"
+										name="coverImageFile"
+										accept="image/jpeg,image/png,image/webp">
+
+									<small class="novel-admin-cover-hint">
+										Định dạng hỗ trợ: JPG, PNG, WEBP. Dung lượng tối đa: 5 MB.<br>
+										Để trống nếu muốn giữ nguyên ảnh bìa hiện tại.
+									</small>
+
+								</div>
+
+							</div>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- DESCRIPTION                                   -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-group">
+
+							<label for="novelProfileDescription">
+								Mô tả tiểu thuyết <span class="novel-admin-required">*</span>
+							</label>
+
+							<textarea id="novelProfileDescription"
+								th:field="*{description}"
+								rows="8"
+								maxlength="10000"
+								required
+								placeholder="Nhập tóm tắt, nội dung giới thiệu tiểu thuyết..."></textarea>
+
+							<small>Tối đa 10.000 ký tự.</small>
+
+						</div>
+
+
+						<!-- ============================================= -->
+						<!-- FORM ACTIONS                                  -->
+						<!-- ============================================= -->
+
+						<div class="novel-admin-form-actions">
+
+							<button type="submit"
+								class="novel-admin-primary-button">
+								Lưu thay đổi
+							</button>
+
+							<a th:href="@{/admin/novel/profile}"
+								class="novel-admin-secondary-button">
+								Hủy / Đặt lại
+							</a>
+
+						</div>
+
+					</form>
+
+				</section>
+
+			</section>
+
+		</main>
+
+	</div>
+
+</body>
+</html>

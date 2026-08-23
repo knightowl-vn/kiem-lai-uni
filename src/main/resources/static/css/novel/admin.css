@@ -1,0 +1,1977 @@
+/* =========================================================
+   NOVEL ADMIN — PAGE HEADING
+   ========================================================= */
+
+.novel-admin-heading {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 24px;
+	margin-bottom: 22px;
+}
+
+
+.novel-admin-eyebrow {
+	color: var(--primary);
+	font-size: 11px;
+	font-weight: 800;
+	letter-spacing: 1.4px;
+}
+
+
+.novel-admin-heading h2 {
+	margin: 8px 0 6px;
+	font-size: 24px;
+}
+
+
+.novel-admin-heading p {
+	margin: 0;
+	color: var(--text-secondary);
+	font-size: 13px;
+}
+
+
+/* =========================================================
+   FILTER
+   ========================================================= */
+
+.novel-admin-filter-panel {
+	margin-bottom: 18px;
+	padding: 20px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--surface);
+	box-shadow: var(--shadow);
+}
+
+.novel-admin-filter-form {
+	display: grid;
+	grid-template-columns: minmax(220px, 1.7fr) minmax(170px, 0.8fr) auto;
+	align-items: end;
+	gap: 14px;
+}
+
+.novel-admin-field {
+	display: grid;
+	gap: 7px;
+}
+
+.novel-admin-field label {
+	color: var(--text-secondary);
+	font-size: 11px;
+	font-weight: 700;
+}
+
+.novel-admin-field input,
+.novel-admin-field select {
+	width: 100%;
+	height: 42px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	outline: none;
+	background: var(--surface);
+	color: var(--text-primary);
+	font: inherit;
+}
+
+.novel-admin-field input:focus,
+.novel-admin-field select:focus {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(93, 77, 168, 0.12);
+}
+
+.novel-admin-filter-actions {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+
+
+/* =========================================================
+   RESULT SUMMARY
+   ========================================================= */
+
+.novel-admin-result-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin: 0 2px 12px;
+	color: var(--text-secondary);
+	font-size: 12px;
+}
+
+
+.novel-admin-result-summary strong {
+	color: var(--text-primary);
+}
+
+
+/* =========================================================
+   TABLE PANEL
+   ========================================================= */
+
+.novel-admin-table-panel {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--surface);
+	box-shadow: var(--shadow);
+}
+
+/*
+ * Action menus need to escape the scroll/clip containers.
+ * Horizontal scroll is restored only on narrow viewports.
+ */
+.novel-admin-table-panel--actions {
+	overflow: visible;
+}
+
+.novel-admin-table-wrapper {
+	width: 100%;
+	overflow-x: auto;
+}
+
+.novel-admin-table-wrapper--actions {
+	overflow-x: visible;
+	overflow-y: visible;
+}
+
+
+.novel-admin-table {
+	width: 100%;
+	min-width: 720px;
+	border-collapse: collapse;
+}
+
+
+.novel-admin-table th,
+.novel-admin-table td {
+	padding: 15px 18px;
+	border-bottom: 1px solid var(--border);
+	text-align: left;
+	vertical-align: middle;
+}
+
+
+.novel-admin-table th {
+	background: #fafafd;
+	color: var(--text-secondary);
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+}
+
+
+.novel-admin-table td {
+	font-size: 12px;
+}
+
+
+.novel-admin-table tbody tr:last-child td {
+	border-bottom: 0;
+}
+
+
+.novel-admin-table tbody tr:hover {
+	background: #fbfaff;
+}
+
+
+/* =========================================================
+   VOLUME
+   ========================================================= */
+
+.novel-admin-volume-cell {
+	min-width: 260px;
+}
+
+
+.novel-admin-volume-cell strong {
+	display: block;
+	color: var(--text-primary);
+	font-size: 13px;
+}
+
+
+.novel-admin-volume-cell span {
+	display: block;
+	margin-top: 5px;
+	color: var(--text-secondary);
+	font-size: 10px;
+}
+
+
+/* =========================================================
+   SORT ORDER
+   ========================================================= */
+
+.novel-admin-order-cell {
+	width: 100px;
+}
+
+
+.novel-admin-order-badge {
+	min-width: 34px;
+	height: 30px;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+
+	padding: 0 9px;
+
+	border-radius: 9px;
+
+	background: var(--primary-light);
+	color: var(--primary);
+
+	font-size: 11px;
+	font-weight: 800;
+}
+
+
+/* =========================================================
+   STATUS
+   ========================================================= */
+
+.novel-admin-status-badge {
+	display: inline-flex;
+	align-items: center;
+
+	padding: 6px 9px;
+
+	border-radius: 20px;
+
+	font-size: 9px;
+	font-weight: 800;
+}
+
+
+.novel-admin-status-badge.is-draft {
+	background: var(--warning-light);
+	color: var(--warning);
+}
+
+
+.novel-admin-status-badge.is-published {
+	background: var(--success-light);
+	color: var(--success);
+}
+
+
+.novel-admin-status-badge.is-archived {
+	background: var(--danger-light);
+	color: var(--danger);
+}
+
+
+/* =========================================================
+   UPDATED
+   ========================================================= */
+
+.novel-admin-updated-cell {
+	min-width: 160px;
+	color: var(--text-secondary);
+}
+
+
+.novel-admin-muted {
+	color: var(--text-secondary);
+}
+
+
+/* =========================================================
+   EMPTY STATE
+   ========================================================= */
+
+.novel-admin-empty-state {
+	display: grid;
+	justify-items: center;
+
+	padding: 58px 24px;
+
+	border: 1px solid var(--border);
+	border-radius: 16px;
+
+	background: var(--surface);
+
+	box-shadow: var(--shadow);
+
+	text-align: center;
+}
+
+
+.novel-admin-empty-icon {
+	width: 54px;
+	height: 54px;
+
+	display: grid;
+	place-items: center;
+
+	border-radius: 15px;
+
+	background: var(--primary-light);
+	color: var(--primary);
+
+	font-size: 24px;
+}
+
+
+.novel-admin-empty-state h3 {
+	margin: 16px 0 7px;
+	font-size: 17px;
+}
+
+
+.novel-admin-empty-state p {
+	margin: 0;
+
+	color: var(--text-secondary);
+
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+
+/* =========================================================
+   ACCESSIBILITY
+   ========================================================= */
+
+.novel-admin-visually-hidden {
+	position: absolute;
+
+	width: 1px;
+	height: 1px;
+
+	padding: 0;
+	margin: -1px;
+
+	overflow: hidden;
+
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+
+	border: 0;
+}
+
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1050px) {
+	.novel-admin-filter-form {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	}
+
+	.novel-admin-filter-actions {
+		grid-column: 1 / -1;
+	}
+}
+
+@media (max-width: 760px) {
+
+	.novel-admin-heading {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+
+	.novel-admin-result-summary {
+		align-items: flex-start;
+		flex-direction: column;
+
+		gap: 6px;
+	}
+
+
+	.novel-admin-table-panel {
+		border-radius: 14px;
+	}
+
+
+	.novel-admin-table th,
+	.novel-admin-table td {
+		padding: 13px 14px;
+	}
+
+}
+
+
+@media (max-width: 520px) {
+
+	.novel-admin-heading h2 {
+		font-size: 21px;
+	}
+
+
+	.novel-admin-empty-state {
+		padding: 44px 20px;
+	}
+
+}
+
+/* =========================================================
+   VOLUME LINK
+   ========================================================= */
+
+.novel-admin-volume-link {
+	display: block;
+	width: fit-content;
+
+	color: inherit;
+	text-decoration: none;
+}
+
+
+.novel-admin-volume-link:hover strong {
+	color: var(--primary);
+}
+
+
+.novel-admin-volume-link:focus-visible {
+	border-radius: 6px;
+
+	outline: 3px solid rgba(93, 77, 168, 0.18);
+	outline-offset: 4px;
+}
+
+
+/* =========================================================
+   VOLUME DETAIL — HEADING
+   ========================================================= */
+
+.novel-admin-detail-heading {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+
+	gap: 24px;
+
+	margin-bottom: 22px;
+}
+
+
+.novel-admin-back-link {
+	display: block;
+	width: fit-content;
+
+	margin-bottom: 18px;
+
+	color: var(--text-secondary);
+
+	font-size: 12px;
+	font-weight: 700;
+
+	text-decoration: none;
+}
+
+
+.novel-admin-back-link:hover {
+	color: var(--primary);
+}
+
+
+.novel-admin-back-link:focus-visible {
+	border-radius: 5px;
+
+	outline: 3px solid rgba(93, 77, 168, 0.18);
+	outline-offset: 4px;
+}
+
+
+.novel-admin-detail-title-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+
+	gap: 12px;
+
+	margin-top: 8px;
+}
+
+
+.novel-admin-detail-title-row h2 {
+	margin: 0;
+
+	font-size: 27px;
+}
+
+
+.novel-admin-detail-heading p {
+	margin: 8px 0 0;
+
+	color: var(--text-secondary);
+
+	font-size: 13px;
+}
+
+
+/* =========================================================
+   DETAIL PANEL
+   ========================================================= */
+
+.novel-admin-detail-panel {
+	overflow: hidden;
+
+	border: 1px solid var(--border);
+	border-radius: 16px;
+
+	background: var(--surface);
+
+	box-shadow: var(--shadow);
+}
+
+
+/* =========================================================
+   DETAIL METADATA
+   ========================================================= */
+
+.novel-admin-detail-metadata {
+	display: grid;
+
+	grid-template-columns:
+		repeat(
+			4,
+			minmax(0, 1fr)
+		);
+
+	border-bottom: 1px solid var(--border);
+}
+
+
+.novel-admin-detail-meta-item {
+	min-width: 0;
+
+	padding: 20px;
+
+	border-right: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+}
+
+
+.novel-admin-detail-meta-item:nth-child(4n) {
+	border-right: 0;
+}
+
+
+.novel-admin-detail-meta-label {
+	display: block;
+
+	margin-bottom: 8px;
+
+	color: var(--text-secondary);
+
+	font-size: 10px;
+	font-weight: 800;
+
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+}
+
+
+.novel-admin-detail-meta-value {
+	display: block;
+
+	overflow-wrap: anywhere;
+
+	color: var(--text-primary);
+
+	font-size: 12px;
+}
+
+
+.novel-admin-detail-slug {
+	display: inline-block;
+
+	max-width: 100%;
+
+	overflow-wrap: anywhere;
+
+	padding: 5px 8px;
+
+	border-radius: 7px;
+
+	background: #f0f1f4;
+	color: #686c75;
+
+	font-size: 11px;
+}
+
+
+/* =========================================================
+   DETAIL DESCRIPTION
+   ========================================================= */
+
+.novel-admin-detail-section {
+	padding: 28px;
+}
+
+
+.novel-admin-detail-section-heading {
+	margin-bottom: 16px;
+}
+
+
+.novel-admin-detail-section-eyebrow {
+	display: block;
+
+	margin-bottom: 6px;
+
+	color: var(--primary);
+
+	font-size: 10px;
+	font-weight: 800;
+
+	letter-spacing: 1px;
+}
+
+
+.novel-admin-detail-section-heading h3 {
+	margin: 0;
+
+	font-size: 17px;
+}
+
+
+.novel-admin-detail-description {
+	max-width: 900px;
+
+	margin: 0;
+
+	color: var(--text-primary);
+
+	font-size: 13px;
+	line-height: 1.75;
+
+	white-space: pre-line;
+}
+
+
+.novel-admin-detail-description.is-empty {
+	color: var(--text-secondary);
+
+	font-style: italic;
+}
+
+
+/* =========================================================
+   DETAIL RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 1050px) {
+
+	.novel-admin-detail-metadata {
+		grid-template-columns:
+			repeat(
+				2,
+				minmax(0, 1fr)
+			);
+	}
+
+
+	.novel-admin-detail-meta-item:nth-child(4n) {
+		border-right: 1px solid var(--border);
+	}
+
+
+	.novel-admin-detail-meta-item:nth-child(2n) {
+		border-right: 0;
+	}
+
+}
+
+
+@media (max-width: 650px) {
+
+	.novel-admin-detail-heading {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+
+	.novel-admin-detail-title-row h2 {
+		font-size: 23px;
+	}
+
+
+	.novel-admin-detail-metadata {
+		grid-template-columns: 1fr;
+	}
+
+
+	.novel-admin-detail-meta-item,
+	.novel-admin-detail-meta-item:nth-child(2n),
+	.novel-admin-detail-meta-item:nth-child(4n) {
+		border-right: 0;
+	}
+
+
+	.novel-admin-detail-section {
+		padding: 22px 20px;
+	}
+
+}
+/* =========================================================
+   COMMON BUTTONS
+   ========================================================= */
+
+.novel-admin-primary-button,
+.novel-admin-secondary-button {
+	min-height: 42px;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+
+	padding: 0 15px;
+
+	border-radius: 10px;
+
+	font: inherit;
+	font-size: 12px;
+	font-weight: 700;
+
+	text-decoration: none;
+
+	cursor: pointer;
+}
+
+
+.novel-admin-primary-button {
+	border: 1px solid var(--primary);
+
+	background: var(--primary);
+	color: #ffffff;
+}
+
+
+.novel-admin-primary-button:hover {
+	filter: brightness(0.94);
+}
+
+
+.novel-admin-secondary-button {
+	border: 1px solid var(--border);
+
+	background: var(--surface);
+	color: var(--text-primary);
+}
+
+
+.novel-admin-secondary-button:hover {
+	border-color: var(--primary);
+
+	color: var(--primary);
+}
+
+
+.novel-admin-primary-button:focus-visible,
+.novel-admin-secondary-button:focus-visible,
+.novel-admin-danger-button:focus-visible {
+	outline: 3px solid rgba(93, 77, 168, 0.18);
+	outline-offset: 3px;
+}
+
+
+.novel-admin-danger-button {
+	min-height: 42px;
+
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+
+	padding: 0 15px;
+
+	border: 1px solid #b42318;
+	border-radius: 10px;
+
+	background: #b42318;
+	color: #ffffff;
+
+	font: inherit;
+	font-size: 12px;
+	font-weight: 700;
+
+	cursor: pointer;
+}
+
+
+.novel-admin-danger-button:hover {
+	filter: brightness(0.94);
+}
+
+
+/* =========================================================
+   CREATE / EDIT HEADING
+   ========================================================= */
+
+.novel-admin-create-heading {
+	margin-bottom: 22px;
+}
+
+
+.novel-admin-create-heading h2 {
+	margin: 8px 0 6px;
+
+	font-size: 24px;
+}
+
+
+.novel-admin-create-heading p {
+	margin: 0;
+
+	color: var(--text-secondary);
+
+	font-size: 13px;
+}
+
+
+/* =========================================================
+   FORM PANEL
+   ========================================================= */
+
+.novel-admin-form-panel {
+	width: 100%;
+	max-width: none;
+
+	padding: 28px;
+
+	border: 1px solid var(--border);
+	border-radius: 16px;
+
+	background: var(--surface);
+
+	box-shadow: var(--shadow);
+}
+
+
+.novel-admin-form {
+	display: grid;
+
+	gap: 24px;
+}
+
+
+.novel-admin-form-grid {
+	display: grid;
+
+	grid-template-columns:
+		repeat(
+			2,
+			minmax(0, 1fr)
+		);
+
+	gap: 20px;
+}
+
+
+.novel-admin-form-group {
+	display: grid;
+
+	gap: 8px;
+}
+
+
+.novel-admin-form-group label {
+	color: var(--text-primary);
+
+	font-size: 12px;
+	font-weight: 700;
+}
+
+
+.novel-admin-required {
+	color: var(--danger);
+}
+
+
+.novel-admin-form-group input,
+.novel-admin-form-group select,
+.novel-admin-form-group textarea {
+	width: 100%;
+
+	padding: 0 13px;
+
+	border: 1px solid var(--border);
+	border-radius: 10px;
+
+	outline: none;
+
+	background: var(--surface);
+	color: var(--text-primary);
+
+	font: inherit;
+}
+
+
+.novel-admin-form-group input,
+.novel-admin-form-group select {
+	min-height: 45px;
+}
+
+
+.novel-admin-form-group textarea {
+	padding-top: 12px;
+	padding-bottom: 12px;
+
+	resize: vertical;
+
+	line-height: 1.6;
+}
+
+
+.novel-admin-form-group input:focus,
+.novel-admin-form-group select:focus,
+.novel-admin-form-group textarea:focus {
+	border-color: var(--primary);
+
+	box-shadow:
+		0 0 0 3px
+		rgba(93, 77, 168, 0.12);
+}
+
+
+.novel-admin-form-group small {
+	color: var(--text-secondary);
+
+	font-size: 10px;
+	line-height: 1.5;
+}
+
+
+/* =========================================================
+   FORM NOTE
+   ========================================================= */
+
+.novel-admin-create-note {
+	padding: 16px 18px;
+
+	border-radius: 12px;
+
+	background: var(--primary-light);
+	color: var(--text-primary);
+}
+
+
+.novel-admin-create-note strong {
+	display: block;
+
+	margin-bottom: 5px;
+
+	color: var(--primary);
+
+	font-size: 12px;
+}
+
+
+.novel-admin-create-note p {
+	margin: 0;
+
+	font-size: 11px;
+	line-height: 1.6;
+}
+
+
+/* =========================================================
+   FORM ERROR / SUCCESS
+   ========================================================= */
+
+.novel-admin-form-error {
+	padding: 13px 15px;
+
+	border: 1px solid #f3c7cd;
+	border-radius: 10px;
+
+	background: var(--danger-light);
+	color: var(--danger);
+
+	font-size: 12px;
+	font-weight: 700;
+}
+
+
+.novel-admin-success-message {
+	margin-bottom: 18px;
+
+	padding: 13px 16px;
+
+	border: 1px solid #bfe8d4;
+	border-radius: 11px;
+
+	background: var(--success-light);
+	color: var(--success);
+
+	font-size: 12px;
+	font-weight: 700;
+}
+
+
+/* =========================================================
+   FORM ACTIONS
+   ========================================================= */
+
+.novel-admin-form-actions {
+	display: flex;
+	justify-content: flex-end;
+
+	gap: 10px;
+
+	padding-top: 4px;
+}
+
+
+/* =========================================================
+   CREATE RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+	.novel-admin-form-panel {
+		padding: 20px;
+	}
+
+
+	.novel-admin-form-grid {
+		grid-template-columns: 1fr;
+	}
+
+
+	.novel-admin-form-actions {
+		flex-direction: column-reverse;
+	}
+
+
+	.novel-admin-form-actions
+	.novel-admin-primary-button,
+	.novel-admin-form-actions
+	.novel-admin-secondary-button {
+		width: 100%;
+	}
+
+}
+
+/* =========================================================
+   EDIT VOLUME — SYSTEM DATA
+   ========================================================= */
+
+.novel-admin-edit-system-panel {
+	display: grid;
+
+	grid-template-columns:
+		repeat(
+			3,
+			minmax(0, 1fr)
+		);
+
+	gap: 1px;
+
+	overflow: hidden;
+
+	border: 1px solid var(--border);
+	border-radius: 12px;
+
+	background: var(--border);
+}
+
+
+.novel-admin-edit-system-panel > div {
+	padding: 15px 16px;
+
+	background: var(--surface);
+}
+
+
+.novel-admin-edit-system-label {
+	display: block;
+
+	margin-bottom: 8px;
+
+	color: var(--text-secondary);
+
+	font-size: 10px;
+	font-weight: 800;
+
+	letter-spacing: 0.5px;
+	text-transform: uppercase;
+}
+
+
+.novel-admin-edit-system-panel code {
+	display: inline-block;
+
+	padding: 5px 8px;
+
+	border-radius: 7px;
+
+	background: #f0f1f4;
+	color: #686c75;
+
+	font-size: 11px;
+}
+
+
+/* =========================================================
+   DETAIL ACTIONS
+   ========================================================= */
+
+.novel-admin-detail-actions {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	flex: 0 0 auto;
+}
+
+.novel-admin-detail-actions
+.novel-admin-primary-button,
+.novel-admin-detail-actions
+.novel-admin-secondary-button {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.novel-admin-inline-form {
+	margin: 0;
+}
+
+.novel-admin-inline-link {
+	color: var(--primary);
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.novel-admin-inline-link:hover {
+	text-decoration: underline;
+}
+
+.novel-admin-inline-link:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+}
+
+/* =========================================================
+   DETAIL — ACTION MENU (Wiki-aligned)
+   ========================================================= */
+
+.novel-admin-detail-action-menu {
+	position: relative;
+	flex: 0 0 auto;
+}
+
+.novel-admin-detail-action-menu > summary {
+	list-style: none;
+}
+
+.novel-admin-detail-action-menu > summary::-webkit-details-marker {
+	display: none;
+}
+
+.novel-admin-detail-action-trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	user-select: none;
+}
+
+.novel-admin-detail-action-chevron {
+	color: var(--text-secondary);
+	font-size: 10px;
+	transition: transform 0.15s ease;
+}
+
+.novel-admin-detail-action-menu[open]
+.novel-admin-detail-action-chevron {
+	transform: rotate(180deg);
+}
+
+.novel-admin-detail-action-dropdown {
+	position: absolute;
+	top: calc(100% + 7px);
+	right: 0;
+	z-index: 100;
+	width: 190px;
+	padding: 6px;
+	border: 1px solid var(--border);
+	border-radius: 11px;
+	background: var(--surface);
+	box-shadow: 0 14px 34px rgba(20, 21, 31, 0.14);
+}
+
+.novel-admin-detail-action-dropdown form {
+	margin: 0;
+}
+
+.novel-admin-detail-action-item {
+	width: 100%;
+	min-height: 40px;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 0 10px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--text-primary);
+	font: inherit;
+	font-size: 11px;
+	font-weight: 700;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+
+.novel-admin-detail-action-item:hover {
+	background: var(--primary-light);
+	color: var(--primary);
+}
+
+.novel-admin-detail-action-icon {
+	width: 18px;
+	flex: 0 0 18px;
+	display: inline-flex;
+	justify-content: center;
+	color: var(--text-secondary);
+}
+
+.novel-admin-detail-action-item.is-positive {
+	color: var(--success);
+}
+
+.novel-admin-detail-action-item.is-positive:hover {
+	background: var(--success-light);
+	color: var(--success);
+}
+
+.novel-admin-detail-action-item.is-warning {
+	color: var(--warning);
+}
+
+.novel-admin-detail-action-item.is-warning:hover {
+	background: var(--warning-light);
+	color: var(--warning);
+}
+
+.novel-admin-detail-action-item.is-danger {
+	color: var(--danger);
+}
+
+.novel-admin-detail-action-item.is-danger:hover {
+	background: var(--danger-light);
+	color: var(--danger);
+}
+
+.novel-admin-detail-action-separator {
+	height: 1px;
+	margin: 5px 4px;
+	background: var(--border);
+}
+
+/* =========================================================
+   DETAIL — COMPACT MOVE PANEL
+   ========================================================= */
+
+.novel-admin-detail-move-dropdown {
+	width: 300px;
+	padding: 12px;
+}
+
+.novel-admin-detail-move-hint {
+	margin: 0 0 12px;
+	color: var(--text-secondary);
+	font-size: 11px;
+	line-height: 1.55;
+}
+
+.novel-admin-move-form {
+	display: grid;
+	gap: 12px;
+}
+
+.novel-admin-move-form .novel-admin-form-group {
+	margin: 0;
+}
+
+.novel-admin-move-form select {
+	width: 100%;
+	min-height: 42px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--surface);
+	color: var(--text-primary);
+	font: inherit;
+}
+
+.novel-admin-move-form select:focus {
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px rgba(93, 77, 168, 0.12);
+	outline: none;
+}
+
+.novel-admin-move-form .novel-admin-secondary-button {
+	width: 100%;
+}
+
+/* =========================================================
+   CHAPTER ADMIN
+   ========================================================= */
+
+.novel-admin-content-textarea {
+	min-height: 360px;
+	width: 100%;
+}
+
+.novel-admin-action-cell {
+	white-space: nowrap;
+}
+
+.novel-admin-action-cell .novel-admin-secondary-button {
+	min-height: 36px;
+	padding: 0 12px;
+}
+
+.novel-admin-chapter-content {
+	max-width: none;
+}
+
+@media (max-width: 650px) {
+
+	.novel-admin-edit-system-panel {
+		grid-template-columns: 1fr;
+	}
+
+	.novel-admin-detail-actions {
+		width: 100%;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 9px;
+	}
+
+	.novel-admin-detail-edit-button {
+		grid-column: 1 / -1;
+		order: 1;
+	}
+
+	.novel-admin-detail-move-menu {
+		order: 2;
+	}
+
+	.novel-admin-detail-action-menu {
+		width: 100%;
+	}
+
+	.novel-admin-detail-action-trigger {
+		width: 100%;
+	}
+
+	.novel-admin-detail-actions
+	.novel-admin-primary-button,
+	.novel-admin-detail-actions
+	.novel-admin-secondary-button {
+		width: 100%;
+	}
+
+	.novel-admin-detail-action-dropdown {
+		right: 0;
+		left: auto;
+		width: min(220px, calc(100vw - 40px));
+	}
+
+	.novel-admin-detail-move-dropdown {
+		width: min(300px, calc(100vw - 40px));
+	}
+
+	.novel-admin-detail-actions.is-archived
+	.novel-admin-inline-form {
+		grid-column: 1 / -1;
+	}
+
+	.novel-admin-content-textarea {
+		min-height: 280px;
+	}
+
+	.novel-admin-action-cell .novel-admin-secondary-button {
+		width: 100%;
+	}
+}
+
+/* =========================================================
+   VOLUME LIST ACTIONS
+   ========================================================= */
+
+.novel-admin-actions-column {
+	width: 220px;
+}
+
+.novel-admin-actions-cell {
+	position: relative;
+	overflow: visible;
+	vertical-align: middle;
+}
+
+.novel-admin-list-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.novel-admin-chapter-action-dropdown,
+.novel-admin-volume-action-dropdown {
+	width: 280px;
+	z-index: 1000;
+}
+
+.novel-admin-list-action-menu {
+	display: inline-block;
+}
+
+.novel-admin-list-move-block {
+	padding: 6px 4px 2px;
+}
+
+.novel-admin-list-move-block .novel-admin-detail-move-hint {
+	margin: 0 0 10px;
+	padding: 0 6px;
+}
+
+.novel-admin-list-move-block .novel-admin-move-form {
+	gap: 10px;
+}
+
+.novel-admin-list-move-block .novel-admin-form-group {
+	margin: 0;
+	padding: 0 6px;
+}
+
+.novel-admin-list-move-block label {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--text-secondary);
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.5px;
+	text-transform: uppercase;
+}
+
+.novel-admin-detail-read-only-note {
+	margin: 10px 0 0;
+	color: var(--text-secondary);
+	font-size: 12px;
+	line-height: 1.55;
+}
+
+.novel-admin-list-actions .novel-admin-secondary-button {
+	min-height: 36px;
+	padding: 0 12px;
+}
+
+a.novel-admin-detail-action-item {
+	text-decoration: none;
+	box-sizing: border-box;
+}
+
+/* =========================================================
+   CHAPTER MARKDOWN EDITOR
+   ========================================================= */
+
+.novel-markdown-editor-shell {
+	overflow: hidden;
+	margin-top: 8px;
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	background: var(--surface);
+}
+
+.novel-markdown-editor-tabs {
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+	padding: 0 10px;
+	border-bottom: 1px solid var(--border);
+	background: #fafafd;
+}
+
+.novel-markdown-editor-tab {
+	position: relative;
+	min-height: 44px;
+	padding: 0 15px;
+	border: 0;
+	background: transparent;
+	color: var(--text-secondary);
+	font: inherit;
+	font-size: 12px;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.novel-markdown-editor-tab:hover {
+	color: var(--text-primary);
+}
+
+.novel-markdown-editor-tab.is-active {
+	color: var(--text-primary);
+}
+
+.novel-markdown-editor-tab.is-active::after {
+	content: "";
+	position: absolute;
+	right: 10px;
+	bottom: -1px;
+	left: 10px;
+	height: 2px;
+	border-radius: 2px 2px 0 0;
+	background: var(--primary);
+}
+
+.novel-markdown-editor-panel[hidden] {
+	display: none !important;
+}
+
+.novel-markdown-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	margin: 0;
+	padding: 8px;
+	border: 0;
+	border-bottom: 1px solid var(--border);
+	border-radius: 0;
+	background: #fafafd;
+}
+
+.novel-markdown-toolbar-group {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.novel-markdown-toolbar-divider {
+	width: 1px;
+	height: 26px;
+	margin: 0 4px;
+	background: var(--border);
+}
+
+.novel-markdown-tool {
+	min-width: 38px;
+	height: 34px;
+	padding: 0 10px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.novel-markdown-tool:hover:not(:disabled) {
+	border-color: var(--border);
+	background: var(--surface);
+}
+
+.novel-markdown-tool:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
+	border-color: var(--primary);
+	background: var(--primary-light);
+	color: var(--primary);
+}
+
+.novel-markdown-tool-bold {
+	font-weight: 800;
+}
+
+.novel-markdown-tool-italic {
+	font-style: italic;
+}
+
+#novelWritePanel #novelContent {
+	display: block;
+	width: 100%;
+	min-height: 420px;
+	margin: 0;
+	padding: 18px;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	resize: vertical;
+	background: var(--surface);
+	color: var(--text-primary);
+	font: inherit;
+	line-height: 1.6;
+}
+
+#novelWritePanel #novelContent:focus {
+	border: 0;
+	box-shadow: none;
+	outline: none;
+}
+
+.novel-admin-markdown-help {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px 18px;
+	margin: 0;
+	padding: 11px 16px;
+	border-top: 1px solid var(--border);
+	background: #fafafd;
+	color: var(--text-secondary);
+	font-size: 11px;
+}
+
+.novel-markdown-preview {
+	min-height: 420px;
+	padding: 24px 28px;
+	color: var(--text-primary);
+	font-size: 14px;
+	line-height: 1.75;
+	overflow-wrap: anywhere;
+}
+
+.novel-markdown-preview-state {
+	padding: 40px 24px;
+	color: var(--text-secondary);
+	font-size: 13px;
+	text-align: center;
+}
+
+.novel-markdown-preview h2,
+.novel-markdown-preview h3,
+.novel-markdown-preview h4 {
+	margin: 1.2em 0 0.55em;
+	line-height: 1.35;
+}
+
+.novel-markdown-preview h2:first-child,
+.novel-markdown-preview h3:first-child,
+.novel-markdown-preview h4:first-child {
+	margin-top: 0;
+}
+
+.novel-markdown-preview p {
+	margin: 0 0 1em;
+}
+
+.novel-markdown-preview ul,
+.novel-markdown-preview ol {
+	margin: 0 0 1em;
+	padding-left: 1.4em;
+}
+
+.novel-markdown-preview blockquote {
+	margin: 0 0 1em;
+	padding: 8px 14px;
+	border-left: 3px solid var(--primary);
+	background: #fafafd;
+	color: var(--text-secondary);
+}
+
+.novel-markdown-preview a {
+	color: var(--primary);
+}
+
+.novel-markdown-preview code {
+	padding: 2px 6px;
+	border-radius: 5px;
+	background: #f0f1f4;
+	font-size: 0.92em;
+}
+
+.novel-markdown-preview table {
+	width: 100%;
+	margin: 0 0 1em;
+	border-collapse: collapse;
+}
+
+.novel-markdown-preview th,
+.novel-markdown-preview td {
+	padding: 8px 10px;
+	border: 1px solid var(--border);
+	text-align: left;
+}
+
+.novel-markdown-preview th {
+	background: #fafafd;
+}
+
+@media (max-width: 650px) {
+	.novel-admin-table-wrapper--actions {
+		overflow-x: auto;
+	}
+
+	.novel-admin-filter-form {
+		grid-template-columns: 1fr;
+	}
+
+	.novel-admin-filter-actions {
+		grid-column: auto;
+	}
+
+	#novelWritePanel #novelContent,
+	.novel-markdown-preview {
+		min-height: 300px;
+	}
+
+	.novel-admin-list-actions {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.novel-admin-list-actions .novel-admin-secondary-button,
+	.novel-admin-list-actions .novel-admin-detail-action-trigger,
+	.novel-admin-list-action-menu .novel-admin-detail-action-trigger {
+		width: 100%;
+	}
+}
+
+/* =========================================================
+   CHAPTER LIST — PAGINATION
+   ========================================================= */
+
+.novel-admin-pagination {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+	align-items: center;
+	gap: 16px;
+
+	padding: 14px 18px;
+
+	border-top: 1px solid var(--border);
+
+	background: var(--surface);
+}
+
+.novel-admin-pagination-side {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+}
+
+.novel-admin-pagination-side--end {
+	justify-content: flex-end;
+}
+
+.novel-admin-pagination-info {
+	color: var(--text-secondary);
+	font-size: 12px;
+	text-align: center;
+	white-space: nowrap;
+}
+
+.novel-admin-pagination-info strong {
+	color: var(--text-primary);
+	font-weight: 800;
+}
+
+.novel-admin-pagination
+.novel-admin-secondary-button {
+	min-width: 120px;
+}
+
+.novel-admin-secondary-button.is-disabled {
+	opacity: 0.5;
+
+	cursor: default;
+
+	pointer-events: none;
+
+	user-select: none;
+}
+
+.novel-admin-secondary-button.is-disabled:hover {
+	border-color: var(--border);
+
+	color: var(--text-primary);
+
+	background: var(--surface);
+}
+
+
+/* =========================================================
+   CHAPTER LIST — PAGINATION RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 650px) {
+
+	.novel-admin-pagination {
+		grid-template-columns:
+			minmax(0, 1fr)
+			minmax(0, 1fr);
+
+		gap: 10px;
+
+		padding: 14px;
+	}
+
+	.novel-admin-pagination-info {
+		grid-column: 1 / -1;
+		grid-row: 1;
+
+		padding-bottom: 2px;
+	}
+
+	.novel-admin-pagination-side {
+		grid-column: 1;
+		grid-row: 2;
+	}
+
+	.novel-admin-pagination-side--end {
+		grid-column: 2;
+		grid-row: 2;
+	}
+
+	.novel-admin-pagination
+	.novel-admin-secondary-button {
+		width: 100%;
+		min-width: 0;
+		padding: 0 10px;
+	}
+
+}
+
+
+/* =========================================================
+   NOVEL ADMIN SUBNAV (SECONDARY NAVIGATION)
+   ========================================================= */
+
+.novel-admin-subnav {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 24px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.novel-admin-subnav-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 18px;
+	border-radius: 8px;
+	font-size: 13px;
+	font-weight: 600;
+	color: #6b7280;
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	text-decoration: none;
+	transition: all 0.15s ease;
+}
+
+.novel-admin-subnav-link:hover {
+	color: #111827;
+	border-color: #d1d5db;
+	background: #f9fafb;
+}
+
+.novel-admin-subnav-link.is-active {
+	color: #ffffff;
+	background: #6c584c;
+	border-color: #6c584c;
+	font-weight: 700;
+}
+
+
+/* =========================================================
+   NOVEL COVER UPLOAD CARD & PREVIEW
+   ========================================================= */
+
+.novel-admin-cover-upload-card {
+	display: flex;
+	align-items: flex-start;
+	gap: 24px;
+	padding: 20px;
+	border: 1px dashed var(--border, #d1d5db);
+	border-radius: 12px;
+	background: #f9fafb;
+}
+
+.novel-admin-cover-preview-wrapper {
+	flex-shrink: 0;
+	width: 140px;
+	height: 210px; /* Standard 2:3 book cover ratio */
+	border-radius: 10px;
+	overflow: hidden;
+	background: #e5e7eb;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+	border: 1px solid var(--border, #e5e7eb);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.novel-admin-cover-preview {
+	width: 100%;
+	height: 100%;
+}
+
+.novel-admin-cover-preview img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.novel-admin-cover-placeholder {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	width: 100%;
+	height: 100%;
+	padding: 12px;
+	text-align: center;
+	color: #6b7280;
+}
+
+.novel-admin-cover-placeholder-icon {
+	font-size: 28px;
+}
+
+.novel-admin-cover-placeholder-text {
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.novel-admin-cover-upload-controls {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	flex-grow: 1;
+	justify-content: center;
+	min-width: 0;
+}
+
+.novel-admin-cover-upload-controls input[type="file"] {
+	padding: 10px;
+	background: #ffffff;
+	border: 1px solid var(--border, #d1d5db);
+	border-radius: 8px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.novel-admin-cover-hint {
+	color: #6b7280;
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+	.novel-admin-cover-upload-card {
+		flex-direction: column;
+		align-items: center;
+	}
+
+	.novel-admin-cover-upload-controls {
+		width: 100%;
+	}
+}
+

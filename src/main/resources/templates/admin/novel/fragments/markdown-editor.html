@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<body>
+
+	<div th:fragment="editor(placeholderText)" class="novel-markdown-editor-shell">
+
+		<div class="novel-markdown-editor-tabs" role="tablist" aria-label="Chế độ soạn thảo">
+
+			<button id="novelWriteTab" type="button" class="novel-markdown-editor-tab is-active"
+				role="tab" aria-selected="true" aria-controls="novelWritePanel" tabindex="0">
+				Write
+			</button>
+
+			<button id="novelPreviewTab" type="button" class="novel-markdown-editor-tab"
+				role="tab" aria-selected="false" aria-controls="novelPreviewPanel" tabindex="-1">
+				Preview
+			</button>
+
+		</div>
+
+
+		<div id="novelWritePanel" class="novel-markdown-editor-panel" role="tabpanel"
+			aria-labelledby="novelWriteTab">
+
+			<div class="novel-markdown-toolbar" role="toolbar"
+				aria-label="Công cụ soạn thảo Markdown">
+
+				<div class="novel-markdown-toolbar-group">
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="undo" title="Hoàn tác (Ctrl+Z)"
+						aria-label="Hoàn tác">↶</button>
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="redo" title="Làm lại (Ctrl+Y)"
+						aria-label="Làm lại">↷</button>
+
+				</div>
+
+				<div class="novel-markdown-toolbar-divider"></div>
+
+				<div class="novel-markdown-toolbar-group">
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="h2" title="Đề mục chính">H2</button>
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="h3" title="Đề mục con">H3</button>
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="h4" title="Đề mục chi tiết">H4</button>
+
+				</div>
+
+				<div class="novel-markdown-toolbar-divider"></div>
+
+				<div class="novel-markdown-toolbar-group">
+
+					<button type="button" class="novel-markdown-tool novel-markdown-tool-bold"
+						data-markdown-action="bold" title="In đậm (Ctrl+B)">B</button>
+
+					<button type="button" class="novel-markdown-tool novel-markdown-tool-italic"
+						data-markdown-action="italic" title="In nghiêng (Ctrl+I)">I</button>
+
+				</div>
+
+				<div class="novel-markdown-toolbar-divider"></div>
+
+				<div class="novel-markdown-toolbar-group">
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="link" title="Chèn liên kết (Ctrl+K)">Link</button>
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="quote" title="Trích dẫn">Quote</button>
+
+					<button type="button" class="novel-markdown-tool"
+						data-markdown-action="list" title="Danh sách">List</button>
+
+				</div>
+
+			</div>
+
+
+			<textarea id="novelContent" th:field="*{content}" rows="18"
+				th:placeholder="${placeholderText}"></textarea>
+
+
+			<div class="novel-admin-markdown-help">
+
+				<span><strong>##</strong> Đề mục chính</span>
+				<span><strong>###</strong> Đề mục con</span>
+				<span><strong>####</strong> Đề mục chi tiết</span>
+				<span><strong>**</strong> In đậm</span>
+				<span><strong>_</strong> In nghiêng</span>
+
+			</div>
+
+		</div>
+
+
+		<div id="novelPreviewPanel" class="novel-markdown-editor-panel" role="tabpanel"
+			aria-labelledby="novelPreviewTab" hidden>
+
+			<div id="novelPreviewLoading" class="novel-markdown-preview-state" hidden>
+				Đang tạo bản xem trước...
+			</div>
+
+			<div id="novelPreviewEmpty" class="novel-markdown-preview-state" hidden>
+				Chưa có nội dung để xem trước.
+			</div>
+
+			<article id="novelMarkdownPreview" class="novel-markdown-preview"></article>
+
+		</div>
+
+	</div>
+
+</body>
+
+</html>
