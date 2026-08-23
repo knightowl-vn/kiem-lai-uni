@@ -243,7 +243,12 @@
     z-index: 1050;
 }
 
-.navbar-wiki-link {
+.navbar-home-link,
+.navbar-wiki-link,
+.navbar-novel-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     flex-shrink: 0;
     color: rgba(255, 255, 255, 0.88);
     font-weight: 600;
@@ -251,9 +256,30 @@
     transition: color 0.18s ease;
 }
 
+.navbar-home-link:hover,
+.navbar-home-link:focus-visible,
 .navbar-wiki-link:hover,
-.navbar-wiki-link:focus-visible {
+.navbar-wiki-link:focus-visible,
+.navbar-novel-link:hover,
+.navbar-novel-link:focus-visible {
     color: #ffffff;
+}
+
+.navbar-home-link.active,
+.navbar-wiki-link.active,
+.navbar-novel-link.active,
+.navbar-home-link[aria-current="page"],
+.navbar-wiki-link[aria-current="page"],
+.navbar-novel-link[aria-current="page"] {
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.navbar-home-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
 }
 
 .navbar-account-area {
@@ -378,24 +404,51 @@
 @media (max-width: 767.98px) {
 
     .main-navbar {
-        gap: 12px;
-        padding-left: 16px !important;
-        padding-right: 16px !important;
+        flex-wrap: nowrap;
+        gap: 8px;
+        min-height: 54px;
+        padding-left: 12px !important;
+        padding-right: 12px !important;
     }
 
-    .navbar-brand {
-        max-width: 165px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .navbar-home-link,
+    .navbar-wiki-link,
+    .navbar-novel-link {
+        display: inline-flex;
+        align-items: center;
+        font-size: 13.5px;
+        padding: 4px 2px;
     }
 
-    .navbar-wiki-link {
+    .navbar-home-text {
         display: none;
+    }
+
+    .navbar-home-icon {
+        width: 19px;
+        height: 19px;
+    }
+
+    .profile-avatar {
+        width: 36px;
+        height: 36px;
+    }
+
+    .navbar-wiki-search-submit,
+    .navbar-wiki-search-toggle {
+        width: 36px;
+        height: 36px;
+    }
+
+    .navbar-wiki-search-submit svg,
+    .navbar-wiki-search-toggle svg {
+        width: 19px;
+        height: 19px;
     }
 
     .navbar-wiki-search {
         position: static;
+        min-width: 36px;
     }
 
     .navbar-wiki-search-form {

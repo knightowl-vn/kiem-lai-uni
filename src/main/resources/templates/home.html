@@ -19,23 +19,106 @@
 
 <body>
 
-	<div th:replace="~{fragments/navbar :: navbar}"></div>
+	<div th:replace="~{fragments/navbar :: navbar(activeNav='home')}"></div>
 
-	<main class="container text-center mt-5">
-		<h1 class="display-4">Chào mừng đến với Kiếm Lai Universe</h1>
+	<main class="home-main">
+		<!-- HERO SECTION -->
+		<section class="home-hero">
+			<span class="home-eyebrow">VŨ TRỤ KIẾM LAI</span>
+			<h1 class="home-hero-title">Kiếm Lai Universe</h1>
+			<p class="home-hero-subtitle">
+				Cổng thông tin và không gian đọc nguyên tác tiểu thuyết, tra cứu bách khoa toàn thư thế giới tu tiên Kiếm Lai.
+			</p>
 
-		<p class="lead text-muted">Nơi khám phá thế giới tu tiên, nhân vật
-			và cốt truyện đỉnh cao.</p>
+			<div class="home-hero-actions">
+				<a th:href="@{/novel}" class="home-btn home-btn-primary">
+					<svg class="home-btn-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+						<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+					</svg>
+					<span>Đọc Novel</span>
+				</a>
+				<a th:href="@{/wiki}" class="home-btn home-btn-secondary">
+					<svg class="home-btn-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<circle cx="12" cy="12" r="10"></circle>
+						<polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon>
+					</svg>
+					<span>Khám phá Wiki</span>
+				</a>
+			</div>
 
-		<hr class="my-4">
+			<div sec:authorize="isAuthenticated()" class="home-hero-user-shortcut">
+				<a th:href="@{/profile}" class="home-quiet-link">
+					<small>Đã đăng nhập &bull; Xem hồ sơ của bạn &rarr;</small>
+				</a>
+			</div>
+		</section>
 
-		<a sec:authorize="isAnonymous()" th:href="@{/register}"
-			class="btn btn-dark btn-lg"> Bắt đầu hành trình ngay </a> <a
-			sec:authorize="isAuthenticated()" th:href="@{/profile}"
-			class="btn btn-dark btn-lg"> Xem hồ sơ của tôi </a> <a
-			th:href="@{/wiki}" class="btn btn-outline-dark btn-lg"> Khám phá
-			Wiki </a>
+		<!-- EXPLORE SECTION -->
+		<section class="home-explore-section">
+			<div class="home-section-header">
+				<span class="home-eyebrow">KHÁM PHÁ</span>
+				<h2 class="home-section-title">Hai trụ cột của Kiếm Lai Universe</h2>
+				<p class="home-section-subtitle">
+					Trải nghiệm đọc nguyên tác tiểu thuyết và tra cứu chi tiết hệ thống nhân vật, cảnh giới, địa danh.
+				</p>
+			</div>
+
+			<div class="home-explore-grid">
+				<!-- CARD 1: NOVEL -->
+				<article class="home-feature-card home-feature-card--novel">
+					<div class="home-card-badge">
+						<span class="home-badge-pill">TIỂU THUYẾT</span>
+					</div>
+					<div class="home-card-icon-wrapper">
+						<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+							<path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+						</svg>
+					</div>
+					<h3 class="home-card-title">Đọc Nguyên Tác Kiếm Lai</h3>
+					<p class="home-card-description">
+						Theo chân thiếu niên Trần Bình An từ trấn Ly Châu bước vào con đường tu đạo đầy gian nan, nơi quy củ và nhân tâm giao hòa.
+					</p>
+					<ul class="home-card-features">
+						<li>Đọc trọn vẹn theo từng quyển và từng chương</li>
+						<li>Giao diện đọc tối ưu, tập trung và tùy biến</li>
+						<li>Mục lục chương nhanh và điều hướng mượt mà</li>
+					</ul>
+					<a th:href="@{/novel}" class="home-card-cta">
+						<span>Bắt đầu đọc</span>
+						<span class="home-card-arrow">&rarr;</span>
+					</a>
+				</article>
+
+				<!-- CARD 2: WIKI -->
+				<article class="home-feature-card home-feature-card--wiki">
+					<div class="home-card-badge">
+						<span class="home-badge-pill">BÁCH KHOA WIKI</span>
+					</div>
+					<div class="home-card-icon-wrapper">
+						<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+						</svg>
+					</div>
+					<h3 class="home-card-title">Tra Cứu Bách Khoa Wiki</h3>
+					<p class="home-card-description">
+						Hệ thống hóa toàn diện thông tin nhân vật, cảnh giới tu luyện, tông môn thế lực, thần binh bảo vật và địa danh cửu châu thiên hạ.
+					</p>
+					<ul class="home-card-features">
+						<li>Phân loại chi tiết theo từng chủ đề tu tiên</li>
+						<li>Tìm kiếm nhanh nhân vật, công pháp, địa danh</li>
+						<li>Lược sử, mục lục và quan hệ thế lực trực quan</li>
+					</ul>
+					<a th:href="@{/wiki}" class="home-card-cta">
+						<span>Tra cứu Wiki</span>
+						<span class="home-card-arrow">&rarr;</span>
+					</a>
+				</article>
+			</div>
+		</section>
 	</main>
+
 	<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>
