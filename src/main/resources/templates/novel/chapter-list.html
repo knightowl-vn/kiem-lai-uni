@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org">
+
+<body>
+
+<div th:fragment="chapterList"
+     class="novel-reader-chapter-list">
+
+    <div th:if="${#lists.isEmpty(chapters)}"
+         class="novel-reader-chapter-empty">
+
+        Chưa có chương nào được xuất bản.
+
+    </div>
+
+
+    <div th:unless="${#lists.isEmpty(chapters)}"
+         class="novel-reader-chapter-grid">
+
+        <a th:each="chapter : ${chapters}"
+           th:href="@{/novel/chapters/{slug}(slug=${chapter.slug})}"
+           class="novel-reader-chapter-item">
+
+            <span class="novel-reader-chapter-number"
+                  th:text="${'Chương ' + chapter.chapterNumber}">
+                Chương 1
+            </span>
+
+            <span class="novel-reader-chapter-title"
+                  th:text="${chapter.title}">
+                Tên chương
+            </span>
+
+        </a>
+
+    </div>
+
+</div>
+
+</body>
+</html>
