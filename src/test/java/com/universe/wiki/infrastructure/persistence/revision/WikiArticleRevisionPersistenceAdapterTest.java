@@ -5,6 +5,7 @@ import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.revision.RevisionChangeType;
 import com.universe.wiki.domain.revision.WikiArticleRevision;
+import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +53,10 @@ class WikiArticleRevisionPersistenceAdapterTest {
     @Mock
     private SpringDataWikiArticleRevisionJpaRepository
             repository;
+    
+    @Mock
+    private WikiImageReferenceSynchronizer
+            imageReferenceSynchronizer;
 
     private WikiArticleRevisionPersistenceAdapter
             persistenceAdapter;
@@ -60,7 +65,8 @@ class WikiArticleRevisionPersistenceAdapterTest {
     void setUp() {
         persistenceAdapter =
                 new WikiArticleRevisionPersistenceAdapter(
-                        repository
+                        repository,
+                        imageReferenceSynchronizer
                 );
     }
 
@@ -84,6 +90,12 @@ class WikiArticleRevisionPersistenceAdapterTest {
                 .save(
                         entityCaptor.capture()
                 );
+        verify(
+                imageReferenceSynchronizer
+        ).syncRevisionReferences(
+                revision.id(),
+                revision.content()
+        );
 
         WikiArticleRevisionJpaEntity entity =
                 entityCaptor.getValue();
@@ -100,6 +112,9 @@ class WikiArticleRevisionPersistenceAdapterTest {
 
         assertThat(entity.getRevisionNumber())
                 .isEqualTo(1L);
+        
+        assertThat(entity.getContentVersion())
+        .isEqualTo(1L);
 
         assertThat(entity.getTitle())
                 .isEqualTo("Trần Bình An");
@@ -228,6 +243,7 @@ class WikiArticleRevisionPersistenceAdapterTest {
                 REVISION_ID,
                 ARTICLE_ID,
                 1L,
+                1L,
                 "Trần Bình An",
                 new Slug(
                         "tran-binh-an"
@@ -256,6 +272,8 @@ class WikiArticleRevisionPersistenceAdapterTest {
         );
 
         entity.setRevisionNumber(1L);
+        
+        entity.setContentVersion(1L);
 
         entity.setTitle(
                 "Trần Bình An"

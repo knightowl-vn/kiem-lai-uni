@@ -2,6 +2,20 @@ package com.universe.wiki.application.image;
 
 import org.springframework.stereotype.Service;
 
+import com.universe.wiki.application.ports.WikiImageStoragePort;
+import com.universe.wiki.application.ports.WikiImageRepositoryPort;
+import com.universe.wiki.application.ports.WikiImageStoragePort;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -31,14 +45,24 @@ public class UploadWikiImageUseCase {
 
     private final WikiImageStoragePort
             imageStoragePort;
+    
+    private final WikiImageRepositoryPort
+    imageRepositoryPort;
 
     public UploadWikiImageUseCase(
-            WikiImageStoragePort imageStoragePort
+            WikiImageStoragePort imageStoragePort,
+            WikiImageRepositoryPort imageRepositoryPort
     ) {
         this.imageStoragePort =
                 Objects.requireNonNull(
                         imageStoragePort,
                         "WikiImageStoragePort không được để trống."
+                );
+
+        this.imageRepositoryPort =
+                Objects.requireNonNull(
+                        imageRepositoryPort,
+                        "WikiImageRepositoryPort không được để trống."
                 );
     }
 
@@ -53,13 +77,101 @@ public class UploadWikiImageUseCase {
                 content
         );
 
-        return imageStoragePort.upload(
-                normalizeFilename(
-                        originalFilename
-                ),
-                contentType,
-                content
+        String contentHash =
+                calculateSha256(
+                        content
+                );
+
+        /*
+         * Nếu binary của ảnh đã từng được upload,
+         * tái sử dụng asset Cloudinary cũ.
+         */
+        return imageRepositoryPort
+                .findByContentHash(
+                        contentHash
+                )
+                .map(
+                        existingAsset ->
+                                new WikiImageUploadResult(
+                                        existingAsset.url(),
+                                        existingAsset.publicId()
+                                )
+                )
+                .orElseGet(
+                        () -> uploadNewImage(
+                                originalFilename,
+                                contentType,
+                                content,
+                                contentHash
+                        )
+                );
+    }
+    
+    private WikiImageUploadResult uploadNewImage(
+            String originalFilename,
+            String contentType,
+            byte[] content,
+            String contentHash
+    ) {
+        WikiImageUploadResult uploadResult =
+                imageStoragePort.upload(
+                        normalizeFilename(
+                                originalFilename
+                        ),
+                        contentType,
+                        content
+                );
+
+        WikiImageAsset asset =
+                new WikiImageAsset(
+                        UUID.randomUUID(),
+                        contentHash,
+                        uploadResult.url(),
+                        uploadResult.publicId(),
+                        contentType,
+                        content.length,
+                        Instant.now()
+                );
+
+        imageRepositoryPort.save(
+                asset
         );
+
+        return uploadResult;
+    }
+    
+    private String calculateSha256(
+            byte[] content
+    ) {
+        try {
+            MessageDigest digest =
+                    MessageDigest.getInstance(
+                            "SHA-256"
+                    );
+
+            byte[] hash =
+                    digest.digest(
+                            content
+                    );
+
+            return HexFormat
+                    .of()
+                    .formatHex(
+                            hash
+                    );
+
+        } catch (
+                NoSuchAlgorithmException exception
+        ) {
+            /*
+             * SHA-256 là thuật toán bắt buộc
+             * phải có trong Java runtime.
+             */
+            throw new IllegalStateException(
+                    "Không thể tạo fingerprint cho ảnh Wiki.",
+                    exception
+            );
+        }
     }
 
     /*

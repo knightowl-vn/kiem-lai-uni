@@ -1,25 +1,30 @@
 package com.universe.wiki.infrastructure.markdown;
 
-import com.universe.wiki.application.article.render
-        .RenderedWikiContent;
-import com.universe.wiki.application.article.render
-        .WikiMarkdownRenderer;
-import com.universe.wiki.application.article.render
-        .WikiTocItem;
+import com.universe.wiki.application.article.render.RenderedWikiContent;
+import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
+import com.universe.wiki.application.article.render.WikiTocItem;
 
 import org.commonmark.Extension;
-import org.commonmark.ext.gfm.tables
-        .TablesExtension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.AbstractVisitor;
+import org.commonmark.node.CustomBlock;
+import org.commonmark.node.Emphasis;
+import org.commonmark.node.HardLineBreak;
 import org.commonmark.node.Heading;
+import org.commonmark.node.HtmlBlock;
+import org.commonmark.node.HtmlInline;
+import org.commonmark.node.Image;
 import org.commonmark.node.Node;
+import org.commonmark.node.Paragraph;
+import org.commonmark.node.SoftLineBreak;
+import org.commonmark.node.Text;
 import org.commonmark.parser.Parser;
-import org.commonmark.renderer.html
-        .AttributeProvider;
-import org.commonmark.renderer.html
-        .HtmlRenderer;
-import org.commonmark.renderer.text
-        .TextContentRenderer;
+import org.commonmark.renderer.NodeRenderer;
+import org.commonmark.renderer.html.AttributeProvider;
+import org.commonmark.renderer.html.HtmlNodeRendererContext;
+import org.commonmark.renderer.html.HtmlRenderer;
+import org.commonmark.renderer.html.HtmlWriter;
+import org.commonmark.renderer.text.TextContentRenderer;
 
 import org.springframework.stereotype.Component;
 
@@ -30,297 +35,845 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Component
-public class CommonMarkWikiMarkdownRenderer
-        implements WikiMarkdownRenderer {
+public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
-    private final List<Extension> extensions;
+	private final List<Extension> extensions;
 
-    private final Parser parser;
+	private final Parser parser;
 
-    private final TextContentRenderer
-            textContentRenderer;
+	private final TextContentRenderer textContentRenderer;
 
-    public CommonMarkWikiMarkdownRenderer() {
-        this.extensions =
-                List.of(
-                        TablesExtension.create()
-                );
+	private static final String CLEAR_WRAP_MARKER = "[[WIKI_CLEAR]]";
 
-        this.parser =
-                Parser.builder()
-                        .extensions(
-                                extensions
-                        )
-                        .build();
+	private static final int DEFAULT_IMAGE_WIDTH = 50;
 
-        this.textContentRenderer =
-                TextContentRenderer
-                        .builder()
-                        .build();
-    }
+	private static final int MIN_IMAGE_WIDTH = 20;
 
-    @Override
-    public RenderedWikiContent render(
-            String markdown
-    ) {
-        if (
-                markdown == null
-                || markdown.isBlank()
-        ) {
-            return RenderedWikiContent.empty();
-        }
+	private static final int MAX_IMAGE_WIDTH = 100;
 
-        Node document =
-                parser.parse(
-                        markdown
-                );
+	private static final int MAX_WRAPPING_IMAGE_WIDTH = 70;
 
-        Map<Heading, String> headingAnchors =
-                new IdentityHashMap<>();
+	private static final int IMAGE_WIDTH_STEP = 10;
 
-        List<WikiTocItem> tableOfContents =
-                new ArrayList<>();
+	public CommonMarkWikiMarkdownRenderer() {
 
-        collectHeadings(
-                document,
-                headingAnchors,
-                tableOfContents
-        );
+		this.extensions = List.of(TablesExtension.create());
 
-        HtmlRenderer htmlRenderer =
-                createHtmlRenderer(
-                        headingAnchors
-                );
+		this.parser = Parser.builder().extensions(extensions).build();
 
-        String html =
-                htmlRenderer.render(
-                        document
-                );
+		this.textContentRenderer = TextContentRenderer.builder().build();
+	}
 
-        return new RenderedWikiContent(
-                html,
-                tableOfContents
-        );
-    }
+	@Override
+	public RenderedWikiContent render(String markdown) {
 
-    private void collectHeadings(
-            Node document,
-            Map<Heading, String> headingAnchors,
-            List<WikiTocItem> tableOfContents
-    ) {
-        Map<String, Integer> anchorCounters =
-                new HashMap<>();
+		if (markdown == null || markdown.isBlank()) {
+			return RenderedWikiContent.empty();
+		}
 
-        document.accept(
-                new AbstractVisitor() {
+		Node document = parser.parse(markdown);
 
-                    @Override
-                    public void visit(
-                            Heading heading
-                    ) {
-                        String title =
-                                extractHeadingText(
-                                        heading
-                                );
+		/*
+		 * Wiki không hỗ trợ raw HTML.
+		 */
+		removeRawHtml(document);
 
-                        String baseAnchor =
-                                slugifyHeading(
-                                        title
-                                );
+		/*
+		 * Chuyển các ảnh Wiki có metadata thành block <figure>.
+		 */
+		transformWikiImageBlocks(document);
 
-                        String anchor =
-                                createUniqueAnchor(
-                                        baseAnchor,
-                                        anchorCounters
-                                );
+		transformWikiClearMarkers(document);
 
-                        headingAnchors.put(
-                                heading,
-                                anchor
-                        );
+		Map<Heading, String> headingAnchors = new IdentityHashMap<>();
 
-                        if (
-                                heading.getLevel() == 2
-                                || heading.getLevel() == 3
-                        ) {
-                            tableOfContents.add(
-                                    new WikiTocItem(
-                                            heading.getLevel(),
-                                            title,
-                                            anchor
-                                    )
-                            );
-                        }
+		List<WikiTocItem> tableOfContents = new ArrayList<>();
 
-                        visitChildren(
-                                heading
-                        );
-                    }
-                }
-        );
-    }
+		collectHeadings(document, headingAnchors, tableOfContents);
 
-    private String extractHeadingText(
-            Heading heading
-    ) {
-        return textContentRenderer
-                .render(
-                        heading
-                )
-                .trim();
-    }
+		HtmlRenderer htmlRenderer = createHtmlRenderer(headingAnchors);
 
-    private String createUniqueAnchor(
-            String baseAnchor,
-            Map<String, Integer> anchorCounters
-    ) {
-        int occurrence =
-                anchorCounters.merge(
-                        baseAnchor,
-                        1,
-                        Integer::sum
-                );
+		String html = htmlRenderer.render(document);
 
-        if (occurrence == 1) {
-            return baseAnchor;
-        }
+		return new RenderedWikiContent(html, tableOfContents);
+	}
 
-        return baseAnchor
-                + "-"
-                + occurrence;
-    }
+	/*
+	 * ===================================================== RAW HTML
+	 * =====================================================
+	 */
 
-    private HtmlRenderer createHtmlRenderer(
-            Map<Heading, String> headingAnchors
-    ) {
-        return HtmlRenderer.builder()
-                .extensions(
-                        extensions
-                )
+	private void removeRawHtml(Node document) {
 
-                /*
-                 * Không cho raw HTML từ Markdown
-                 * trở thành HTML thực.
-                 */
-                .escapeHtml(
-                        true
-                )
+		document.accept(new AbstractVisitor() {
 
-                /*
-                 * Loại bỏ URL không an toàn
-                 * như javascript:...
-                 */
-                .sanitizeUrls(
-                        true
-                )
+			@Override
+			public void visit(HtmlInline htmlInline) {
+				htmlInline.unlink();
+			}
 
-                /*
-                 * Gắn id cho các heading.
-                 */
-                .attributeProviderFactory(
-                        context ->
-                                new HeadingIdAttributeProvider(
-                                        headingAnchors
-                                )
-                )
-                .build();
-    }
+			@Override
+			public void visit(HtmlBlock htmlBlock) {
+				htmlBlock.unlink();
+			}
+		});
+	}
 
-    private String slugifyHeading(
-            String heading
-    ) {
-        if (
-                heading == null
-                || heading.isBlank()
-        ) {
-            return "section";
-        }
+	/*
+	 * ===================================================== WIKI IMAGE
+	 * TRANSFORMATION =====================================================
+	 */
 
-        String normalized =
-                heading
-                        .replace(
-                                'đ',
-                                'd'
-                        )
-                        .replace(
-                                'Đ',
-                                'D'
-                        );
+	private void transformWikiImageBlocks(Node document) {
 
-        normalized =
-                Normalizer.normalize(
-                        normalized,
-                        Normalizer.Form.NFD
-                );
+		List<Paragraph> imageParagraphs = new ArrayList<>();
 
-        normalized =
-                normalized.replaceAll(
-                        "\\p{M}+",
-                        ""
-                );
+		/*
+		 * Không sửa tree ngay trong lúc visitor đang chạy.
+		 *
+		 * Thu thập trước rồi transform sau.
+		 */
+		document.accept(new AbstractVisitor() {
 
-        normalized =
-                normalized.toLowerCase(
-                        Locale.ROOT
-                );
+			@Override
+			public void visit(Paragraph paragraph) {
 
-        normalized =
-                normalized.replaceAll(
-                        "[^a-z0-9]+",
-                        "-"
-                );
+				if (findLeadingWikiImage(paragraph) != null) {
 
-        normalized =
-                normalized.replaceAll(
-                        "^-+|-+$",
-                        ""
-                );
+					imageParagraphs.add(paragraph);
 
-        if (normalized.isBlank()) {
-            return "section";
-        }
+					return;
+				}
 
-        return normalized;
-    }
+				visitChildren(paragraph);
+			}
+		});
 
-    private static class HeadingIdAttributeProvider
-            implements AttributeProvider {
+		for (Paragraph paragraph : imageParagraphs) {
 
-        private final Map<Heading, String>
-                headingAnchors;
+			transformWikiImageParagraph(paragraph);
+		}
+	}
 
-        private HeadingIdAttributeProvider(
-                Map<Heading, String> headingAnchors
-        ) {
-            this.headingAnchors =
-                    headingAnchors;
-        }
+	/*
+	 * ===================================================== CLEAR IMAGE WRAPPING
+	 * =====================================================
+	 */
 
-        @Override
-        public void setAttributes(
-                Node node,
-                String tagName,
-                Map<String, String> attributes
-        ) {
-            if (!(node instanceof Heading heading)) {
-                return;
-            }
+	private void transformWikiClearMarkers(Node document) {
 
-            String anchor =
-                    headingAnchors.get(
-                            heading
-                    );
+		List<Paragraph> clearParagraphs = new ArrayList<>();
 
-            if (anchor == null) {
-                return;
-            }
+		/*
+		 * Thu thập trước.
+		 *
+		 * Không sửa AST ngay trong lúc visitor đang duyệt.
+		 */
+		document.accept(new AbstractVisitor() {
 
-            attributes.put(
-                    "id",
-                    anchor
-            );
-        }
-    }
+			@Override
+			public void visit(Paragraph paragraph) {
+
+				if (isWikiClearMarker(paragraph)) {
+
+					clearParagraphs.add(paragraph);
+
+					return;
+				}
+
+				visitChildren(paragraph);
+			}
+		});
+
+		for (Paragraph paragraph : clearParagraphs) {
+
+			WikiClearBlock clearBlock = new WikiClearBlock();
+
+			paragraph.insertBefore(clearBlock);
+
+			paragraph.unlink();
+		}
+	}
+
+	private boolean isWikiClearMarker(Paragraph paragraph) {
+
+		Node firstChild = paragraph.getFirstChild();
+
+		/*
+		 * Chỉ nhận marker khi paragraph chứa đúng MỘT Text node:
+		 *
+		 * [[WIKI_CLEAR]]
+		 *
+		 * Nếu nằm giữa câu thì không xử lý.
+		 */
+		if (!(firstChild instanceof Text text)) {
+			return false;
+		}
+
+		if (text.getNext() != null) {
+			return false;
+		}
+
+		return CLEAR_WRAP_MARKER.equals(text.getLiteral().trim());
+	}
+
+	private Image findLeadingWikiImage(Paragraph paragraph) {
+
+		Node firstChild = paragraph.getFirstChild();
+
+		if (!(firstChild instanceof Image image)) {
+			return null;
+		}
+
+		String title = image.getTitle();
+
+		if (title == null || !title.startsWith("wiki:")) {
+			return null;
+		}
+
+		/*
+		 * Không yêu cầu ảnh phải là node duy nhất.
+		 *
+		 * Nếu phía sau ảnh còn text, transform sẽ tự tách text thành paragraph riêng.
+		 */
+		return image;
+	}
+
+	private void transformWikiImageParagraph(Paragraph paragraph) {
+
+		Image image = findLeadingWikiImage(paragraph);
+
+		if (image == null) {
+			return;
+		}
+
+		/*
+		 * Có thể phía sau Image vẫn còn:
+		 *
+		 * SoftLineBreak Text
+		 *
+		 * vì Admin không để dòng trống.
+		 */
+		Node trailingNode = image.getNext();
+
+		WikiImageMetadata metadata = parseWikiImageMetadata(image.getTitle());
+
+		/*
+		 * Caption theo format:
+		 *
+		 * ![ảnh](...)
+		 *
+		 * *caption*
+		 *
+		 * chỉ được lấy khi paragraph ảnh thực sự không chứa text phía sau.
+		 */
+		Paragraph captionParagraph = trailingNode == null ? findCaptionParagraph(paragraph.getNext()) : null;
+
+		String caption = captionParagraph == null ? null : extractCaptionText(captionParagraph);
+
+		WikiImageBlock imageBlock = new WikiImageBlock(metadata.width(), metadata.layout(), caption);
+
+		/*
+		 * Figure nằm tại vị trí paragraph cũ.
+		 */
+		paragraph.insertBefore(imageBlock);
+
+		/*
+		 * ===================================================== TEXT ĐANG DÍNH CHUNG
+		 * VỚI ẢNH =====================================================
+		 *
+		 * Ví dụ:
+		 *
+		 * ![ảnh](...) Cuộc sống hiện đại...
+		 *
+		 * CommonMark có thể parse thành:
+		 *
+		 * Paragraph Image SoftLineBreak Text
+		 *
+		 * Ta tách Text thành Paragraph mới.
+		 */
+		if (trailingNode != null) {
+
+			Paragraph trailingParagraph = new Paragraph();
+
+			imageBlock.insertAfter(trailingParagraph);
+
+			Node current = trailingNode;
+
+			boolean firstTrailingNode = true;
+
+			while (current != null) {
+
+				Node next = current.getNext();
+
+				current.unlink();
+
+				/*
+				 * Không giữ newline đầu tiên, vì paragraph mới tự tạo boundary rồi.
+				 */
+				if (firstTrailingNode && (current instanceof SoftLineBreak || current instanceof HardLineBreak)) {
+
+					firstTrailingNode = false;
+
+					current = next;
+
+					continue;
+				}
+
+				trailingParagraph.appendChild(current);
+
+				firstTrailingNode = false;
+
+				current = next;
+			}
+
+			/*
+			 * Trường hợp phía sau ảnh chỉ có newline nhưng không có text thật.
+			 */
+			if (trailingParagraph.getFirstChild() == null) {
+
+				trailingParagraph.unlink();
+			}
+		}
+
+		/*
+		 * Chuyển Image node vào figure.
+		 */
+		image.unlink();
+
+		imageBlock.appendChild(image);
+
+		/*
+		 * Paragraph cũ không còn cần nữa.
+		 */
+		paragraph.unlink();
+
+		/*
+		 * Caption cũ giờ đã nằm trong figure.
+		 */
+		if (captionParagraph != null) {
+
+			captionParagraph.unlink();
+		}
+	}
+
+	private Paragraph findCaptionParagraph(Node possibleCaption) {
+
+		if (!(possibleCaption instanceof Paragraph paragraph)) {
+			return null;
+		}
+
+		Node firstChild = paragraph.getFirstChild();
+
+		if (!(firstChild instanceof Emphasis emphasis)) {
+			return null;
+		}
+
+		/*
+		 * Caption phải là:
+		 *
+		 * *caption*
+		 *
+		 * và không chứa text khác ngoài emphasis.
+		 */
+		if (emphasis.getNext() != null) {
+			return null;
+		}
+
+		return paragraph;
+	}
+
+	private String extractCaptionText(Paragraph paragraph) {
+
+		return textContentRenderer.render(paragraph).trim();
+	}
+
+	/*
+	 * ===================================================== IMAGE METADATA
+	 * =====================================================
+	 */
+
+	private WikiImageMetadata parseWikiImageMetadata(String title) {
+
+		int width = DEFAULT_IMAGE_WIDTH;
+
+		String layout = "block-center";
+
+		String legacySize = null;
+
+		String legacyAlign = null;
+
+		boolean hasWidth = false;
+
+		boolean hasLayout = false;
+
+		if (title == null || !title.startsWith("wiki:")) {
+
+			return new WikiImageMetadata(width, layout);
+		}
+
+		String metadata = title.substring("wiki:".length());
+
+		String[] parts = metadata.split(";");
+
+		for (String part : parts) {
+
+			String[] pair = part.split("=", 2);
+
+			if (pair.length != 2) {
+				continue;
+			}
+
+			String key = pair[0].trim();
+
+			String value = pair[1].trim();
+
+			/*
+			 * =========================== NEW WIDTH FORMAT ===========================
+			 *
+			 * wiki:width=50
+			 */
+			if ("width".equals(key)) {
+
+				Integer parsedWidth = parseAllowedImageWidth(value);
+
+				if (parsedWidth != null) {
+
+					width = parsedWidth;
+
+					hasWidth = true;
+				}
+
+				continue;
+			}
+
+			/*
+			 * =========================== LEGACY SIZE FORMAT ===========================
+			 *
+			 * wiki:size=small
+			 */
+			if ("size".equals(key) && isAllowedLegacyImageSize(value)) {
+
+				legacySize = value;
+
+				continue;
+			}
+
+			/*
+			 * =========================== LAYOUT ===========================
+			 */
+			if ("layout".equals(key) && isAllowedImageLayout(value)) {
+
+				layout = value;
+
+				hasLayout = true;
+
+				continue;
+			}
+
+			/*
+			 * =========================== VERY OLD ALIGN FORMAT ===========================
+			 */
+			if ("align".equals(key) && isAllowedLegacyAlign(value)) {
+
+				legacyAlign = value;
+			}
+		}
+
+		/*
+		 * Nếu Markdown chưa có width mới, convert size cũ sang %.
+		 */
+		if (!hasWidth && legacySize != null) {
+
+			width = mapLegacyImageSizeToWidth(legacySize);
+		}
+
+		/*
+		 * Markdown rất cũ:
+		 *
+		 * align=left/right/center
+		 */
+		if (!hasLayout && legacyAlign != null) {
+
+			layout = switch (legacyAlign) {
+
+			case "left" -> "block-left";
+
+			case "right" -> "block-right";
+
+			default -> "block-center";
+			};
+		}
+
+		/*
+		 * Wrap quá rộng sẽ làm phần text bên cạnh gần như không còn chỗ.
+		 */
+		if (isWrappingLayout(layout) && width > MAX_WRAPPING_IMAGE_WIDTH) {
+
+			width = MAX_WRAPPING_IMAGE_WIDTH;
+		}
+
+		return new WikiImageMetadata(width, layout);
+	}
+
+	private Integer parseAllowedImageWidth(String value) {
+
+		try {
+
+			int width = Integer.parseInt(value);
+
+			if (width < MIN_IMAGE_WIDTH || width > MAX_IMAGE_WIDTH) {
+
+				return null;
+			}
+
+			if (width % IMAGE_WIDTH_STEP != 0) {
+
+				return null;
+			}
+
+			return width;
+
+		} catch (NumberFormatException exception) {
+
+			return null;
+		}
+	}
+
+	private boolean isAllowedLegacyImageSize(String value) {
+
+		return "small".equals(value) || "medium".equals(value) || "large".equals(value) || "full".equals(value);
+	}
+
+	private int mapLegacyImageSizeToWidth(String size) {
+
+		return switch (size) {
+
+		case "small" -> 30;
+
+		case "large" -> 70;
+
+		case "full" -> 100;
+
+		/*
+		 * medium
+		 */
+		default -> DEFAULT_IMAGE_WIDTH;
+		};
+	}
+
+	private boolean isAllowedImageLayout(String value) {
+
+		return "block-left".equals(value) || "block-center".equals(value) || "block-right".equals(value)
+				|| "wrap-left".equals(value) || "wrap-right".equals(value);
+	}
+
+	private boolean isAllowedLegacyAlign(String value) {
+
+		return "left".equals(value) || "center".equals(value) || "right".equals(value);
+	}
+
+	private boolean isWrappingLayout(String layout) {
+
+		return "wrap-left".equals(layout) || "wrap-right".equals(layout);
+	}
+
+	/*
+	 * ===================================================== HEADINGS / TOC
+	 * =====================================================
+	 */
+
+	private void collectHeadings(Node document, Map<Heading, String> headingAnchors,
+			List<WikiTocItem> tableOfContents) {
+
+		Map<String, Integer> anchorCounters = new HashMap<>();
+
+		document.accept(new AbstractVisitor() {
+
+			@Override
+			public void visit(Heading heading) {
+
+				String title = extractHeadingText(heading);
+
+				String baseAnchor = slugifyHeading(title);
+
+				String anchor = createUniqueAnchor(baseAnchor, anchorCounters);
+
+				headingAnchors.put(heading, anchor);
+
+				if (heading.getLevel() == 2 || heading.getLevel() == 3) {
+
+					tableOfContents.add(new WikiTocItem(heading.getLevel(), title, anchor));
+				}
+
+				visitChildren(heading);
+			}
+		});
+	}
+
+	private String extractHeadingText(Heading heading) {
+
+		return textContentRenderer.render(heading).trim();
+	}
+
+	private String createUniqueAnchor(String baseAnchor, Map<String, Integer> anchorCounters) {
+
+		int occurrence = anchorCounters.merge(baseAnchor, 1, Integer::sum);
+
+		if (occurrence == 1) {
+			return baseAnchor;
+		}
+
+		return baseAnchor + "-" + occurrence;
+	}
+
+	/*
+	 * ===================================================== HTML RENDERER
+	 * =====================================================
+	 */
+
+	private HtmlRenderer createHtmlRenderer(Map<Heading, String> headingAnchors) {
+
+		return HtmlRenderer.builder().extensions(extensions)
+
+				/*
+				 * Defense in depth.
+				 */
+				.escapeHtml(true)
+
+				/*
+				 * javascript:... không được dùng cho link và image.
+				 */
+				.sanitizeUrls(true)
+
+				/*
+				 * Giữ xuống dòng đơn trong Markdown khi render ra HTML.
+				 *
+				 * Ví dụ:
+				 *
+				 * Dòng 1 Dòng 2
+				 *
+				 * =>
+				 *
+				 * Dòng 1<br> Dòng 2
+				 */
+				.softbreak("<br />\n")
+
+				/*
+				 * Custom figure renderer.
+				 */
+				.nodeRendererFactory(WikiImageBlockNodeRenderer::new)
+
+				/*
+				 * Heading id + class cho img Wiki.
+				 */
+				.attributeProviderFactory(context -> new WikiAttributeProvider(headingAnchors))
+
+				.build();
+	}
+
+	/*
+	 * ===================================================== HEADING SLUG
+	 * =====================================================
+	 */
+
+	private String slugifyHeading(String heading) {
+
+		if (heading == null || heading.isBlank()) {
+			return "section";
+		}
+
+		String normalized = heading.replace('đ', 'd').replace('Đ', 'D');
+
+		normalized = Normalizer.normalize(normalized, Normalizer.Form.NFD);
+
+		normalized = normalized.replaceAll("\\p{M}+", "");
+
+		normalized = normalized.toLowerCase(Locale.ROOT);
+
+		normalized = normalized.replaceAll("[^a-z0-9]+", "-");
+
+		normalized = normalized.replaceAll("^-+|-+$", "");
+
+		if (normalized.isBlank()) {
+			return "section";
+		}
+
+		return normalized;
+	}
+
+	/*
+	 * ===================================================== CUSTOM IMAGE BLOCK
+	 * =====================================================
+	 */
+
+	private static final class WikiImageBlock extends CustomBlock {
+
+		private final int width;
+
+		private final String layout;
+
+		private final String caption;
+
+		private WikiImageBlock(int width, String layout, String caption) {
+
+			this.width = width;
+
+			this.layout = layout;
+
+			this.caption = caption;
+		}
+
+		private int getWidth() {
+
+			return width;
+		}
+
+		private String getLayout() {
+
+			return layout;
+		}
+
+		private String getCaption() {
+
+			return caption;
+		}
+	}
+
+	private static final class WikiClearBlock extends CustomBlock {
+	}
+
+	private record WikiImageMetadata(int width, String layout) {
+	}
+
+	/*
+	 * ===================================================== CUSTOM FIGURE RENDERER
+	 * =====================================================
+	 */
+
+	private static final class WikiImageBlockNodeRenderer implements NodeRenderer {
+
+		private final HtmlNodeRendererContext context;
+
+		private final HtmlWriter html;
+
+		private WikiImageBlockNodeRenderer(HtmlNodeRendererContext context) {
+
+			this.context = context;
+
+			this.html = context.getWriter();
+		}
+
+		@Override
+		public Set<Class<? extends Node>> getNodeTypes() {
+
+			return Set.of(WikiImageBlock.class, WikiClearBlock.class);
+		}
+
+		@Override
+		public void render(Node node) {
+
+			if (node instanceof WikiClearBlock) {
+
+				html.line();
+
+				html.tag("div", Map.of("class", "wiki-clear-wrap", "aria-hidden", "true"));
+
+				html.tag("/div");
+
+				html.line();
+
+				return;
+			}
+
+			WikiImageBlock block = (WikiImageBlock) node;
+
+			Map<String, String> attributes = Map.of("class",
+					"wiki-media " + "wiki-media--width-" + block.getWidth() + " " + "wiki-media--" + block.getLayout());
+
+			html.line();
+
+			html.tag("figure", attributes);
+
+			Node image = block.getFirstChild();
+
+			if (image != null) {
+
+				/*
+				 * Dùng default Image renderer của CommonMark để giữ sanitizeUrls.
+				 */
+				context.render(image);
+			}
+
+			if (block.getCaption() != null && !block.getCaption().isBlank()) {
+
+				html.tag("figcaption");
+
+				/*
+				 * html.text tự escape caption.
+				 */
+				html.text(block.getCaption());
+
+				html.tag("/figcaption");
+			}
+
+			html.tag("/figure");
+
+			html.line();
+		}
+	}
+
+	/*
+	 * ===================================================== ATTRIBUTES
+	 * =====================================================
+	 */
+
+	private static final class WikiAttributeProvider implements AttributeProvider {
+
+		private final Map<Heading, String> headingAnchors;
+
+		private WikiAttributeProvider(Map<Heading, String> headingAnchors) {
+
+			this.headingAnchors = headingAnchors;
+		}
+
+		@Override
+		public void setAttributes(Node node, String tagName, Map<String, String> attributes) {
+
+			if (node instanceof Heading heading) {
+
+				String anchor = headingAnchors.get(heading);
+
+				if (anchor != null) {
+
+					attributes.put("id", anchor);
+				}
+
+				return;
+			}
+
+			if (node instanceof Image image) {
+
+				String title = image.getTitle();
+
+				if (title == null || !title.startsWith("wiki:")) {
+					return;
+				}
+
+				/*
+				 * Size/layout nằm trên figure, img chỉ cần class để Preview biết đây là ảnh có
+				 * thể chỉnh.
+				 */
+				attributes.put("class", "wiki-content-image");
+
+				/*
+				 * Không hiện metadata Wiki dưới dạng browser tooltip.
+				 */
+				attributes.remove("title");
+			}
+		}
+	}
 }

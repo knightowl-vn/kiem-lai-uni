@@ -1,4 +1,4 @@
-package com.universe.wiki.application.image;
+package com.universe.wiki.application.ports;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -8,14 +8,20 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.universe.wiki.application.image.UploadWikiImageUseCase;
+import com.universe.wiki.application.image.WikiImageUploadResult;
+
 import static org.mockito.ArgumentMatchers.any;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.CoreMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.universe.wiki.application.image
+.WikiImageAsset;
+
+import java.util.Optional;
 
 @ExtendWith(MockitoExtension.class)
 class UploadWikiImageUseCaseTest {
@@ -23,15 +29,21 @@ class UploadWikiImageUseCaseTest {
     @Mock
     private WikiImageStoragePort
             imageStoragePort;
+    
+    @Mock
+    private WikiImageRepositoryPort
+            imageRepositoryPort;
 
     private UploadWikiImageUseCase
             useCase;
-
+    
+    
     @BeforeEach
     void setUp() {
         useCase =
                 new UploadWikiImageUseCase(
-                        imageStoragePort
+                        imageStoragePort,
+                        imageRepositoryPort
                 );
     }
 
@@ -50,6 +62,15 @@ class UploadWikiImageUseCaseTest {
                         "https://example.com/wiki/test.webp",
                         "kiemlai/wiki/test"
                 );
+
+        when(
+                imageRepositoryPort
+                        .findByContentHash(
+                                any()
+                        )
+        ).thenReturn(
+                Optional.empty()
+        );
 
         when(
                 imageStoragePort.upload(
@@ -71,12 +92,21 @@ class UploadWikiImageUseCaseTest {
         assertThat(result)
                 .isEqualTo(expected);
 
-        verify(imageStoragePort)
-                .upload(
-                        "test.webp",
-                        "image/webp",
-                        content
-                );
+        verify(
+                imageStoragePort
+        ).upload(
+                "test.webp",
+                "image/webp",
+                content
+        );
+
+        verify(
+                imageRepositoryPort
+        ).save(
+                any(
+                        WikiImageAsset.class
+                )
+        );
     }
 
     @Test

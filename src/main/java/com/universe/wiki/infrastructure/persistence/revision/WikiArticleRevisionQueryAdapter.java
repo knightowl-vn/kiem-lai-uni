@@ -157,6 +157,7 @@ public class WikiArticleRevisionQueryAdapter
                         entity.getArticleId()
                 ),
                 entity.getRevisionNumber(),
+                entity.getContentVersion(),
                 entity.getTitle(),
                 entity.getSlug(),
                 entity.getArticleType(),

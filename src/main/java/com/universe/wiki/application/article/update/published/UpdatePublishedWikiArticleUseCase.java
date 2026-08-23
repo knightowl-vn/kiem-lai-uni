@@ -83,12 +83,19 @@ public class UpdatePublishedWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
-        article.updatePublishedContent(
-                command.summary(),
-                command.content(),
-                command.actorId(),
-                now
-        );
+        boolean changed =
+                article.updatePublishedContent(
+                        command.summary(),
+                        command.content(),
+                        command.actorId(),
+                        now
+                );
+
+        if (!changed) {
+            return WikiArticleDTOMapper.toDTO(
+                    article
+            );
+        }
 
         articleRepositoryPort.save(
                 article

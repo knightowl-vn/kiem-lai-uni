@@ -85,9 +85,10 @@ public class PublishWikiArticleUseCase {
         /*
          * Domain sẽ kiểm tra:
          * - bài phải đang DRAFT;
-         * - summary không rỗng;
          * - content không rỗng;
          * - actorId và thời gian không null.
+         *
+         * Summary là tùy chọn.
          */
         article.publish(
                 command.actorId(),

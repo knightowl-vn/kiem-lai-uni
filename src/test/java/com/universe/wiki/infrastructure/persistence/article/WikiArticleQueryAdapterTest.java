@@ -193,6 +193,8 @@ class WikiArticleQueryAdapterTest {
 
         assertThat(article.aggregateVersion())
                 .isEqualTo(3L);
+        
+        
 
         verify(repository)
                 .findById(
@@ -297,6 +299,10 @@ class WikiArticleQueryAdapterTest {
         entity.setArchivedBy(null);
 
         entity.setAggregateVersion(3L);
+        
+        entity.setContentVersion(
+                1L
+        );
 
         entity.setCreatedAt(
                 CREATED_AT
@@ -402,8 +408,8 @@ class WikiArticleQueryAdapterTest {
                         "PUBLISHED"
                 );
 
-        assertThat(result.items().get(0).aggregateVersion())
-                .isEqualTo(3L);
+        assertThat(result.items().get(0).contentVersion())
+                .isEqualTo(1L);
 
         assertThat(result.page())
                 .isZero();
