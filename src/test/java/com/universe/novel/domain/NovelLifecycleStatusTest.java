@@ -32,4 +32,17 @@ class NovelLifecycleStatusTest {
                         ChapterStatus.ARCHIVED
                 );
     }
+
+    @Test
+    @DisplayName(
+            "NovelStatus chứa đúng các giá trị ONGOING, COMPLETED, HIATUS"
+    )
+    void shouldContainNovelStatusValuesInDeclaredOrder() {
+        assertThat(NovelStatus.values())
+                .containsExactly(
+                        NovelStatus.ONGOING,
+                        NovelStatus.COMPLETED,
+                        NovelStatus.HIATUS
+                );
+    }
 }
