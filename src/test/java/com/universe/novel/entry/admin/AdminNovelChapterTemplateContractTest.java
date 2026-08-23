@@ -59,8 +59,8 @@ class AdminNovelChapterTemplateContractTest {
 	}
 
 	@Test
-	@DisplayName("Detail Chapter Revision hiển thị snapshot chỉ đọc và không có form khôi phục")
-	void chapterRevisionDetailIsReadOnlyWithoutRestoreForm() throws Exception {
+	@DisplayName("Detail Chapter Revision hiển thị snapshot và form khôi phục phiên bản cho DRAFT, hướng dẫn cho PUBLISHED/ARCHIVED")
+	void chapterRevisionDetailHasRestoreFormAndGuidance() throws Exception {
 		String detail = read("src/main/resources/templates/admin/novel/chapter-revision-detail.html");
 
 		assertThat(detail).contains("Quay lại lịch sử");
@@ -78,10 +78,25 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(detail).contains("Nội dung tại phiên bản này");
 		assertThat(detail).contains("th:utext=\"${revision.contentHtml}\"");
 
-		// Task 2C.2 must NOT include any restore POST form or action
-		assertThat(detail).doesNotContain("<form");
-		assertThat(detail).doesNotContain("restore");
-		assertThat(detail).doesNotContain("Khôi phục phiên bản");
+		// Restore Form for DRAFT
+		assertThat(detail).contains("th:if=\"${chapter.status == 'DRAFT'}\"");
+		assertThat(detail).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore");
+		assertThat(detail).contains("name=\"expectedAggregateVersion\"");
+		assertThat(detail).contains("th:value=\"${chapter.aggregateVersion}\"");
+		assertThat(detail).contains("name=\"editSummary\"");
+		assertThat(detail).contains("maxlength=\"500\"");
+		assertThat(detail).contains("Khôi phục phiên bản này");
+
+		// Guidance for PUBLISHED / ARCHIVED
+		assertThat(detail).contains("th:if=\"${chapter.status == 'PUBLISHED'}\"");
+		assertThat(detail).contains("th:if=\"${chapter.status == 'ARCHIVED'}\"");
+		assertThat(detail).contains("Hủy xuất bản");
+
+		// No controls for structural fields
+		assertThat(detail).doesNotContain("name=\"volumeId\"");
+		assertThat(detail).doesNotContain("name=\"chapterNumber\"");
+		assertThat(detail).doesNotContain("name=\"slug\"");
+		assertThat(detail).doesNotContain("name=\"status\"");
 	}
 
 	@Test

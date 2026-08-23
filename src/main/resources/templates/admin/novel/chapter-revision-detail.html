@@ -42,6 +42,13 @@
 
 			<section class="dashboard-content">
 
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+					Thao tác thành công.</div>
+
+				<div th:if="${errorMessage != null}" class="novel-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
 				<!-- PAGE HEADING -->
 				<div class="novel-admin-create-heading">
 
@@ -212,6 +219,66 @@
 								style="background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem;"
 								th:text="${revision.content}"></pre>
 						</details>
+
+					</section>
+
+
+					<!-- RESTORE SECTION -->
+					<section class="novel-admin-detail-section novel-admin-revision-restore-section">
+
+						<div class="novel-admin-detail-section-heading">
+							<span class="novel-admin-detail-section-eyebrow"> KHÔI PHỤC </span>
+							<h3>Trạng thái khôi phục</h3>
+						</div>
+
+						<!-- CURRENT CHAPTER IS DRAFT: SHOW ACTIVE FORM -->
+						<div th:if="${chapter.status == 'DRAFT'}" class="novel-admin-revision-restore-container">
+							<p style="margin-bottom: 1rem; color: #555;">
+								Khôi phục sẽ thay thế <strong>tiêu đề</strong>, <strong>tóm tắt</strong> và <strong>nội dung</strong> của bản nháp hiện tại bằng nội dung từ phiên bản này.
+								Số chương, slug và volume hiện tại sẽ được bảo toàn nguyên vẹn.
+							</p>
+
+							<form method="post"
+								th:action="@{/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore(chapterId=${chapter.id}, revisionNumber=${revision.revisionNumber})}"
+								onsubmit="return confirm('Bạn có chắc chắn muốn khôi phục nội dung từ phiên bản #' + [[${revision.revisionNumber}]] + ' vào bản nháp hiện tại không?');">
+
+								<input type="hidden" name="expectedAggregateVersion" th:value="${chapter.aggregateVersion}">
+
+								<div class="novel-admin-form-group" style="margin-bottom: 1rem;">
+									<label for="editSummary" style="display: block; font-weight: 600; margin-bottom: 0.25rem;">
+										Ghi chú chỉnh sửa (tùy chọn)
+									</label>
+									<input type="text" id="editSummary" name="editSummary" maxlength="500"
+										class="novel-admin-input" style="width: 100%; max-width: 600px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px;"
+										th:placeholder="${'Mặc định: Khôi phục từ phiên bản #' + revision.revisionNumber}">
+									<small style="display: block; color: #666; margin-top: 0.25rem;">Tối đa 500 ký tự. Để trống để sử dụng ghi chú mặc định.</small>
+								</div>
+
+								<div class="novel-admin-detail-actions" style="margin-top: 1rem;">
+									<button type="submit" class="novel-admin-button novel-admin-button--primary" style="background-color: #0d6efd; color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 4px; cursor: pointer; font-weight: 500;">
+										🔄 Khôi phục phiên bản này
+									</button>
+								</div>
+							</form>
+						</div>
+
+						<!-- CURRENT CHAPTER IS PUBLISHED: GUIDANCE -->
+						<div th:if="${chapter.status == 'PUBLISHED'}" class="novel-admin-revision-state-guide" style="padding: 1rem; background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px; color: #856404;">
+							<strong>⚠️ Chương hiện đang ở trạng thái PUBLISHED:</strong>
+							<p style="margin: 0.5rem 0 0 0;">
+								Không thể khôi phục phiên bản lịch sử trực tiếp trên chương đã xuất bản.
+								Vui lòng chuyển chương về <strong>DRAFT</strong> (Hủy xuất bản) trước khi thực hiện khôi phục.
+							</p>
+						</div>
+
+						<!-- CURRENT CHAPTER IS ARCHIVED: GUIDANCE -->
+						<div th:if="${chapter.status == 'ARCHIVED'}" class="novel-admin-revision-state-guide" style="padding: 1rem; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; color: #721c24;">
+							<strong>⚠️ Chương hiện đang ở trạng thái ARCHIVED:</strong>
+							<p style="margin: 0.5rem 0 0 0;">
+								Không thể khôi phục nội dung trên chương đã lưu trữ.
+								Vui lòng khôi phục vòng đời của chương về <strong>DRAFT</strong> trước khi thực hiện khôi phục nội dung lịch sử.
+							</p>
+						</div>
 
 					</section>
 
