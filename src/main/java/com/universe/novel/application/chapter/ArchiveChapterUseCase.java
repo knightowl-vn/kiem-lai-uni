@@ -1,9 +1,11 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
@@ -22,15 +24,22 @@ public class ArchiveChapterUseCase {
     private final ClockPort
             clockPort;
 
+    private final ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     public ArchiveChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            ChapterRevisionRecorder chapterRevisionRecorder
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
 
         this.clockPort =
                 clockPort;
+
+        this.chapterRevisionRecorder =
+                chapterRevisionRecorder;
     }
 
     @Transactional
@@ -78,6 +87,13 @@ public class ArchiveChapterUseCase {
                         chapter,
                         expectedVersion
                 );
+
+        chapterRevisionRecorder.record(
+                savedChapter,
+                ChapterRevisionChangeType.ARCHIVE,
+                command.actorId(),
+                null
+        );
 
         return ChapterDTOMapper.toDTO(
                 savedChapter

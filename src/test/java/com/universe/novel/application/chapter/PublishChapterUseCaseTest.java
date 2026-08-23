@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotPublishedException;
@@ -11,6 +12,7 @@ import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
 import com.universe.novel.domain.VolumeStatus;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +77,10 @@ class PublishChapterUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     private PublishChapterUseCase
             useCase;
 
@@ -84,7 +90,8 @@ class PublishChapterUseCaseTest {
                 new PublishChapterUseCase(
                         chapterRepositoryPort,
                         volumeRepositoryPort,
-                        clockPort
+                        clockPort,
+                        chapterRevisionRecorder
                 );
     }
 
@@ -202,6 +209,35 @@ class PublishChapterUseCaseTest {
                 chapter,
                 1L
         );
+
+        verify(
+                chapterRevisionRecorder
+        ).record(
+                chapter,
+                ChapterRevisionChangeType.PUBLISH,
+                ADMIN_ID,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Không ghi revision khi lưu Chapter thất bại lúc publish"
+    )
+    void shouldNotRecordRevisionWhenPublishSaveFails() {
+        Chapter chapter = createDraftChapter("Nội dung chương.");
+        Volume volume = createPublishedVolume();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(volumeRepositoryPort.findByIdForUpdate(VOLUME_ID)).thenReturn(Optional.of(volume));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(chapterRepositoryPort.save(chapter, 1L)).thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(new PublishChapterCommand(CHAPTER_ID, ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
     }
 
     @Test

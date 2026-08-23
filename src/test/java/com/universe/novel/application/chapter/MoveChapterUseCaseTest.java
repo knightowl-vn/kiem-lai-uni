@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
@@ -9,6 +10,7 @@ import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +85,10 @@ class MoveChapterUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     private MoveChapterUseCase
             useCase;
 
@@ -92,7 +98,8 @@ class MoveChapterUseCaseTest {
                 new MoveChapterUseCase(
                         chapterRepositoryPort,
                         volumeRepositoryPort,
-                        clockPort
+                        clockPort,
+                        chapterRevisionRecorder
                 );
     }
 
@@ -222,6 +229,35 @@ class MoveChapterUseCaseTest {
                 chapter,
                 1L
         );
+
+        verify(
+                chapterRevisionRecorder
+        ).record(
+                chapter,
+                ChapterRevisionChangeType.MOVE_VOLUME,
+                OTHER_ADMIN_ID,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Không ghi revision khi lưu Chapter thất bại lúc di chuyển"
+    )
+    void shouldNotRecordRevisionWhenMoveSaveFails() {
+        Chapter chapter = createDraftChapter();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(volumeRepositoryPort.findById(TARGET_VOLUME_ID)).thenReturn(Optional.of(createTargetVolume()));
+        when(chapterRepositoryPort.findBySlug(new Slug("quyen-2-chuong-1"))).thenReturn(Optional.empty());
+        when(clockPort.now()).thenReturn(MOVED_AT);
+        when(chapterRepositoryPort.save(chapter, 1L)).thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(new MoveChapterCommand(CHAPTER_ID, TARGET_VOLUME_ID, OTHER_ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
     }
 
     @Test

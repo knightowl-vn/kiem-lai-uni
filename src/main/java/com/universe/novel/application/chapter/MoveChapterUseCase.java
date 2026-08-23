@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
@@ -9,6 +10,7 @@ import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
@@ -31,10 +33,14 @@ public class MoveChapterUseCase {
     private final ClockPort
             clockPort;
 
+    private final ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     public MoveChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             VolumeRepositoryPort volumeRepositoryPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            ChapterRevisionRecorder chapterRevisionRecorder
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
@@ -44,6 +50,9 @@ public class MoveChapterUseCase {
 
         this.clockPort =
                 clockPort;
+
+        this.chapterRevisionRecorder =
+                chapterRevisionRecorder;
     }
 
     @Transactional
@@ -132,6 +141,13 @@ public class MoveChapterUseCase {
                         chapter,
                         expectedVersion
                 );
+
+        chapterRevisionRecorder.record(
+                savedChapter,
+                ChapterRevisionChangeType.MOVE_VOLUME,
+                command.actorId(),
+                null
+        );
 
         return ChapterDTOMapper.toDTO(
                 savedChapter
