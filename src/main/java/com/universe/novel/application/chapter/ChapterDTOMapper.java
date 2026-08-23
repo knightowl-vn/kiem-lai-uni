@@ -5,12 +5,12 @@ import com.universe.novel.domain.Chapter;
 
 import java.util.Objects;
 
-final class ChapterDTOMapper {
+public final class ChapterDTOMapper {
 
     private ChapterDTOMapper() {
     }
 
-    static ChapterDTO toDTO(
+    public static ChapterDTO toDTO(
             Chapter chapter
     ) {
         Objects.requireNonNull(

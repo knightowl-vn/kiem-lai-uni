@@ -387,6 +387,90 @@ public class Chapter {
     }
 
     /**
+     * Khôi phục nội dung biên tập (title, summary, content) từ một revision lịch sử.
+     *
+     * Chỉ được phép khi chương còn ở trạng thái DRAFT.
+     *
+     * Bảo toàn nguyên vẹn: volumeId, chapterNumber, slug, status.
+     *
+     * Nếu title, summary, content đều không đổi thì không mutate aggregateVersion,
+     * contentVersion hay audit metadata.
+     */
+    public void restoreRevisionContent(
+            String title,
+            String summary,
+            String content,
+            UUID updatedBy,
+            Instant updatedAt
+    ) {
+        requireStatus(
+                ChapterStatus.DRAFT,
+                "Chỉ được khôi phục nội dung khi chương còn là bản nháp."
+        );
+
+        String normalizedTitle =
+                validateTitle(title);
+
+        String normalizedSummary =
+                validateSummary(summary);
+
+        String normalizedContent =
+                validateContent(content);
+
+        if (Objects.equals(
+                this.title,
+                normalizedTitle
+        ) && Objects.equals(
+                this.summary,
+                normalizedSummary
+        ) && Objects.equals(
+                this.content,
+                normalizedContent
+        )) {
+            return;
+        }
+
+        UUID normalizedUpdatedBy =
+                Objects.requireNonNull(
+                        updatedBy,
+                        "Người cập nhật không được để trống."
+                );
+
+        Instant normalizedUpdatedAt =
+                Objects.requireNonNull(
+                        updatedAt,
+                        "Thời gian cập nhật không được để trống."
+                );
+
+        boolean contentChanged =
+                !Objects.equals(
+                        this.content,
+                        normalizedContent
+                );
+
+        this.title =
+                normalizedTitle;
+
+        this.summary =
+                normalizedSummary;
+
+        this.content =
+                normalizedContent;
+
+        this.updatedBy =
+                normalizedUpdatedBy;
+
+        this.updatedAt =
+                normalizedUpdatedAt;
+
+        increaseAggregateVersion();
+
+        if (contentChanged) {
+            increaseContentVersion();
+        }
+    }
+
+    /**
      * Di chuyển chương sang một Volume khác.
      *
      * Chỉ được phép khi chương còn ở trạng thái DRAFT.
