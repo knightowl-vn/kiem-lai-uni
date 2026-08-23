@@ -1,7 +1,6 @@
 package com.universe.novel.application.chapter;
 
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
-import com.universe.novel.application.exceptions.ChapterSortOrderAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
@@ -28,7 +27,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 
 import static org.mockito.Mockito.never;
@@ -128,13 +126,13 @@ class MoveChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                TARGET_VOLUME_ID,
-                                3
+                chapterRepositoryPort.findBySlug(
+                        new Slug(
+                                "quyen-2-chuong-1"
                         )
+                )
         ).thenReturn(
-                false
+                Optional.empty()
         );
 
         when(
@@ -157,7 +155,6 @@ class MoveChapterUseCaseTest {
                         new MoveChapterCommand(
                                 CHAPTER_ID,
                                 TARGET_VOLUME_ID,
-                                3,
                                 OTHER_ADMIN_ID
                         )
                 );
@@ -169,9 +166,9 @@ class MoveChapterUseCaseTest {
         );
 
         assertThat(
-                chapter.getSortOrder()
+                chapter.getSlug().value()
         ).isEqualTo(
-                3
+                "quyen-2-chuong-1"
         );
 
         assertThat(
@@ -214,12 +211,6 @@ class MoveChapterUseCaseTest {
         );
 
         assertThat(
-                result.sortOrder()
-        ).isEqualTo(
-                3
-        );
-
-        assertThat(
                 result.aggregateVersion()
         ).isEqualTo(
                 2L
@@ -230,6 +221,137 @@ class MoveChapterUseCaseTest {
         ).save(
                 chapter,
                 1L
+        );
+    }
+
+    @Test
+    @DisplayName(
+    	    "Di chuyển Chapter 1266 sang Volume khác vẫn giữ nguyên số chương"
+    	)
+    	void shouldKeepChapterNumberWhenMovingToAnotherVolume() {
+
+        Chapter chapter =
+                Chapter.createDraft(
+                        CHAPTER_ID,
+                        SOURCE_VOLUME_ID,
+                        1266,
+                        "Chương 1266",
+                        new Slug(
+                                "quyen-1-chuong-1266"
+                        ),
+                        "Tóm tắt.",
+                        "Nội dung chương.",
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        Volume targetVolume =
+                Volume.createDraft(
+                        TARGET_VOLUME_ID,
+                        "Quyển Mười Ba",
+                        new Slug(
+                                "quyen-muoi-ba"
+                        ),
+                        "Volume 13.",
+                        13,
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        when(
+                chapterRepositoryPort.findById(
+                        CHAPTER_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        chapter
+                )
+        );
+
+        when(
+                volumeRepositoryPort.findById(
+                        TARGET_VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        targetVolume
+                )
+        );
+
+        when(
+                chapterRepositoryPort.findBySlug(
+                        new Slug(
+                                "quyen-13-chuong-1266"
+                        )
+                )
+        ).thenReturn(
+                Optional.empty()
+        );
+
+        when(
+                clockPort.now()
+        ).thenReturn(
+                MOVED_AT
+        );
+
+        when(
+                chapterRepositoryPort.save(
+                        chapter,
+                        1L
+                )
+        ).thenReturn(
+                chapter
+        );
+
+        ChapterDTO result =
+                useCase.execute(
+                        new MoveChapterCommand(
+                                CHAPTER_ID,
+                                TARGET_VOLUME_ID,
+                                OTHER_ADMIN_ID
+                        )
+                );
+
+        assertThat(
+                chapter.getVolumeId()
+        ).isEqualTo(
+                TARGET_VOLUME_ID
+        );
+
+        assertThat(
+                chapter.getChapterNumber()
+        ).isEqualTo(
+                1266
+        );
+
+        assertThat(
+                chapter.getSlug().value()
+        ).isEqualTo(
+                "quyen-13-chuong-1266"
+        );
+
+        assertThat(
+                chapter.getAggregateVersion()
+        ).isEqualTo(
+                2L
+        );
+
+        assertThat(
+                chapter.getContentVersion()
+        ).isEqualTo(
+                1L
+        );
+
+        assertThat(
+                result.chapterNumber()
+        ).isEqualTo(
+                1266
+        );
+
+        assertThat(
+                result.slug()
+        ).isEqualTo(
+                "quyen-13-chuong-1266"
         );
     }
 
@@ -265,14 +387,6 @@ class MoveChapterUseCaseTest {
                 never()
         ).findById(
                 any(UUID.class)
-        );
-
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).existsByVolumeIdAndSortOrder(
-                any(UUID.class),
-                anyInt()
         );
 
         verify(
@@ -337,14 +451,6 @@ class MoveChapterUseCaseTest {
         );
 
         verify(
-                chapterRepositoryPort,
-                never()
-        ).existsByVolumeIdAndSortOrder(
-                any(UUID.class),
-                anyInt()
-        );
-
-        verify(
                 clockPort,
                 never()
         ).now();
@@ -356,87 +462,7 @@ class MoveChapterUseCaseTest {
                 any(Chapter.class),
                 anyLong()
         );
-    }
-
-    @Test
-    @DisplayName(
-            "Từ chối sortOrder đã tồn tại trong Volume đích"
-    )
-    void shouldRejectDuplicateSortOrderInTargetVolume() {
-
-        Chapter chapter =
-                createDraftChapter();
-
-        when(
-                chapterRepositoryPort.findById(
-                        CHAPTER_ID
-                )
-        ).thenReturn(
-                Optional.of(
-                        chapter
-                )
-        );
-
-        when(
-                volumeRepositoryPort.findById(
-                        TARGET_VOLUME_ID
-                )
-        ).thenReturn(
-                Optional.of(
-                        createTargetVolume()
-                )
-        );
-
-        when(
-                chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                TARGET_VOLUME_ID,
-                                3
-                        )
-        ).thenReturn(
-                true
-        );
-
-        assertThatThrownBy(() ->
-                useCase.execute(
-                        moveCommand()
-                )
-        )
-                .isInstanceOf(
-                        ChapterSortOrderAlreadyExistsException.class
-                );
-
-        assertThat(
-                chapter.getVolumeId()
-        ).isEqualTo(
-                SOURCE_VOLUME_ID
-        );
-
-        assertThat(
-                chapter.getSortOrder()
-        ).isEqualTo(
-                1
-        );
-
-        assertThat(
-                chapter.getAggregateVersion()
-        ).isEqualTo(
-                1L
-        );
-
-        verify(
-                clockPort,
-                never()
-        ).now();
-
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).save(
-                any(Chapter.class),
-                anyLong()
-        );
-    }
+    } 
 
     @Test
     @DisplayName(
@@ -462,7 +488,6 @@ class MoveChapterUseCaseTest {
                         new MoveChapterCommand(
                                 CHAPTER_ID,
                                 SOURCE_VOLUME_ID,
-                                5,
                                 OTHER_ADMIN_ID
                         )
                 )
@@ -471,8 +496,7 @@ class MoveChapterUseCaseTest {
                         IllegalArgumentException.class
                 )
                 .hasMessage(
-                        "Chapter đã thuộc Volume đích. "
-                                + "Hãy dùng chức năng sắp xếp lại chương."
+                        "Chapter đã thuộc Volume đích."
                 );
 
         verify(
@@ -480,14 +504,6 @@ class MoveChapterUseCaseTest {
                 never()
         ).findById(
                 any(UUID.class)
-        );
-
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).existsByVolumeIdAndSortOrder(
-                any(UUID.class),
-                anyInt()
         );
 
         verify(
@@ -541,16 +557,6 @@ class MoveChapterUseCaseTest {
                 Optional.of(
                         createTargetVolume()
                 )
-        );
-
-        when(
-                chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                TARGET_VOLUME_ID,
-                                3
-                        )
-        ).thenReturn(
-                false
         );
 
         when(
@@ -630,7 +636,6 @@ class MoveChapterUseCaseTest {
         return new MoveChapterCommand(
                 CHAPTER_ID,
                 TARGET_VOLUME_ID,
-                3,
                 OTHER_ADMIN_ID
         );
     }
@@ -640,10 +645,9 @@ class MoveChapterUseCaseTest {
                 CHAPTER_ID,
                 SOURCE_VOLUME_ID,
                 1,
-                1,
                 "Chương Một",
                 new Slug(
-                        "chuong-mot"
+                        "quyen-1-chuong-1"
                 ),
                 "Tóm tắt.",
                 "Nội dung chương.",

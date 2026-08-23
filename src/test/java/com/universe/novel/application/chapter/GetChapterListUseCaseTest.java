@@ -1,10 +1,10 @@
 package com.universe.novel.application.chapter;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
-import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
-import com.universe.novel.contracts.dto.ChapterDTO;
-import com.universe.novel.domain.Chapter;
+import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.novel.contracts.dto.ChapterListPageDTO;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
 
@@ -25,9 +25,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,9 +65,13 @@ class GetChapterListUseCaseTest {
                     "2026-08-18T05:00:00Z"
             );
 
+    private static final int PAGE = 1;
+
+    private static final int SIZE = 50;
+
     @Mock
-    private ChapterRepositoryPort
-            chapterRepositoryPort;
+    private ChapterListQueryPort
+            chapterListQueryPort;
 
     @Mock
     private VolumeRepositoryPort
@@ -78,14 +84,14 @@ class GetChapterListUseCaseTest {
     void setUp() {
         useCase =
                 new GetChapterListUseCase(
-                        chapterRepositoryPort,
+                        chapterListQueryPort,
                         volumeRepositoryPort
                 );
     }
 
     @Test
     @DisplayName(
-            "Lấy danh sách Chapter trong Volume theo sortOrder ASC"
+            "Lấy danh sách Chapter trong Volume theo chapterNumber ASC"
     )
     void shouldGetChapterList() {
 
@@ -99,49 +105,72 @@ class GetChapterListUseCaseTest {
                 )
         );
 
-        when(
-                chapterRepositoryPort
-                        .findAllByVolumeIdOrderBySortOrder(
-                                VOLUME_ID
-                        )
-        ).thenReturn(
+        List<ChapterListItemDTO> items =
                 List.of(
-                        createChapter(
+                        createChapterListItem(
                                 CHAPTER_1_ID,
                                 "Chương Một",
                                 "chuong-mot",
                                 1
                         ),
-                        createChapter(
+                        createChapterListItem(
                                 CHAPTER_2_ID,
                                 "Chương Hai",
                                 "chuong-hai",
                                 2
                         ),
-                        createChapter(
+                        createChapterListItem(
                                 CHAPTER_3_ID,
                                 "Chương Ba",
                                 "chuong-ba",
                                 3
                         )
-                )
+                );
+
+        ChapterListPageDTO pageResult =
+                new ChapterListPageDTO(
+                        items,
+                        PAGE,
+                        SIZE,
+                        3L,
+                        1,
+                        false,
+                        false
+                );
+
+        when(
+                chapterListQueryPort
+                        .findAllByVolumeIdOrderByChapterNumber(
+                                VOLUME_ID,
+                                null,
+                                null,
+                                PAGE,
+                                SIZE
+                        )
+        ).thenReturn(
+                pageResult
         );
 
-        List<ChapterDTO> result =
+        ChapterListPageDTO result =
                 useCase.execute(
-                        VOLUME_ID
+                        VOLUME_ID,
+                        null,
+                        null,
+                        PAGE,
+                        SIZE
                 );
 
         assertThat(
-                result
+                result.items()
         ).hasSize(
                 3
         );
 
         assertThat(
-                result.stream()
+                result.items()
+                        .stream()
                         .map(
-                                ChapterDTO::sortOrder
+                                ChapterListItemDTO::chapterNumber
                         )
         ).containsExactly(
                 1,
@@ -150,9 +179,10 @@ class GetChapterListUseCaseTest {
         );
 
         assertThat(
-                result.stream()
+                result.items()
+                        .stream()
                         .map(
-                                ChapterDTO::title
+                                ChapterListItemDTO::title
                         )
         ).containsExactly(
                 "Chương Một",
@@ -161,26 +191,53 @@ class GetChapterListUseCaseTest {
         );
 
         assertThat(
-                result.stream()
-                        .map(
-                                ChapterDTO::volumeId
-                        )
-        ).containsOnly(
-                VOLUME_ID
+                result.page()
+        ).isEqualTo(
+                PAGE
         );
 
+        assertThat(
+                result.size()
+        ).isEqualTo(
+                SIZE
+        );
+
+        assertThat(
+                result.totalItems()
+        ).isEqualTo(
+                3L
+        );
+
+        assertThat(
+                result.totalPages()
+        ).isEqualTo(
+                1
+        );
+
+        assertThat(
+                result.hasPrevious()
+        ).isFalse();
+
+        assertThat(
+                result.hasNext()
+        ).isFalse();
+
         verify(
-                chapterRepositoryPort
-        ).findAllByVolumeIdOrderBySortOrder(
-                VOLUME_ID
+                chapterListQueryPort
+        ).findAllByVolumeIdOrderByChapterNumber(
+                VOLUME_ID,
+                null,
+                null,
+                PAGE,
+                SIZE
         );
     }
 
     @Test
     @DisplayName(
-            "Trả danh sách rỗng khi Volume tồn tại nhưng chưa có Chapter"
+            "Trả trang rỗng khi Volume tồn tại nhưng chưa có Chapter"
     )
-    void shouldReturnEmptyList() {
+    void shouldReturnEmptyPage() {
 
         when(
                 volumeRepositoryPort.findById(
@@ -192,28 +249,67 @@ class GetChapterListUseCaseTest {
                 )
         );
 
+        ChapterListPageDTO emptyPage =
+                new ChapterListPageDTO(
+                        List.of(),
+                        PAGE,
+                        SIZE,
+                        0L,
+                        0,
+                        false,
+                        false
+                );
+
         when(
-                chapterRepositoryPort
-                        .findAllByVolumeIdOrderBySortOrder(
-                                VOLUME_ID
+                chapterListQueryPort
+                        .findAllByVolumeIdOrderByChapterNumber(
+                                VOLUME_ID,
+                                null,
+                                null,
+                                PAGE,
+                                SIZE
                         )
         ).thenReturn(
-                List.of()
+                emptyPage
         );
 
-        List<ChapterDTO> result =
+        ChapterListPageDTO result =
                 useCase.execute(
-                        VOLUME_ID
+                        VOLUME_ID,
+                        null,
+                        null,
+                        PAGE,
+                        SIZE
                 );
 
         assertThat(
-                result
+                result.items()
         ).isEmpty();
 
+        assertThat(
+                result.totalItems()
+        ).isZero();
+
+        assertThat(
+                result.totalPages()
+        ).isZero();
+
+        assertThat(
+                result.hasPrevious()
+        ).isFalse();
+
+        assertThat(
+                result.hasNext()
+        ).isFalse();
+
         verify(
-                chapterRepositoryPort
-        ).findAllByVolumeIdOrderBySortOrder(
-                VOLUME_ID
+                chapterListQueryPort
+        ).findAllByVolumeIdOrderByChapterNumber(
+                VOLUME_ID,
+                null,
+                null,
+                PAGE,
+                SIZE
         );
     }
 
@@ -233,7 +329,11 @@ class GetChapterListUseCaseTest {
 
         assertThatThrownBy(() ->
                 useCase.execute(
-                        VOLUME_ID
+                        VOLUME_ID,
+                        null,
+                        null,
+                        PAGE,
+                        SIZE
                 )
         )
                 .isInstanceOf(
@@ -245,10 +345,14 @@ class GetChapterListUseCaseTest {
                 );
 
         verify(
-                chapterRepositoryPort,
+                chapterListQueryPort,
                 never()
-        ).findAllByVolumeIdOrderBySortOrder(
-                any(UUID.class)
+        ).findAllByVolumeIdOrderByChapterNumber(
+                any(UUID.class),
+                any(),
+                any(),
+                anyInt(),
+                anyInt()
         );
     }
 
@@ -260,7 +364,11 @@ class GetChapterListUseCaseTest {
 
         assertThatThrownBy(() ->
                 useCase.execute(
-                        null
+                        null,
+                        null,
+                        null,
+                        PAGE,
+                        SIZE
                 )
         )
                 .isInstanceOf(
@@ -278,10 +386,157 @@ class GetChapterListUseCaseTest {
         );
 
         verify(
-                chapterRepositoryPort,
+                chapterListQueryPort,
                 never()
-        ).findAllByVolumeIdOrderBySortOrder(
-                any(UUID.class)
+        ).findAllByVolumeIdOrderByChapterNumber(
+                any(UUID.class),
+                any(),
+                any(),
+                anyInt(),
+                anyInt()
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Chuẩn hóa keyword và status trước khi query Chapter list"
+    )
+    void shouldNormalizeFiltersBeforeQuery() {
+
+        when(
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        createVolume()
+                )
+        );
+
+        ChapterListPageDTO emptyPage =
+                new ChapterListPageDTO(
+                        List.of(),
+                        PAGE,
+                        SIZE,
+                        0L,
+                        0,
+                        false,
+                        false
+                );
+
+        when(
+                chapterListQueryPort
+                        .findAllByVolumeIdOrderByChapterNumber(
+                                VOLUME_ID,
+                                "Chương Một",
+                                "DRAFT",
+                                PAGE,
+                                SIZE
+                        )
+        ).thenReturn(
+                emptyPage
+        );
+
+        useCase.execute(
+                VOLUME_ID,
+                "  Chương Một  ",
+                "  DRAFT  ",
+                PAGE,
+                SIZE
+        );
+
+        verify(
+                chapterListQueryPort
+        ).findAllByVolumeIdOrderByChapterNumber(
+                VOLUME_ID,
+                "Chương Một",
+                "DRAFT",
+                PAGE,
+                SIZE
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối page nhỏ hơn 1"
+    )
+    void shouldRejectPageLessThanOne() {
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        VOLUME_ID,
+                        null,
+                        null,
+                        0,
+                        SIZE
+                )
+        )
+                .isInstanceOf(
+                        IllegalArgumentException.class
+                )
+                .hasMessage(
+                        "Số trang phải lớn hơn hoặc bằng 1."
+                );
+
+        verifyNoInteractions(
+                volumeRepositoryPort,
+                chapterListQueryPort
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối size nhỏ hơn 1"
+    )
+    void shouldRejectPageSizeLessThanOne() {
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        VOLUME_ID,
+                        null,
+                        null,
+                        PAGE,
+                        0
+                )
+        )
+                .isInstanceOf(
+                        IllegalArgumentException.class
+                )
+                .hasMessage(
+                        "Kích thước trang phải từ 1 đến 100."
+                );
+
+        verifyNoInteractions(
+                volumeRepositoryPort,
+                chapterListQueryPort
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối size lớn hơn giới hạn"
+    )
+    void shouldRejectPageSizeGreaterThanMaximum() {
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        VOLUME_ID,
+                        null,
+                        null,
+                        PAGE,
+                        101
+                )
+        )
+                .isInstanceOf(
+                        IllegalArgumentException.class
+                )
+                .hasMessage(
+                        "Kích thước trang phải từ 1 đến 100."
+                );
+
+        verifyNoInteractions(
+                volumeRepositoryPort,
+                chapterListQueryPort
         );
     }
 
@@ -299,24 +554,18 @@ class GetChapterListUseCaseTest {
         );
     }
 
-    private Chapter createChapter(
+    private ChapterListItemDTO createChapterListItem(
             UUID chapterId,
             String title,
             String slug,
-            int sortOrder
+            int chapterNumber
     ) {
-        return Chapter.createDraft(
+        return new ChapterListItemDTO(
                 chapterId,
-                VOLUME_ID,
-                sortOrder,
-                sortOrder,
+                chapterNumber,
                 title,
-                new Slug(
-                        slug
-                ),
-                "Tóm tắt.",
-                "Nội dung.",
-                ADMIN_ID,
+                slug,
+                "DRAFT",
                 CREATED_AT
         );
     }

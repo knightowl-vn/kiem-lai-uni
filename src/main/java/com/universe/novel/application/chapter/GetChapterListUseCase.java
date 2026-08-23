@@ -1,59 +1,78 @@
 package com.universe.novel.application.chapter;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
-import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
-import com.universe.novel.contracts.dto.ChapterDTO;
+import com.universe.novel.contracts.dto.ChapterListPageDTO;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 @Service
 public class GetChapterListUseCase {
 
-    private final ChapterRepositoryPort
-            chapterRepositoryPort;
+	private static final int MAX_PAGE_SIZE = 100;
+
+	private final ChapterListQueryPort
+    chapterListQueryPort;
 
     private final VolumeRepositoryPort
             volumeRepositoryPort;
 
     public GetChapterListUseCase(
-            ChapterRepositoryPort chapterRepositoryPort,
+            ChapterListQueryPort chapterListQueryPort,
             VolumeRepositoryPort volumeRepositoryPort
     ) {
-        this.chapterRepositoryPort =
-                chapterRepositoryPort;
+        this.chapterListQueryPort =
+                chapterListQueryPort;
 
         this.volumeRepositoryPort =
                 volumeRepositoryPort;
     }
 
     @Transactional(readOnly = true)
-    public List<ChapterDTO> execute(
-            UUID volumeId
+    public ChapterListPageDTO execute(
+            UUID volumeId,
+            String keyword,
+            String status,
+            int page,
+            int size
     ) {
         Objects.requireNonNull(
                 volumeId,
                 "Volume ID không được để trống."
         );
 
+        validatePagination(
+                page,
+                size
+        );
+
         ensureVolumeExists(
                 volumeId
         );
 
-        return chapterRepositoryPort
-                .findAllByVolumeIdOrderBySortOrder(
-                        volumeId
-                )
-                .stream()
-                .map(
-                        ChapterDTOMapper::toDTO
-                )
-                .toList();
+        String normalizedKeyword =
+                normalizeOptionalFilter(
+                        keyword
+                );
+
+        String normalizedStatus =
+                normalizeOptionalFilter(
+                        status
+                );
+
+        return chapterListQueryPort
+                .findAllByVolumeIdOrderByChapterNumber(
+                        volumeId,
+                        normalizedKeyword,
+                        normalizedStatus,
+                        page,
+                        size
+                );
     }
 
     private void ensureVolumeExists(
@@ -69,5 +88,41 @@ public class GetChapterListUseCase {
                     volumeId
             );
         }
+    }
+
+    private void validatePagination(
+            int page,
+            int size
+    ) {
+        if (page < 1) {
+            throw new IllegalArgumentException(
+                    "Số trang phải lớn hơn hoặc bằng 1."
+            );
+        }
+
+        if (size < 1
+                || size > MAX_PAGE_SIZE) {
+
+            throw new IllegalArgumentException(
+                    "Kích thước trang phải từ 1 đến "
+                            + MAX_PAGE_SIZE
+                            + "."
+            );
+        }
+    }
+
+    private String normalizeOptionalFilter(
+            String value
+    ) {
+        if (value == null) {
+            return null;
+        }
+
+        String normalized =
+                value.trim();
+
+        return normalized.isEmpty()
+                ? null
+                : normalized;
     }
 }

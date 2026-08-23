@@ -3,10 +3,12 @@ package com.universe.novel.application.chapter;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
+import com.universe.novel.domain.Volume;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -74,6 +76,10 @@ class UpdateDraftChapterUseCaseTest {
             chapterRepositoryPort;
 
     @Mock
+    private VolumeRepositoryPort
+            volumeRepositoryPort;
+
+    @Mock
     private ClockPort
             clockPort;
 
@@ -85,6 +91,7 @@ class UpdateDraftChapterUseCaseTest {
         useCase =
                 new UpdateDraftChapterUseCase(
                         chapterRepositoryPort,
+                        volumeRepositoryPort,
                         clockPort
                 );
     }
@@ -98,9 +105,12 @@ class UpdateDraftChapterUseCaseTest {
         Chapter chapter =
                 createDraftChapter();
 
+        Volume volume =
+                createVolume();
+
         Slug newSlug =
                 new Slug(
-                        "chuong-mot-hoan-thien"
+                        "quyen-1-chuong-2"
                 );
 
         when(
@@ -111,6 +121,25 @@ class UpdateDraftChapterUseCaseTest {
                 Optional.of(
                         chapter
                 )
+        );
+
+        when(
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        volume
+                )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                2
+                        )
+        ).thenReturn(
+                false
         );
 
         when(
@@ -142,7 +171,6 @@ class UpdateDraftChapterUseCaseTest {
                                 CHAPTER_ID,
                                 2,
                                 "  Chương Một Hoàn Thiện  ",
-                                "  CHUONG-MOT-HOAN-THIEN  ",
                                 "  Tóm tắt mới.  ",
                                 "  Nội dung mới của chương.  ",
                                 OTHER_ADMIN_ID
@@ -164,7 +192,7 @@ class UpdateDraftChapterUseCaseTest {
         assertThat(
                 chapter.getSlug().value()
         ).isEqualTo(
-                "chuong-mot-hoan-thien"
+                "quyen-1-chuong-2"
         );
 
         assertThat(
@@ -180,19 +208,13 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         /*
-         * Update Draft không được tự đổi Volume
-         * hoặc sortOrder.
+         * Update Draft không được tự đổi Volume.
+         * chapterNumber là thứ tự chương toàn cục.
          */
         assertThat(
                 chapter.getVolumeId()
         ).isEqualTo(
                 VOLUME_ID
-        );
-
-        assertThat(
-                chapter.getSortOrder()
-        ).isEqualTo(
-                1
         );
 
         assertThat(
@@ -254,9 +276,12 @@ class UpdateDraftChapterUseCaseTest {
         Chapter chapter =
                 createDraftChapter();
 
-        Slug currentSlug =
+        Volume volume =
+                createVolume();
+
+        Slug newSlug =
                 new Slug(
-                        "chuong-mot"
+                        "quyen-1-chuong-5"
                 );
 
         when(
@@ -270,13 +295,30 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.findBySlug(
-                        currentSlug
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
                 )
         ).thenReturn(
                 Optional.of(
-                        chapter
+                        volume
                 )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                5
+                        )
+        ).thenReturn(
+                false
+        );
+
+        when(
+                chapterRepositoryPort.findBySlug(
+                        newSlug
+                )
+        ).thenReturn(
+                Optional.empty()
         );
 
         when(
@@ -300,7 +342,6 @@ class UpdateDraftChapterUseCaseTest {
                                 CHAPTER_ID,
                                 5,
                                 "Tên chương mới",
-                                "chuong-mot",
                                 "Tóm tắt metadata mới.",
                                 "Nội dung ban đầu.",
                                 OTHER_ADMIN_ID
@@ -311,6 +352,18 @@ class UpdateDraftChapterUseCaseTest {
                 chapter.getAggregateVersion()
         ).isEqualTo(
                 2L
+        );
+
+        assertThat(
+                chapter.getChapterNumber()
+        ).isEqualTo(
+                5
+        );
+
+        assertThat(
+                chapter.getSlug().value()
+        ).isEqualTo(
+                "quyen-1-chuong-5"
         );
 
         assertThat(
@@ -342,10 +395,8 @@ class UpdateDraftChapterUseCaseTest {
         Chapter chapter =
                 createDraftChapter();
 
-        Slug currentSlug =
-                new Slug(
-                        "chuong-mot"
-                );
+        Volume volume =
+                createVolume();
 
         when(
                 chapterRepositoryPort.findById(
@@ -358,12 +409,12 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.findBySlug(
-                        currentSlug
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
                 )
         ).thenReturn(
                 Optional.of(
-                        chapter
+                        volume
                 )
         );
 
@@ -373,22 +424,12 @@ class UpdateDraftChapterUseCaseTest {
                 UPDATED_AT
         );
 
-        when(
-                chapterRepositoryPort.save(
-                        chapter,
-                        1L
-                )
-        ).thenReturn(
-                chapter
-        );
-
         ChapterDTO result =
                 useCase.execute(
                         new UpdateDraftChapterCommand(
                                 CHAPTER_ID,
                                 1,
                                 "Chương Một",
-                                "chuong-mot",
                                 "Tóm tắt chương.",
                                 "   Nội dung ban đầu.   ",
                                 OTHER_ADMIN_ID
@@ -402,9 +443,21 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         assertThat(
+                chapter.getUpdatedBy()
+        ).isEqualTo(
+                ADMIN_ID
+        );
+
+        assertThat(
+                chapter.getUpdatedAt()
+        ).isEqualTo(
+                CREATED_AT
+        );
+
+        assertThat(
                 chapter.getAggregateVersion()
         ).isEqualTo(
-                2L
+                1L
         );
 
         assertThat(
@@ -418,6 +471,14 @@ class UpdateDraftChapterUseCaseTest {
         ).isEqualTo(
                 1L
         );
+
+        verify(
+                chapterRepositoryPort,
+                never()
+        ).save(
+                any(Chapter.class),
+                anyLong()
+        );
     }
 
     @Test
@@ -429,10 +490,8 @@ class UpdateDraftChapterUseCaseTest {
         Chapter chapter =
                 createDraftChapter();
 
-        Slug currentSlug =
-                new Slug(
-                        "chuong-mot"
-                );
+        Volume volume =
+                createVolume();
 
         when(
                 chapterRepositoryPort.findById(
@@ -445,12 +504,12 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.findBySlug(
-                        currentSlug
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
                 )
         ).thenReturn(
                 Optional.of(
-                        chapter
+                        volume
                 )
         );
 
@@ -477,7 +536,7 @@ class UpdateDraftChapterUseCaseTest {
         assertThat(
                 result.slug()
         ).isEqualTo(
-                "chuong-mot"
+                "quyen-1-chuong-1"
         );
 
         verify(
@@ -497,15 +556,17 @@ class UpdateDraftChapterUseCaseTest {
         Chapter chapter =
                 createDraftChapter();
 
+        Volume volume =
+                createVolume();
+
         Chapter otherChapter =
                 Chapter.createDraft(
                         OTHER_CHAPTER_ID,
                         VOLUME_ID,
-                        2,
-                        2,
+                        99,
                         "Chương Hai",
                         new Slug(
-                                "chuong-hai"
+                                "quyen-1-chuong-2"
                         ),
                         "Tóm tắt chương hai.",
                         "Nội dung chương hai.",
@@ -515,7 +576,7 @@ class UpdateDraftChapterUseCaseTest {
 
         Slug duplicateSlug =
                 new Slug(
-                        "chuong-hai"
+                        "quyen-1-chuong-2"
                 );
 
         when(
@@ -526,6 +587,25 @@ class UpdateDraftChapterUseCaseTest {
                 Optional.of(
                         chapter
                 )
+        );
+
+        when(
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        volume
+                )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                2
+                        )
+        ).thenReturn(
+                false
         );
 
         when(
@@ -542,9 +622,8 @@ class UpdateDraftChapterUseCaseTest {
                 useCase.execute(
                         new UpdateDraftChapterCommand(
                                 CHAPTER_ID,
-                                9,
+                                2,
                                 "Tên không được lưu",
-                                "chuong-hai",
                                 "Summary không được lưu",
                                 "Content không được lưu",
                                 OTHER_ADMIN_ID
@@ -555,7 +634,7 @@ class UpdateDraftChapterUseCaseTest {
                         ChapterSlugAlreadyExistsException.class
                 )
                 .hasMessage(
-                        "Slug của chương đã tồn tại: chuong-hai"
+                        "Slug của chương đã tồn tại: quyen-1-chuong-2"
                 );
 
         assertThat(
@@ -573,7 +652,7 @@ class UpdateDraftChapterUseCaseTest {
         assertThat(
                 chapter.getSlug().value()
         ).isEqualTo(
-                "chuong-mot"
+                "quyen-1-chuong-1"
         );
 
         assertThat(
@@ -678,11 +757,6 @@ class UpdateDraftChapterUseCaseTest {
         long contentVersionBefore =
                 chapter.getContentVersion();
 
-        Slug currentSlug =
-                new Slug(
-                        "chuong-mot"
-                );
-
         when(
                 chapterRepositoryPort.findById(
                         CHAPTER_ID
@@ -694,12 +768,12 @@ class UpdateDraftChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.findBySlug(
-                        currentSlug
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
                 )
         ).thenReturn(
                 Optional.of(
-                        chapter
+                        createVolume()
                 )
         );
 
@@ -787,13 +861,26 @@ class UpdateDraftChapterUseCaseTest {
                 CHAPTER_ID,
                 VOLUME_ID,
                 1,
-                1,
                 "Chương Một",
                 new Slug(
-                        "chuong-mot"
+                        "quyen-1-chuong-1"
                 ),
                 "Tóm tắt chương.",
                 "Nội dung ban đầu.",
+                ADMIN_ID,
+                CREATED_AT
+        );
+    }
+
+    private Volume createVolume() {
+        return Volume.createDraft(
+                VOLUME_ID,
+                "Quyển Một",
+                new Slug(
+                        "quyen-mot"
+                ),
+                "Volume test.",
+                1,
                 ADMIN_ID,
                 CREATED_AT
         );
@@ -804,7 +891,6 @@ class UpdateDraftChapterUseCaseTest {
                 CHAPTER_ID,
                 1,
                 "Chương Một chỉnh sửa",
-                "chuong-mot",
                 "Tóm tắt mới.",
                 "Nội dung ban đầu.",
                 OTHER_ADMIN_ID

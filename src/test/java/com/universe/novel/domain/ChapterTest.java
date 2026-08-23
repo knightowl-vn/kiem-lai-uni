@@ -71,9 +71,6 @@ class ChapterTest {
         assertThat(chapter.getChapterNumber())
                 .isEqualTo(1);
 
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(1);
-
         assertThat(chapter.getTitle())
                 .isEqualTo(
                         "Chương Một"
@@ -134,18 +131,15 @@ class ChapterTest {
     )
     void shouldTrimFieldsOnCreate() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "  Chương Một  ",
                         DEFAULT_SLUG,
                         "  Tóm tắt chương  ",
                         "  Nội dung chương  ",
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         assertThat(chapter.getTitle())
                 .isEqualTo(
@@ -169,18 +163,15 @@ class ChapterTest {
     )
     void shouldTreatNullSummaryAndContentAsEmpty() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         null,
                         null,
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         assertThat(chapter.getSummary())
                 .isEmpty();
@@ -191,45 +182,19 @@ class ChapterTest {
 
     @Test
     @DisplayName(
-            "Chấp nhận chapterNumber null"
-    )
-    void shouldAcceptNullChapterNumber() {
-        Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
-                        VOLUME_ID,
-                        null,
-                        1,
-                        "Chương Một",
-                        DEFAULT_SLUG,
-                        "Tóm tắt",
-                        DEFAULT_CONTENT,
-                        ADMIN_ID,
-                        CREATED_AT
-                );
-
-        assertThat(chapter.getChapterNumber())
-                .isNull();
-    }
-
-    @Test
-    @DisplayName(
             "Từ chối Chapter ID null"
     )
     void shouldRejectNullId() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        null,
+                Chapter.createDraft(                        null,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         NullPointerException.class
@@ -245,18 +210,15 @@ class ChapterTest {
     )
     void shouldRejectNullVolumeId() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         null,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         NullPointerException.class
@@ -272,11 +234,34 @@ class ChapterTest {
     )
     void shouldRejectChapterNumberLessThanOne() {
         assertThatThrownBy(() ->
+                Chapter.createDraft(                        CHAPTER_ID,
+                        VOLUME_ID,
+                        0,
+                        "Chương Một",
+                        DEFAULT_SLUG,
+                        "Tóm tắt",
+                        DEFAULT_CONTENT,
+                        ADMIN_ID,
+                        CREATED_AT)
+        )
+                .isInstanceOf(
+                        IllegalArgumentException.class
+                )
+                .hasMessage(
+                        "Số chương phải lớn hơn hoặc bằng 1."
+                );
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối chapterNumber âm"
+    )
+    void shouldRejectNegativeChapterNumber() {
+        assertThatThrownBy(() ->
                 Chapter.createDraft(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        0,
-                        1,
+                        -1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
@@ -295,29 +280,66 @@ class ChapterTest {
 
     @Test
     @DisplayName(
-            "Từ chối sortOrder nhỏ hơn 1"
+            "Chấp nhận chapterNumber toàn cục có giá trị lớn"
     )
-    void shouldRejectSortOrderLessThanOne() {
-        assertThatThrownBy(() ->
+    void shouldAcceptLargeChapterNumbers() {
+        Chapter chapter1500 =
                 Chapter.createDraft(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        1,
-                        0,
-                        "Chương Một",
-                        DEFAULT_SLUG,
+                        1500,
+                        "Chương 1500",
+                        new Slug(
+                                "quyen-1-chuong-1500"
+                        ),
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
                         CREATED_AT
-                )
-        )
-                .isInstanceOf(
-                        IllegalArgumentException.class
-                )
-                .hasMessage(
-                        "Thứ tự sắp xếp phải lớn hơn hoặc bằng 1."
                 );
+
+        assertThat(chapter1500.getChapterNumber())
+                .isEqualTo(1500);
+
+        Chapter chapter1600 =
+                Chapter.createDraft(
+                        UUID.fromString(
+                                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                        ),
+                        VOLUME_ID,
+                        1600,
+                        "Chương 1600",
+                        new Slug(
+                                "quyen-1-chuong-1600"
+                        ),
+                        "Tóm tắt",
+                        DEFAULT_CONTENT,
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        assertThat(chapter1600.getChapterNumber())
+                .isEqualTo(1600);
+
+        Chapter chapter1527 =
+                Chapter.createDraft(
+                        UUID.fromString(
+                                "cccccccc-cccc-cccc-cccc-cccccccccccc"
+                        ),
+                        VOLUME_ID,
+                        1527,
+                        "Chương 1527",
+                        new Slug(
+                                "quyen-15-chuong-1527"
+                        ),
+                        "Tóm tắt",
+                        DEFAULT_CONTENT,
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        assertThat(chapter1527.getChapterNumber())
+                .isEqualTo(1527);
     }
 
     @Test
@@ -326,18 +348,15 @@ class ChapterTest {
     )
     void shouldRejectBlankTitle() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "   ",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         IllegalArgumentException.class
@@ -353,18 +372,15 @@ class ChapterTest {
     )
     void shouldRejectTitleShorterThanMinimum() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "A",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         IllegalArgumentException.class
@@ -383,18 +399,15 @@ class ChapterTest {
                 "A".repeat(251);
 
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         tooLong,
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         IllegalArgumentException.class
@@ -410,18 +423,15 @@ class ChapterTest {
     )
     void shouldRejectNullSlug() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         null,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         NullPointerException.class
@@ -440,18 +450,15 @@ class ChapterTest {
                 "A".repeat(1001);
 
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         tooLong,
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         IllegalArgumentException.class
@@ -470,18 +477,15 @@ class ChapterTest {
                 "A".repeat(500_001);
 
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         tooLong,
                         ADMIN_ID,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         IllegalArgumentException.class
@@ -497,18 +501,15 @@ class ChapterTest {
     )
     void shouldRejectNullCreator() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         null,
-                        CREATED_AT
-                )
+                        CREATED_AT)
         )
                 .isInstanceOf(
                         NullPointerException.class
@@ -524,18 +525,15 @@ class ChapterTest {
     )
     void shouldRejectNullCreatedAt() {
         assertThatThrownBy(() ->
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         DEFAULT_CONTENT,
                         ADMIN_ID,
-                        null
-                )
+                        null)
         )
                 .isInstanceOf(
                         NullPointerException.class
@@ -634,6 +632,41 @@ class ChapterTest {
 
     @Test
     @DisplayName(
+    	    "Đổi chapterNumber không làm tăng contentVersion khi content không đổi"
+    	)
+    	void shouldUpdateChapterNumberWithoutIncreasingContentVersion() {
+        Chapter chapter =
+                createDraft();
+
+        chapter.updateDraft(
+                1266,
+                "Chương Một",
+                new Slug(
+                        "quyen-1-chuong-1266"
+                ),
+                "Tóm tắt chương",
+                DEFAULT_CONTENT,
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(chapter.getChapterNumber())
+                .isEqualTo(1266);
+
+        assertThat(chapter.getSlug().value())
+                .isEqualTo(
+                        "quyen-1-chuong-1266"
+                );
+
+        assertThat(chapter.getAggregateVersion())
+                .isEqualTo(2L);
+
+        assertThat(chapter.getContentVersion())
+                .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName(
             "Chỉ đổi tóm tắt không tăng contentVersion"
     )
     void shouldNotIncreaseContentVersionForSummaryOnlyUpdate() {
@@ -683,8 +716,14 @@ class ChapterTest {
         assertThat(chapter.getContent())
                 .isEqualTo(DEFAULT_CONTENT);
 
+        assertThat(chapter.getUpdatedBy())
+                .isEqualTo(ADMIN_ID);
+
+        assertThat(chapter.getUpdatedAt())
+                .isEqualTo(CREATED_AT);
+
         assertThat(chapter.getAggregateVersion())
-                .isEqualTo(2L);
+                .isEqualTo(1L);
 
         assertThat(chapter.getContentVersion())
                 .isEqualTo(1L);
@@ -827,7 +866,9 @@ class ChapterTest {
 
         chapter.moveToVolume(
                 OTHER_VOLUME_ID,
-                4,
+                new Slug(
+                        "quyen-2-chuong-1"
+                ),
                 OTHER_ADMIN_ID,
                 UPDATED_AT
         );
@@ -835,14 +876,63 @@ class ChapterTest {
         assertThat(chapter.getVolumeId())
                 .isEqualTo(OTHER_VOLUME_ID);
 
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(4);
+        assertThat(chapter.getSlug().value())
+                .isEqualTo(
+                        "quyen-2-chuong-1"
+                );
 
         assertThat(chapter.getUpdatedBy())
                 .isEqualTo(OTHER_ADMIN_ID);
 
         assertThat(chapter.getUpdatedAt())
                 .isEqualTo(UPDATED_AT);
+
+        assertThat(chapter.getAggregateVersion())
+                .isEqualTo(2L);
+
+        assertThat(chapter.getContentVersion())
+                .isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName(
+    		"Di chuyển chương 1266 sang Volume khác giữ nguyên số chương"
+    )
+    void shouldKeepChapterNumberWhenMovingDraftChapter() {
+        Chapter chapter =
+                Chapter.createDraft(
+                        CHAPTER_ID,
+                        VOLUME_ID,
+                        1266,
+                        "Chương 1266",
+                        new Slug(
+                                "quyen-1-chuong-1266"
+                        ),
+                        "Tóm tắt chương",
+                        DEFAULT_CONTENT,
+                        ADMIN_ID,
+                        CREATED_AT
+                );
+
+        chapter.moveToVolume(
+                OTHER_VOLUME_ID,
+                new Slug(
+                        "quyen-13-chuong-1266"
+                ),
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(chapter.getVolumeId())
+                .isEqualTo(OTHER_VOLUME_ID);
+
+        assertThat(chapter.getChapterNumber())
+                .isEqualTo(1266);
+
+        assertThat(chapter.getSlug().value())
+                .isEqualTo(
+                        "quyen-13-chuong-1266"
+                );
 
         assertThat(chapter.getAggregateVersion())
                 .isEqualTo(2L);
@@ -873,7 +963,9 @@ class ChapterTest {
         assertThatThrownBy(() ->
                 chapter.moveToVolume(
                         OTHER_VOLUME_ID,
-                        2,
+                        new Slug(
+                                "quyen-2-chuong-1"
+                        ),
                         OTHER_ADMIN_ID,
                         UPDATED_AT.plusSeconds(30)
                 )
@@ -911,7 +1003,9 @@ class ChapterTest {
         assertThatThrownBy(() ->
                 chapter.moveToVolume(
                         OTHER_VOLUME_ID,
-                        2,
+                        new Slug(
+                                "quyen-2-chuong-1"
+                        ),
                         OTHER_ADMIN_ID,
                         UPDATED_AT.plusSeconds(30)
                 )
@@ -938,159 +1032,29 @@ class ChapterTest {
         UUID volumeBefore =
                 chapter.getVolumeId();
 
-        int sortOrderBefore =
-                chapter.getSortOrder();
+        int chapterNumberBefore =
+                chapter.getChapterNumber();
 
         assertThatThrownBy(() ->
                 chapter.moveToVolume(
                         OTHER_VOLUME_ID,
-                        0,
+                        null,
                         OTHER_ADMIN_ID,
                         UPDATED_AT
                 )
         )
                 .isInstanceOf(
-                        IllegalArgumentException.class
+                        NullPointerException.class
+                )
+                .hasMessage(
+                        "Slug không được để trống."
                 );
 
         assertThat(chapter.getVolumeId())
                 .isEqualTo(volumeBefore);
 
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(sortOrderBefore);
-
-        assertThat(chapter.getAggregateVersion())
-                .isEqualTo(aggregateBefore);
-    }
-
-    @Test
-    @DisplayName(
-            "Sắp xếp lại chương DRAFT thành công"
-    )
-    void shouldReorderDraftChapter() {
-        Chapter chapter =
-                createDraft();
-
-        chapter.reorder(
-                3,
-                OTHER_ADMIN_ID,
-                UPDATED_AT
-        );
-
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(3);
-
-        assertThat(chapter.getUpdatedBy())
-                .isEqualTo(OTHER_ADMIN_ID);
-
-        assertThat(chapter.getUpdatedAt())
-                .isEqualTo(UPDATED_AT);
-
-        assertThat(chapter.getAggregateVersion())
-                .isEqualTo(2L);
-
-        assertThat(chapter.getContentVersion())
-                .isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName(
-            "Sắp xếp lại chương PUBLISHED thành công"
-    )
-    void shouldReorderPublishedChapter() {
-        Chapter chapter =
-                createDraft();
-
-        chapter.publish(
-                ADMIN_ID,
-                UPDATED_AT
-        );
-
-        Instant reorderedAt =
-                UPDATED_AT.plusSeconds(30);
-
-        chapter.reorder(
-                5,
-                OTHER_ADMIN_ID,
-                reorderedAt
-        );
-
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(5);
-
-        assertThat(chapter.getStatus())
-                .isEqualTo(
-                        ChapterStatus.PUBLISHED
-                );
-
-        assertThat(chapter.getAggregateVersion())
-                .isEqualTo(3L);
-
-        assertThat(chapter.getContentVersion())
-                .isEqualTo(1L);
-    }
-
-    @Test
-    @DisplayName(
-            "Từ chối sắp xếp lại chương ARCHIVED"
-    )
-    void shouldRejectReorderWhenArchived() {
-        Chapter chapter =
-                createDraft();
-
-        chapter.archive(
-                ADMIN_ID,
-                UPDATED_AT
-        );
-
-        long aggregateBefore =
-                chapter.getAggregateVersion();
-
-        assertThatThrownBy(() ->
-                chapter.reorder(
-                        2,
-                        OTHER_ADMIN_ID,
-                        UPDATED_AT.plusSeconds(30)
-                )
-        )
-                .isInstanceOf(
-                        IllegalStateException.class
-                )
-                .hasMessage(
-                        "Không thể sắp xếp lại chương đã lưu trữ."
-                );
-
-        assertThat(chapter.getAggregateVersion())
-                .isEqualTo(aggregateBefore);
-    }
-
-    @Test
-    @DisplayName(
-            "Từ chối sắp xếp lại với sortOrder nhỏ hơn 1"
-    )
-    void shouldRejectReorderWithInvalidSortOrder() {
-        Chapter chapter =
-                createDraft();
-
-        long aggregateBefore =
-                chapter.getAggregateVersion();
-
-        int sortOrderBefore =
-                chapter.getSortOrder();
-
-        assertThatThrownBy(() ->
-                chapter.reorder(
-                        0,
-                        OTHER_ADMIN_ID,
-                        UPDATED_AT
-                )
-        )
-                .isInstanceOf(
-                        IllegalArgumentException.class
-                );
-
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(sortOrderBefore);
+        assertThat(chapter.getChapterNumber())
+                 .isEqualTo(chapterNumberBefore);
 
         assertThat(chapter.getAggregateVersion())
                 .isEqualTo(aggregateBefore);
@@ -1139,18 +1103,15 @@ class ChapterTest {
     )
     void shouldRejectPublishingChapterWithoutContent() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
                         "Tóm tắt",
                         null,
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         long aggregateBefore =
                 chapter.getAggregateVersion();
@@ -1367,27 +1328,26 @@ class ChapterTest {
     )
     void shouldRehydratePersistedStateWithoutChangingVersions() {
         Chapter chapter =
-                Chapter.rehydrate(
-                        CHAPTER_ID,
-                        VOLUME_ID,
-                        7,
-                        3,
-                        "Chương Bảy",
-                        new Slug("chuong-bay"),
-                        "Tóm tắt đã lưu",
-                        "Nội dung đã lưu",
-                        ChapterStatus.PUBLISHED,
-                        ADMIN_ID,
-                        OTHER_ADMIN_ID,
-                        OTHER_ADMIN_ID,
-                        null,
-                        CREATED_AT,
-                        UPDATED_AT,
-                        UPDATED_AT,
-                        null,
-                        9L,
-                        4L
-                );
+        		Chapter.rehydrate(
+        		        CHAPTER_ID,
+        		        VOLUME_ID,
+        		        7,
+        		        "Chương Bảy",
+        		        new Slug("chuong-bay"),
+        		        "Tóm tắt đã lưu",
+        		        "Nội dung đã lưu",
+        		        ChapterStatus.PUBLISHED,
+        		        ADMIN_ID,
+        		        OTHER_ADMIN_ID,
+        		        OTHER_ADMIN_ID,
+        		        null,
+        		        CREATED_AT,
+        		        UPDATED_AT,
+        		        UPDATED_AT,
+        		        null,
+        		        9L,
+        		        4L
+        		);
 
         assertThat(chapter.getId())
                 .isEqualTo(CHAPTER_ID);
@@ -1397,9 +1357,6 @@ class ChapterTest {
 
         assertThat(chapter.getChapterNumber())
                 .isEqualTo(7);
-
-        assertThat(chapter.getSortOrder())
-                .isEqualTo(3);
 
         assertThat(chapter.getTitle())
                 .isEqualTo(
@@ -1460,7 +1417,6 @@ class ChapterTest {
                 Chapter.rehydrate(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         DEFAULT_SLUG,
@@ -1732,18 +1688,15 @@ class ChapterTest {
     }
 
     private Chapter createDraft() {
-        return Chapter.createDraft(
-                CHAPTER_ID,
+        return Chapter.createDraft(                CHAPTER_ID,
                 VOLUME_ID,
-                1,
                 1,
                 "Chương Một",
                 DEFAULT_SLUG,
                 "Tóm tắt chương",
                 DEFAULT_CONTENT,
                 ADMIN_ID,
-                CREATED_AT
-        );
+                CREATED_AT);
     }
 
     private Chapter rehydrate(
@@ -1755,26 +1708,25 @@ class ChapterTest {
             long aggregateVersion,
             long contentVersion
     ) {
-        return Chapter.rehydrate(
-                CHAPTER_ID,
-                VOLUME_ID,
-                1,
-                1,
-                "Chương Một",
-                DEFAULT_SLUG,
-                "Tóm tắt chương",
-                DEFAULT_CONTENT,
-                status,
-                ADMIN_ID,
-                ADMIN_ID,
-                publishedBy,
-                archivedBy,
-                CREATED_AT,
-                UPDATED_AT,
-                publishedAt,
-                archivedAt,
-                aggregateVersion,
-                contentVersion
-        );
+    	return Chapter.rehydrate(
+    	        CHAPTER_ID,
+    	        VOLUME_ID,
+    	        1,
+    	        "Chương Một",
+    	        DEFAULT_SLUG,
+    	        "Tóm tắt chương",
+    	        DEFAULT_CONTENT,
+    	        status,
+    	        ADMIN_ID,
+    	        ADMIN_ID,
+    	        publishedBy,
+    	        archivedBy,
+    	        CREATED_AT,
+    	        UPDATED_AT,
+    	        publishedAt,
+    	        archivedAt,
+    	        aggregateVersion,
+    	        contentVersion
+    	);
     }
 }

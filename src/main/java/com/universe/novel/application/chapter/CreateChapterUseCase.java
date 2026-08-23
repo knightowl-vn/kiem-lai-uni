@@ -1,13 +1,14 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
-import com.universe.novel.application.exceptions.ChapterSortOrderAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.Slug;
+import com.universe.novel.domain.Volume;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 
@@ -67,27 +68,41 @@ public class CreateChapterUseCase {
                         "Volume ID không được để trống."
                 );
 
-        /*
-         * Cross-aggregate validation:
-         * Volume cha phải tồn tại.
-         */
-        ensureVolumeExists(
-                volumeId
+        int chapterNumber =
+                Objects.requireNonNull(
+                        command.chapterNumber(),
+                        "Số chương không được để trống."
+                );
+
+        validateChapterNumber(
+                chapterNumber
         );
 
+        Volume volume =
+                volumeRepositoryPort
+                        .findById(
+                                volumeId
+                        )
+                        .orElseThrow(() ->
+                                new VolumeNotFoundException(
+                                        volumeId
+                                )
+                        );
+
         Slug slug =
-                new Slug(
-                        command.slug()
+                ChapterSlugGenerator.generate(
+                        volume,
+                        chapterNumber
                 );
+
+        ensureChapterNumberAvailable(
+                chapterNumber
+        );
 
         ensureSlugAvailable(
                 slug
         );
 
-        ensureSortOrderAvailable(
-                volumeId,
-                command.sortOrder()
-        );
 
         UUID chapterId =
                 idGeneratorPort.generate();
@@ -99,8 +114,7 @@ public class CreateChapterUseCase {
                 Chapter.createDraft(
                         chapterId,
                         volumeId,
-                        command.chapterNumber(),
-                        command.sortOrder(),
+                        chapterNumber,
                         command.title(),
                         slug,
                         command.summary(),
@@ -120,17 +134,26 @@ public class CreateChapterUseCase {
         );
     }
 
-    private void ensureVolumeExists(
-            UUID volumeId
+    private void validateChapterNumber(
+            int chapterNumber
     ) {
-        if (volumeRepositoryPort
-                .findById(
-                        volumeId
-                )
-                .isEmpty()) {
+        if (chapterNumber < 1) {
+            throw new IllegalArgumentException(
+                    "Số chương phải lớn hơn hoặc bằng 1."
+            );
+        }
+    }
 
-            throw new VolumeNotFoundException(
-                    volumeId
+    private void ensureChapterNumberAvailable(
+            int chapterNumber
+    ) {
+        if (chapterRepositoryPort
+                .existsByChapterNumber(
+                        chapterNumber
+                )) {
+
+            throw new ChapterNumberAlreadyExistsException(
+                    chapterNumber
             );
         }
     }
@@ -146,23 +169,6 @@ public class CreateChapterUseCase {
             throw new ChapterSlugAlreadyExistsException(
                     "Slug của chương đã tồn tại: "
                             + slug.value()
-            );
-        }
-    }
-
-    private void ensureSortOrderAvailable(
-            UUID volumeId,
-            int sortOrder
-    ) {
-        if (chapterRepositoryPort
-                .existsByVolumeIdAndSortOrder(
-                        volumeId,
-                        sortOrder
-                )) {
-
-            throw new ChapterSortOrderAlreadyExistsException(
-                    volumeId,
-                    sortOrder
             );
         }
     }

@@ -1,7 +1,7 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
-import com.universe.novel.application.exceptions.ChapterSortOrderAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
@@ -101,7 +101,7 @@ class CreateChapterUseCaseTest {
 
         Slug slug =
                 new Slug(
-                        "chuong-1-thieu-nien"
+                        "quyen-1-chuong-1"
                 );
 
         when(
@@ -115,19 +115,18 @@ class CreateChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.existsBySlug(
-                        slug
-                )
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                1
+                        )
         ).thenReturn(
                 false
         );
 
         when(
-                chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                VOLUME_ID,
-                                1
-                        )
+                chapterRepositoryPort.existsBySlug(
+                        slug
+                )
         ).thenReturn(
                 false
         );
@@ -192,13 +191,7 @@ class CreateChapterUseCaseTest {
                 saved.getChapterNumber()
         ).isEqualTo(
                 1
-        );
-
-        assertThat(
-                saved.getSortOrder()
-        ).isEqualTo(
-                1
-        );
+        );        
 
         assertThat(
                 saved.getTitle()
@@ -209,7 +202,7 @@ class CreateChapterUseCaseTest {
         assertThat(
                 saved.getSlug().value()
         ).isEqualTo(
-                "chuong-1-thieu-nien"
+                "quyen-1-chuong-1"
         );
 
         assertThat(
@@ -302,25 +295,24 @@ class CreateChapterUseCaseTest {
         );
 
         when(
-                chapterRepositoryPort.existsBySlug(
-                        new Slug(
-                                "chuong-1-thieu-nien"
-                        )
-                )
-        ).thenReturn(
-                false
-        );
-
-        when(
                 chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                VOLUME_ID,
+                        .existsByChapterNumber(
                                 1
                         )
         ).thenReturn(
                 false
         );
 
+        when(
+                chapterRepositoryPort.existsBySlug(
+                        new Slug(
+                                "quyen-1-chuong-1"
+                        )
+                )
+        ).thenReturn(
+                false
+        );
+        
         when(
                 idGeneratorPort.generate()
         ).thenReturn(
@@ -348,9 +340,7 @@ class CreateChapterUseCaseTest {
                         new CreateChapterCommand(
                                 VOLUME_ID,
                                 1,
-                                1,
                                 "Thiếu niên",
-                                "chuong-1-thieu-nien",
                                 "Mở đầu.",
                                 "   ",
                                 ADMIN_ID
@@ -404,17 +394,16 @@ class CreateChapterUseCaseTest {
         verify(
                 chapterRepositoryPort,
                 never()
-        ).existsBySlug(
-                any(Slug.class)
+        ).existsByChapterNumber(
+                anyInt()
         );
 
         verify(
                 chapterRepositoryPort,
                 never()
-        ).existsByVolumeIdAndSortOrder(
-                any(UUID.class),
-                anyInt()
-        );
+        ).existsBySlug(
+                any(Slug.class)
+        );        
 
         verify(
                 idGeneratorPort,
@@ -437,13 +426,71 @@ class CreateChapterUseCaseTest {
 
     @Test
     @DisplayName(
+            "Từ chối tạo Chapter khi số chương đã tồn tại"
+    )
+    void shouldRejectDuplicateChapterNumber() {
+
+        when(
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        createVolume()
+                )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                1
+                        )
+        ).thenReturn(
+                true
+        );
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        createCommand()
+                )
+        )
+                .isInstanceOf(
+                        ChapterNumberAlreadyExistsException.class
+                )
+                .hasMessage(
+                        "Số chương đã tồn tại: 1"
+                );
+
+        verify(
+                chapterRepositoryPort,
+                never()
+        ).existsBySlug(
+                any(Slug.class)
+        );
+        
+        verify(
+                idGeneratorPort,
+                never()
+        ).generate();
+
+        verify(
+                chapterRepositoryPort,
+                never()
+        ).save(
+                any(Chapter.class),
+                anyLong()
+        );
+    }
+
+    @Test
+    @DisplayName(
             "Từ chối tạo Chapter khi slug đã tồn tại"
     )
     void shouldRejectDuplicateSlug() {
 
         Slug slug =
                 new Slug(
-                        "chuong-1-thieu-nien"
+                        "quyen-1-chuong-1"
                 );
 
         when(
@@ -454,6 +501,15 @@ class CreateChapterUseCaseTest {
                 Optional.of(
                         createVolume()
                 )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                1
+                        )
+        ).thenReturn(
+                false
         );
 
         when(
@@ -473,17 +529,9 @@ class CreateChapterUseCaseTest {
                         ChapterSlugAlreadyExistsException.class
                 )
                 .hasMessage(
-                        "Slug của chương đã tồn tại: chuong-1-thieu-nien"
+                        "Slug của chương đã tồn tại: quyen-1-chuong-1"
                 );
-
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).existsByVolumeIdAndSortOrder(
-                any(UUID.class),
-                anyInt()
-        );
-
+        
         verify(
                 idGeneratorPort,
                 never()
@@ -498,40 +546,63 @@ class CreateChapterUseCaseTest {
         );
     }
 
+    
+
     @Test
     @DisplayName(
-            "Từ chối sortOrder trùng trong cùng Volume"
-    )
-    void shouldRejectDuplicateSortOrderInsideVolume() {
+    	    "Cho phép tạo Chapter với số chương toàn cục lớn"
+    	)
+    	void shouldCreateLargeGlobalChapterNumbers() {
+    	assertCreatedChapterNumber(
+                1500
+        );
 
-        Slug slug =
-                new Slug(
-                        "chuong-1-thieu-nien"
+    	assertCreatedChapterNumber(
+                1600
+        );
+
+    	assertCreatedChapterNumber(
+                1527
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Từ chối số chương 1266 đã tồn tại ở Volume khác"
+    )
+    void shouldRejectDuplicateGlobalChapterNumberAcrossVolumes() {
+
+        UUID otherVolumeId =
+                UUID.fromString(
+                        "99999999-9999-9999-9999-999999999999"
                 );
 
         when(
                 volumeRepositoryPort.findById(
-                        VOLUME_ID
+                        otherVolumeId
                 )
         ).thenReturn(
                 Optional.of(
-                        createVolume()
+                        Volume.createDraft(
+                                otherVolumeId,
+                                "Quyển Hai",
+                                new Slug(
+                                        "quyen-hai"
+                                ),
+                                "Volume khác.",
+                                2,
+                                ADMIN_ID,
+                                NOW.minusSeconds(
+                                        60
+                                )
+                        )
                 )
-        );
-
-        when(
-                chapterRepositoryPort.existsBySlug(
-                        slug
-                )
-        ).thenReturn(
-                false
         );
 
         when(
                 chapterRepositoryPort
-                        .existsByVolumeIdAndSortOrder(
-                                VOLUME_ID,
-                                1
+                        .existsByChapterNumber(
+                                1266
                         )
         ).thenReturn(
                 true
@@ -539,22 +610,66 @@ class CreateChapterUseCaseTest {
 
         assertThatThrownBy(() ->
                 useCase.execute(
-                        createCommand()
+                        new CreateChapterCommand(
+                                otherVolumeId,
+                                1266,
+                                "Chương 1266",
+                                "Tóm tắt.",
+                                "Nội dung.",
+                                ADMIN_ID
+                        )
                 )
         )
                 .isInstanceOf(
-                        ChapterSortOrderAlreadyExistsException.class
+                        ChapterNumberAlreadyExistsException.class
+                )
+                .hasMessage(
+                        "Số chương đã tồn tại: 1266"
                 );
 
         verify(
-                idGeneratorPort,
+                chapterRepositoryPort,
                 never()
-        ).generate();
+        ).save(
+                any(Chapter.class),
+                anyLong()
+        );
+    }
+    
+    @Test
+    @DisplayName(
+            "Từ chối tạo Chapter khi chapterNumber null"
+    )
+    void shouldRejectNullChapterNumber() {
+
+        CreateChapterCommand command =
+                new CreateChapterCommand(
+                        VOLUME_ID,
+                        null,
+                        "Chương Một",
+                        "Tóm tắt.",
+                        "Nội dung.",
+                        ADMIN_ID
+                );
+
+        assertThatThrownBy(() ->
+                useCase.execute(
+                        command
+                )
+        )
+                .isInstanceOf(
+                        NullPointerException.class
+                )
+                .hasMessage(
+                        "Số chương không được để trống."
+                );
 
         verify(
-                clockPort,
+                volumeRepositoryPort,
                 never()
-        ).now();
+        ).findById(
+                any(UUID.class)
+        );
 
         verify(
                 chapterRepositoryPort,
@@ -603,12 +718,117 @@ class CreateChapterUseCaseTest {
         return new CreateChapterCommand(
                 VOLUME_ID,
                 1,
-                1,
                 "  Thiếu niên  ",
-                "  CHUONG-1-THIEU-NIEN  ",
                 "  Mở đầu câu chuyện.  ",
                 "  Nội dung chương đầu tiên.  ",
                 ADMIN_ID
+        );
+    }
+
+    private void assertCreatedChapterNumber(
+            int chapterNumber
+    ) {
+        Slug slug =
+                new Slug(
+                        "quyen-1-chuong-"
+                                + chapterNumber
+                );
+
+        when(
+                volumeRepositoryPort.findById(
+                        VOLUME_ID
+                )
+        ).thenReturn(
+                Optional.of(
+                        createVolume()
+                )
+        );
+
+        when(
+                chapterRepositoryPort
+                        .existsByChapterNumber(
+                                chapterNumber
+                        )
+        ).thenReturn(
+                false
+        );
+
+        when(
+                chapterRepositoryPort.existsBySlug(
+                        slug
+                )
+        ).thenReturn(
+                false
+        );
+        
+        when(
+                idGeneratorPort.generate()
+        ).thenReturn(
+                CHAPTER_ID
+        );
+
+        when(
+                clockPort.now()
+        ).thenReturn(
+                NOW
+        );
+
+        when(
+                chapterRepositoryPort.save(
+                        any(Chapter.class),
+                        anyLong()
+                )
+        ).thenAnswer(
+                invocation ->
+                        invocation.getArgument(0)
+        );
+
+        useCase.execute(
+                new CreateChapterCommand(
+                        VOLUME_ID,
+                        chapterNumber,
+                        "Chương "
+                                + chapterNumber,
+                        "Tóm tắt.",
+                        "Nội dung.",
+                        ADMIN_ID
+                )
+        );
+
+        ArgumentCaptor<Chapter> chapterCaptor =
+                ArgumentCaptor.forClass(
+                        Chapter.class
+                );
+
+        verify(
+                chapterRepositoryPort
+        ).save(
+                chapterCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(
+                        0L
+                )
+        );
+
+        Chapter saved =
+                chapterCaptor.getValue();
+
+        assertThat(
+                saved.getChapterNumber()
+        ).isEqualTo(
+                chapterNumber
+        );
+   
+        assertThat(
+                saved.getSlug().value()
+        ).isEqualTo(
+                slug.value()
+        );
+
+        org.mockito.Mockito.reset(
+                chapterRepositoryPort,
+                volumeRepositoryPort,
+                idGeneratorPort,
+                clockPort
         );
     }
 

@@ -1,11 +1,15 @@
 package com.universe.novel.application.chapter;
 
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
+import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.Slug;
+import com.universe.novel.domain.Volume;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
@@ -22,15 +26,22 @@ public class UpdateDraftChapterUseCase {
     private final ChapterRepositoryPort
             chapterRepositoryPort;
 
+    private final VolumeRepositoryPort
+            volumeRepositoryPort;
+
     private final ClockPort
             clockPort;
 
     public UpdateDraftChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
+            VolumeRepositoryPort volumeRepositoryPort,
             ClockPort clockPort
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
+
+        this.volumeRepositoryPort =
+                volumeRepositoryPort;
 
         this.clockPort =
                 clockPort;
@@ -51,6 +62,16 @@ public class UpdateDraftChapterUseCase {
                         "Chapter ID không được để trống."
                 );
 
+        int chapterNumber =
+                Objects.requireNonNull(
+                        command.chapterNumber(),
+                        "Số chương không được để trống."
+                );
+
+        validateChapterNumber(
+                chapterNumber
+        );
+
         Chapter chapter =
                 chapterRepositoryPort
                         .findById(
@@ -62,19 +83,40 @@ public class UpdateDraftChapterUseCase {
                                 )
                         );
 
-        Slug newSlug =
-                new Slug(
-                        command.slug()
+        Volume volume =
+                volumeRepositoryPort
+                        .findById(
+                                chapter.getVolumeId()
+                        )
+                        .orElseThrow(() ->
+                                new VolumeNotFoundException(
+                                        chapter.getVolumeId()
+                                )
+                        );
+
+        Slug generatedSlug =
+                ChapterSlugGenerator.generate(
+                        volume,
+                        chapterNumber
                 );
 
-        ensureSlugAvailable(
-                chapter,
-                newSlug
-        );
+        if (chapter.getChapterNumber()
+                != chapterNumber) {
 
-        /*
-         * Phải lấy version TRƯỚC khi Domain mutate.
-         */
+            ensureChapterNumberAvailable(
+                    chapterNumber
+            );
+        }
+        
+        if (!generatedSlug.equals(
+                chapter.getSlug()
+        )) {
+            ensureSlugAvailable(
+                    chapter,
+                    generatedSlug
+            );
+        }
+
         long expectedVersion =
                 chapter.getAggregateVersion();
 
@@ -82,14 +124,22 @@ public class UpdateDraftChapterUseCase {
                 clockPort.now();
 
         chapter.updateDraft(
-                command.chapterNumber(),
+                chapterNumber,
                 command.title(),
-                newSlug,
+                generatedSlug,
                 command.summary(),
                 command.content(),
                 command.actorId(),
                 now
         );
+
+        if (chapter.getAggregateVersion()
+                == expectedVersion) {
+
+            return ChapterDTOMapper.toDTO(
+                    chapter
+            );
+        }
 
         Chapter savedChapter =
                 chapterRepositoryPort.save(
@@ -100,6 +150,30 @@ public class UpdateDraftChapterUseCase {
         return ChapterDTOMapper.toDTO(
                 savedChapter
         );
+    }
+
+    private void validateChapterNumber(
+            int chapterNumber
+    ) {
+        if (chapterNumber < 1) {
+            throw new IllegalArgumentException(
+                    "Số chương phải lớn hơn hoặc bằng 1."
+            );
+        }
+    }
+
+    private void ensureChapterNumberAvailable(
+            int chapterNumber
+    ) {
+        if (chapterRepositoryPort
+                .existsByChapterNumber(
+                        chapterNumber
+                )) {
+
+            throw new ChapterNumberAlreadyExistsException(
+                    chapterNumber
+            );
+        }
     }
 
     private void ensureSlugAvailable(

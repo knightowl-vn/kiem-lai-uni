@@ -21,10 +21,9 @@ import java.time.Instant;
                         }
                 ),
                 @UniqueConstraint(
-                        name = "uq_novel_chapters_volume_sort_order",
+                        name = "uq_novel_chapters_chapter_number",
                         columnNames = {
-                                "volume_id",
-                                "sort_order"
+                                "chapter_number"
                         }
                 )
         },
@@ -55,15 +54,10 @@ public class ChapterJpaEntity {
     private String volumeId;
 
     @Column(
-            name = "chapter_number"
-    )
-    private Integer chapterNumber;
-
-    @Column(
-            name = "sort_order",
+            name = "chapter_number",
             nullable = false
     )
-    private int sortOrder;
+    private int chapterNumber;
 
     @Column(
             name = "title",
@@ -194,24 +188,14 @@ public class ChapterJpaEntity {
         this.volumeId = volumeId;
     }
 
-    public Integer getChapterNumber() {
+    public int getChapterNumber() {
         return chapterNumber;
     }
 
     public void setChapterNumber(
-            Integer chapterNumber
+            int chapterNumber
     ) {
         this.chapterNumber = chapterNumber;
-    }
-
-    public int getSortOrder() {
-        return sortOrder;
-    }
-
-    public void setSortOrder(
-            int sortOrder
-    ) {
-        this.sortOrder = sortOrder;
     }
 
     public String getTitle() {

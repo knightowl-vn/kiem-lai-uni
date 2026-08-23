@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.ConcurrentModificationException;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -102,11 +101,6 @@ class ChapterPersistenceAdapterTest {
                         1
                 );
 
-        assertThat(result.getSortOrder())
-                .isEqualTo(
-                        1
-                );
-
         assertThat(result.getTitle())
                 .isEqualTo(
                         "Chương Một"
@@ -173,10 +167,8 @@ class ChapterPersistenceAdapterTest {
         ).thenReturn(
                 true
         );
-
         when(
-                repository.existsByVolumeIdAndSortOrder(
-                        VOLUME_ID.toString(),
+                repository.existsByChapterNumber(
                         1
                 )
         ).thenReturn(
@@ -196,8 +188,7 @@ class ChapterPersistenceAdapterTest {
         ).isTrue();
 
         assertThat(
-                adapter.existsByVolumeIdAndSortOrder(
-                        VOLUME_ID,
+                adapter.existsByChapterNumber(
                         1
                 )
         ).isTrue();
@@ -236,10 +227,8 @@ class ChapterPersistenceAdapterTest {
     )
     void shouldCreateNewEntityWhenSavingNewChapter() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         new Slug(
@@ -248,8 +237,7 @@ class ChapterPersistenceAdapterTest {
                         "Khởi đầu",
                         "Nội dung chương.",
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         when(
                 repository.findById(
@@ -314,7 +302,6 @@ class ChapterPersistenceAdapterTest {
                 Chapter.rehydrate(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một Đã Sửa",
                         new Slug(
@@ -411,7 +398,6 @@ class ChapterPersistenceAdapterTest {
                         CHAPTER_ID,
                         VOLUME_ID,
                         1,
-                        1,
                         "Chương Một",
                         new Slug(
                                 "chuong-mot"
@@ -473,10 +459,8 @@ class ChapterPersistenceAdapterTest {
     )
     void shouldRejectCreateWhenChapterAlreadyExists() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         new Slug(
@@ -485,8 +469,7 @@ class ChapterPersistenceAdapterTest {
                         "Khởi đầu",
                         "Nội dung chương.",
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         when(
                 repository.findById(
@@ -523,7 +506,6 @@ class ChapterPersistenceAdapterTest {
                 Chapter.rehydrate(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         new Slug(
@@ -574,10 +556,8 @@ class ChapterPersistenceAdapterTest {
     )
     void shouldRejectNegativeExpectedAggregateVersion() {
         Chapter chapter =
-                Chapter.createDraft(
-                        CHAPTER_ID,
+                Chapter.createDraft(                        CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         new Slug(
@@ -586,8 +566,7 @@ class ChapterPersistenceAdapterTest {
                         "Khởi đầu",
                         "Nội dung chương.",
                         ADMIN_ID,
-                        CREATED_AT
-                );
+                        CREATED_AT);
 
         assertThatThrownBy(() ->
                 adapter.save(
@@ -613,7 +592,6 @@ class ChapterPersistenceAdapterTest {
                 Chapter.rehydrate(
                         CHAPTER_ID,
                         VOLUME_ID,
-                        1,
                         1,
                         "Chương Một",
                         new Slug(
@@ -666,128 +644,6 @@ class ChapterPersistenceAdapterTest {
                         any(ChapterJpaEntity.class)
                 );
     }
-    
-    @Test
-    @DisplayName(
-            "Lấy danh sách Chapter trong Volume theo sortOrder ASC"
-    )
-    void shouldFindAllByVolumeIdOrderBySortOrder() {
-
-        ChapterJpaEntity first =
-                createDraftEntity();
-
-        first.setId(
-                "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1"
-        );
-
-        first.setChapterNumber(
-                1
-        );
-
-        first.setSortOrder(
-                1
-        );
-
-        first.setTitle(
-                "Chương Một"
-        );
-
-        first.setSlug(
-                "chuong-mot"
-        );
-
-        ChapterJpaEntity second =
-                createDraftEntity();
-
-        second.setId(
-                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb2"
-        );
-
-        second.setChapterNumber(
-                2
-        );
-
-        second.setSortOrder(
-                2
-        );
-
-        second.setTitle(
-                "Chương Hai"
-        );
-
-        second.setSlug(
-                "chuong-hai"
-        );
-
-        when(
-                repository
-                        .findAllByVolumeIdOrderBySortOrderAsc(
-                                VOLUME_ID.toString()
-                        )
-        ).thenReturn(
-                List.of(
-                        first,
-                        second
-                )
-        );
-
-        List<Chapter> result =
-                adapter.findAllByVolumeIdOrderBySortOrder(
-                        VOLUME_ID
-                );
-
-        assertThat(
-                result
-        ).hasSize(
-                2
-        );
-
-        assertThat(
-                result.stream()
-                        .map(
-                                Chapter::getSortOrder
-                        )
-        ).containsExactly(
-                1,
-                2
-        );
-
-        assertThat(
-                result.stream()
-                        .map(
-                                Chapter::getTitle
-                        )
-        ).containsExactly(
-                "Chương Một",
-                "Chương Hai"
-        );
-
-        assertThat(
-                result.stream()
-                        .map(
-                                chapter ->
-                                        chapter.getSlug().value()
-                        )
-        ).containsExactly(
-                "chuong-mot",
-                "chuong-hai"
-        );
-
-        assertThat(
-                result.stream()
-                        .map(
-                                Chapter::getVolumeId
-                        )
-        ).containsOnly(
-                VOLUME_ID
-        );
-
-        verify(
-                repository
-        ).findAllByVolumeIdOrderBySortOrderAsc(
-                VOLUME_ID.toString()
-        );
-    }
 
     @Test
     @DisplayName(
@@ -804,24 +660,10 @@ class ChapterPersistenceAdapterTest {
                 adapter.findBySlug(
                         null
                 )
-        ).isEmpty();
+        ).isEmpty();       
 
         assertThat(
-                adapter.existsBySlug(
-                        null
-                )
-        ).isFalse();
-
-        assertThat(
-                adapter.existsByVolumeIdAndSortOrder(
-                        null,
-                        1
-                )
-        ).isFalse();
-
-        assertThat(
-                adapter.existsByVolumeIdAndSortOrder(
-                        VOLUME_ID,
+                adapter.existsByChapterNumber(
                         0
                 )
         ).isFalse();
@@ -831,12 +673,6 @@ class ChapterPersistenceAdapterTest {
                         null
                 )
         ).isFalse();
-        
-        assertThat(
-                adapter.findAllByVolumeIdOrderBySortOrder(
-                        null
-                )
-        ).isEmpty();
 
         verifyNoInteractions(
                 repository
@@ -874,10 +710,6 @@ class ChapterPersistenceAdapterTest {
         );
 
         entity.setChapterNumber(
-                1
-        );
-
-        entity.setSortOrder(
                 1
         );
 

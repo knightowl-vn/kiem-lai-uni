@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import java.util.ConcurrentModificationException;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.List;
 
 @Component
 public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
@@ -47,34 +46,18 @@ public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
 
 		return repository.existsBySlug(slug.value());
 	}
-	
+
 	@Override
-	public List<Chapter> findAllByVolumeIdOrderBySortOrder(
-	        UUID volumeId
+	public boolean existsByChapterNumber(
+	        int chapterNumber
 	) {
-	    if (volumeId == null) {
-	        return List.of();
+	    if (chapterNumber < 1) {
+	        return false;
 	    }
 
-	    return repository
-	            .findAllByVolumeIdOrderBySortOrderAsc(
-	                    volumeId.toString()
-	            )
-	            .stream()
-	            .map(
-	                    this::toDomain
-	            )
-	            .toList();
-	}
-
-	@Override
-	public boolean existsByVolumeIdAndSortOrder(UUID volumeId, int sortOrder) {
-		if (volumeId == null || sortOrder < 1) {
-
-			return false;
-		}
-
-		return repository.existsByVolumeIdAndSortOrder(volumeId.toString(), sortOrder);
+	    return repository.existsByChapterNumber(
+	            chapterNumber
+	    );
 	}
 
 	@Override
@@ -137,14 +120,58 @@ public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
 		return toDomain(savedEntity);
 	}
 
+	@Override
+	public void delete(
+	        Chapter chapter,
+	        long expectedAggregateVersion
+	) {
+	    if (chapter == null) {
+	        throw new IllegalArgumentException(
+	                "Chapter không được để trống."
+	        );
+	    }
+
+	    if (expectedAggregateVersion < 1L) {
+	        throw new IllegalArgumentException(
+	                "Expected aggregate version không hợp lệ."
+	        );
+	    }
+
+	    String chapterId =
+	            chapter.getId().toString();
+
+	    ChapterJpaEntity entity =
+	            repository
+	                    .findById(
+	                            chapterId
+	                    )
+	                    .orElseThrow(() ->
+	                            new ConcurrentModificationException(
+	                                    "Chapter không còn tồn tại."
+	                            )
+	                    );
+
+	    if (entity.getAggregateVersion()
+	            != expectedAggregateVersion) {
+
+	        throw new ConcurrentModificationException(
+	                "Chapter đã được cập nhật bởi tiến trình khác."
+	        );
+	    }
+
+	    repository.delete(
+	            entity
+	    );
+
+	    repository.flush();
+	}
+
 	private void mapToEntity(Chapter chapter, ChapterJpaEntity entity) {
 		entity.setId(chapter.getId().toString());
 
 		entity.setVolumeId(chapter.getVolumeId().toString());
 
 		entity.setChapterNumber(chapter.getChapterNumber());
-
-		entity.setSortOrder(chapter.getSortOrder());
 
 		entity.setTitle(chapter.getTitle());
 
@@ -179,7 +206,7 @@ public class ChapterPersistenceAdapter implements ChapterRepositoryPort {
 
 	private Chapter toDomain(ChapterJpaEntity entity) {
 		return Chapter.rehydrate(UUID.fromString(entity.getId()), UUID.fromString(entity.getVolumeId()),
-				entity.getChapterNumber(), entity.getSortOrder(), entity.getTitle(), new Slug(entity.getSlug()),
+				entity.getChapterNumber(), entity.getTitle(), new Slug(entity.getSlug()),
 				entity.getSummary(), entity.getContent(), ChapterStatus.valueOf(entity.getStatus()),
 				UUID.fromString(entity.getCreatedBy()), UUID.fromString(entity.getUpdatedBy()),
 				toNullableUuid(entity.getPublishedBy()), toNullableUuid(entity.getArchivedBy()), entity.getCreatedAt(),

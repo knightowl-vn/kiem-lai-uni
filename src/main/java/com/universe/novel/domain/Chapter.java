@@ -10,7 +10,9 @@ import java.util.UUID;
  * Quản lý:
  * - thông tin chương thuộc một Volume (qua volumeId);
  * - vòng đời DRAFT → PUBLISHED → ARCHIVED;
- * - quy tắc chỉnh sửa, di chuyển, sắp xếp và xuất bản;
+ * - quy tắc chỉnh sửa, di chuyển và xuất bản;
+ * - chapterNumber là số chương dương toàn cục trong Novel
+ *   và đồng thời xác định thứ tự đọc của chương;
  * - aggregate version và content version.
  *
  * Chapter không chứa đối tượng Volume.
@@ -33,9 +35,7 @@ public class Chapter {
 
     private UUID volumeId;
 
-    private Integer chapterNumber;
-
-    private int sortOrder;
+    private int chapterNumber;
 
     private String title;
 
@@ -70,8 +70,7 @@ public class Chapter {
     private Chapter(
             UUID id,
             UUID volumeId,
-            Integer chapterNumber,
-            int sortOrder,
+            int chapterNumber,
             String title,
             Slug slug,
             String summary,
@@ -104,9 +103,6 @@ public class Chapter {
                 validateChapterNumber(
                         chapterNumber
                 );
-
-        this.sortOrder =
-                validateSortOrder(sortOrder);
 
         this.title =
                 validateTitle(title);
@@ -188,12 +184,14 @@ public class Chapter {
 
     /**
      * Tạo một chương mới ở trạng thái DRAFT.
+     *
+     * chapterNumber là số chương dương toàn cục trong Novel
+     * và xác định thứ tự đọc của chương.
      */
     public static Chapter createDraft(
             UUID id,
             UUID volumeId,
-            Integer chapterNumber,
-            int sortOrder,
+            int chapterNumber,
             String title,
             Slug slug,
             String summary,
@@ -206,11 +204,15 @@ public class Chapter {
                 "Thời gian tạo chương không được để trống."
         );
 
+        int validatedChapterNumber =
+                validateChapterNumber(
+                        chapterNumber
+                );
+
         return new Chapter(
                 id,
                 volumeId,
-                chapterNumber,
-                sortOrder,
+                validatedChapterNumber,
                 title,
                 slug,
                 summary,
@@ -237,8 +239,7 @@ public class Chapter {
     public static Chapter rehydrate(
             UUID id,
             UUID volumeId,
-            Integer chapterNumber,
-            int sortOrder,
+            int chapterNumber,
             String title,
             Slug slug,
             String summary,
@@ -259,7 +260,6 @@ public class Chapter {
                 id,
                 volumeId,
                 chapterNumber,
-                sortOrder,
                 title,
                 slug,
                 summary,
@@ -282,9 +282,12 @@ public class Chapter {
      * Cập nhật thông tin của bản nháp.
      *
      * Chỉ được phép khi chương còn ở trạng thái DRAFT.
+     *
+     * Nếu mọi giá trị sau chuẩn hóa không đổi thì không mutate
+     * aggregateVersion, contentVersion hay audit metadata.
      */
     public void updateDraft(
-            Integer chapterNumber,
+    		int chapterNumber,
             String title,
             Slug slug,
             String summary,
@@ -297,7 +300,7 @@ public class Chapter {
                 "Chỉ được cập nhật nội dung khi chương còn là bản nháp."
         );
 
-        Integer normalizedChapterNumber =
+        int normalizedChapterNumber =
                 validateChapterNumber(
                         chapterNumber
                 );
@@ -316,6 +319,26 @@ public class Chapter {
 
         String normalizedContent =
                 validateContent(content);
+
+        if (this.chapterNumber == normalizedChapterNumber
+                && Objects.equals(
+                        this.title,
+                        normalizedTitle
+                )
+                && Objects.equals(
+                        this.slug,
+                        normalizedSlug
+                )
+                && Objects.equals(
+                        this.summary,
+                        normalizedSummary
+                )
+                && Objects.equals(
+                        this.content,
+                        normalizedContent
+                )) {
+            return;
+        }
 
         UUID normalizedUpdatedBy =
                 Objects.requireNonNull(
@@ -369,16 +392,18 @@ public class Chapter {
      * Chỉ được phép khi chương còn ở trạng thái DRAFT.
      *
      * Method này chỉ áp dụng chuyển trạng thái nội bộ của Chapter
-     * (cập nhật volumeId, sortOrder và audit metadata).
+     * (cập nhật volumeId, slug và audit metadata).
+     *
+     * chapterNumber, title, summary và content không đổi.
      *
      * Application layer phải kiểm tra trước khi gọi:
      * - Volume đích có tồn tại hay không;
      * - việc chuyển sang Volume đó có được phép hay không;
-     * - sortOrder có xung đột với chương khác trong Volume đích hay không.
+     * - slug mới có xung đột với chương khác hay không.
      */
     public void moveToVolume(
-            UUID volumeId,
-            int sortOrder,
+            UUID targetVolumeId,
+            Slug targetSlug,
             UUID updatedBy,
             Instant updatedAt
     ) {
@@ -389,12 +414,15 @@ public class Chapter {
 
         UUID normalizedVolumeId =
                 Objects.requireNonNull(
-                        volumeId,
+                        targetVolumeId,
                         "Volume ID không được để trống."
                 );
 
-        int normalizedSortOrder =
-                validateSortOrder(sortOrder);
+        Slug normalizedSlug =
+                Objects.requireNonNull(
+                        targetSlug,
+                        "Slug không được để trống."
+                );
 
         UUID normalizedUpdatedBy =
                 Objects.requireNonNull(
@@ -411,55 +439,8 @@ public class Chapter {
         this.volumeId =
                 normalizedVolumeId;
 
-        this.sortOrder =
-                normalizedSortOrder;
-
-        this.updatedBy =
-                normalizedUpdatedBy;
-
-        this.updatedAt =
-                normalizedUpdatedAt;
-
-        increaseAggregateVersion();
-    }
-
-    /**
-     * Thay đổi thứ tự sắp xếp của chương trong Volume hiện tại.
-     *
-     * Được phép khi chương còn DRAFT hoặc PUBLISHED.
-     *
-     * Chapter chỉ kiểm tra giá trị sortOrder cục bộ và vòng đời của chính mình.
-     * Tính duy nhất / xung đột sortOrder với các Chapter khác thuộc
-     * Application hoặc Persistence layer.
-     */
-    public void reorder(
-            int sortOrder,
-            UUID updatedBy,
-            Instant updatedAt
-    ) {
-        if (status == ChapterStatus.ARCHIVED) {
-            throw new IllegalStateException(
-                    "Không thể sắp xếp lại chương đã lưu trữ."
-            );
-        }
-
-        int normalizedSortOrder =
-                validateSortOrder(sortOrder);
-
-        UUID normalizedUpdatedBy =
-                Objects.requireNonNull(
-                        updatedBy,
-                        "Người cập nhật không được để trống."
-                );
-
-        Instant normalizedUpdatedAt =
-                Objects.requireNonNull(
-                        updatedAt,
-                        "Thời gian cập nhật không được để trống."
-                );
-
-        this.sortOrder =
-                normalizedSortOrder;
+        this.slug =
+                normalizedSlug;
 
         this.updatedBy =
                 normalizedUpdatedBy;
@@ -571,6 +552,103 @@ public class Chapter {
         increaseAggregateVersion();
     }
 
+    /**
+     * Gỡ xuất bản chương về bản nháp.
+     */
+    public void unpublish(
+            UUID unpublishedBy,
+            Instant unpublishedAt
+    ) {
+        requireStatus(
+                ChapterStatus.PUBLISHED,
+                "Chỉ chương ở trạng thái PUBLISHED mới được gỡ xuất bản."
+        );
+
+        UUID normalizedUnpublishedBy =
+                Objects.requireNonNull(
+                        unpublishedBy,
+                        "Người gỡ xuất bản không được để trống."
+                );
+
+        Instant normalizedUnpublishedAt =
+                Objects.requireNonNull(
+                        unpublishedAt,
+                        "Thời gian gỡ xuất bản không được để trống."
+                );
+
+        this.status =
+                ChapterStatus.DRAFT;
+
+        this.publishedBy =
+                null;
+
+        this.publishedAt =
+                null;
+
+        this.updatedBy =
+                normalizedUnpublishedBy;
+
+        this.updatedAt =
+                normalizedUnpublishedAt;
+
+        increaseAggregateVersion();
+    }
+
+    /**
+     * Khôi phục chương đã lưu trữ về bản nháp.
+     */
+    public void restoreToDraft(
+            UUID restoredBy,
+            Instant restoredAt
+    ) {
+        requireStatus(
+                ChapterStatus.ARCHIVED,
+                "Chỉ chương ở trạng thái ARCHIVED mới được khôi phục về bản nháp."
+        );
+
+        UUID normalizedRestoredBy =
+                Objects.requireNonNull(
+                        restoredBy,
+                        "Người khôi phục không được để trống."
+                );
+
+        Instant normalizedRestoredAt =
+                Objects.requireNonNull(
+                        restoredAt,
+                        "Thời gian khôi phục không được để trống."
+                );
+
+        this.status =
+                ChapterStatus.DRAFT;
+
+        this.archivedBy =
+                null;
+
+        this.archivedAt =
+                null;
+
+        this.publishedBy =
+                null;
+
+        this.publishedAt =
+                null;
+
+        this.updatedBy =
+                normalizedRestoredBy;
+
+        this.updatedAt =
+                normalizedRestoredAt;
+
+        increaseAggregateVersion();
+    }
+
+    /**
+     * Chương chỉ được xóa cứng khi còn DRAFT.
+     */
+    public boolean canBeDeleted() {
+        return status == ChapterStatus.DRAFT;
+    }
+
     private void requireStatus(
             ChapterStatus requiredStatus,
             String errorMessage
@@ -648,13 +726,9 @@ public class Chapter {
         }
     }
 
-    private static Integer validateChapterNumber(
-            Integer chapterNumber
+    private static int validateChapterNumber(
+            int chapterNumber
     ) {
-        if (chapterNumber == null) {
-            return null;
-        }
-
         if (chapterNumber < 1) {
             throw new IllegalArgumentException(
                     "Số chương phải lớn hơn hoặc bằng 1."
@@ -662,18 +736,6 @@ public class Chapter {
         }
 
         return chapterNumber;
-    }
-
-    private static int validateSortOrder(
-            int sortOrder
-    ) {
-        if (sortOrder < 1) {
-            throw new IllegalArgumentException(
-                    "Thứ tự sắp xếp phải lớn hơn hoặc bằng 1."
-            );
-        }
-
-        return sortOrder;
     }
 
     private static String validateTitle(
@@ -765,12 +827,8 @@ public class Chapter {
         return volumeId;
     }
 
-    public Integer getChapterNumber() {
+    public int getChapterNumber() {
         return chapterNumber;
-    }
-
-    public int getSortOrder() {
-        return sortOrder;
     }
 
     public String getTitle() {

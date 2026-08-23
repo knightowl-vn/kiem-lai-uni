@@ -1,12 +1,14 @@
 package com.universe.novel.application.chapter;
 
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
-import com.universe.novel.application.exceptions.ChapterSortOrderAlreadyExistsException;
+import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.Slug;
+import com.universe.novel.domain.Volume;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -80,13 +83,35 @@ public class MoveChapterUseCase {
                 targetVolumeId
         );
 
-        ensureTargetVolumeExists(
-                targetVolumeId
-        );
+        Volume targetVolume =
+                volumeRepositoryPort
+                        .findById(
+                                targetVolumeId
+                        )
+                        .orElseThrow(() ->
+                                new VolumeNotFoundException(
+                                        targetVolumeId
+                                )
+                        );
 
-        ensureSortOrderAvailable(
-                targetVolumeId,
-                command.targetSortOrder()
+        Integer chapterNumber =
+                chapter.getChapterNumber();
+
+        if (chapterNumber == null) {
+            throw new IllegalStateException(
+                    "Chương phải có số chương trước khi di chuyển."
+            );
+        }
+
+        Slug targetSlug =
+                ChapterSlugGenerator.generate(
+                        targetVolume,
+                        chapterNumber
+                );
+
+        ensureSlugAvailable(
+                chapter,
+                targetSlug
         );
 
         long expectedVersion =
@@ -97,7 +122,7 @@ public class MoveChapterUseCase {
 
         chapter.moveToVolume(
                 targetVolumeId,
-                command.targetSortOrder(),
+                targetSlug,
                 command.actorId(),
                 now
         );
@@ -123,40 +148,34 @@ public class MoveChapterUseCase {
                 )) {
 
             throw new IllegalArgumentException(
-                    "Chapter đã thuộc Volume đích. "
-                            + "Hãy dùng chức năng sắp xếp lại chương."
+                    "Chapter đã thuộc Volume đích."
             );
         }
     }
 
-    private void ensureTargetVolumeExists(
-            UUID targetVolumeId
+    private void ensureSlugAvailable(
+            Chapter currentChapter,
+            Slug slug
     ) {
-        if (volumeRepositoryPort
-                .findById(
-                        targetVolumeId
-                )
-                .isEmpty()) {
+        Optional<Chapter> existingChapter =
+                chapterRepositoryPort
+                        .findBySlug(
+                                slug
+                        );
 
-            throw new VolumeNotFoundException(
-                    targetVolumeId
-            );
-        }
-    }
+        boolean belongsToAnotherChapter =
+                existingChapter.isPresent()
+                        && !existingChapter
+                        .orElseThrow()
+                        .getId()
+                        .equals(
+                                currentChapter.getId()
+                        );
 
-    private void ensureSortOrderAvailable(
-            UUID targetVolumeId,
-            int targetSortOrder
-    ) {
-        if (chapterRepositoryPort
-                .existsByVolumeIdAndSortOrder(
-                        targetVolumeId,
-                        targetSortOrder
-                )) {
-
-            throw new ChapterSortOrderAlreadyExistsException(
-                    targetVolumeId,
-                    targetSortOrder
+        if (belongsToAnotherChapter) {
+            throw new ChapterSlugAlreadyExistsException(
+                    "Slug của chương đã tồn tại: "
+                            + slug.value()
             );
         }
     }

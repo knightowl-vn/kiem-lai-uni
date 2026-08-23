@@ -562,10 +562,8 @@ class PublishChapterUseCaseTest {
     private Chapter createDraftChapter(
             String content
     ) {
-        return Chapter.createDraft(
-                CHAPTER_ID,
+        return Chapter.createDraft(                CHAPTER_ID,
                 VOLUME_ID,
-                1,
                 1,
                 "Chương Một",
                 new Slug(
@@ -574,8 +572,7 @@ class PublishChapterUseCaseTest {
                 "Tóm tắt.",
                 content,
                 ADMIN_ID,
-                CREATED_AT
-        );
+                CREATED_AT);
     }
 
     private Volume createDraftVolume() {

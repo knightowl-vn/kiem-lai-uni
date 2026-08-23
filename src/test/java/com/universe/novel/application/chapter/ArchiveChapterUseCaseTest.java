@@ -490,10 +490,8 @@ class ArchiveChapterUseCaseTest {
     }
 
     private Chapter createDraftChapter() {
-        return Chapter.createDraft(
-                CHAPTER_ID,
+        return Chapter.createDraft(                CHAPTER_ID,
                 VOLUME_ID,
-                1,
                 1,
                 "Chương Một",
                 new Slug(
@@ -502,7 +500,6 @@ class ArchiveChapterUseCaseTest {
                 "Tóm tắt.",
                 "Nội dung chương.",
                 ADMIN_ID,
-                CREATED_AT
-        );
+                CREATED_AT);
     }
 }

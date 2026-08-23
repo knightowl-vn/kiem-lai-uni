@@ -108,12 +108,6 @@ class GetChapterDetailUseCaseTest {
         );
 
         assertThat(
-                result.sortOrder()
-        ).isEqualTo(
-                1
-        );
-
-        assertThat(
                 result.title()
         ).isEqualTo(
                 "Chương Một"
@@ -247,10 +241,8 @@ class GetChapterDetailUseCaseTest {
     }
 
     private Chapter createDraftChapter() {
-        return Chapter.createDraft(
-                CHAPTER_ID,
+        return Chapter.createDraft(                CHAPTER_ID,
                 VOLUME_ID,
-                1,
                 1,
                 "Chương Một",
                 new Slug(
@@ -259,7 +251,6 @@ class GetChapterDetailUseCaseTest {
                 "Tóm tắt chương.",
                 "Nội dung chương.",
                 ADMIN_ID,
-                CREATED_AT
-        );
+                CREATED_AT);
     }
 }

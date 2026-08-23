@@ -22,7 +22,6 @@ final class ChapterDTOMapper {
                 chapter.getId(),
                 chapter.getVolumeId(),
                 chapter.getChapterNumber(),
-                chapter.getSortOrder(),
                 chapter.getTitle(),
                 chapter.getSlug().value(),
                 chapter.getSummary(),

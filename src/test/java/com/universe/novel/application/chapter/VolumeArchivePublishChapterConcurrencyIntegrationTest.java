@@ -281,9 +281,17 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 		 */
 		transactionTemplate.executeWithoutResult(status -> {
 
-			Chapter chapter = Chapter.createDraft(CHAPTER_ID, VOLUME_ID, 1, 1, "Integration Lock Chapter",
-					new Slug("integration-lock-chapter"), "Chapter dùng cho concurrency test.", "Nội dung Chapter.",
-					ADMIN_ID, BASE_TIME.plusSeconds(20));
+			// Sửa số 1 thành một số rất lớn, ví dụ 999_999
+			Chapter chapter = Chapter.createDraft(
+			        CHAPTER_ID,
+			        VOLUME_ID,
+			        999_999, // <--- Thay đổi ở đây
+			        "Integration Lock Chapter",
+			        new Slug("integration-lock-chapter"),
+			        "Chapter dùng cho concurrency test.",
+			        "Nội dung Chapter.",
+			        ADMIN_ID,
+			        BASE_TIME.plusSeconds(20));
 
 			chapterRepositoryPort.save(chapter, 0L);
 		});
