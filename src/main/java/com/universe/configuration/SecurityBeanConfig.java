@@ -90,7 +90,9 @@ public class SecurityBeanConfig {
                                 "/images/**",
                                 "/error",
                                 "/wiki",
-                                "/wiki/**"
+                                "/wiki/**",
+                                "/novel",
+                                "/novel/**"
                                 
                         )
                         .permitAll()

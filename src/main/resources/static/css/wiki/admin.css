@@ -526,7 +526,7 @@
 
 #wikiContent {
 	min-height: 520px;
-	font-family: "Cascadia Code", "Consolas", monospace;
+	font-family: var(--font-mono);
 	line-height: 1.7;
 }
 
@@ -959,7 +959,7 @@
 	padding: 2px 5px;
 	border-radius: 5px;
 	background: #f2f2f5;
-	font-family: "Cascadia Code", "Consolas", monospace;
+	font-family: var(--font-mono);
 }
 
 .wiki-markdown-preview
@@ -2541,7 +2541,7 @@ body.wiki-autosave-recovery-open {
 #wikiWritePanel #wikiContent {
 	padding: 20px;
 	color: var(--text-primary);
-	font-family: "Cascadia Code", "Consolas", monospace;
+	font-family: var(--font-mono);
 	font-size: 13px;
 	line-height: 1.75;
 	caret-color: var(--primary);
@@ -3768,7 +3768,7 @@ figcaption {
 	margin: 0;
 	padding: 16px 18px;
 	color: var(--text-primary);
-	font-family: "Cascadia Code", "Consolas", monospace;
+	font-family: var(--font-mono);
 	font-size: 11px;
 	line-height: 1.7;
 	white-space: pre-wrap;
