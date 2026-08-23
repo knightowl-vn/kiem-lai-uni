@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
@@ -9,6 +10,7 @@ import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.ConcurrentModificationException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -83,6 +86,10 @@ class UpdateDraftChapterUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     private UpdateDraftChapterUseCase
             useCase;
 
@@ -92,7 +99,8 @@ class UpdateDraftChapterUseCaseTest {
                 new UpdateDraftChapterUseCase(
                         chapterRepositoryPort,
                         volumeRepositoryPort,
-                        clockPort
+                        clockPort,
+                        chapterRevisionRecorder
                 );
     }
 
@@ -265,6 +273,36 @@ class UpdateDraftChapterUseCaseTest {
                 chapter,
                 1L
         );
+
+        verify(
+                chapterRevisionRecorder
+        ).record(
+                chapter,
+                ChapterRevisionChangeType.UPDATE_DRAFT,
+                OTHER_ADMIN_ID,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Không ghi revision khi lưu Chapter thất bại do xung đột đồng thời"
+    )
+    void shouldNotRecordRevisionWhenConcurrencyConflictFails() {
+        Chapter chapter = createDraftChapter();
+        Volume volume = createVolume();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(volumeRepositoryPort.findById(VOLUME_ID)).thenReturn(Optional.of(volume));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(chapterRepositoryPort.save(chapter, 1L))
+                .thenThrow(new ConcurrentModificationException("Optimistic lock error"));
+
+        assertThatThrownBy(() -> useCase.execute(updateCommand()))
+                .isInstanceOf(ConcurrentModificationException.class)
+                .hasMessage("Optimistic lock error");
+
+        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
     }
 
     @Test
