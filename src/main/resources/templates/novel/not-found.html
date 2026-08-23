@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${errorTitle != null ? errorTitle + ' | Kiếm Lai Universe' : 'Không tìm thấy | Kiếm Lai Universe'}">
+        Chương không tồn tại | Kiếm Lai Universe
+    </title>
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader.css}">
+</head>
+
+<body>
+
+<main class="novel-chapter-reading">
+
+    <div class="novel-reader-empty-state">
+
+        <span class="novel-reader-eyebrow">
+            KIẾM LAI UNIVERSE
+        </span>
+
+        <h1 th:text="${errorTitle != null ? errorTitle : 'Chương không tồn tại'}">
+            Chương không tồn tại
+        </h1>
+
+        <p th:text="${errorMessage != null ? errorMessage : 'Chương bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản.'}">
+            Chương bạn đang tìm không tồn tại, đã bị gỡ hoặc chưa được xuất bản.
+        </p>
+
+        <a th:href="@{/novel}"
+           class="novel-chapter-nav-btn novel-chapter-nav-btn--toc">
+            ← Quay lại Mục lục
+        </a>
+
+    </div>
+
+</main>
+
+</body>
+</html>
