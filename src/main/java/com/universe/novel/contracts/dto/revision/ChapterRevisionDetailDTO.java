@@ -25,4 +25,27 @@ public record ChapterRevisionDetailDTO(
         UUID editedBy,
         Instant createdAt
 ) {
+
+    public ChapterRevisionDetailDTO withContentHtml(
+            String contentHtml
+    ) {
+        return new ChapterRevisionDetailDTO(
+                id,
+                chapterId,
+                volumeId,
+                revisionNumber,
+                contentVersion,
+                chapterNumber,
+                title,
+                slug,
+                summary,
+                content,
+                contentHtml,
+                status,
+                changeType,
+                editSummary,
+                editedBy,
+                createdAt
+        );
+    }
 }
