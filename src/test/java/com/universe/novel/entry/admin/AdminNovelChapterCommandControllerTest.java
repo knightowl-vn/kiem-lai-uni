@@ -20,6 +20,7 @@ import com.universe.novel.application.chapter.UnpublishChapterCommand;
 import com.universe.novel.application.chapter.UnpublishChapterUseCase;
 import com.universe.novel.application.chapter.UpdateDraftChapterCommand;
 import com.universe.novel.application.chapter.UpdateDraftChapterUseCase;
+import com.universe.novel.application.exceptions.ChapterCannotBeDeletedException;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.entry.admin.form.CreateChapterForm;
 import com.universe.novel.entry.admin.form.EditChapterForm;
@@ -281,6 +282,26 @@ class AdminNovelChapterCommandControllerTest {
 		assertThat(viewName).isEqualTo("redirect:/admin/novel/volumes/" + VOLUME_ID + "/chapters");
 		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
 				.isEqualTo("Chỉ chương ở trạng thái DRAFT mới được xóa.");
+	}
+
+	@Test
+	@DisplayName("Case A: Delete bị từ chối do Chapter có lịch sử revision không an toàn thì flash error và quay về danh sách")
+	void shouldFlashErrorWhenHardDeleteSafetyCheckFails() {
+		stubCurrentActor();
+
+		when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapterDto("DRAFT"));
+		ChapterCannotBeDeletedException exception = new ChapterCannotBeDeletedException(CHAPTER_ID);
+		org.mockito.Mockito.doThrow(exception)
+				.when(deleteDraftChapterUseCase)
+				.execute(new DeleteDraftChapterCommand(CHAPTER_ID, ADMIN_ID));
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String viewName = controller.deleteDraftChapter(CHAPTER_ID, authentication, redirectAttributes);
+
+		assertThat(viewName).isEqualTo("redirect:/admin/novel/volumes/" + VOLUME_ID + "/chapters");
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+				.isEqualTo(exception.getMessage());
 	}
 
 	@Test

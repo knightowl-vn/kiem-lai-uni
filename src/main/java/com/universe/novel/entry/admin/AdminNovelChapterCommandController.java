@@ -21,6 +21,7 @@ import com.universe.novel.application.chapter.UnpublishChapterUseCase;
 import com.universe.novel.application.chapter.UpdateDraftChapterCommand;
 import com.universe.novel.application.chapter.UpdateDraftChapterUseCase;
 
+import com.universe.novel.application.exceptions.ChapterCannotBeDeletedException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
@@ -253,7 +254,8 @@ public class AdminNovelChapterCommandController {
 
 			return redirectToChapterList(volumeId);
 
-		} catch (ChapterNotFoundException | IllegalStateException | IllegalArgumentException exception) {
+		} catch (ChapterNotFoundException | ChapterCannotBeDeletedException | IllegalStateException
+				| IllegalArgumentException exception) {
 
 			redirectAttributes.addFlashAttribute("errorMessage", exception.getMessage());
 
