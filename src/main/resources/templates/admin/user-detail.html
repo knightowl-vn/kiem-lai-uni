@@ -34,15 +34,15 @@
                 }">
 			</div>
 
-			<section class="user-detail-content">
+			<section class="dashboard-content">
 
-				<a th:href="@{/admin/users}" class="back-link"> ← Quay lại danh
-					sách </a>
+				<a th:href="@{/admin/users}" class="admin-back-link"> ← Quay lại danh
+					sách người dùng </a>
 
-				<div class="alert alert-success" th:if="${successMessage}"
+				<div class="admin-success-message" th:if="${successMessage}"
 					th:text="${successMessage}"></div>
 
-				<div class="alert alert-error" th:if="${errorMessage}"
+				<div class="admin-form-error" th:if="${errorMessage}"
 					th:text="${errorMessage}"></div>
 
 				<section class="profile-summary">
@@ -65,6 +65,8 @@
 					</div>
 
 					<div class="profile-summary-main">
+
+						<span class="admin-eyebrow"> USER DETAILS </span>
 
 						<div class="profile-title-row">
 
