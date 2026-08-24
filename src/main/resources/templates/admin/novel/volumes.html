@@ -241,8 +241,7 @@
 												novel-admin-list-action-menu">
 
 											<summary
-												class="novel-admin-secondary-button
-													novel-admin-detail-action-trigger"
+												class="novel-admin-detail-action-trigger"
 												data-bs-boundary="window"
 												data-bs-popper-config='{"strategy":"fixed"}'>
 												<span> Thao tác </span> <span
@@ -254,12 +253,21 @@
 												class="novel-admin-detail-action-dropdown
 													novel-admin-volume-action-dropdown">
 
+												<!-- 1. Xem chi tiết -->
 												<a class="novel-admin-detail-action-item"
 													th:href="@{/admin/novel/volumes/{id}(id=${volume.id})}">
 													<span class="novel-admin-detail-action-icon"
 														aria-hidden="true">◉</span> <span> Xem chi tiết </span>
 												</a>
 
+												<!-- 2. Quản lý chương -->
+												<a class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/volumes/{id}/chapters(id=${volume.id})}">
+													<span class="novel-admin-detail-action-icon"
+														aria-hidden="true">▤</span> <span> Quản lý chương </span>
+												</a>
+
+												<!-- 3. Chỉnh sửa -->
 												<a th:if="${volume.status == 'DRAFT'}"
 													class="novel-admin-detail-action-item"
 													th:href="@{/admin/novel/volumes/{id}/edit(id=${volume.id})}">

@@ -193,6 +193,7 @@ button {
 .admin-main {
     min-height: 100vh;
     margin-left: var(--sidebar-width);
+    min-width: 0;
 }
 
 .admin-header {
@@ -265,6 +266,9 @@ button {
 
 .dashboard-content {
     padding: 30px 36px 44px;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .welcome-panel {

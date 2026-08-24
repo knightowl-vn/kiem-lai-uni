@@ -236,8 +236,7 @@
 											novel-admin-list-action-menu">
 
 											<summary
-												class="novel-admin-secondary-button
-													novel-admin-detail-action-trigger"
+												class="novel-admin-detail-action-trigger"
 												data-bs-boundary="window"
 												data-bs-popper-config='{"strategy":"fixed"}'>
 												<span> Thao tác </span> <span
@@ -264,12 +263,15 @@
 													aria-hidden="true">✎</span> <span> Chỉnh sửa </span>
 												</a>
 
-												<!-- 3. Divider before Move / lifecycle -->
-												<div
-													th:if="${chapter.status == 'DRAFT'
-														or chapter.status == 'PUBLISHED'
-														or chapter.status == 'ARCHIVED'}"
-													class="novel-admin-detail-action-separator"></div>
+												<!-- 3. Lịch sử chỉnh sửa -->
+												<a class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/chapters/{id}/revisions(id=${chapter.id})}">
+													<span class="novel-admin-detail-action-icon"
+													aria-hidden="true">◷</span> <span> Lịch sử chỉnh sửa </span>
+												</a>
+
+												<!-- Divider before Move / lifecycle -->
+												<div class="novel-admin-detail-action-separator"></div>
 
 												<!-- 4. Di chuyển (DRAFT) -->
 												<div th:if="${chapter.status == 'DRAFT'}"

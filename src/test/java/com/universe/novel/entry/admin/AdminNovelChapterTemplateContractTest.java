@@ -110,6 +110,7 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(list).contains("Thao tác");
 		assertThat(list).contains("Xem chi tiết");
 		assertThat(list).contains("Chỉnh sửa");
+		assertThat(list).contains("Lịch sử chỉnh sửa");
 		assertThat(list).contains("Di chuyển");
 		assertThat(list).contains("Xuất bản");
 		assertThat(list).contains("Hủy xuất bản");
@@ -126,6 +127,7 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(list).contains("th:value=\"${keyword}\"");
 		assertThat(list).contains("/js/novel/admin-list-menus.js");
 		assertThat(list).contains("/chapters/{id}/edit");
+		assertThat(list).contains("/chapters/{id}/revisions");
 		assertThat(list).contains("/chapters/{id}/publish");
 		assertThat(list).contains("/chapters/{id}/move");
 		assertThat(list).contains("/chapters/{id}/delete");

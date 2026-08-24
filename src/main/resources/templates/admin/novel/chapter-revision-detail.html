@@ -54,13 +54,13 @@
 
 					<div>
 
-						<div class="novel-admin-nav-links" style="margin-bottom: 0.5rem;">
+						<div class="novel-admin-nav-links">
 							<a
 								th:href="@{/admin/novel/chapters/{id}/revisions(
                                 id=${chapter.id}
                             )}"
 								class="novel-admin-back-link"> ← Quay lại lịch sử </a>
-							<span style="margin: 0 0.5rem; color: #888;">|</span>
+							<span class="novel-admin-nav-divider">|</span>
 							<a
 								th:href="@{/admin/novel/chapters/{id}(
                                 id=${chapter.id}
