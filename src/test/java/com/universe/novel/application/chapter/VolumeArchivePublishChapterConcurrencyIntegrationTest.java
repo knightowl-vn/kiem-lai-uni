@@ -11,8 +11,11 @@ import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
 import com.universe.novel.domain.VolumeStatus;
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.infrastructure.persistence.chapter.ChapterPersistenceAdapter;
+import com.universe.novel.infrastructure.persistence.revision.ChapterRevisionPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.volume.VolumePersistenceAdapter;
+import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.AfterEach;
@@ -49,8 +52,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({ VolumePersistenceAdapter.class, ChapterPersistenceAdapter.class, ArchiveVolumeUseCase.class,
-		PublishChapterUseCase.class, VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
+@Import({ VolumePersistenceAdapter.class, ChapterPersistenceAdapter.class, ChapterRevisionPersistenceAdapter.class,
+		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class, PublishChapterUseCase.class,
+		VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
 class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 
 	private static final UUID VOLUME_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1");
@@ -336,8 +340,13 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 	private void cleanupTestRows() {
 
 		/*
-		 * Chapter trước vì FK volume_id.
+		 * Revision trước vì FK chapter_id, sau đó Chapter, sau đó Volume.
 		 */
+		jdbcTemplate.update("""
+				DELETE FROM novel_chapter_revisions
+				WHERE chapter_id = ?
+				""", CHAPTER_ID.toString());
+
 		jdbcTemplate.update("""
 				DELETE FROM novel_chapters
 				WHERE id = ?

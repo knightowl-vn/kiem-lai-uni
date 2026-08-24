@@ -1,11 +1,13 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.time.ClockPort;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +73,10 @@ class UnpublishChapterUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     private UnpublishChapterUseCase
             useCase;
 
@@ -79,7 +85,8 @@ class UnpublishChapterUseCaseTest {
         useCase =
                 new UnpublishChapterUseCase(
                         chapterRepositoryPort,
-                        clockPort
+                        clockPort,
+                        chapterRevisionRecorder
                 );
     }
 
@@ -181,6 +188,33 @@ class UnpublishChapterUseCaseTest {
                 chapter,
                 2L
         );
+
+        verify(
+                chapterRevisionRecorder
+        ).record(
+                chapter,
+                ChapterRevisionChangeType.UNPUBLISH,
+                OTHER_ADMIN_ID,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Không ghi revision khi lưu Chapter thất bại lúc gỡ xuất bản"
+    )
+    void shouldNotRecordRevisionWhenUnpublishSaveFails() {
+        Chapter chapter = createPublishedChapter();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(clockPort.now()).thenReturn(UNPUBLISHED_AT);
+        when(chapterRepositoryPort.save(chapter, 2L)).thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(new UnpublishChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
     }
 
     @Test

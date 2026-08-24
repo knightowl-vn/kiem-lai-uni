@@ -17,6 +17,7 @@ jobs:
 
         env:
           MYSQL_ROOT_PASSWORD: root
+          MYSQL_ROOT_HOST: "%"
           MYSQL_DATABASE: kiemlai_test
           MYSQL_USER: kiemlai
           MYSQL_PASSWORD: kiemlai_test_password
@@ -37,6 +38,13 @@ jobs:
       DB_URL: jdbc:mysql://127.0.0.1:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       DB_USERNAME: kiemlai
       DB_PASSWORD: kiemlai_test_password
+
+      # ===============================
+      # TEST RUNTIME VERIFICATION
+      # ===============================
+      TEST_MYSQL_HOST: 127.0.0.1:3306
+      TEST_MYSQL_USER: root
+      TEST_MYSQL_PASS: root
 
       # ===============================
       # REMEMBER ME
@@ -81,6 +89,9 @@ jobs:
           test -n "$DB_URL"
           test -n "$DB_USERNAME"
           test -n "$DB_PASSWORD"
+          test -n "$TEST_MYSQL_HOST"
+          test -n "$TEST_MYSQL_USER"
+          test -n "$TEST_MYSQL_PASS"
           test -n "$REMEMBER_ME_KEY"
           test -n "$MAIL_USERNAME"
           test -n "$MAIL_PASSWORD"

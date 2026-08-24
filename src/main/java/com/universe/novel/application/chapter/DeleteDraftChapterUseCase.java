@@ -1,7 +1,9 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.exceptions.ChapterCannotBeDeletedException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ChapterRevisionRepositoryPort;
 import com.universe.novel.domain.Chapter;
 
 import org.springframework.stereotype.Service;
@@ -16,11 +18,18 @@ public class DeleteDraftChapterUseCase {
     private final ChapterRepositoryPort
             chapterRepositoryPort;
 
+    private final ChapterRevisionRepositoryPort
+            chapterRevisionRepositoryPort;
+
     public DeleteDraftChapterUseCase(
-            ChapterRepositoryPort chapterRepositoryPort
+            ChapterRepositoryPort chapterRepositoryPort,
+            ChapterRevisionRepositoryPort chapterRevisionRepositoryPort
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
+
+        this.chapterRevisionRepositoryPort =
+                chapterRevisionRepositoryPort;
     }
 
     @Transactional
@@ -60,8 +69,22 @@ public class DeleteDraftChapterUseCase {
             );
         }
 
+        if (!chapterRevisionRepositoryPort
+                .canSafelyHardDelete(
+                        chapterId
+                )) {
+
+            throw new ChapterCannotBeDeletedException(
+                    chapterId
+            );
+        }
+
         long expectedVersion =
                 chapter.getAggregateVersion();
+
+        chapterRevisionRepositoryPort.deleteAllByChapterId(
+                chapterId
+        );
 
         chapterRepositoryPort.delete(
                 chapter,

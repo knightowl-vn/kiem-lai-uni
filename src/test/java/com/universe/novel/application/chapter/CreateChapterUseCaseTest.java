@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
@@ -10,6 +11,7 @@ import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 
@@ -76,6 +78,10 @@ class CreateChapterUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     private CreateChapterUseCase
             useCase;
 
@@ -86,7 +92,8 @@ class CreateChapterUseCaseTest {
                         chapterRepositoryPort,
                         volumeRepositoryPort,
                         idGeneratorPort,
-                        clockPort
+                        clockPort,
+                        chapterRevisionRecorder
                 );
     }
 
@@ -276,6 +283,37 @@ class CreateChapterUseCaseTest {
         ).isEqualTo(
                 1L
         );
+
+        verify(
+                chapterRevisionRecorder
+        ).record(
+                saved,
+                ChapterRevisionChangeType.CREATE_DRAFT,
+                ADMIN_ID,
+                null
+        );
+    }
+
+    @Test
+    @DisplayName(
+            "Không ghi revision khi lưu Chapter thất bại"
+    )
+    void shouldNotRecordRevisionWhenChapterSaveFails() {
+        Volume volume = createVolume();
+
+        when(volumeRepositoryPort.findById(VOLUME_ID)).thenReturn(Optional.of(volume));
+        when(chapterRepositoryPort.existsByChapterNumber(1)).thenReturn(false);
+        when(chapterRepositoryPort.existsBySlug(new Slug("quyen-1-chuong-1"))).thenReturn(false);
+        when(idGeneratorPort.generate()).thenReturn(CHAPTER_ID);
+        when(clockPort.now()).thenReturn(NOW);
+        when(chapterRepositoryPort.save(any(Chapter.class), anyLong()))
+                .thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(createCommand()))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
     }
 
     @Test

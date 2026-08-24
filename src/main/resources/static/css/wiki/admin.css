@@ -135,7 +135,8 @@
    TABLE
    ========================================================= */
 .wiki-admin-table-panel {
-	overflow: visible;
+	overflow: hidden;
+	max-width: 100%;
 	border: 1px solid var(--border);
 	border-radius: 16px;
 	background: var(--surface);
@@ -143,7 +144,10 @@
 }
 
 .wiki-admin-table-wrapper {
-	overflow-x: visible;
+	width: 100%;
+	max-width: 100%;
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
 }
 
 .wiki-admin-table {
@@ -296,9 +300,6 @@
 	}
 	.wiki-admin-filter-actions {
 		grid-column: 1/-1;
-	}
-	.wiki-admin-table-wrapper {
-		overflow-x: auto;
 	}
 }
 

@@ -1,5 +1,6 @@
 package com.universe.novel.application.chapter;
 
+import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNumberAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterSlugAlreadyExistsException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
@@ -9,6 +10,7 @@ import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
+import com.universe.novel.domain.revision.ChapterRevisionChangeType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 
@@ -34,11 +36,15 @@ public class CreateChapterUseCase {
     private final ClockPort
             clockPort;
 
+    private final ChapterRevisionRecorder
+            chapterRevisionRecorder;
+
     public CreateChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             VolumeRepositoryPort volumeRepositoryPort,
             IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            ChapterRevisionRecorder chapterRevisionRecorder
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
@@ -51,6 +57,9 @@ public class CreateChapterUseCase {
 
         this.clockPort =
                 clockPort;
+
+        this.chapterRevisionRecorder =
+                chapterRevisionRecorder;
     }
 
     @Transactional
@@ -128,6 +137,13 @@ public class CreateChapterUseCase {
                         chapter,
                         0L
                 );
+
+        chapterRevisionRecorder.record(
+                savedChapter,
+                ChapterRevisionChangeType.CREATE_DRAFT,
+                command.actorId(),
+                null
+        );
 
         return ChapterDTOMapper.toDTO(
                 savedChapter

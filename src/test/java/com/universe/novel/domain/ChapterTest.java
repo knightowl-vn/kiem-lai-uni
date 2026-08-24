@@ -1699,6 +1699,111 @@ class ChapterTest {
                 CREATED_AT);
     }
 
+    @Test
+    @DisplayName("Khôi phục nội dung biên tập (title, summary, content) trên bản nháp thành công")
+    void shouldRestoreRevisionContentOnDraft() {
+        Chapter chapter = createDraft();
+        long aggVersionBefore = chapter.getAggregateVersion();
+        long contentVersionBefore = chapter.getContentVersion();
+
+        chapter.restoreRevisionContent(
+                "Tiêu đề mới từ revision",
+                "Tóm tắt mới từ revision",
+                "Nội dung mới từ revision",
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(chapter.getTitle()).isEqualTo("Tiêu đề mới từ revision");
+        assertThat(chapter.getSummary()).isEqualTo("Tóm tắt mới từ revision");
+        assertThat(chapter.getContent()).isEqualTo("Nội dung mới từ revision");
+        assertThat(chapter.getVolumeId()).isEqualTo(VOLUME_ID);
+        assertThat(chapter.getChapterNumber()).isEqualTo(1);
+        assertThat(chapter.getSlug()).isEqualTo(DEFAULT_SLUG);
+        assertThat(chapter.getStatus()).isEqualTo(ChapterStatus.DRAFT);
+        assertThat(chapter.getUpdatedBy()).isEqualTo(OTHER_ADMIN_ID);
+        assertThat(chapter.getUpdatedAt()).isEqualTo(UPDATED_AT);
+        assertThat(chapter.getAggregateVersion()).isEqualTo(aggVersionBefore + 1);
+        assertThat(chapter.getContentVersion()).isEqualTo(contentVersionBefore + 1);
+    }
+
+    @Test
+    @DisplayName("Khôi phục chỉ title/summary (content không đổi) thì chỉ tăng aggregateVersion")
+    void shouldIncrementOnlyAggregateVersionWhenContentUnchangedDuringRestore() {
+        Chapter chapter = createDraft();
+        long aggVersionBefore = chapter.getAggregateVersion();
+        long contentVersionBefore = chapter.getContentVersion();
+
+        chapter.restoreRevisionContent(
+                "Tiêu đề sửa đổi",
+                "Tóm tắt sửa đổi",
+                DEFAULT_CONTENT, // Content identical
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        );
+
+        assertThat(chapter.getTitle()).isEqualTo("Tiêu đề sửa đổi");
+        assertThat(chapter.getSummary()).isEqualTo("Tóm tắt sửa đổi");
+        assertThat(chapter.getContent()).isEqualTo(DEFAULT_CONTENT);
+        assertThat(chapter.getAggregateVersion()).isEqualTo(aggVersionBefore + 1);
+        assertThat(chapter.getContentVersion()).isEqualTo(contentVersionBefore);
+    }
+
+    @Test
+    @DisplayName("Khôi phục no-op khi title, summary, content đều trùng khớp thì không thay đổi state")
+    void shouldNotMutateStateOnNoOpRestore() {
+        Chapter chapter = createDraft();
+        long aggVersionBefore = chapter.getAggregateVersion();
+        long contentVersionBefore = chapter.getContentVersion();
+        Instant updatedAtBefore = chapter.getUpdatedAt();
+
+        chapter.restoreRevisionContent(
+                "Chương Một",
+                "Tóm tắt chương",
+                DEFAULT_CONTENT,
+                OTHER_ADMIN_ID,
+                UPDATED_AT.plusSeconds(3600)
+        );
+
+        assertThat(chapter.getAggregateVersion()).isEqualTo(aggVersionBefore);
+        assertThat(chapter.getContentVersion()).isEqualTo(contentVersionBefore);
+        assertThat(chapter.getUpdatedAt()).isEqualTo(updatedAtBefore);
+    }
+
+    @Test
+    @DisplayName("Từ chối khôi phục nội dung khi Chapter ở trạng thái PUBLISHED")
+    void shouldRejectRestoreRevisionContentWhenPublished() {
+        Chapter chapter = createDraft();
+        chapter.publish(ADMIN_ID, CREATED_AT.plusSeconds(60));
+
+        assertThatThrownBy(() -> chapter.restoreRevisionContent(
+                "Tiêu đề mới",
+                "Tóm tắt mới",
+                "Nội dung mới",
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Chỉ được khôi phục nội dung khi chương còn là bản nháp.");
+    }
+
+    @Test
+    @DisplayName("Từ chối khôi phục nội dung khi Chapter ở trạng thái ARCHIVED")
+    void shouldRejectRestoreRevisionContentWhenArchived() {
+        Chapter chapter = createDraft();
+        chapter.archive(ADMIN_ID, CREATED_AT.plusSeconds(60));
+
+        assertThatThrownBy(() -> chapter.restoreRevisionContent(
+                "Tiêu đề mới",
+                "Tóm tắt mới",
+                "Nội dung mới",
+                OTHER_ADMIN_ID,
+                UPDATED_AT
+        ))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Chỉ được khôi phục nội dung khi chương còn là bản nháp.");
+    }
+
     private Chapter rehydrate(
             ChapterStatus status,
             UUID publishedBy,
