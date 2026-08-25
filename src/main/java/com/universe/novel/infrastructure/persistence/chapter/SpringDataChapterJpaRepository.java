@@ -215,4 +215,28 @@ public interface SpringDataChapterJpaRepository
             String volumeId,
             String status
     );
+
+    /*
+     * Lightweight Published Chapter lookup for Reading Progress
+     *
+     * Chỉ trả id và chapter_number của Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Không load summary/content/audit/version hay Chapter/Volume aggregate.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.id = :id
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReadableChapterAccessProjection> findPublishedAccessById(
+            @Param("id") String id
+    );
 }
