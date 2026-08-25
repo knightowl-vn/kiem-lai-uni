@@ -349,6 +349,57 @@ textarea {
 
 
 /* =========================================================
+   HERO ACTIONS (START READING / CONTINUE READING)
+   ========================================================= */
+
+.novel-reader-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+.novel-reader-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 12px 26px;
+    border-radius: var(--reader-radius-md);
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.novel-reader-btn-primary {
+    background-color: var(--reader-primary);
+    color: #ffffff !important;
+    border: none;
+    box-shadow: 0 4px 14px rgba(108, 88, 76, 0.25);
+}
+
+.novel-reader-btn-primary:hover {
+    background-color: var(--reader-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(108, 88, 76, 0.35);
+}
+
+.novel-reader-btn-icon {
+    flex-shrink: 0;
+}
+
+.novel-reader-continue-info {
+    margin-top: 10px;
+    color: var(--reader-text-muted);
+    font-size: 13px;
+    font-family: var(--font-ui);
+}
+
+
+/* =========================================================
    TABLE OF CONTENTS
    ========================================================= */
 

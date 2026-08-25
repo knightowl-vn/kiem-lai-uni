@@ -239,4 +239,47 @@ public interface SpringDataChapterJpaRepository
     Optional<ReadableChapterAccessProjection> findPublishedAccessById(
             @Param("id") String id
     );
+
+    /*
+     * Public Reader Published Chapter by ID (for Continue Reading)
+     *
+     * Chỉ trả id, chapter_number, title, slug của Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Không load summary/content/audit/version.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.id = :id
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReaderChapterListItemProjection> findPublishedReaderChapterById(
+            @Param("id") String id
+    );
+
+    /*
+     * Structural Chapter Number lookup by ID (for Continue Reading Fallback)
+     *
+     * Lấy chapter_number cấu trúc không phụ thuộc trạng thái xuất bản.
+     */
+    @Query(
+            value = """
+                    select c.chapter_number
+                    from novel_chapters c
+                    where c.id = :id
+                    """,
+            nativeQuery = true
+    )
+    Optional<Integer> findChapterNumberById(
+            @Param("id") String id
+    );
 }

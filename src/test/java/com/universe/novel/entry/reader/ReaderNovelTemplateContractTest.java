@@ -178,6 +178,43 @@ class ReaderNovelTemplateContractTest {
         assertThat(readerCss).contains("html[data-bs-theme=\"dark\"]");
     }
 
+    @Test
+    @DisplayName("Novel reader landing page (index.html) chứa hero actions với nút Đọc tiếp (khi có continueReading) và Bắt đầu đọc (khi chưa có continueReading)")
+    void landingPageIncludesHeroActionsContract() throws Exception {
+        String index = read("src/main/resources/templates/novel/index.html");
+        String readerCss = read("src/main/resources/static/css/novel/reader.css");
+
+        assertThat(index).contains("class=\"novel-reader-hero-actions\"");
+        assertThat(index).contains("id=\"continueReadingBtn\"");
+        assertThat(index).contains("id=\"startReadingBtn\"");
+        assertThat(index).contains("class=\"novel-reader-continue-info\"");
+        assertThat(index).contains("id=\"toc\"");
+
+        assertThat(readerCss).contains(".novel-reader-hero-actions");
+        assertThat(readerCss).contains(".novel-reader-btn");
+        assertThat(readerCss).contains(".novel-reader-btn-primary");
+        assertThat(readerCss).contains(".novel-reader-continue-info");
+    }
+
+    @Test
+    @DisplayName("Novel chapter reading page (chapter.html) chứa tracking container cho authenticated user và nạp reader-progress.js")
+    void chapterReadingPageIncludesReadingProgressContract() throws Exception {
+        String chapterPage = read("src/main/resources/templates/novel/chapter.html");
+        String progressJs = read("src/main/resources/static/js/novel/reader-progress.js");
+
+        assertThat(chapterPage).contains("id=\"novelReadingProgressTracker\"");
+        assertThat(chapterPage).contains("sec:authorize=\"isAuthenticated()\"");
+        assertThat(chapterPage).contains("data-chapter-id=");
+        assertThat(chapterPage).contains("data-csrf-token=");
+        assertThat(chapterPage).contains("data-csrf-header=");
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/reader-progress.js}\"");
+        assertThat(chapterPage).contains("defer");
+
+        assertThat(progressJs).contains("novelReadingProgressTracker");
+        assertThat(progressJs).contains("encodeURIComponent(chapterId)");
+        assertThat(progressJs).contains("/progress");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
     }

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="vi"
-      xmlns:th="http://www.thymeleaf.org">
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 
 <head>
     <meta charset="UTF-8">
@@ -285,6 +286,11 @@
 
     </nav>
 
+    <div sec:authorize="isAuthenticated()"
+         id="novelReadingProgressTracker"
+         th:attr="data-chapter-id=${chapter.id},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+         hidden></div>
+
 </main>
 
 
@@ -352,6 +358,8 @@
 <script th:src="@{/js/reading/reading-preferences.js}"></script>
 <script th:src="@{/js/novel/reader-reading-settings.js}"></script>
 <script th:src="@{/js/novel/reader-chapter-toc.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-progress.js}"
         defer></script>
 
 </body>
