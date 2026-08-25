@@ -48,13 +48,17 @@ class ReadingProgressFlywayRuntimeVerificationTest {
         if (pass != null && !pass.isBlank()) {
             return pass;
         }
-        String dbPass = System.getenv("DB_PASSWORD");
-        if (dbPass != null && !dbPass.isBlank()) {
-            return dbPass;
+        String envPass = System.getenv("TEST_MYSQL_PASS");
+        if (envPass != null && !envPass.isBlank()) {
+            return envPass;
         }
         String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
         if (rootPass != null && !rootPass.isBlank()) {
             return rootPass;
+        }
+        String dbPass = System.getenv("DB_PASSWORD");
+        if (dbPass != null && !dbPass.isBlank()) {
+            return dbPass;
         }
         return "";
     }

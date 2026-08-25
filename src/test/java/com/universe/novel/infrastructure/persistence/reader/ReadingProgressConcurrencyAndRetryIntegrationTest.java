@@ -80,7 +80,23 @@ class ReadingProgressConcurrencyAndRetryIntegrationTest {
         if (envDb != null && !envDb.isBlank()) {
             return envDb.trim();
         }
-        return "kiemlai_integration_test";
+        String dbName = System.getenv("MYSQL_DATABASE");
+        if (dbName != null && !dbName.isBlank()) {
+            return dbName.trim();
+        }
+        String dbUrl = System.getenv("DB_URL");
+        if (dbUrl != null && !dbUrl.isBlank()) {
+            int slashIndex = dbUrl.indexOf('/', "jdbc:mysql://".length());
+            if (slashIndex != -1) {
+                int qIndex = dbUrl.indexOf('?', slashIndex);
+                if (qIndex != -1) {
+                    return dbUrl.substring(slashIndex + 1, qIndex);
+                } else {
+                    return dbUrl.substring(slashIndex + 1);
+                }
+            }
+        }
+        return "kiemlai_test";
     }
 
     private static String resolveUser() {
@@ -108,13 +124,13 @@ class ReadingProgressConcurrencyAndRetryIntegrationTest {
         if (envPass != null && !envPass.isBlank()) {
             return envPass;
         }
-        String dbPass = System.getenv("DB_PASSWORD");
-        if (dbPass != null && !dbPass.isBlank()) {
-            return dbPass;
-        }
         String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
         if (rootPass != null && !rootPass.isBlank()) {
             return rootPass;
+        }
+        String dbPass = System.getenv("DB_PASSWORD");
+        if (dbPass != null && !dbPass.isBlank()) {
+            return dbPass;
         }
         return "";
     }
