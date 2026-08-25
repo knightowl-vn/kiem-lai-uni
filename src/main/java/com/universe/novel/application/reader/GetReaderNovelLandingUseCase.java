@@ -1,6 +1,7 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.ports.ReaderNovelLandingQueryPort;
+import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
@@ -39,9 +40,15 @@ public class GetReaderNovelLandingUseCase {
                 readerNovelLandingQueryPort
                         .findPublishedVolumes();
 
+        ReaderChapterNavigationDTO firstChapter =
+                readerNovelLandingQueryPort
+                        .findFirstPublishedChapter()
+                        .orElse(null);
+
         return new ReaderNovelLandingDTO(
                 novel,
-                volumes
+                volumes,
+                firstChapter
         );
     }
 }

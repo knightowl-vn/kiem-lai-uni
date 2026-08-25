@@ -4,6 +4,7 @@ import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.novel.application.reader.GetContinueReadingUseCase;
 import com.universe.novel.application.reader.GetReaderNovelLandingUseCase;
+import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderContinueReadingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
@@ -72,6 +73,10 @@ class ReaderNovelPageControllerTest {
     }
 
     private ReaderNovelLandingDTO createSampleLanding() {
+        return createSampleLanding(new ReaderChapterNavigationDTO(1, "Khởi Đầu", "chuong-1-khoi-dau"));
+    }
+
+    private ReaderNovelLandingDTO createSampleLanding(ReaderChapterNavigationDTO firstChapter) {
         ReaderNovelOverviewDTO novel = new ReaderNovelOverviewDTO(
                 "Kiếm Lai",
                 "kiem-lai",
@@ -89,11 +94,11 @@ class ReaderNovelPageControllerTest {
                 81L
         );
 
-        return new ReaderNovelLandingDTO(novel, List.of(volume));
+        return new ReaderNovelLandingDTO(novel, List.of(volume), firstChapter);
     }
 
     @Test
-    @DisplayName("Anonymous user: renders landing page with novel & volumes, without continueReading attribute")
+    @DisplayName("Anonymous user: renders landing page with novel, volumes & firstChapter, without continueReading attribute")
     void shouldShowReaderNovelLandingPageForAnonymousUser() {
         ReaderNovelLandingDTO landing = createSampleLanding();
         when(getReaderNovelLandingUseCase.execute()).thenReturn(landing);
@@ -105,6 +110,7 @@ class ReaderNovelPageControllerTest {
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("novel")).isEqualTo(landing.novel());
         assertThat(model.getAttribute("volumes")).isEqualTo(landing.volumes());
+        assertThat(model.getAttribute("firstChapter")).isEqualTo(landing.firstChapter());
         assertThat(model.getAttribute("pageTitle")).isEqualTo("Kiếm Lai");
         assertThat(model.getAttribute("continueReading")).isNull();
 

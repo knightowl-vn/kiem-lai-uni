@@ -392,10 +392,22 @@ textarea {
 }
 
 .novel-reader-continue-info {
-    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+    font-family: var(--font-ui);
+}
+
+.novel-reader-continue-chapter {
+    color: var(--reader-text);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.novel-reader-continue-highest {
     color: var(--reader-text-muted);
     font-size: 13px;
-    font-family: var(--font-ui);
 }
 
 

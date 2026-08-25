@@ -179,25 +179,46 @@ class ReaderNovelTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Novel reader landing page (index.html) chứa hero actions với nút Đọc tiếp (khi có continueReading) và Bắt đầu đọc (khi chưa có continueReading)")
+    @DisplayName("Novel reader landing page (index.html) chứa hero actions với nút Đọc tiếp (nhãn ngắn 'Đọc tiếp', thông tin chương ở bên ngoài), và Bắt đầu đọc điều hướng trực tiếp tới firstChapter hoặc fallback an toàn #toc")
     void landingPageIncludesHeroActionsContract() throws Exception {
         String index = read("src/main/resources/templates/novel/index.html");
         String readerCss = read("src/main/resources/static/css/novel/reader.css");
 
+        // 1. Hero actions container
         assertThat(index).contains("class=\"novel-reader-hero-actions\"");
         assertThat(index).contains("id=\"continueReadingBtn\"");
         assertThat(index).contains("id=\"startReadingBtn\"");
-        assertThat(index).contains("class=\"novel-reader-continue-info\"");
-        assertThat(index).contains("id=\"toc\"");
 
+        // 2. Continue Reading button label is concise "Đọc tiếp"
+        assertThat(index).contains("<span>Đọc tiếp</span>");
+
+        // 3. Secondary Chapter details and highest reached progress exist outside button
+        assertThat(index).contains("class=\"novel-reader-continue-info\"");
+        assertThat(index).contains("class=\"novel-reader-continue-chapter\"");
+        assertThat(index).contains("class=\"novel-reader-continue-highest\"");
+        assertThat(index).contains("continueReading.chapterNumber");
+        assertThat(index).contains("continueReading.title");
+        assertThat(index).contains("continueReading.highestReachedChapterNumber");
+
+        // 4. Start Reading navigates directly to firstChapter when available
+        assertThat(index).contains("th:if=\"${firstChapter != null}\"");
+        assertThat(index).contains("th:href=\"@{/novel/chapters/{slug}(slug=${firstChapter.slug})}\"");
+
+        // 5. Start Reading safely falls back to #toc when no readable chapters exist
+        assertThat(index).contains("th:unless=\"${firstChapter != null}\"");
+        assertThat(index).contains("href=\"#toc\"");
+
+        // 6. CSS definitions
         assertThat(readerCss).contains(".novel-reader-hero-actions");
         assertThat(readerCss).contains(".novel-reader-btn");
         assertThat(readerCss).contains(".novel-reader-btn-primary");
         assertThat(readerCss).contains(".novel-reader-continue-info");
+        assertThat(readerCss).contains(".novel-reader-continue-chapter");
+        assertThat(readerCss).contains(".novel-reader-continue-highest");
     }
 
     @Test
-    @DisplayName("Novel chapter reading page (chapter.html) chứa tracking container cho authenticated user và nạp reader-progress.js")
+    @DisplayName("Novel chapter reading page (chapter.html) chứa tracking container cho authenticated user và nạp reader-progress.js từ đúng đường dẫn tĩnh")
     void chapterReadingPageIncludesReadingProgressContract() throws Exception {
         String chapterPage = read("src/main/resources/templates/novel/chapter.html");
         String progressJs = read("src/main/resources/static/js/novel/reader-progress.js");
@@ -211,12 +232,15 @@ class ReaderNovelTemplateContractTest {
         assertThat(chapterPage).contains("defer");
 
         assertThat(progressJs).contains("novelReadingProgressTracker");
+        assertThat(progressJs).contains("tracker.dataset.chapterId");
+        assertThat(progressJs).contains("tracker.dataset.csrfToken");
+        assertThat(progressJs).contains("tracker.dataset.csrfHeader");
         assertThat(progressJs).contains("encodeURIComponent(chapterId)");
         assertThat(progressJs).contains("/progress");
     }
 
     private String read(String relativePath) throws Exception {
-        return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
+        return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 
     private int countOccurrences(String text, String target) {

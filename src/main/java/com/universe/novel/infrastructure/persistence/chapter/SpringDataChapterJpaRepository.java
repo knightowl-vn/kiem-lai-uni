@@ -121,6 +121,30 @@ public interface SpringDataChapterJpaRepository
             findAllPublishedReaderChaptersOrderByChapterNumber();
 
     /*
+     * Public Reader First Chapter
+     *
+     * Tìm Chapter PUBLISHED đầu tiên (lowest chapter_number) thuộc Volume PUBLISHED.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    order by c.chapter_number asc
+                    limit 1
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReaderChapterListItemProjection> findFirstPublishedReaderChapter();
+
+    /*
      * Public Reader Chapter Detail
      *
      * Chỉ trả Chapter PUBLISHED thuộc Volume PUBLISHED.

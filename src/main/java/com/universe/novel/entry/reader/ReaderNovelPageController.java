@@ -81,6 +81,11 @@ public class ReaderNovelPageController {
         );
 
         model.addAttribute(
+                "firstChapter",
+                landing.firstChapter()
+        );
+
+        model.addAttribute(
                 "pageTitle",
                 landing.novel().title()
         );
