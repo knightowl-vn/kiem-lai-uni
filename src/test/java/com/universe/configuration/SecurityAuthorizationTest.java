@@ -117,6 +117,9 @@ class SecurityAuthorizationTest {
     private com.universe.novel.application.reader.GetContinueReadingUseCase getContinueReadingUseCase;
 
     @MockBean
+    private com.universe.novel.application.reader.IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
+
+    @MockBean
     private AuthenticatedEmailResolver authenticatedEmailResolver;
 
     @MockBean

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Dấu trang chương | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='novel')}"></div>
+
+<main class="novel-bookmarks-page">
+
+    <div class="novel-bookmarks-container">
+
+        <!-- Breadcrumb -->
+        <nav class="novel-chapter-breadcrumb mb-4"
+             aria-label="Breadcrumb">
+            <a th:href="@{/home}">Trang chủ</a>
+            <span class="novel-breadcrumb-separator" aria-hidden="true">/</span>
+            <a th:href="@{/novel}">Kiếm Lai</a>
+            <span class="novel-breadcrumb-separator" aria-hidden="true">/</span>
+            <span aria-current="page">Dấu trang</span>
+        </nav>
+
+        <!-- Header -->
+        <header class="novel-bookmarks-header">
+            <h1 class="novel-bookmarks-title">
+                <svg class="novel-bookmarks-header-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="28"
+                     height="28"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+                <span>Dấu trang của tôi</span>
+            </h1>
+            <p class="novel-bookmarks-subtitle">
+                Danh sách các chương bạn đã lưu để tiếp tục đọc lại bất cứ lúc nào.
+            </p>
+        </header>
+
+        <!-- Bookmarks List -->
+        <div th:if="${!#lists.isEmpty(bookmarks)}"
+             id="novelBookmarksList"
+             class="novel-bookmarks-list"
+             role="list">
+
+            <div th:each="bm : ${bookmarks}"
+                 class="novel-bookmark-item"
+                 role="listitem">
+
+                <div class="novel-bookmark-item-content">
+                    <div class="novel-bookmark-volume-badge"
+                         th:text="${bm.volumeTitle}">
+                        Quyển 1
+                    </div>
+
+                    <a th:href="@{/novel/chapters/{slug}(slug=${bm.chapterSlug})}"
+                       class="novel-bookmark-chapter-link">
+                        <span class="novel-bookmark-chapter-number"
+                              th:text="${'Chương ' + bm.chapterNumber + ':'}">
+                            Chương 1:
+                        </span>
+                        <span class="novel-bookmark-chapter-title"
+                              th:text="${bm.chapterTitle}">
+                            Tiêu đề chương
+                        </span>
+                    </a>
+
+                    <div class="novel-bookmark-meta">
+                        <span class="novel-bookmark-time"
+                              th:text="${'Đã lưu: ' + #temporals.format(bm.bookmarkedAt, 'dd/MM/yyyy HH:mm')}">
+                            Đã lưu: 25/08/2026 10:30
+                        </span>
+                    </div>
+                </div>
+
+                <div class="novel-bookmark-item-actions">
+                    <a th:href="@{/novel/chapters/{slug}(slug=${bm.chapterSlug})}"
+                       class="novel-bookmark-read-btn"
+                       aria-label="Đọc chương này">
+                        Đọc
+                    </a>
+
+                    <button type="button"
+                            class="novel-bookmark-remove-btn js-novel-bookmark-remove-btn"
+                            th:attr="data-chapter-id=${bm.chapterId},data-unbookmark-url=@{/novel/chapters/{id}/bookmark(id=${bm.chapterId})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+                            aria-label="Xóa dấu trang">
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="16"
+                             height="16"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        <span>Bỏ lưu</span>
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Empty State -->
+        <div id="novelBookmarksEmpty"
+             class="novel-bookmarks-empty"
+             th:classappend="${!#lists.isEmpty(bookmarks)} ? ' d-none' : ''">
+            <div class="novel-bookmarks-empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="48"
+                     height="48"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+            </div>
+            <h2 class="novel-bookmarks-empty-title">Bạn chưa có dấu trang nào</h2>
+            <p class="novel-bookmarks-empty-text">
+                Khi đọc truyện, hãy bấm nút "Đánh dấu" ở đầu chương để lưu lại vào danh sách này.
+            </p>
+            <a th:href="@{/novel}"
+               class="novel-bookmarks-empty-cta">
+                Khám phá Kiếm Lai
+            </a>
+        </div>
+
+    </div>
+
+</main>
+
+<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/novel/reader-bookmark.js}"
+        defer></script>
+
+</body>
+</html>

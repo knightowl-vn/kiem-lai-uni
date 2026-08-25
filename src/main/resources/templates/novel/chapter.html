@@ -68,6 +68,32 @@
 
         <div class="novel-reading-settings-wrapper">
 
+            <button sec:authorize="isAuthenticated()"
+                    type="button"
+                    class="novel-chapter-bookmark-btn"
+                    id="novelChapterBookmarkBtn"
+                    th:classappend="${isBookmarked} ? ' is-bookmarked' : ''"
+                    th:attr="data-chapter-id=${chapter.id},data-bookmarked=${isBookmarked},data-bookmark-url=@{/novel/chapters/{id}/bookmark(id=${chapter.id})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+                    aria-label="Đánh dấu chương">
+                <svg class="novel-bookmark-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="16"
+                     height="16"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+                <span class="novel-bookmark-btn-text"
+                      th:text="${isBookmarked ? 'Đã đánh dấu' : 'Đánh dấu'}">
+                    Đánh dấu
+                </span>
+            </button>
+
             <button type="button"
                     class="novel-reading-settings-trigger"
                     id="novelReadingSettingsTrigger"
@@ -360,6 +386,9 @@
 <script th:src="@{/js/novel/reader-chapter-toc.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-progress.js}"
+        defer></script>
+<script sec:authorize="isAuthenticated()"
+        th:src="@{/js/novel/reader-bookmark.js}"
         defer></script>
 
 </body>
