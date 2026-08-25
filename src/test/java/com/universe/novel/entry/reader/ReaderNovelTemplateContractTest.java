@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -68,6 +70,32 @@ class ReaderNovelTemplateContractTest {
         // Tái sử dụng shared navbar fragment với activeNav='novel'
         assertThat(chapterPage).contains("th:replace=\"~{fragments/navbar :: navbar(activeNav='novel')}\"");
         assertThat(chapterPage).contains("th:href=\"@{/css/navbar.css}\"");
+
+        // Cấu trúc phân cấp: novel-chapter-utility-row phải đóng hoàn toàn trước novel-chapter-header
+        int utilityRowStart = chapterPage.indexOf("<div class=\"novel-chapter-utility-row\"");
+        int headerStart = chapterPage.indexOf("<header class=\"novel-chapter-header\"");
+        int navTopStart = chapterPage.indexOf("<nav class=\"novel-chapter-nav novel-chapter-nav--top\"");
+        int articleStart = chapterPage.indexOf("<article class=\"novel-reader-chapter-body\"");
+        int navBottomStart = chapterPage.indexOf("<nav class=\"novel-chapter-nav novel-chapter-nav--bottom\"");
+        int mainEnd = chapterPage.indexOf("</main>");
+        int backdropStart = chapterPage.indexOf("id=\"novelTocBackdrop\"");
+        int drawerStart = chapterPage.indexOf("id=\"novelTocDrawer\"");
+
+        assertThat(utilityRowStart).isGreaterThanOrEqualTo(0);
+        assertThat(headerStart).isGreaterThan(utilityRowStart);
+        assertThat(navTopStart).isGreaterThan(headerStart);
+        assertThat(articleStart).isGreaterThan(navTopStart);
+        assertThat(navBottomStart).isGreaterThan(articleStart);
+        assertThat(mainEnd).isGreaterThan(navBottomStart);
+        assertThat(backdropStart).isGreaterThan(mainEnd);
+        assertThat(drawerStart).isGreaterThan(backdropStart);
+
+        String beforeHeader = chapterPage.substring(utilityRowStart, headerStart);
+        int openDivCount = countOccurrences(beforeHeader, "<div");
+        int closeDivCount = countOccurrences(beforeHeader, "</div>");
+        assertThat(closeDivCount)
+                .as("All divs in utility row must be closed before chapter header")
+                .isEqualTo(openDivCount);
     }
 
     @Test
@@ -117,6 +145,31 @@ class ReaderNovelTemplateContractTest {
         // 10. TOC drawer contains a clear return link to /novel with "Về trang Novel" text
         assertThat(chapterPage).contains("class=\"novel-toc-back-link\"");
         assertThat(chapterPage).contains("Về trang Novel");
+
+        // 11. Stacking context contract: TOC drawer (1052) > TOC backdrop (1051) > main navbar (1050)
+        String readerCss = read("src/main/resources/static/css/novel/reader.css");
+        String navbarCss = read("src/main/resources/static/css/navbar.css");
+
+        int backdropZIndex = extractZIndex(readerCss, "\\.novel-toc-backdrop\\s*\\{[^}]*z-index:\\s*(\\d+)");
+        int drawerZIndex = extractZIndex(readerCss, "\\.novel-toc-drawer\\s*\\{[^}]*z-index:\\s*(\\d+)");
+        int navbarZIndex = extractZIndex(navbarCss, "\\.profile-dropdown\\s*\\{[^}]*z-index:\\s*(\\d+)");
+
+        assertThat(backdropZIndex)
+                .as(".novel-toc-backdrop must define z-index: 1051")
+                .isEqualTo(1051);
+        assertThat(drawerZIndex)
+                .as(".novel-toc-drawer must define z-index: 1052")
+                .isEqualTo(1052);
+        assertThat(navbarZIndex)
+                .as("navbar/profile-dropdown baseline z-index")
+                .isEqualTo(1050);
+
+        assertThat(drawerZIndex)
+                .as("TOC drawer z-index must be strictly greater than TOC backdrop z-index")
+                .isGreaterThan(backdropZIndex);
+        assertThat(backdropZIndex)
+                .as("TOC backdrop z-index must be strictly greater than main navbar z-index")
+                .isGreaterThan(navbarZIndex);
     }
 
     @Test
@@ -159,11 +212,12 @@ class ReaderNovelTemplateContractTest {
         assertThat(chapterPage).contains("th:src=\"@{/js/reading/reading-preferences.js}\"");
         assertThat(chapterPage).contains("th:src=\"@{/js/novel/reader-reading-settings.js}\"");
 
-        // 6. UI script manages popover interactions
+        // 6. UI script manages popover interactions without blocking document-level preference listeners
         assertThat(novelSettingsJs).contains("novelReadingSettingsTrigger");
         assertThat(novelSettingsJs).contains("novelReadingSettingsPopover");
         assertThat(novelSettingsJs).contains("aria-expanded");
         assertThat(novelSettingsJs).contains("Escape");
+        assertThat(novelSettingsJs).doesNotContain("popover.addEventListener(\"click\"");
 
         // 7. reader.css consumes reading-scale with 18px base, reading font, and utility row/popover styling
         assertThat(readerCss).contains(".novel-chapter-utility-row");
@@ -251,5 +305,13 @@ class ReaderNovelTemplateContractTest {
             idx += target.length();
         }
         return count;
+    }
+
+    private int extractZIndex(String cssContent, String regexPattern) {
+        Matcher matcher = Pattern.compile(regexPattern).matcher(cssContent);
+        assertThat(matcher.find())
+                .as("CSS must match pattern: " + regexPattern)
+                .isTrue();
+        return Integer.parseInt(matcher.group(1));
     }
 }
