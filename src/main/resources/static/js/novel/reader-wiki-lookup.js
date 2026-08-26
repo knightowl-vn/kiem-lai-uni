@@ -196,6 +196,12 @@
 
         actionBtn.classList.add('is-visible');
 
+        if (isMobileViewport()) {
+            actionBtn.style.left = '';
+            actionBtn.style.top = '';
+            return;
+        }
+
         const btnWidth = actionBtn.offsetWidth || 100;
         const btnHeight = actionBtn.offsetHeight || 32;
         const gap = 8;

@@ -76,11 +76,12 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(css).contains("@media (min-width: 641px)");
         assertThat(css).contains("@media (max-width: 640px)");
 
-        // 3. Presentation Cards
+        // 3. Presentation Cards & Mobile Fixed Action
         assertThat(css).contains(".novel-wiki-lookup-primary-card");
         assertThat(css).contains(".novel-wiki-lookup-secondary-section");
         assertThat(css).contains(".novel-wiki-lookup-type-badge");
         assertThat(css).contains(".novel-wiki-lookup-article-link");
+        assertThat(css).contains("env(safe-area-inset-bottom");
     }
 
     private String read(String relativePath) throws Exception {
