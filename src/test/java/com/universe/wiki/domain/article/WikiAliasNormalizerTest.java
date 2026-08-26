@@ -38,4 +38,36 @@ class WikiAliasNormalizerTest {
     void cleanDisplayAliasPreservesCase() {
         assertThat(WikiAliasNormalizer.cleanDisplayAlias("  Tiểu   Phu   Tử  ")).isEqualTo("Tiểu Phu Tử");
     }
+
+    @Test
+    @DisplayName("Chuẩn hóa Unicode NFC: Chuỗi NFD và NFC cho cùng một từ tiếng Việt tạo ra normalizedAlias giống hệt nhau")
+    void normalizeHandlesCanonicallyEquivalentUnicodeForms() {
+        String nfc = "Trần Bình An";
+        String nfd = java.text.Normalizer.normalize(nfc, java.text.Normalizer.Form.NFD);
+
+        // Verify NFD and NFC are different raw byte sequences
+        assertThat(nfd).isNotEqualTo(nfc);
+
+        // Verify cleanDisplayAlias produces identical NFC output
+        assertThat(WikiAliasNormalizer.cleanDisplayAlias(nfd))
+                .isEqualTo(WikiAliasNormalizer.cleanDisplayAlias(nfc))
+                .isEqualTo(nfc);
+
+        // Verify normalize produces identical normalized alias
+        assertThat(WikiAliasNormalizer.normalize(nfd))
+                .isEqualTo(WikiAliasNormalizer.normalize(nfc))
+                .isEqualTo("trần bình an");
+    }
+
+    @Test
+    @DisplayName("Chuẩn hóa các cụm từ tiếng Việt phức tạp ở dạng NFD (Tiểu phu tử, Trần kiếm tiên)")
+    void normalizeComplexVietnameseNfdStrings() {
+        String nfc1 = "Tiểu Phu Tử";
+        String nfd1 = java.text.Normalizer.normalize(nfc1, java.text.Normalizer.Form.NFD);
+        assertThat(WikiAliasNormalizer.normalize(nfd1)).isEqualTo("tiểu phu tử");
+
+        String nfc2 = "Trần Kiếm Tiên";
+        String nfd2 = java.text.Normalizer.normalize(nfc2, java.text.Normalizer.Form.NFD);
+        assertThat(WikiAliasNormalizer.normalize(nfd2)).isEqualTo("trần kiếm tiên");
+    }
 }

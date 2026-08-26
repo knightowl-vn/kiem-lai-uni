@@ -6,6 +6,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface SpringDataWikiArticleAliasJpaRepository
@@ -19,7 +20,11 @@ public interface SpringDataWikiArticleAliasJpaRepository
 
     List<WikiArticleAliasJpaEntity> findByNormalizedAliasOrderByCreatedAtAsc(String normalizedAlias);
 
+    Optional<WikiArticleAliasJpaEntity> findByArticleIdAndNormalizedAlias(String articleId, String normalizedAlias);
+
     boolean existsByArticleIdAndNormalizedAlias(String articleId, String normalizedAlias);
+
+    void deleteByArticleIdAndNormalizedAlias(String articleId, String normalizedAlias);
 
     void deleteAllByArticleId(String articleId);
 
