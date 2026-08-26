@@ -45,12 +45,7 @@
             }
         });
 
-        // Prevent clicks inside popover from bubbling and closing it
-        popover.addEventListener("click", event => {
-            event.stopPropagation();
-        });
-
-        // Close on clicking outside
+        // Close on clicking outside (outside-click detection preserves clicks inside popover)
         document.addEventListener("click", event => {
             const target = event.target;
             if (target instanceof Element && !popover.contains(target) && !trigger.contains(target)) {
