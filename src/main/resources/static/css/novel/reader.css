@@ -349,6 +349,69 @@ textarea {
 
 
 /* =========================================================
+   HERO ACTIONS (START READING / CONTINUE READING)
+   ========================================================= */
+
+.novel-reader-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+.novel-reader-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding: 12px 26px;
+    border-radius: var(--reader-radius-md);
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+}
+
+.novel-reader-btn-primary {
+    background-color: var(--reader-primary);
+    color: #ffffff !important;
+    border: none;
+    box-shadow: 0 4px 14px rgba(108, 88, 76, 0.25);
+}
+
+.novel-reader-btn-primary:hover {
+    background-color: var(--reader-primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(108, 88, 76, 0.35);
+}
+
+.novel-reader-btn-icon {
+    flex-shrink: 0;
+}
+
+.novel-reader-continue-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+    font-family: var(--font-ui);
+}
+
+.novel-reader-continue-chapter {
+    color: var(--reader-text);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.novel-reader-continue-highest {
+    color: var(--reader-text-muted);
+    font-size: 13px;
+}
+
+
+/* =========================================================
    TABLE OF CONTENTS
    ========================================================= */
 
@@ -822,6 +885,7 @@ textarea {
     position: relative;
     display: inline-flex;
     align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
 
@@ -1133,7 +1197,7 @@ body.has-toc-open {
 .novel-toc-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: 1051;
     background: rgba(36, 34, 31, 0.45);
     backdrop-filter: blur(2px);
     opacity: 0;
@@ -1152,7 +1216,7 @@ body.has-toc-open {
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 1001;
+    z-index: 1052;
     display: flex;
     flex-direction: column;
     width: min(380px, 90vw);
@@ -1323,4 +1387,275 @@ body.has-toc-open {
     .novel-toc-link {
         padding: 12px 14px;
     }
-}
+}
+
+/* =========================================================
+   CHAPTER BOOKMARK BUTTON
+   ========================================================= */
+.novel-chapter-bookmark-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius-sm);
+    background: var(--reader-surface);
+    color: var(--reader-text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.novel-chapter-bookmark-btn:hover {
+    border-color: var(--reader-primary);
+    color: var(--reader-primary);
+    background: var(--reader-primary-light);
+}
+
+.novel-chapter-bookmark-btn.is-bookmarked {
+    border-color: var(--reader-primary);
+    background: var(--reader-primary);
+    color: #ffffff;
+}
+
+.novel-chapter-bookmark-btn.is-bookmarked .novel-bookmark-icon {
+    fill: currentColor;
+}
+
+.novel-chapter-bookmark-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   BOOKMARKS LIST PAGE
+   ========================================================= */
+.novel-bookmarks-page {
+    width: min(calc(100% - 40px), 860px);
+    margin: 0 auto;
+    padding: 44px 0 90px;
+}
+
+.novel-bookmarks-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.novel-bookmarks-header {
+    margin-bottom: 32px;
+}
+
+.novel-bookmarks-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--reader-text);
+    margin: 0 0 8px 0;
+}
+
+.novel-bookmarks-header-icon {
+    color: var(--reader-primary);
+    flex-shrink: 0;
+}
+
+.novel-bookmarks-subtitle {
+    font-size: 14px;
+    color: var(--reader-text-secondary);
+    margin: 0;
+}
+
+.novel-bookmarks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.novel-bookmark-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px;
+    background: var(--reader-surface);
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.novel-bookmark-item:hover {
+    border-color: var(--reader-primary);
+    box-shadow: var(--reader-shadow);
+}
+
+.novel-bookmark-item-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.novel-bookmark-volume-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--reader-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.novel-bookmark-chapter-link {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--reader-text);
+    font-size: 16px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-bookmark-chapter-link:hover {
+    color: var(--reader-primary);
+    text-decoration: underline;
+}
+
+.novel-bookmark-chapter-number {
+    color: var(--reader-primary);
+    flex-shrink: 0;
+}
+
+.novel-bookmark-chapter-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-bookmark-meta {
+    font-size: 12px;
+    color: var(--reader-text-muted);
+}
+
+.novel-bookmark-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.novel-bookmark-read-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border-radius: var(--reader-radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.novel-bookmark-read-btn:hover {
+    background: var(--reader-primary-hover);
+    color: #ffffff;
+}
+
+.novel-bookmark-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius-sm);
+    background: transparent;
+    color: var(--reader-text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.novel-bookmark-remove-btn:hover {
+    border-color: #e57373;
+    color: #d32f2f;
+    background: rgba(229, 115, 115, 0.08);
+}
+
+/* Empty State */
+.novel-bookmarks-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 64px 24px;
+    background: var(--reader-surface);
+    border: 1px dashed var(--reader-border);
+    border-radius: var(--reader-radius-lg);
+}
+
+.novel-bookmarks-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--reader-primary-light);
+    color: var(--reader-primary);
+    margin-bottom: 20px;
+}
+
+.novel-bookmarks-empty-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--reader-text);
+    margin: 0 0 8px 0;
+}
+
+.novel-bookmarks-empty-text {
+    font-size: 14px;
+    color: var(--reader-text-secondary);
+    max-width: 420px;
+    margin: 0 0 24px 0;
+}
+
+.novel-bookmarks-empty-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border-radius: var(--reader-radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.novel-bookmarks-empty-cta:hover {
+    background: var(--reader-primary-hover);
+    color: #ffffff;
+}
+
+@media (max-width: 640px) {
+    .novel-bookmark-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .novel-bookmark-item-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+

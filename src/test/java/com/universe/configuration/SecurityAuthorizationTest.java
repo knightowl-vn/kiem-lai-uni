@@ -114,10 +114,19 @@ class SecurityAuthorizationTest {
     private UpdateNovelProfileUseCase updateNovelProfileUseCase;
 
     @MockBean
-    private CurrentUserQueryPort currentUserQueryPort;
+    private com.universe.novel.application.reader.GetContinueReadingUseCase getContinueReadingUseCase;
+
+    @MockBean
+    private com.universe.novel.application.reader.IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
 
     @MockBean
     private AuthenticatedEmailResolver authenticatedEmailResolver;
+
+    @MockBean
+    private com.universe.identity.contracts.interfaces.UserIdentityContract userIdentityContract;
+
+    @MockBean
+    private CurrentUserQueryPort currentUserQueryPort;
 
     @BeforeEach
     void setUp() throws Exception {

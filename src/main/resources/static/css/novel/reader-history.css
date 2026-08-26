@@ -1,0 +1,209 @@
+/* =========================================================
+   READING HISTORY PAGE CSS
+   ========================================================= */
+
+.novel-history-page {
+    width: min(calc(100% - 40px), 860px);
+    margin: 0 auto;
+    padding: 44px 0 90px;
+}
+
+.novel-history-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.novel-history-header {
+    margin-bottom: 32px;
+}
+
+.novel-history-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--reader-text);
+    margin: 0 0 8px 0;
+}
+
+.novel-history-header-icon {
+    color: var(--reader-primary);
+    flex-shrink: 0;
+}
+
+.novel-history-subtitle {
+    font-size: 14px;
+    color: var(--reader-text-secondary);
+    margin: 0;
+}
+
+.novel-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.novel-history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px;
+    background: var(--reader-surface);
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius-md);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.novel-history-item:hover {
+    border-color: var(--reader-primary);
+    box-shadow: var(--reader-shadow);
+}
+
+.novel-history-item-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.novel-history-volume-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--reader-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.novel-history-chapter-link {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--reader-text);
+    font-size: 16px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-history-chapter-link:hover {
+    color: var(--reader-primary);
+    text-decoration: underline;
+}
+
+.novel-history-chapter-number {
+    color: var(--reader-primary);
+    flex-shrink: 0;
+}
+
+.novel-history-chapter-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-history-meta {
+    font-size: 12px;
+    color: var(--reader-text-muted);
+}
+
+.novel-history-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.novel-history-read-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 18px;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border-radius: var(--reader-radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.novel-history-read-btn:hover {
+    background: var(--reader-primary-hover);
+    color: #ffffff;
+}
+
+/* Empty State */
+.novel-history-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 64px 24px;
+    background: var(--reader-surface);
+    border: 1px dashed var(--reader-border);
+    border-radius: var(--reader-radius-lg);
+}
+
+.novel-history-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--reader-primary-light);
+    color: var(--reader-primary);
+    margin-bottom: 20px;
+}
+
+.novel-history-empty-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--reader-text);
+    margin: 0 0 8px 0;
+}
+
+.novel-history-empty-text {
+    font-size: 14px;
+    color: var(--reader-text-secondary);
+    max-width: 420px;
+    margin: 0 0 24px 0;
+}
+
+.novel-history-empty-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 24px;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border-radius: var(--reader-radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.2s ease;
+}
+
+.novel-history-empty-cta:hover {
+    background: var(--reader-primary-hover);
+    color: #ffffff;
+}
+
+@media (max-width: 640px) {
+    .novel-history-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .novel-history-item-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}

@@ -257,7 +257,7 @@ class TypographyContractTest {
     }
 
     private String read(String relativePath) throws Exception {
-        return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
+        return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }
 
     private int countOccurrences(String text, String target) {
