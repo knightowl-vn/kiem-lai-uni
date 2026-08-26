@@ -2,6 +2,7 @@ package com.universe.novel.entry.reader;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.novel.application.exceptions.BookmarkLimitExceededException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.BookmarkChapterCommand;
 import com.universe.novel.application.reader.BookmarkChapterUseCase;
@@ -92,6 +93,8 @@ public class ReaderBookmarkController {
             return ResponseEntity.noContent().build();
         } catch (ChapterNotFoundException ex) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        } catch (BookmarkLimitExceededException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
     }
 

@@ -60,6 +60,8 @@
                     if (textSpan) {
                         textSpan.textContent = newBookmarkedState ? 'Đã đánh dấu' : 'Đánh dấu';
                     }
+                } else if (response.status === 409) {
+                    showBookmarkLimitToast('Bạn đã đạt giới hạn 100 chương đã đánh dấu. Hãy bỏ một dấu trang trước khi thêm chương mới.');
                 } else if (response.status === 401) {
                     window.location.href = '/login';
                 }
@@ -69,6 +71,86 @@
                 bookmarkBtn.disabled = false;
             }
         });
+    }
+
+    function showBookmarkLimitToast(message) {
+        const existingToast = document.getElementById('novelBookmarkLimitToast');
+        if (existingToast) {
+            existingToast.remove();
+        }
+
+        const toast = document.createElement('div');
+        toast.id = 'novelBookmarkLimitToast';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'polite');
+        toast.style.cssText = [
+            'position: fixed',
+            'bottom: 24px',
+            'right: 24px',
+            'max-width: 360px',
+            'padding: 12px 16px',
+            'background-color: #1e293b',
+            'color: #f8fafc',
+            'font-size: 14px',
+            'line-height: 1.5',
+            'border-radius: 8px',
+            'box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.2)',
+            'z-index: 9999',
+            'display: flex',
+            'align-items: center',
+            'justify-content: space-between',
+            'gap: 12px',
+            'transition: opacity 0.3s ease, transform 0.3s ease',
+            'opacity: 0',
+            'transform: translateY(10px)'
+        ].join(';');
+
+        const textSpan = document.createElement('span');
+        textSpan.textContent = message;
+        toast.appendChild(textSpan);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.setAttribute('aria-label', 'Đóng');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.style.cssText = [
+            'background: transparent',
+            'border: none',
+            'color: #94a3b8',
+            'font-size: 18px',
+            'line-height: 1',
+            'cursor: pointer',
+            'padding: 0 4px'
+        ].join(';');
+        closeBtn.addEventListener('click', function () {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            setTimeout(function () {
+                if (toast.parentNode) {
+                    toast.remove();
+                }
+            }, 300);
+        });
+        toast.appendChild(closeBtn);
+
+        document.body.appendChild(toast);
+
+        requestAnimationFrame(function () {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        });
+
+        setTimeout(function () {
+            if (toast.parentNode) {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                setTimeout(function () {
+                    if (toast.parentNode) {
+                        toast.remove();
+                    }
+                }, 300);
+            }
+        }, 5000);
     }
 
     function initBookmarkListRemoval() {

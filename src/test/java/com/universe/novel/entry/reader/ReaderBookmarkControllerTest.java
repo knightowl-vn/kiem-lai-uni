@@ -149,6 +149,21 @@ class ReaderBookmarkControllerTest {
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         }
+
+        @Test
+        @DisplayName("Returns 409 Conflict when user reaches bookmark limit (100 bookmarks)")
+        void shouldReturn409WhenBookmarkLimitExceeded() {
+            UserDTO user = createTestUser();
+            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
+            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
+            doThrow(new com.universe.novel.application.exceptions.BookmarkLimitExceededException(USER_ID, 100))
+                    .when(bookmarkChapterUseCase)
+                    .execute(any());
+
+            ResponseEntity<Void> response = controller.bookmarkChapter(CHAPTER_ID, authentication);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        }
     }
 
     @Nested

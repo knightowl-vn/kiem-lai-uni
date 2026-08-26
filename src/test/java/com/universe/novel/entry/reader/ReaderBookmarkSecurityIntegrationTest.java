@@ -226,7 +226,22 @@ class ReaderBookmarkSecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("8. GET /novel/bookmarks anonymous redirects to /login")
+    @DisplayName("8. POST bookmark when limit exceeded returns 409 Conflict")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void postBookmarkWhenLimitExceededShouldReturn409() throws Exception {
+        UserDTO user = createTestUser();
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
+        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
+        doThrow(new com.universe.novel.application.exceptions.BookmarkLimitExceededException(USER_ID, 100))
+                .when(bookmarkChapterUseCase)
+                .execute(any());
+
+        mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/bookmark").with(csrf()))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("9. GET /novel/bookmarks anonymous redirects to /login")
     void getBookmarksAnonymousShouldRedirectToLogin() throws Exception {
         when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
 
