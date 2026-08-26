@@ -8,6 +8,10 @@ public interface ChapterBookmarkRepositoryPort {
 
     boolean existsByUserIdAndChapterId(UUID userId, UUID chapterId);
 
+    long countByUserIdForUpdate(UUID userId);
+
+    boolean existsByUserIdAndChapterIdForUpdate(UUID userId, UUID chapterId);
+
     void save(UserChapterBookmark bookmark);
 
     int deleteByUserIdAndChapterId(UUID userId, UUID chapterId);

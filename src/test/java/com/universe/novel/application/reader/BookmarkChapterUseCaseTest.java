@@ -1,32 +1,31 @@
 package com.universe.novel.application.reader;
 
+import com.universe.novel.application.exceptions.BookmarkLimitExceededException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.DuplicateChapterBookmarkException;
 import com.universe.novel.application.ports.ChapterBookmarkRepositoryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
-import com.universe.novel.domain.reader.UserChapterBookmark;
-import com.universe.shared.id.IdGeneratorPort;
-import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,12 +37,6 @@ class BookmarkChapterUseCaseTest {
     private static final UUID CHAPTER_ID =
             UUID.fromString("22222222-2222-2222-2222-222222222222");
 
-    private static final UUID BOOKMARK_ID =
-            UUID.fromString("33333333-3333-3333-3333-333333333333");
-
-    private static final Instant NOW =
-            Instant.parse("2026-08-25T10:30:00Z");
-
     @Mock
     private ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
 
@@ -51,10 +44,7 @@ class BookmarkChapterUseCaseTest {
     private ChapterBookmarkRepositoryPort chapterBookmarkRepositoryPort;
 
     @Mock
-    private IdGeneratorPort idGeneratorPort;
-
-    @Mock
-    private ClockPort clockPort;
+    private BookmarkChapterAttemptExecutor attemptExecutor;
 
     private BookmarkChapterUseCase useCase;
 
@@ -63,38 +53,26 @@ class BookmarkChapterUseCaseTest {
         useCase = new BookmarkChapterUseCase(
                 readerChapterAccessQueryPort,
                 chapterBookmarkRepositoryPort,
-                idGeneratorPort,
-                clockPort
+                attemptExecutor
         );
     }
 
     @Test
-    @DisplayName("1. Readable Chapter: Đánh dấu chương công khai thành công với ID và thời gian chính xác")
+    @DisplayName("1. Readable Chapter: Đánh dấu chương công khai thành công qua attemptExecutor")
     void shouldCreateBookmarkWhenChapterIsPubliclyReadable() {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
         when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
                 .thenReturn(false);
-        when(idGeneratorPort.generate())
-                .thenReturn(BOOKMARK_ID);
-        when(clockPort.now())
-                .thenReturn(NOW);
 
         BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
         useCase.execute(command);
 
-        ArgumentCaptor<UserChapterBookmark> captor = ArgumentCaptor.forClass(UserChapterBookmark.class);
-        verify(chapterBookmarkRepositoryPort).save(captor.capture());
-
-        UserChapterBookmark saved = captor.getValue();
-        assertThat(saved.getId()).isEqualTo(BOOKMARK_ID);
-        assertThat(saved.getUserId()).isEqualTo(USER_ID);
-        assertThat(saved.getChapterId()).isEqualTo(CHAPTER_ID);
-        assertThat(saved.getCreatedAt()).isEqualTo(NOW);
+        verify(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
     }
 
     @Test
-    @DisplayName("2. Existing Bookmark: Thành công idempotent mà không lưu duplicate khi bookmark đã tồn tại trước đó")
+    @DisplayName("2. Existing Bookmark (Fast-Path): Thành công idempotent ngay tại fast-path mà không gọi attemptExecutor")
     void shouldSucceedIdempotentlyWhenBookmarkAlreadyExists() {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
@@ -104,54 +82,103 @@ class BookmarkChapterUseCaseTest {
         BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
         useCase.execute(command);
 
-        verify(idGeneratorPort, never()).generate();
-        verify(clockPort, never()).now();
-        verify(chapterBookmarkRepositoryPort, never()).save(any());
+        verify(attemptExecutor, never()).executeAttempt(any(), any());
     }
 
     @Test
-    @DisplayName("3. Concurrent Duplicate: Xử lý DuplicateChapterBookmarkException từ database như một hành động idempotent thành công")
+    @DisplayName("3. Concurrent Duplicate: Bắt DuplicateChapterBookmarkException từ attemptExecutor và xử lý như idempotent success")
     void shouldHandleConcurrentDuplicateBookmarkAsIdempotentSuccess() {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
         when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
                 .thenReturn(false);
-        when(idGeneratorPort.generate())
-                .thenReturn(BOOKMARK_ID);
-        when(clockPort.now())
-                .thenReturn(NOW);
         doThrow(new DuplicateChapterBookmarkException(USER_ID, CHAPTER_ID))
-                .when(chapterBookmarkRepositoryPort).save(any());
+                .when(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
 
         BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
         useCase.execute(command);
 
-        verify(chapterBookmarkRepositoryPort).save(any());
+        verify(attemptExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_ID);
     }
 
     @Test
-    @DisplayName("4. Unrelated Exception: Lan truyền lỗi cơ sở dữ liệu không liên quan (ví dụ: lỗi toàn vẹn khác)")
+    @DisplayName("4. Deadlock / Lock Retry: Thử lại thành công trong transaction mới khi attemptExecutor gặp transient ConcurrencyFailureException")
+    void shouldRetryOnTransientConcurrencyFailureExceptionAndSucceed() {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+        when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
+                .thenReturn(false);
+        doThrow(new CannotAcquireLockException("Deadlock found"))
+                .doNothing()
+                .when(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+
+        BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
+        useCase.execute(command);
+
+        verify(attemptExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_ID);
+    }
+
+    @Test
+    @DisplayName("5. Max Attempts Exhausted: Ném ConcurrencyFailureException lên caller nếu cả 3 lần thử đều thất bại do tranh chấp")
+    void shouldSurfaceExceptionWhenMaxAttemptsExhausted() {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+        when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
+                .thenReturn(false);
+        doThrow(new CannotAcquireLockException("Deadlock found"))
+                .doThrow(new CannotAcquireLockException("Deadlock found"))
+                .doThrow(new CannotAcquireLockException("Deadlock found"))
+                .when(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+
+        BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(CannotAcquireLockException.class);
+
+        verify(attemptExecutor, times(3)).executeAttempt(USER_ID, CHAPTER_ID);
+    }
+
+    @Test
+    @DisplayName("6. Bookmark Limit Exceeded: Lan truyền trực tiếp BookmarkLimitExceededException mà không thử lại")
+    void shouldPropagateBookmarkLimitExceededExceptionWithoutRetry() {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+        when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
+                .thenReturn(false);
+        doThrow(new BookmarkLimitExceededException(USER_ID, 100))
+                .when(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+
+        BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(BookmarkLimitExceededException.class)
+                .hasMessageContaining(USER_ID.toString())
+                .hasMessageContaining("100");
+
+        verify(attemptExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_ID);
+    }
+
+    @Test
+    @DisplayName("7. Unrelated Exception: Lan truyền lỗi không liên quan mà không thử lại")
     void shouldPropagateUnrelatedPersistenceException() {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
         when(chapterBookmarkRepositoryPort.existsByUserIdAndChapterId(USER_ID, CHAPTER_ID))
                 .thenReturn(false);
-        when(idGeneratorPort.generate())
-                .thenReturn(BOOKMARK_ID);
-        when(clockPort.now())
-                .thenReturn(NOW);
         doThrow(new DataIntegrityViolationException("Database disk full"))
-                .when(chapterBookmarkRepositoryPort).save(any());
+                .when(attemptExecutor).executeAttempt(USER_ID, CHAPTER_ID);
 
         BookmarkChapterCommand command = new BookmarkChapterCommand(USER_ID, CHAPTER_ID);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessage("Database disk full");
+
+        verify(attemptExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_ID);
     }
 
     @Test
-    @DisplayName("5. Non-Public / Missing Chapter: Ném ChapterNotFoundException theo ngữ nghĩa public khi chương không công khai")
+    @DisplayName("8. Non-Public / Missing Chapter: Ném ChapterNotFoundException theo ngữ nghĩa public khi chương không công khai")
     void shouldRejectBookmarkWhenChapterDoesNotExistOrNotPubliclyReadable() {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                 .thenReturn(Optional.empty());
@@ -162,11 +189,11 @@ class BookmarkChapterUseCaseTest {
                 .isInstanceOf(ChapterNotFoundException.class);
 
         verify(chapterBookmarkRepositoryPort, never()).existsByUserIdAndChapterId(any(), any());
-        verify(chapterBookmarkRepositoryPort, never()).save(any());
+        verifyNoInteractions(attemptExecutor);
     }
 
     @Test
-    @DisplayName("6. Validation: Từ chối command null")
+    @DisplayName("9. Validation: Từ chối command null")
     void shouldRejectNullCommand() {
         assertThatThrownBy(() -> useCase.execute(null))
                 .isInstanceOf(NullPointerException.class)

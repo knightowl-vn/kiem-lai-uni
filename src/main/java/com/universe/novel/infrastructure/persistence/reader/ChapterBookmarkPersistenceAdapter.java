@@ -6,6 +6,7 @@ import com.universe.novel.domain.reader.UserChapterBookmark;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -33,6 +34,25 @@ public class ChapterBookmarkPersistenceAdapter implements ChapterBookmarkReposit
     }
 
     @Override
+    @Transactional
+    public long countByUserIdForUpdate(UUID userId) {
+        if (userId == null) {
+            return 0;
+        }
+        return repository.countByUserIdForUpdate(userId.toString());
+    }
+
+    @Override
+    @Transactional
+    public boolean existsByUserIdAndChapterIdForUpdate(UUID userId, UUID chapterId) {
+        if (userId == null || chapterId == null) {
+            return false;
+        }
+        return repository.findIdByUserIdAndChapterIdForUpdate(userId.toString(), chapterId.toString()).isPresent();
+    }
+
+    @Override
+    @Transactional
     public void save(UserChapterBookmark bookmark) {
         if (bookmark == null) {
             throw new IllegalArgumentException("UserChapterBookmark không được để trống.");
@@ -56,7 +76,7 @@ public class ChapterBookmarkPersistenceAdapter implements ChapterBookmarkReposit
     }
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public int deleteByUserIdAndChapterId(UUID userId, UUID chapterId) {
         if (userId == null || chapterId == null) {
             return 0;

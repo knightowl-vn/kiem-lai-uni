@@ -6,11 +6,41 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+import java.util.Optional;
+
 @Repository
 public interface SpringDataChapterBookmarkJpaRepository
         extends JpaRepository<ChapterBookmarkJpaEntity, String> {
 
     boolean existsByUserIdAndChapterId(String userId, String chapterId);
+
+    @Query(
+            value = """
+                    SELECT COUNT(*)
+                    FROM novel_chapter_bookmarks
+                    WHERE user_id = :userId
+                    FOR UPDATE
+                    """,
+            nativeQuery = true
+    )
+    long countByUserIdForUpdate(@Param("userId") String userId);
+
+    @Query(
+            value = """
+                    SELECT id
+                    FROM novel_chapter_bookmarks
+                    WHERE user_id = :userId
+                      AND chapter_id = :chapterId
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+            nativeQuery = true
+    )
+    Optional<String> findIdByUserIdAndChapterIdForUpdate(
+            @Param("userId") String userId,
+            @Param("chapterId") String chapterId
+    );
 
     @Modifying
     @Query("DELETE FROM ChapterBookmarkJpaEntity b WHERE b.userId = :userId AND b.chapterId = :chapterId")
@@ -40,7 +70,7 @@ public interface SpringDataChapterBookmarkJpaRepository
                     """,
             nativeQuery = true
     )
-    java.util.List<ReaderBookmarkedChapterProjection> findPublishedBookmarkedChaptersByUserId(
+    List<ReaderBookmarkedChapterProjection> findPublishedBookmarkedChaptersByUserId(
             @Param("userId") String userId
     );
 }

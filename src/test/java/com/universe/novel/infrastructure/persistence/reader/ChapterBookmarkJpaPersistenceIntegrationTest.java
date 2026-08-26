@@ -1,18 +1,26 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
+import com.universe.novel.application.exceptions.BookmarkLimitExceededException;
 import com.universe.novel.application.exceptions.DuplicateChapterBookmarkException;
 import com.universe.novel.application.ports.ChapterBookmarkRepositoryPort;
+import com.universe.novel.application.reader.BookmarkChapterAttemptExecutor;
+import com.universe.novel.application.reader.BookmarkChapterCommand;
+import com.universe.novel.application.reader.BookmarkChapterUseCase;
 import com.universe.novel.domain.reader.UserChapterBookmark;
 import com.universe.novel.infrastructure.persistence.chapter.ChapterPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.volume.VolumePersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -24,6 +32,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,9 +53,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         VolumePersistenceAdapter.class,
         ChapterPersistenceAdapter.class,
         ChapterBookmarkPersistenceAdapter.class,
-        UuidGeneratorAdapter.class
+        ReaderChapterAccessQueryPersistenceAdapter.class,
+        BookmarkChapterAttemptExecutor.class,
+        BookmarkChapterUseCase.class,
+        UuidGeneratorAdapter.class,
+        ChapterBookmarkJpaPersistenceIntegrationTest.TestConfig.class
 })
 class ChapterBookmarkJpaPersistenceIntegrationTest {
+
+    @TestConfiguration
+    static class TestConfig {
+        @Bean
+        public ClockPort clockPort() {
+            return Instant::now;
+        }
+    }
 
     private static final UUID USER_1_ID =
             UUID.fromString("aaaa1111-1111-2222-3333-444444444444");
@@ -166,8 +192,8 @@ class ChapterBookmarkJpaPersistenceIntegrationTest {
     private void cleanupDatabase() {
         jdbcTemplate.update("DELETE FROM novel_chapter_bookmarks WHERE user_id IN (?, ?)",
                 USER_1_ID.toString(), USER_2_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id IN (?, ?) OR chapter_number IN (?, ?)",
-                CHAPTER_1_ID.toString(), CHAPTER_2_ID.toString(),
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE volume_id = ? OR id IN (?, ?) OR chapter_number IN (?, ?)",
+                VOLUME_ID.toString(), CHAPTER_1_ID.toString(), CHAPTER_2_ID.toString(),
                 CHAPTER_1_NUM, CHAPTER_2_NUM);
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = ?",
                 VOLUME_ID.toString(), VOLUME_SORT_ORDER);
@@ -304,5 +330,212 @@ class ChapterBookmarkJpaPersistenceIntegrationTest {
         assertThat(bookmarkRepositoryPort.existsByUserIdAndChapterId(USER_2_ID, CHAPTER_1_ID)).isTrue();
         assertThat(bookmarkRepositoryPort.existsByUserIdAndChapterId(USER_1_ID, CHAPTER_2_ID)).isTrue();
         assertThat(bookmarkRepositoryPort.existsByUserIdAndChapterId(USER_2_ID, CHAPTER_2_ID)).isFalse();
+    }
+
+    @Autowired
+    private BookmarkChapterUseCase bookmarkChapterUseCase;
+
+    @Test
+    @DisplayName("5. Limit Boundary: 99 -> thêm 1 thành công đạt 100; 100 -> thêm mới ném BookmarkLimitExceededException; 100 -> bookmark lại chương cũ thành công idempotent")
+    void shouldEnforceLimit100AndPreserveIdempotentSuccess() {
+        // Seed 99 bookmarks for USER_1_ID
+        for (int i = 1; i <= 99; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, 6_000_100 + i, "Chương " + i, "chuong-bm-" + i);
+            bookmarkRepositoryPort.save(UserChapterBookmark.create(
+                    UUID.randomUUID(), USER_1_ID, chId, Instant.now()
+            ));
+        }
+
+        assertThat(bookmarkRepositoryPort.countByUserIdForUpdate(USER_1_ID)).isEqualTo(99L);
+
+        // 99 -> Add 100th chapter -> SUCCESS
+        bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID));
+        assertThat(bookmarkRepositoryPort.countByUserIdForUpdate(USER_1_ID)).isEqualTo(100L);
+
+        // 100 -> Re-bookmark CHAPTER_1_ID (already bookmarked) -> SUCCESS IDEMPOTENT
+        bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID));
+        assertThat(bookmarkRepositoryPort.countByUserIdForUpdate(USER_1_ID)).isEqualTo(100L);
+
+        // 100 -> Add 101st chapter (CHAPTER_2_ID, new) -> THROW BookmarkLimitExceededException
+        assertThatThrownBy(() -> bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_2_ID)))
+                .isInstanceOf(BookmarkLimitExceededException.class)
+                .hasMessageContaining(USER_1_ID.toString())
+                .hasMessageContaining("100");
+
+        // Database count remains strictly 100
+        assertThat(bookmarkRepositoryPort.countByUserIdForUpdate(USER_1_ID)).isEqualTo(100L);
+    }
+
+    @Test
+    @DisplayName("6. Unpublished chapters count: Các chương nháp/ẩn vẫn được tính vào tổng 100 bookmark")
+    void shouldCountUnpublishedChaptersTowardsLimit() {
+        // Seed 100 draft chapters with bookmarks
+        for (int i = 1; i <= 100; i++) {
+            UUID chId = UUID.randomUUID();
+            Instant now = Instant.now();
+            jdbcTemplate.update(
+                    "INSERT INTO novel_chapters (id, volume_id, chapter_number, title, slug, summary, content, status, " +
+                            "created_by, updated_by, published_by, archived_by, created_at, updated_at, published_at, archived_at, aggregate_version, persistence_version, content_version) " +
+                            "VALUES (?, ?, ?, ?, ?, 'Tóm tắt', 'Nội dung', 'DRAFT', ?, ?, NULL, NULL, ?, ?, NULL, NULL, 1, 0, 1)",
+                    chId.toString(), VOLUME_ID.toString(), 6_000_200 + i, "Chương Draft " + i, "chuong-draft-" + i,
+                    USER_1_ID.toString(), USER_1_ID.toString(), Timestamp.from(now), Timestamp.from(now)
+            );
+            bookmarkRepositoryPort.save(UserChapterBookmark.create(
+                    UUID.randomUUID(), USER_1_ID, chId, now
+            ));
+        }
+
+        // Count is 100 despite chapters being DRAFT
+        assertThat(bookmarkRepositoryPort.countByUserIdForUpdate(USER_1_ID)).isEqualTo(100L);
+
+        // Attempting to bookmark a published chapter fails due to limit
+        assertThatThrownBy(() -> bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID)))
+                .isInstanceOf(BookmarkLimitExceededException.class);
+    }
+
+    @RepeatedTest(5)
+    @DisplayName("7. 99 + 2 Concurrent SAME Chapter: Cả 2 request thành công, đúng 1 dòng được tạo, tổng bookmark = 100")
+    void shouldHandleConcurrentSameChapterBookmarksAtLimit() throws Exception {
+        cleanupDatabase();
+        seedBaseData();
+
+        // Seed 99 bookmarks for USER_1_ID
+        for (int i = 1; i <= 99; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, 6_000_300 + i, "Chương Concurrency " + i, "chuong-cc-" + i);
+            bookmarkRepositoryPort.save(UserChapterBookmark.create(
+                    UUID.randomUUID(), USER_1_ID, chId, Instant.now()
+            ));
+        }
+
+        int threadCount = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch readyLatch = new CountDownLatch(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        Future<?> future1 = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> future2 = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        future1.get(10, TimeUnit.SECONDS);
+        future2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Total count must be exactly 100
+        Integer finalCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_chapter_bookmarks WHERE user_id = ?",
+                Integer.class,
+                USER_1_ID.toString()
+        );
+        assertThat(finalCount).isEqualTo(100);
+
+        // Exactly 1 row for CHAPTER_1_ID
+        Integer chapter1Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_chapter_bookmarks WHERE user_id = ? AND chapter_id = ?",
+                Integer.class,
+                USER_1_ID.toString(), CHAPTER_1_ID.toString()
+        );
+        assertThat(chapter1Count).isEqualTo(1);
+    }
+
+    @RepeatedTest(5)
+    @DisplayName("8. 99 + 2 Concurrent DIFFERENT Chapters: Đúng 1 request thành công, 1 request ném BookmarkLimitExceededException, tổng = 100, user khác không bị ảnh hưởng")
+    void shouldHandleConcurrentDifferentChapterBookmarksAtLimit() throws Exception {
+        cleanupDatabase();
+        seedBaseData();
+
+        // Seed 99 bookmarks for USER_1_ID
+        for (int i = 1; i <= 99; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, 6_000_400 + i, "Chương Concurrency Diff " + i, "chuong-cd-" + i);
+            bookmarkRepositoryPort.save(UserChapterBookmark.create(
+                    UUID.randomUUID(), USER_1_ID, chId, Instant.now()
+            ));
+        }
+
+        // Seed 1 bookmark for USER_2_ID
+        bookmarkRepositoryPort.save(UserChapterBookmark.create(
+                UUID.randomUUID(), USER_2_ID, CHAPTER_1_ID, Instant.now()
+        ));
+
+        int threadCount = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch readyLatch = new CountDownLatch(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger limitExceededCount = new AtomicInteger(0);
+
+        Future<?> future1 = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_1_ID));
+                successCount.incrementAndGet();
+            } catch (BookmarkLimitExceededException e) {
+                limitExceededCount.incrementAndGet();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> future2 = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                bookmarkChapterUseCase.execute(new BookmarkChapterCommand(USER_1_ID, CHAPTER_2_ID));
+                successCount.incrementAndGet();
+            } catch (BookmarkLimitExceededException e) {
+                limitExceededCount.incrementAndGet();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        future1.get(10, TimeUnit.SECONDS);
+        future2.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Exactly 1 success, exactly 1 limit exceeded
+        assertThat(successCount.get()).isEqualTo(1);
+        assertThat(limitExceededCount.get()).isEqualTo(1);
+
+        // Final count for USER_1_ID is strictly 100
+        Integer finalUser1Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_chapter_bookmarks WHERE user_id = ?",
+                Integer.class,
+                USER_1_ID.toString()
+        );
+        assertThat(finalUser1Count).isEqualTo(100);
+
+        // USER_2_ID's count is unaffected (still 1)
+        Integer finalUser2Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_chapter_bookmarks WHERE user_id = ?",
+                Integer.class,
+                USER_2_ID.toString()
+        );
+        assertThat(finalUser2Count).isEqualTo(1);
     }
 }

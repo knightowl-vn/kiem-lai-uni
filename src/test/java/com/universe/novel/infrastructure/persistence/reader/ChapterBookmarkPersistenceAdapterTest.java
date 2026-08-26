@@ -141,6 +141,47 @@ class ChapterBookmarkPersistenceAdapterTest {
     }
 
     @Test
+    @DisplayName("countByUserIdForUpdate: trả về số lượng bookmark của user")
+    void shouldReturnBookmarkCountForUser() {
+        when(repository.countByUserIdForUpdate(USER_ID.toString())).thenReturn(42L);
+
+        long count = adapter.countByUserIdForUpdate(USER_ID);
+
+        assertThat(count).isEqualTo(42L);
+        verify(repository).countByUserIdForUpdate(USER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("countByUserIdForUpdate: trả về 0 khi userId là null")
+    void shouldReturnZeroWhenCountWithNullUserId() {
+        assertThat(adapter.countByUserIdForUpdate(null)).isEqualTo(0L);
+        verify(repository, never()).countByUserIdForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("existsByUserIdAndChapterIdForUpdate: trả về true khi tìm thấy ID của bookmark")
+    void shouldReturnTrueWhenBookmarkFoundInForUpdate() {
+        when(repository.findIdByUserIdAndChapterIdForUpdate(USER_ID.toString(), CHAPTER_ID.toString()))
+                .thenReturn(java.util.Optional.of(BOOKMARK_ID.toString()));
+
+        boolean exists = adapter.existsByUserIdAndChapterIdForUpdate(USER_ID, CHAPTER_ID);
+
+        assertThat(exists).isTrue();
+        verify(repository).findIdByUserIdAndChapterIdForUpdate(USER_ID.toString(), CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("existsByUserIdAndChapterIdForUpdate: trả về false khi không tìm thấy hoặc tham số null")
+    void shouldReturnFalseWhenBookmarkNotFoundInForUpdateOrNull() {
+        when(repository.findIdByUserIdAndChapterIdForUpdate(USER_ID.toString(), CHAPTER_ID.toString()))
+                .thenReturn(java.util.Optional.empty());
+
+        assertThat(adapter.existsByUserIdAndChapterIdForUpdate(USER_ID, CHAPTER_ID)).isFalse();
+        assertThat(adapter.existsByUserIdAndChapterIdForUpdate(null, CHAPTER_ID)).isFalse();
+        assertThat(adapter.existsByUserIdAndChapterIdForUpdate(USER_ID, null)).isFalse();
+    }
+
+    @Test
     @DisplayName("deleteByUserIdAndChapterId: xóa bookmark và trả về số dòng bị xóa")
     void shouldDeleteBookmarkByUserIdAndChapterId() {
         when(repository.deleteByUserIdAndChapterId(USER_ID.toString(), CHAPTER_ID.toString()))
