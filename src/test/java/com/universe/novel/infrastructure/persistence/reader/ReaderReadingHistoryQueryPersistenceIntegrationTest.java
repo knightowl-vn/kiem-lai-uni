@@ -177,9 +177,8 @@ class ReaderReadingHistoryQueryPersistenceIntegrationTest {
     private void cleanupDatabase() {
         jdbcTemplate.update("DELETE FROM novel_reading_history WHERE user_id IN (?, ?)",
                 USER_1_ID.toString(), USER_2_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id IN (?, ?, ?, ?) OR chapter_number IN (?, ?, ?, ?)",
-                CH_PUB_1_ID.toString(), CH_PUB_2_ID.toString(), CH_DRAFT_ID.toString(), CH_IN_DRAFT_VOL_ID.toString(),
-                CH_PUB_1_NUM, CH_PUB_2_NUM, CH_DRAFT_NUM, CH_IN_DRAFT_VOL_NUM);
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE volume_id IN (?, ?)",
+                VOLUME_PUB_ID.toString(), VOLUME_DRAFT_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id IN (?, ?) OR sort_order IN (?, ?)",
                 VOLUME_PUB_ID.toString(), VOLUME_DRAFT_ID.toString(),
                 VOL_PUB_SORT_ORDER, VOL_DRAFT_SORT_ORDER);
@@ -321,7 +320,52 @@ class ReaderReadingHistoryQueryPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("3. Republishing behavior: Chương/quyển được publish sau đó sẽ tự động xuất hiện lại trong lịch sử")
+    @DisplayName("3. Display Limit 10 & Filtering before LIMIT: Trả về tối đa 10 chương sau khi đã áp dụng bộ lọc PUBLISHED")
+    void shouldLimitDisplayTo10AndFilterBeforeLimit() {
+        Instant baseTime = Instant.parse("2026-08-25T10:00:00Z");
+
+        // Seed 15 published chapters in VOLUME_PUB_ID
+        for (int i = 10; i < 25; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, VOLUME_PUB_ID, 9_000_000 + i, "Chương " + i, "chuong-" + i, "PUBLISHED");
+
+            // Seed history with ascending lastReadAt
+            Instant readTime = baseTime.plusSeconds(i * 60);
+            jdbcTemplate.update(
+                    "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                    UUID.randomUUID().toString(), USER_1_ID.toString(), chId.toString(), Timestamp.from(readTime), Timestamp.from(readTime)
+            );
+        }
+
+        // Seed 5 draft chapters with even newer lastReadAt
+        for (int i = 25; i < 30; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, VOLUME_PUB_ID, 9_000_000 + i, "Chương Draft " + i, "chuong-draft-" + i, "DRAFT");
+
+            Instant readTime = baseTime.plusSeconds(i * 60);
+            jdbcTemplate.update(
+                    "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                    UUID.randomUUID().toString(), USER_1_ID.toString(), chId.toString(), Timestamp.from(readTime), Timestamp.from(readTime)
+            );
+        }
+
+        List<ReaderReadingHistoryDTO> list = queryPort.findReadingHistoryByUserId(USER_1_ID);
+
+        // Display limit must be exactly 10
+        assertThat(list).hasSize(10);
+
+        // Verify draft chapters (25-29) were filtered out BEFORE limit was applied
+        for (ReaderReadingHistoryDTO item : list) {
+            assertThat(item.chapterTitle()).doesNotContain("Draft");
+        }
+
+        // Verify the 10 returned are the 10 newest published chapters (24 down to 15)
+        assertThat(list.get(0).chapterTitle()).isEqualTo("Chương 24");
+        assertThat(list.get(9).chapterTitle()).isEqualTo("Chương 15");
+    }
+
+    @Test
+    @DisplayName("4. Republishing behavior: Chương/quyển được publish sau đó sẽ tự động xuất hiện lại trong lịch sử")
     void shouldIncludePreviouslyHiddenHistoryWhenChapterOrVolumeIsPublished() {
         Instant now = Instant.now();
 
@@ -347,7 +391,7 @@ class ReaderReadingHistoryQueryPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("4. Empty list: Trả về danh sách rỗng khi người dùng chưa đọc chương nào")
+    @DisplayName("5. Empty list: Trả về danh sách rỗng khi người dùng chưa đọc chương nào")
     void shouldReturnEmptyListForUserWithNoHistory() {
         UUID nonExistentUserId = UUID.randomUUID();
         List<ReaderReadingHistoryDTO> list = queryPort.findReadingHistoryByUserId(nonExistentUserId);

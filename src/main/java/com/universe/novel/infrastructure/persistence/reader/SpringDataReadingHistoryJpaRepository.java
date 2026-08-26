@@ -1,9 +1,11 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -34,10 +36,34 @@ public interface SpringDataReadingHistoryJpaRepository
                       AND c.status = 'PUBLISHED'
                       AND v.status = 'PUBLISHED'
                     ORDER BY h.last_read_at DESC
+                    LIMIT 10
                     """,
             nativeQuery = true
     )
     List<ReaderReadingHistoryProjection> findPublishedReadingHistoryByUserId(
             @Param("userId") String userId
+    );
+
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(
+            value = """
+                    DELETE FROM novel_reading_history
+                    WHERE user_id = :userId
+                      AND id NOT IN (
+                          SELECT id FROM (
+                              SELECT id
+                              FROM novel_reading_history
+                              WHERE user_id = :userId
+                              ORDER BY last_read_at DESC
+                              LIMIT :retentionLimit
+                          ) AS preserved_history
+                      )
+                    """,
+            nativeQuery = true
+    )
+    int pruneOldestEntriesExceedingRetentionLimit(
+            @Param("userId") String userId,
+            @Param("retentionLimit") int retentionLimit
     );
 }

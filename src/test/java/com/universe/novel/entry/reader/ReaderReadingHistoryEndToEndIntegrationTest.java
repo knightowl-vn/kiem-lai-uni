@@ -175,9 +175,7 @@ class ReaderReadingHistoryEndToEndIntegrationTest {
         jdbcTemplate.update("DELETE FROM novel_reading_history WHERE user_id = ?", USER_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_reading_progress WHERE user_id = ?", USER_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_chapter_bookmarks WHERE user_id = ?", USER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id IN (?, ?) OR chapter_number IN (?, ?)",
-                CHAPTER_1_ID.toString(), CHAPTER_20_ID.toString(),
-                CHAPTER_1_NUM, CHAPTER_20_NUM);
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE volume_id = ?", VOLUME_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = ?", VOLUME_ID.toString(), VOLUME_SORT_ORDER);
         jdbcTemplate.update("DELETE FROM identity_users WHERE id = ? OR email = ?", USER_ID.toString(), USER_EMAIL);
     }
@@ -387,5 +385,74 @@ class ReaderReadingHistoryEndToEndIntegrationTest {
         String html = result.getResponse().getContentAsString();
         assertThat(html).contains("id=\"novelHistoryEmpty\"");
         assertThat(html).contains("Bạn chưa có lịch sử đọc nào");
+    }
+
+    @Test
+    @DisplayName("6. Retention limit 50 & Display limit 10: Đọc 51 chương distinct thì prune chương cũ nhất (giữ đúng 50), trang history chỉ hiển thị 10")
+    @WithMockUser(username = USER_EMAIL, roles = {"USER"})
+    void shouldEnforce50RetentionLimitAnd10DisplayLimit() throws Exception {
+        UUID[] chapterIds = new UUID[51];
+        Instant baseTime = Instant.parse("2026-08-26T08:00:00Z");
+
+        // Seed 51 distinct chapters
+        for (int i = 0; i < 51; i++) {
+            chapterIds[i] = UUID.randomUUID();
+            seedChapter(chapterIds[i], 6_000_100 + i, "Chương Lớn " + (i + 1), "chuong-lon-" + (i + 1));
+        }
+
+        // Record history for chapters 0 to 49 (first 50 distinct chapters)
+        for (int i = 0; i < 50; i++) {
+            mockMvc.perform(post("/novel/chapters/" + chapterIds[i] + "/history").with(csrf()))
+                    .andExpect(status().isNoContent());
+        }
+
+        // Exactly 50 rows in DB
+        Integer countAt50 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_ID.toString()
+        );
+        assertThat(countAt50).isEqualTo(50);
+
+        // Now record the 51st chapter
+        mockMvc.perform(post("/novel/chapters/" + chapterIds[50] + "/history").with(csrf()))
+                .andExpect(status().isNoContent());
+
+        // Count must still be capped at 50 (oldest chapter chapterIds[0] was pruned)
+        Integer countAfter51 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_ID.toString()
+        );
+        assertThat(countAfter51).isEqualTo(50);
+
+        // Verify oldest chapter (chapterIds[0]) was indeed pruned
+        Integer oldestChapterCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ? AND chapter_id = ?",
+                Integer.class,
+                USER_ID.toString(), chapterIds[0].toString()
+        );
+        assertThat(oldestChapterCount).isEqualTo(0);
+
+        // Verify newest chapter (chapterIds[50]) is present
+        Integer newestChapterCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ? AND chapter_id = ?",
+                Integer.class,
+                USER_ID.toString(), chapterIds[50].toString()
+        );
+        assertThat(newestChapterCount).isEqualTo(1);
+
+        // Verify /novel/history displays only the 10 newest items
+        MvcResult historyResult = mockMvc.perform(get("/novel/history"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("novel/reader/history"))
+                .andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<ReaderReadingHistoryDTO> displayList = (List<ReaderReadingHistoryDTO>)
+                historyResult.getModelAndView().getModel().get("historyList");
+
+        assertThat(displayList).hasSize(10);
+        assertThat(displayList.get(0).chapterId()).isEqualTo(chapterIds[50]); // Newest
     }
 }

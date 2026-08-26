@@ -12,6 +12,7 @@ import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -59,6 +60,9 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
 
     private static final UUID USER_ID =
             UUID.fromString("aaaa9999-1111-2222-3333-444444444444");
+
+    private static final UUID USER_2_ID =
+            UUID.fromString("aaaa9999-2222-2222-3333-444444444444");
 
     private static final UUID VOLUME_ID =
             UUID.fromString("bbbb9999-1111-2222-3333-444444444444");
@@ -185,20 +189,26 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
     }
 
     private void cleanupDatabase() {
-        jdbcTemplate.update("DELETE FROM novel_reading_history WHERE user_id = ?", USER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id = ? OR chapter_number = ?", CHAPTER_ID.toString(), CHAPTER_NUM);
+        jdbcTemplate.update("DELETE FROM novel_reading_history WHERE user_id IN (?, ?)",
+                USER_ID.toString(), USER_2_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE volume_id = ?", VOLUME_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = ?", VOLUME_ID.toString(), VOLUME_SORT_ORDER);
-        jdbcTemplate.update("DELETE FROM identity_users WHERE id = ?", USER_ID.toString());
+        jdbcTemplate.update("DELETE FROM identity_users WHERE id IN (?, ?)", USER_ID.toString(), USER_2_ID.toString());
     }
 
     private void seedBaseData() {
         Instant now = Instant.now();
 
-        // 1. User
+        // 1. Users
         jdbcTemplate.update(
                 "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
                         "VALUES (?, 'history-concurrent@universe.local', '$2a$10$hash', 'History Concurrency User', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_ID.toString(), Timestamp.from(now), Timestamp.from(now)
+        );
+        jdbcTemplate.update(
+                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'history-concurrent-user2@universe.local', '$2a$10$hash', 'History Concurrency User 2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                USER_2_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 
         // 2. Volume (PUBLISHED)
@@ -221,8 +231,21 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
         );
     }
 
+    private void seedChapter(UUID chapterId, int chapterNumber, String title, String slug) {
+        Instant now = Instant.now();
+        jdbcTemplate.update(
+                "INSERT INTO novel_chapters (id, volume_id, chapter_number, title, slug, summary, content, status, " +
+                        "created_by, updated_by, published_by, archived_by, created_at, updated_at, published_at, archived_at, aggregate_version, persistence_version, content_version) " +
+                        "VALUES (?, ?, ?, ?, ?, 'Tóm tắt', 'Nội dung', 'PUBLISHED', " +
+                        "?, ?, ?, NULL, ?, ?, ?, NULL, 1, 0, 1)",
+                chapterId.toString(), VOLUME_ID.toString(), chapterNumber, title, slug,
+                USER_ID.toString(), USER_ID.toString(), USER_ID.toString(),
+                Timestamp.from(now), Timestamp.from(now), Timestamp.from(now)
+        );
+    }
+
     @Test
-    @DisplayName("Đua ghi nhận lịch sử đọc lần đầu (first-read race): không tạo bản ghi trùng, hoàn thành thành công, duy trì đúng 1 dòng với firstReadAt ban đầu và lastReadAt mới nhất")
+    @DisplayName("1. Đua ghi nhận lịch sử đọc lần đầu (first-read race): không tạo bản ghi trùng, hoàn thành thành công, duy trì đúng 1 dòng với firstReadAt ban đầu và lastReadAt mới nhất")
     void shouldHandleConcurrentFirstReadAttemptsWithoutDuplicatesOrUnexpectedRollback() throws Exception {
         int threadCount = 2;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -273,5 +296,102 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
         assertThat(history.getLastReadAt()).isNotNull();
         // lastReadAt phải lớn hơn hoặc bằng firstReadAt (do request sau đã cập nhật lastReadAt)
         assertThat(history.getLastReadAt()).isAfterOrEqualTo(history.getFirstReadAt());
+    }
+
+    @RepeatedTest(5)
+    @DisplayName("2. Đua ghi nhận 2 chương khác nhau khi chạm ngưỡng 50 (lặp 5 lần kiểm tra flakiness): cả 2 hoàn thành thành công, prune bản ghi cũ nhất, tổng bản ghi <= 50 và không ảnh hưởng user khác")
+    void shouldHandleConcurrentDistinctChapterInsertsWithRetentionPruning() throws Exception {
+        cleanupDatabase();
+        seedBaseData();
+
+        Instant baseTime = Instant.parse("2026-08-25T00:00:00Z");
+
+        // Seed 49 existing chapters and reading history for USER_ID
+        UUID oldestChapterId = null;
+        for (int i = 1; i <= 49; i++) {
+            UUID chId = UUID.randomUUID();
+            seedChapter(chId, 8_000_100 + i, "Chương Lịch Sử " + i, "chuong-ls-" + i);
+            Instant readTime = baseTime.plusSeconds(i * 60);
+
+            if (i == 1) {
+                oldestChapterId = chId; // The oldest chapter
+            }
+
+            jdbcTemplate.update(
+                    "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                    UUID.randomUUID().toString(), USER_ID.toString(), chId.toString(), Timestamp.from(readTime), Timestamp.from(readTime)
+            );
+        }
+
+        // Seed 1 entry for USER_2_ID
+        UUID user2EntryId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                user2EntryId.toString(), USER_2_ID.toString(), CHAPTER_ID.toString(), Timestamp.from(baseTime), Timestamp.from(baseTime)
+        );
+
+        // Seed 2 distinct new chapters
+        UUID chapterNewA = UUID.randomUUID();
+        seedChapter(chapterNewA, 8_000_201, "Chương Mới A", "chuong-moi-a");
+
+        UUID chapterNewB = UUID.randomUUID();
+        seedChapter(chapterNewB, 8_000_202, "Chương Mới B", "chuong-moi-b");
+
+        // Concurrently record reading history for chapterNewA and chapterNewB
+        int threadCount = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch readyLatch = new CountDownLatch(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+
+        Future<?> futureA = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                recordReadingHistoryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, chapterNewA));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        Future<?> futureB = executor.submit(() -> {
+            readyLatch.countDown();
+            try {
+                startLatch.await();
+                recordReadingHistoryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, chapterNewB));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        readyLatch.await(5, TimeUnit.SECONDS);
+        startLatch.countDown();
+
+        // Both operations must complete without deadlock or unexpected rollback
+        futureA.get(10, TimeUnit.SECONDS);
+        futureB.get(10, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // 1. Final stored history count for USER_ID must be <= 50 (specifically 50: 49 + 2 - 1 = 50)
+        Integer finalUser1Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_ID.toString()
+        );
+        assertThat(finalUser1Count).isEqualTo(50);
+
+        // 2. Both newest entries (chapterNewA and chapterNewB) must be present
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_ID, chapterNewA)).isPresent();
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_ID, chapterNewB)).isPresent();
+
+        // 3. The oldest entry was pruned
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_ID, oldestChapterId)).isEmpty();
+
+        // 4. USER_2_ID's history is untouched
+        Integer finalUser2Count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_2_ID.toString()
+        );
+        assertThat(finalUser2Count).isEqualTo(1);
     }
 }

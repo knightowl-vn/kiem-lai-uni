@@ -207,4 +207,22 @@ class ReadingHistoryPersistenceAdapterTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UserChapterReadingHistory không được để trống.");
     }
+
+    @Test
+    @DisplayName("pruneOldestEntriesExceedingLimit: gọi repository để xoá các bản ghi vượt quá giới hạn")
+    void shouldInvokeRepositoryPruning() {
+        adapter.pruneOldestEntriesExceedingLimit(USER_ID, 50);
+
+        verify(repository).pruneOldestEntriesExceedingRetentionLimit(USER_ID.toString(), 50);
+    }
+
+    @Test
+    @DisplayName("pruneOldestEntriesExceedingLimit: bỏ qua nếu userId là null hoặc limit <= 0")
+    void shouldSkipPruningWhenArgumentsInvalid() {
+        adapter.pruneOldestEntriesExceedingLimit(null, 50);
+        adapter.pruneOldestEntriesExceedingLimit(USER_ID, 0);
+        adapter.pruneOldestEntriesExceedingLimit(USER_ID, -1);
+
+        verify(repository, never()).pruneOldestEntriesExceedingRetentionLimit(any(), any(int.class));
+    }
 }

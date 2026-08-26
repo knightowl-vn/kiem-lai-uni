@@ -18,9 +18,13 @@ import java.util.UUID;
 /**
  * Thực thi một lượt ghi nhận lịch sử đọc trong transaction độc lập (REQUIRES_NEW).
  * Cho phép retry an toàn khi xảy ra race-condition mà không bị ảnh hưởng bởi cờ rollback-only.
+ *
+ * Đồng thời tự động thu dọn (pruning) các bản ghi cũ nhất khi tạo bản ghi mới vượt quá giới hạn 50 mục/người dùng.
  */
 @Component
 public class RecordReadingHistoryAttemptExecutor {
+
+    public static final int MAX_HISTORY_RETENTION = 50;
 
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final ReadingHistoryRepositoryPort readingHistoryRepositoryPort;
@@ -86,6 +90,7 @@ public class RecordReadingHistoryAttemptExecutor {
                     now
             );
             readingHistoryRepositoryPort.save(newHistory);
+            readingHistoryRepositoryPort.pruneOldestEntriesExceedingLimit(userId, MAX_HISTORY_RETENTION);
         }
     }
 }

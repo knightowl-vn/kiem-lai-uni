@@ -15,4 +15,6 @@ public interface ReadingHistoryRepositoryPort {
     Optional<UserChapterReadingHistory> findByUserIdAndChapterId(UUID userId, UUID chapterId);
 
     UserChapterReadingHistory save(UserChapterReadingHistory history);
+
+    void pruneOldestEntriesExceedingLimit(UUID userId, int retentionLimit);
 }

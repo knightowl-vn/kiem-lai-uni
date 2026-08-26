@@ -6,6 +6,7 @@ import com.universe.novel.domain.reader.UserChapterReadingHistory;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -36,6 +37,7 @@ public class ReadingHistoryPersistenceAdapter implements ReadingHistoryRepositor
     }
 
     @Override
+    @Transactional
     public UserChapterReadingHistory save(UserChapterReadingHistory history) {
         if (history == null) {
             throw new IllegalArgumentException("UserChapterReadingHistory không được để trống.");
@@ -67,6 +69,15 @@ public class ReadingHistoryPersistenceAdapter implements ReadingHistoryRepositor
             }
             throw ex;
         }
+    }
+
+    @Override
+    @Transactional
+    public void pruneOldestEntriesExceedingLimit(UUID userId, int retentionLimit) {
+        if (userId == null || retentionLimit <= 0) {
+            return;
+        }
+        repository.pruneOldestEntriesExceedingRetentionLimit(userId.toString(), retentionLimit);
     }
 
     private boolean isDuplicateConstraintViolation(DataIntegrityViolationException ex) {

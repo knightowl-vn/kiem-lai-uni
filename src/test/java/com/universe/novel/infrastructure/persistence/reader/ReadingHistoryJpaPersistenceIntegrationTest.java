@@ -168,9 +168,8 @@ class ReadingHistoryJpaPersistenceIntegrationTest {
     private void cleanupDatabase() {
         jdbcTemplate.update("DELETE FROM novel_reading_history WHERE user_id IN (?, ?)",
                 USER_1_ID.toString(), USER_2_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id IN (?, ?) OR chapter_number IN (?, ?)",
-                CHAPTER_1_ID.toString(), CHAPTER_2_ID.toString(),
-                CHAPTER_1_NUM, CHAPTER_2_NUM);
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE volume_id = ?",
+                VOLUME_ID.toString());
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = ?",
                 VOLUME_ID.toString(), VOLUME_SORT_ORDER);
         jdbcTemplate.update("DELETE FROM identity_users WHERE id IN (?, ?)",
@@ -364,5 +363,56 @@ class ReadingHistoryJpaPersistenceIntegrationTest {
                 "DELETE FROM novel_chapters WHERE id = ?",
                 CHAPTER_1_ID.toString()
         )).hasMessageContaining("foreign key constraint");
+    }
+
+    @Test
+    @DisplayName("7. Retention Pruning: Xoá bản ghi cũ nhất khi vượt quá giới hạn và không ảnh hưởng tới user khác")
+    void shouldPruneOldestEntriesExceedingLimitAndIsolateUsers() {
+        Instant baseTime = Instant.parse("2026-08-26T08:00:00Z");
+
+        // Seed 5 chapters for User 1
+        UUID[] chIds = new UUID[5];
+        for (int i = 0; i < 5; i++) {
+            chIds[i] = UUID.randomUUID();
+            seedChapter(chIds[i], 7_000_000 + i + 10, "Chương " + i, "chuong-p-" + i);
+            Instant readTime = baseTime.plusSeconds(i * 60);
+            readingHistoryRepositoryPort.save(UserChapterReadingHistory.createInitial(
+                    UUID.randomUUID(), USER_1_ID, chIds[i], readTime
+            ));
+        }
+
+        // Seed 1 entry for User 2
+        UUID user2EntryId = UUID.randomUUID();
+        readingHistoryRepositoryPort.save(UserChapterReadingHistory.createInitial(
+                user2EntryId, USER_2_ID, CHAPTER_1_ID, baseTime
+        ));
+
+        // Prune User 1 to retain at most 3 entries
+        readingHistoryRepositoryPort.pruneOldestEntriesExceedingLimit(USER_1_ID, 3);
+
+        // User 1 should have exactly 3 entries left (chIds[4], chIds[3], chIds[2])
+        Integer countUser1 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_1_ID.toString()
+        );
+        assertThat(countUser1).isEqualTo(3);
+
+        // Oldest chapters (chIds[0] and chIds[1]) were pruned
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_1_ID, chIds[0])).isEmpty();
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_1_ID, chIds[1])).isEmpty();
+
+        // 3 newest chapters remain
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_1_ID, chIds[2])).isPresent();
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_1_ID, chIds[3])).isPresent();
+        assertThat(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_1_ID, chIds[4])).isPresent();
+
+        // User 2's entry was completely untouched
+        Integer countUser2 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM novel_reading_history WHERE user_id = ?",
+                Integer.class,
+                USER_2_ID.toString()
+        );
+        assertThat(countUser2).isEqualTo(1);
     }
 }
