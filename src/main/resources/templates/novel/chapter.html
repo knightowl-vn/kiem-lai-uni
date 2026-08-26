@@ -317,6 +317,11 @@
          th:attr="data-chapter-id=${chapter.id},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
          hidden></div>
 
+    <div sec:authorize="isAuthenticated()"
+         id="novelReadingHistoryTracker"
+         th:attr="data-chapter-id=${chapter.id},data-history-url=@{/novel/chapters/{id}/history(id=${chapter.id})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+         hidden></div>
+
 </main>
 
 
@@ -389,6 +394,9 @@
         defer></script>
 <script sec:authorize="isAuthenticated()"
         th:src="@{/js/novel/reader-bookmark.js}"
+        defer></script>
+<script sec:authorize="isAuthenticated()"
+        th:src="@{/js/novel/reader-history.js}"
         defer></script>
 
 </body>
