@@ -25,6 +25,9 @@
 
     <link rel="stylesheet"
           th:href="@{/css/novel/reader.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-wiki-lookup.css}">
 </head>
 
 <body>
@@ -397,6 +400,8 @@
         defer></script>
 <script sec:authorize="isAuthenticated()"
         th:src="@{/js/novel/reader-history.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-wiki-lookup.js}"
         defer></script>
 
 </body>
