@@ -35,6 +35,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -829,5 +830,43 @@ class WikiArticleQueryAdapterTest {
                         "PUBLISHED",
                         pageable
                 );
+    }
+
+    @Test
+    @DisplayName("findPublishedContextualMatches: Escapes LIKE metacharacters and maps entities to DTOs")
+    void shouldFindPublishedContextualMatchesAndEscapeLikeWildcards() {
+        WikiArticleJpaEntity entity = createPublishedEntity();
+
+        Pageable expectedPageable = PageRequest.of(0, 5);
+
+        when(repository.findPublishedContextualMatches(
+                "50%_discount\\test",
+                "50\\%\\_discount\\\\test",
+                expectedPageable
+        )).thenReturn(List.of(entity));
+
+        List<com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO> result =
+                queryAdapter.findPublishedContextualMatches("  50%_discount\\test  ", 5);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).id()).isEqualTo(ARTICLE_ID);
+        assertThat(result.get(0).title()).isEqualTo("Trần Bình An");
+
+        verify(repository).findPublishedContextualMatches(
+                "50%_discount\\test",
+                "50\\%\\_discount\\\\test",
+                expectedPageable
+        );
+    }
+
+    @Test
+    @DisplayName("findPublishedContextualMatches: Returns empty when query is null, blank, or maxResults <= 0")
+    void shouldReturnEmptyWhenQueryIsBlankOrInvalidLimit() {
+        assertThat(queryAdapter.findPublishedContextualMatches(null, 5)).isEmpty();
+        assertThat(queryAdapter.findPublishedContextualMatches("   ", 5)).isEmpty();
+        assertThat(queryAdapter.findPublishedContextualMatches("test", 0)).isEmpty();
+        assertThat(queryAdapter.findPublishedContextualMatches("test", -1)).isEmpty();
+
+        verify(repository, never()).findPublishedContextualMatches(anyString(), anyString(), any(Pageable.class));
     }
 }

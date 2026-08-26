@@ -181,7 +181,40 @@ public class WikiArticleQueryAdapter
                 entityPage.isFirst(),
                 entityPage.isLast()
         );
-        
+    }
+
+    @Override
+    public List<PublishedWikiArticleListItemDTO> findPublishedContextualMatches(
+            String query,
+            int maxResults
+    ) {
+        if (query == null || query.isBlank() || maxResults <= 0) {
+            return List.of();
+        }
+
+        String rawQuery = query.trim();
+        String escapedQuery = escapeLikeWildcards(rawQuery);
+
+        Pageable pageable = PageRequest.of(0, maxResults);
+        List<WikiArticleJpaEntity> entities = repository.findPublishedContextualMatches(
+                rawQuery,
+                escapedQuery,
+                pageable
+        );
+
+        return entities.stream()
+                .map(this::toPublishedListItemDTO)
+                .toList();
+    }
+
+    private String escapeLikeWildcards(String input) {
+        if (input == null) {
+            return "";
+        }
+        return input
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
     private PublishedWikiArticleDTO toPublishedDTO(
             WikiArticleJpaEntity entity
