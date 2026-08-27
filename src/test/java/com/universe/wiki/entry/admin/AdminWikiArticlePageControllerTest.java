@@ -1,5 +1,7 @@
 package com.universe.wiki.entry.admin;
 
+import com.universe.wiki.application.article.alias.ListWikiArticleAliasesQuery;
+import com.universe.wiki.application.article.alias.ListWikiArticleAliasesUseCase;
 import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailQuery;
 import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailUseCase;
 import com.universe.wiki.application.article.query.list.ListWikiArticlesQuery;
@@ -9,6 +11,7 @@ import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.application.article.template.WikiArticleContentTemplateProvider;
 import com.universe.wiki.application.revision.query.detail.GetWikiArticleRevisionDetailUseCase;
 import com.universe.wiki.application.revision.query.list.ListWikiArticleRevisionsUseCase;
+import com.universe.wiki.contracts.dto.WikiArticleAliasDTO;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
@@ -69,6 +72,9 @@ class AdminWikiArticlePageControllerTest {
 	@Mock
 	private WikiMarkdownRenderer wikiMarkdownRenderer;
 
+	@Mock
+	private ListWikiArticleAliasesUseCase listWikiArticleAliasesUseCase;
+
 	private AdminWikiArticlePageController controller;
 
 	@BeforeEach
@@ -76,7 +82,7 @@ class AdminWikiArticlePageControllerTest {
 
 		controller = new AdminWikiArticlePageController(listWikiArticlesUseCase, contentTemplateProvider,
 				getWikiArticleDetailUseCase, listWikiArticleRevisionsUseCase, getWikiArticleRevisionDetailUseCase,
-				wikiMarkdownRenderer);
+				wikiMarkdownRenderer, listWikiArticleAliasesUseCase);
 	}
 	/*
 	 * ===================================================== LIST PAGE
@@ -195,7 +201,7 @@ class AdminWikiArticlePageControllerTest {
 	 */
 
 	@Test
-	@DisplayName("Hiển thị trang chi tiết bài Wiki")
+	@DisplayName("Hiển thị trang chi tiết bài Wiki kèm danh sách alias")
 	void shouldShowWikiArticleDetailPage() {
 
 		WikiArticleDTO article = createDraftArticleDTO();
@@ -207,6 +213,11 @@ class AdminWikiArticlePageControllerTest {
 		when(wikiMarkdownRenderer.render(article.content()))
 				.thenReturn(new RenderedWikiContent(renderedHtml, List.of()));
 
+		List<WikiArticleAliasDTO> aliases = List.of(
+				new WikiArticleAliasDTO(UUID.randomUUID(), ARTICLE_ID, "Tiểu Phu Tử", "tiểu phu tử", Instant.now())
+		);
+		when(listWikiArticleAliasesUseCase.execute(new ListWikiArticleAliasesQuery(ARTICLE_ID))).thenReturn(aliases);
+
 		ExtendedModelMap model = new ExtendedModelMap();
 
 		String viewName = controller.detailPage(ARTICLE_ID, model);
@@ -215,6 +226,8 @@ class AdminWikiArticlePageControllerTest {
 
 		assertThat(model.getAttribute("article")).isEqualTo(article);
 
+		assertThat(model.getAttribute("aliases")).isEqualTo(aliases);
+
 		assertThat(model.getAttribute("renderedContent")).isEqualTo(renderedHtml);
 
 		assertThat(model.getAttribute("pageTitle")).isEqualTo("Chi tiết bài Wiki");
@@ -222,6 +235,8 @@ class AdminWikiArticlePageControllerTest {
 		assertThat(model.getAttribute("activeMenu")).isEqualTo("wiki");
 
 		verify(getWikiArticleDetailUseCase).execute(new GetWikiArticleDetailQuery(ARTICLE_ID));
+
+		verify(listWikiArticleAliasesUseCase).execute(new ListWikiArticleAliasesQuery(ARTICLE_ID));
 
 		verify(wikiMarkdownRenderer).render(article.content());
 	}

@@ -18,6 +18,8 @@ import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.entry.admin.form.CreateVolumeForm;
 import com.universe.novel.entry.admin.form.EditVolumeForm;
 
+import com.universe.shared.security.AuthenticatedEmailResolver;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,7 +29,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
 import java.time.Instant;
@@ -35,7 +39,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -101,7 +109,8 @@ class AdminNovelVolumeCommandControllerTest {
                         publishVolumeUseCase,
                         archiveVolumeUseCase,
                         restoreVolumeUseCase,
-                        userIdentityContract
+                        userIdentityContract,
+                        new AuthenticatedEmailResolver()
                 );
     }
 
@@ -694,6 +703,12 @@ class AdminNovelVolumeCommandControllerTest {
 
     private void stubCurrentActor() {
         when(
+                authentication.isAuthenticated()
+        ).thenReturn(
+                true
+        );
+
+        when(
                 authentication.getName()
         ).thenReturn(
                 ADMIN_EMAIL
@@ -716,6 +731,147 @@ class AdminNovelVolumeCommandControllerTest {
                         )
                 )
         );
+    }
+
+    /*
+     * ===================================================== ACTOR RESOLUTION TESTS
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName("Tạo Volume thành công khi Admin đăng nhập bằng OAuth2 (Google) với subject ID số và email attribute")
+    void shouldCreateVolumeWhenAuthenticatedViaOAuth2() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setDescription("Tập 10");
+        form.setSortOrder(10);
+
+        OAuth2User oauth2User = mock(OAuth2User.class);
+        when(oauth2User.getAttribute("email")).thenReturn(ADMIN_EMAIL);
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        lenient().when(authentication.getName()).thenReturn("104829374019283746152");
+
+        when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(
+                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "ACTIVE", "ADMIN", NOW))
+        );
+
+        when(createVolumeUseCase.execute(any(CreateVolumeCommand.class)))
+                .thenReturn(volumeDto("DRAFT", "kiem-lai-tap-10"));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String viewName = controller.createVolume(form, authentication, redirectAttributes);
+
+        assertThat(viewName).isEqualTo("redirect:/admin/novel/volumes/" + VOLUME_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                .isEqualTo("Đã tạo Volume \"Kiếm Lai - Tập 1\".");
+
+        verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+        ArgumentCaptor<CreateVolumeCommand> captor = ArgumentCaptor.forClass(CreateVolumeCommand.class);
+        verify(createVolumeUseCase).execute(captor.capture());
+        assertThat(captor.getValue().actorId()).isEqualTo(ADMIN_ID);
+    }
+
+    @Test
+    @DisplayName("Tạo Volume thành công khi Admin đăng nhập bằng form login chuẩn với email principal")
+    void shouldCreateVolumeWhenAuthenticatedViaFormLogin() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setDescription("Tập 10");
+        form.setSortOrder(10);
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn(ADMIN_EMAIL);
+        when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
+
+        when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(
+                Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin", null, "ACTIVE", "ADMIN", NOW))
+        );
+
+        when(createVolumeUseCase.execute(any(CreateVolumeCommand.class)))
+                .thenReturn(volumeDto("DRAFT", "kiem-lai-tap-10"));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String viewName = controller.createVolume(form, authentication, redirectAttributes);
+
+        assertThat(viewName).isEqualTo("redirect:/admin/novel/volumes/" + VOLUME_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                .isEqualTo("Đã tạo Volume \"Kiếm Lai - Tập 1\".");
+
+        verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+    }
+
+    @Test
+    @DisplayName("Từ chối tạo Volume khi Authentication là null")
+    void shouldRejectWhenAuthenticationIsNull() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setSortOrder(10);
+
+        assertThatThrownBy(() -> controller.createVolume(form, null, new RedirectAttributesModelMap()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(createVolumeUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối tạo Volume khi Authentication là AnonymousAuthenticationToken")
+    void shouldRejectWhenAuthenticationIsAnonymous() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setSortOrder(10);
+
+        Authentication anonymousAuth = mock(AnonymousAuthenticationToken.class);
+
+        assertThatThrownBy(() -> controller.createVolume(form, anonymousAuth, new RedirectAttributesModelMap()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(createVolumeUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối tạo Volume khi Authentication chưa được xác thực (isAuthenticated = false)")
+    void shouldRejectWhenAuthenticationIsNotAuthenticated() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setSortOrder(10);
+
+        when(authentication.isAuthenticated()).thenReturn(false);
+
+        assertThatThrownBy(() -> controller.createVolume(form, authentication, new RedirectAttributesModelMap()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(createVolumeUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối tạo Volume khi OAuth2 principal không có email attribute")
+    void shouldRejectWhenOAuth2UserHasNoEmailAttribute() {
+        CreateVolumeForm form = new CreateVolumeForm();
+        form.setTitle("Kiếm Lai - Tập 10");
+        form.setSortOrder(10);
+
+        OAuth2User oauth2User = mock(OAuth2User.class);
+        when(oauth2User.getAttribute("email")).thenReturn(null);
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+
+        assertThatThrownBy(() -> controller.createVolume(form, authentication, new RedirectAttributesModelMap()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(createVolumeUseCase, never()).execute(any());
     }
 
     private VolumeDTO volumeDto(

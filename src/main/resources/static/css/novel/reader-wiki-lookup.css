@@ -1,0 +1,474 @@
+/**
+ * Kiem Lai Novel Reader — Contextual Wiki Lookup Action & Presentation Styles
+ */
+
+/* =========================================================
+   1. FLOATING ACTION TRIGGER BUTTON
+   ========================================================= */
+
+.novel-wiki-lookup-action-btn {
+    position: fixed;
+    z-index: 950;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background-color: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+    user-select: none;
+    pointer-events: auto;
+    transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+}
+
+.novel-wiki-lookup-action-btn.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.novel-wiki-lookup-action-btn:hover {
+    background-color: #0f172a;
+    color: #38bdf8;
+    border-color: #475569;
+}
+
+.novel-wiki-lookup-action-btn:active {
+    transform: scale(0.96);
+}
+
+.novel-wiki-lookup-action-btn:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+.novel-wiki-lookup-action-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+/* Mobile Fixed Action Button (<= 640px) */
+@media (max-width: 640px) {
+    .novel-wiki-lookup-action-btn {
+        top: auto !important;
+        bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+        left: 50% !important;
+        transform: translateX(-50%) translateY(8px);
+        padding: 8px 18px;
+        font-size: 13.5px;
+        border-radius: 24px;
+        box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+    }
+
+    .novel-wiki-lookup-action-btn.is-visible {
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* =========================================================
+   2. BACKDROP (MOBILE ONLY)
+   ========================================================= */
+
+.novel-wiki-lookup-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 955;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.novel-wiki-lookup-backdrop.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* =========================================================
+   3. RESULT PRESENTATION CONTAINER (DESKTOP POPOVER & MOBILE SHEET)
+   ========================================================= */
+
+.novel-wiki-lookup-container {
+    position: fixed;
+    z-index: 960;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #24221f);
+    border: 1px solid var(--reader-border, #e7e3dd);
+    box-shadow: var(--reader-shadow, 0 16px 40px rgba(0, 0, 0, 0.25));
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    font-family: inherit;
+}
+
+/* Desktop Popover (> 640px) */
+@media (min-width: 641px) {
+    .novel-wiki-lookup-container {
+        width: 390px;
+        max-width: calc(100vw - 32px);
+        max-height: 480px;
+        border-radius: var(--reader-radius-md, 14px);
+        transform: translateY(6px);
+    }
+
+    .novel-wiki-lookup-container.is-visible {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+}
+
+/* Mobile Bottom Sheet (<= 640px) */
+@media (max-width: 640px) {
+    .novel-wiki-lookup-container {
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-height: 80vh;
+        border-radius: 20px 20px 0 0;
+        border-bottom: none;
+        border-left: none;
+        border-right: none;
+        transform: translateY(100%);
+    }
+
+    .novel-wiki-lookup-container.is-visible {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+}
+
+/* =========================================================
+   4. HEADER & CLOSE ACTION
+   ========================================================= */
+
+.novel-wiki-lookup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--reader-border, #e7e3dd);
+    background-color: var(--reader-surface-soft, #faf9f6);
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+    flex-shrink: 0;
+}
+
+.novel-wiki-lookup-header-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--reader-text-secondary, #706b64);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.novel-wiki-lookup-header-title svg {
+    width: 15px;
+    height: 15px;
+    color: var(--reader-primary, #6c584c);
+}
+
+.novel-wiki-lookup-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--reader-text-muted, #969089);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-wiki-lookup-close-btn:hover {
+    background-color: rgba(0, 0, 0, 0.06);
+    color: var(--reader-text, #24221f);
+}
+
+html[data-theme="dark"] .novel-wiki-lookup-close-btn:hover,
+html[data-bs-theme="dark"] .novel-wiki-lookup-close-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.novel-wiki-lookup-close-btn:focus-visible {
+    outline: 2px solid var(--reader-primary, #6c584c);
+    outline-offset: 1px;
+}
+
+.novel-wiki-lookup-close-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* =========================================================
+   5. BODY & CONTENT AREA
+   ========================================================= */
+
+.novel-wiki-lookup-body {
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex-grow: 1;
+    font-size: 14.5px;
+    line-height: 1.55;
+}
+
+/* =========================================================
+   6. STATES (LOADING, EMPTY, ERROR)
+   ========================================================= */
+
+.novel-wiki-lookup-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--reader-text-secondary, #706b64);
+}
+
+.novel-wiki-lookup-spinner {
+    width: 26px;
+    height: 26px;
+    border: 2.5px solid var(--reader-border, #e7e3dd);
+    border-top-color: var(--reader-primary, #6c584c);
+    border-radius: 50%;
+    animation: novel-wiki-spin 0.75s linear infinite;
+}
+
+@keyframes novel-wiki-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.novel-wiki-lookup-empty,
+.novel-wiki-lookup-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 10px;
+    padding: 24px 16px;
+    color: var(--reader-text-secondary, #706b64);
+}
+
+.novel-wiki-lookup-empty svg,
+.novel-wiki-lookup-error svg {
+    width: 28px;
+    height: 28px;
+    color: var(--reader-text-muted, #969089);
+}
+
+.novel-wiki-lookup-error svg {
+    color: #e11d48;
+}
+
+.novel-wiki-lookup-empty-query {
+    font-weight: 600;
+    color: var(--reader-text, #24221f);
+}
+
+/* =========================================================
+   7. ARTICLE PRESENTATION CARDS
+   ========================================================= */
+
+.novel-wiki-lookup-primary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.novel-wiki-lookup-card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.novel-wiki-lookup-type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-radius: 12px;
+    background-color: var(--reader-primary-light, #f0ebe6);
+    color: var(--reader-primary, #6c584c);
+    border: 1px solid rgba(108, 88, 76, 0.15);
+}
+
+.novel-wiki-lookup-alias-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 12px;
+    background-color: rgba(93, 77, 168, 0.1);
+    color: #5d4da8;
+    border: 1px solid rgba(93, 77, 168, 0.2);
+}
+
+.novel-wiki-lookup-card-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--reader-text, #24221f);
+    margin: 0;
+    line-height: 1.35;
+}
+
+.novel-wiki-lookup-card-summary {
+    color: var(--reader-text-secondary, #706b64);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.novel-wiki-lookup-card-actions {
+    margin-top: 6px;
+}
+
+.novel-wiki-lookup-article-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--reader-primary, #6c584c);
+    text-decoration: none;
+    transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.novel-wiki-lookup-article-link:hover {
+    color: var(--reader-primary-hover, #57463c);
+    text-decoration: underline;
+}
+
+.novel-wiki-lookup-article-link:focus-visible {
+    outline: 2px solid var(--reader-primary, #6c584c);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.novel-wiki-lookup-article-link svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+}
+
+.novel-wiki-lookup-article-link:hover svg {
+    transform: translateX(2px);
+}
+
+/* Secondary Compact List */
+.novel-wiki-lookup-secondary-section {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--reader-border, #e7e3dd);
+}
+
+.novel-wiki-lookup-secondary-heading {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--reader-text-muted, #969089);
+    margin: 0 0 10px 0;
+}
+
+.novel-wiki-lookup-secondary-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.novel-wiki-lookup-secondary-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--reader-radius-sm, 8px);
+    background-color: var(--reader-surface-soft, #faf9f6);
+    border: 1px solid var(--reader-border, #e7e3dd);
+    text-decoration: none;
+    color: var(--reader-text, #24221f);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.novel-wiki-lookup-secondary-item:hover {
+    background-color: var(--reader-primary-light, #f0ebe6);
+    border-color: var(--reader-primary, #6c584c);
+}
+
+.novel-wiki-lookup-secondary-item:focus-visible {
+    outline: 2px solid var(--reader-primary, #6c584c);
+    outline-offset: 1px;
+}
+
+.novel-wiki-lookup-secondary-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.novel-wiki-lookup-secondary-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--reader-text, #24221f);
+}
+
+.novel-wiki-lookup-secondary-alias {
+    font-size: 11px;
+    color: var(--reader-text-muted, #969089);
+    font-style: italic;
+}
+
+.novel-wiki-lookup-secondary-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}

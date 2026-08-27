@@ -2,6 +2,14 @@ package com.universe.wiki.entry.admin;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.shared.security.AuthenticatedEmailResolver;
+
+import com.universe.wiki.application.article.alias.AddWikiArticleAliasCommand;
+import com.universe.wiki.application.article.alias.AddWikiArticleAliasUseCase;
+import com.universe.wiki.application.article.alias.RemoveWikiArticleAliasCommand;
+import com.universe.wiki.application.article.alias.RemoveWikiArticleAliasUseCase;
+import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.contracts.dto.WikiArticleAliasDTO;
 
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleCommand;
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleUseCase;
@@ -113,10 +121,16 @@ public class AdminWikiArticleCommandController {
 
 	private final RestoreWikiArticleUseCase restoreWikiArticleUseCase;
 
+	private final AddWikiArticleAliasUseCase addWikiArticleAliasUseCase;
+
+	private final RemoveWikiArticleAliasUseCase removeWikiArticleAliasUseCase;
+
 	/*
 	 * ===================================================== IDENTITY
 	 * =====================================================
 	 */
+
+	private final AuthenticatedEmailResolver authenticatedEmailResolver;
 
 	private final UserIdentityContract userIdentityContract;
 
@@ -139,6 +153,10 @@ public class AdminWikiArticleCommandController {
 			ArchiveWikiArticleUseCase archiveWikiArticleUseCase, RestoreWikiArticleUseCase restoreWikiArticleUseCase,
 			DeleteWikiArticleUseCase deleteWikiArticleUseCase,
 
+			AddWikiArticleAliasUseCase addWikiArticleAliasUseCase,
+			RemoveWikiArticleAliasUseCase removeWikiArticleAliasUseCase,
+
+			AuthenticatedEmailResolver authenticatedEmailResolver,
 			UserIdentityContract userIdentityContract) {
 		this.createWikiArticleUseCase = createWikiArticleUseCase;
 
@@ -162,6 +180,11 @@ public class AdminWikiArticleCommandController {
 
 		this.restoreWikiArticleUseCase = restoreWikiArticleUseCase;
 
+		this.addWikiArticleAliasUseCase = addWikiArticleAliasUseCase;
+
+		this.removeWikiArticleAliasUseCase = removeWikiArticleAliasUseCase;
+
+		this.authenticatedEmailResolver = authenticatedEmailResolver;
 		this.userIdentityContract = userIdentityContract;
 	}
 
@@ -540,6 +563,59 @@ public class AdminWikiArticleCommandController {
 	}
 
 	/*
+	 * ===================================================== ALIASES
+	 * =====================================================
+	 */
+
+	@PostMapping("/{articleId}/aliases")
+	public String addAlias(
+			@PathVariable UUID articleId,
+			@RequestParam("alias") String alias,
+			RedirectAttributes redirectAttributes
+	) {
+		try {
+			WikiArticleAliasDTO createdOrExisting = addWikiArticleAliasUseCase
+					.execute(new AddWikiArticleAliasCommand(articleId, alias));
+
+			redirectAttributes.addFlashAttribute(
+					"successMessage",
+					"Đã thêm danh xưng/biệt danh \"" + createdOrExisting.alias() + "\"."
+			);
+		} catch (IllegalArgumentException | WikiArticleNotFoundException exception) {
+			redirectAttributes.addFlashAttribute(
+					"errorMessage",
+					exception.getMessage()
+			);
+		}
+
+		return redirectToArticleDetail(articleId);
+	}
+
+	@PostMapping("/{articleId}/aliases/remove")
+	public String removeAlias(
+			@PathVariable UUID articleId,
+			@RequestParam("alias") String alias,
+			RedirectAttributes redirectAttributes
+	) {
+		try {
+			removeWikiArticleAliasUseCase
+					.execute(new RemoveWikiArticleAliasCommand(articleId, alias));
+
+			redirectAttributes.addFlashAttribute(
+					"successMessage",
+					"Đã xóa danh xưng/biệt danh."
+			);
+		} catch (IllegalArgumentException | WikiArticleNotFoundException exception) {
+			redirectAttributes.addFlashAttribute(
+					"errorMessage",
+					exception.getMessage()
+			);
+		}
+
+		return redirectToArticleDetail(articleId);
+	}
+
+	/*
 	 * ===================================================== CREATE VALIDATION
 	 * =====================================================
 	 */
@@ -594,12 +670,7 @@ public class AdminWikiArticleCommandController {
 	 */
 
 	private UUID resolveActorId(Authentication authentication) {
-		if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
-
-			throw new IllegalStateException("Không xác định được người dùng đang đăng nhập.");
-		}
-
-		String email = authentication.getName().trim();
+		String email = authenticatedEmailResolver.require(authentication);
 
 		UserDTO user = userIdentityContract.findByEmail(email).orElseThrow(() ->
 

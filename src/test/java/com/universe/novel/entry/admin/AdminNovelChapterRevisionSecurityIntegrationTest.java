@@ -119,6 +119,7 @@ class AdminNovelChapterRevisionSecurityIntegrationTest {
     @DisplayName("Security: POST restore với Admin authenticated + CSRF token hợp lệ được phép thực thi")
     void shouldAllowRestoreWhenAdminWithValidCsrf() throws Exception {
         UserDTO user = new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "ACTIVE", "ADMIN", Instant.now());
+        when(authenticatedEmailResolver.require(any())).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
         ChapterDTO restored = new ChapterDTO(
