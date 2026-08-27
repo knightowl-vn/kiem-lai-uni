@@ -71,7 +71,7 @@ class ChapterWikiReferenceApplicationUseCasesTest {
         bindOccurrenceSpecificUseCase = new BindOccurrenceSpecificWikiReferenceUseCase(
                 chapterRepositoryPort, referenceRepositoryPort, publishedWikiArticlePort, idGeneratorPort);
         removeUseCase = new RemoveChapterWikiReferenceUseCase(referenceRepositoryPort);
-        listUseCase = new ListChapterWikiReferencesUseCase(chapterRepositoryPort, referenceRepositoryPort);
+        listUseCase = new ListChapterWikiReferencesUseCase(chapterRepositoryPort, referenceRepositoryPort, publishedWikiArticlePort);
 
         dummyChapter = Chapter.rehydrate(
                 CHAPTER_ID,
@@ -404,6 +404,8 @@ class ChapterWikiReferenceApplicationUseCasesTest {
         @DisplayName("Should correctly classify ACTIVE vs STALE references based on current Chapter.contentVersion")
         void shouldClassifyActiveVsStaleReferences() {
             when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter)); // contentVersion = 3
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.of(articleSummary1));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_2_ID)).thenReturn(Optional.of(articleSummary2));
 
             Instant now = Instant.now();
 
@@ -434,6 +436,60 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             assertThat(items.get(0).status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
             assertThat(items.get(1).status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
             assertThat(items.get(2).status()).isEqualTo(ChapterWikiReferenceStatus.STALE);
+        }
+
+        @Test
+        @DisplayName("Should resolve published Wiki target and deduplicate lookups when multiple references share the same articleId")
+        void shouldResolvePublishedWikiTargetAndDeduplicateLookups() {
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.of(articleSummary1));
+
+            Instant now = Instant.now();
+
+            // Two references sharing ARTICLE_1_ID
+            ChapterWikiReference ref1 = ChapterWikiReference.createChapterWide(
+                    UUID.randomUUID(), CHAPTER_ID, "Trần Bình An", ARTICLE_1_ID, ACTOR_ID, now);
+            ChapterWikiReference ref2 = ChapterWikiReference.createOccurrenceSpecific(
+                    UUID.randomUUID(), CHAPTER_ID, "Trần Bình An", 1, "snip", 3L, ARTICLE_1_ID, ACTOR_ID, now);
+
+            when(referenceRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(List.of(ref1, ref2));
+
+            ChapterWikiReferenceListPageDTO page = listUseCase.execute(CHAPTER_ID);
+
+            assertThat(page.references()).hasSize(2);
+
+            ChapterWikiReferenceItemDTO item1 = page.references().get(0);
+            assertThat(item1.wikiArticle()).isNotNull();
+            assertThat(item1.wikiArticle().title()).isEqualTo(articleSummary1.title());
+            assertThat(item1.wikiArticle().articleType()).isEqualTo(articleSummary1.articleType());
+            assertThat(item1.wikiArticle().slug()).isEqualTo(articleSummary1.slug());
+
+            ChapterWikiReferenceItemDTO item2 = page.references().get(1);
+            assertThat(item2.wikiArticle()).isNotNull();
+            assertThat(item2.wikiArticle().title()).isEqualTo(articleSummary1.title());
+
+            // Verified deduplicated lookup: exactly 1 call for ARTICLE_1_ID across multiple references
+            org.mockito.Mockito.verify(publishedWikiArticlePort, org.mockito.Mockito.times(1))
+                    .findPublishedById(ARTICLE_1_ID);
+        }
+
+        @Test
+        @DisplayName("Should handle missing or unpublished target Wiki article gracefully without throwing exception")
+        void shouldHandleMissingOrUnpublishedTargetGracefully() {
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.empty());
+
+            Instant now = Instant.now();
+            ChapterWikiReference ref = ChapterWikiReference.createChapterWide(
+                    UUID.randomUUID(), CHAPTER_ID, "Bí cảnh", ARTICLE_1_ID, ACTOR_ID, now);
+
+            when(referenceRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(List.of(ref));
+
+            ChapterWikiReferenceListPageDTO page = listUseCase.execute(CHAPTER_ID);
+
+            assertThat(page.references()).hasSize(1);
+            ChapterWikiReferenceItemDTO item = page.references().get(0);
+            assertThat(item.wikiArticle()).isNull();
         }
     }
 

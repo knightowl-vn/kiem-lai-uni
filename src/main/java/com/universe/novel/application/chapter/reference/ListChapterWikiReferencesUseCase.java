@@ -3,14 +3,18 @@ package com.universe.novel.application.chapter.reference;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.ChapterWikiReferenceRepositoryPort;
+import com.universe.novel.application.ports.PublishedWikiArticlePort;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.reference.ChapterWikiReference;
 import com.universe.novel.domain.reference.ChapterWikiReferenceScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -19,10 +23,12 @@ public class ListChapterWikiReferencesUseCase {
 
     private final ChapterRepositoryPort chapterRepositoryPort;
     private final ChapterWikiReferenceRepositoryPort referenceRepositoryPort;
+    private final PublishedWikiArticlePort publishedWikiArticlePort;
 
     public ListChapterWikiReferencesUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
-            ChapterWikiReferenceRepositoryPort referenceRepositoryPort
+            ChapterWikiReferenceRepositoryPort referenceRepositoryPort,
+            PublishedWikiArticlePort publishedWikiArticlePort
     ) {
         this.chapterRepositoryPort = Objects.requireNonNull(
                 chapterRepositoryPort,
@@ -31,6 +37,10 @@ public class ListChapterWikiReferencesUseCase {
         this.referenceRepositoryPort = Objects.requireNonNull(
                 referenceRepositoryPort,
                 "ChapterWikiReferenceRepositoryPort không được để trống."
+        );
+        this.publishedWikiArticlePort = Objects.requireNonNull(
+                publishedWikiArticlePort,
+                "PublishedWikiArticlePort không được để trống."
         );
     }
 
@@ -43,8 +53,19 @@ public class ListChapterWikiReferencesUseCase {
         long currentContentVersion = chapter.getContentVersion();
         List<ChapterWikiReference> references = referenceRepositoryPort.findByChapterId(chapterId);
 
+        // Resolve distinct wikiArticleIds only once to avoid duplicate lookups
+        Map<UUID, PublishedWikiArticleSummary> articleCache = new HashMap<>();
+        for (ChapterWikiReference ref : references) {
+            UUID articleId = ref.getWikiArticleId();
+            if (articleId != null && !articleCache.containsKey(articleId)) {
+                Optional<PublishedWikiArticleSummary> summaryOpt =
+                        publishedWikiArticlePort.findPublishedById(articleId);
+                articleCache.put(articleId, summaryOpt.orElse(null));
+            }
+        }
+
         List<ChapterWikiReferenceItemDTO> items = references.stream()
-                .map(ref -> toItemDTO(ref, currentContentVersion))
+                .map(ref -> toItemDTO(ref, currentContentVersion, articleCache.get(ref.getWikiArticleId())))
                 .toList();
 
         int totalCount = items.size();
@@ -65,7 +86,11 @@ public class ListChapterWikiReferencesUseCase {
         );
     }
 
-    private ChapterWikiReferenceItemDTO toItemDTO(ChapterWikiReference ref, long currentContentVersion) {
+    private ChapterWikiReferenceItemDTO toItemDTO(
+            ChapterWikiReference ref,
+            long currentContentVersion,
+            PublishedWikiArticleSummary wikiArticle
+    ) {
         ChapterWikiReferenceStatus status = computeStatus(ref, currentContentVersion);
 
         return new ChapterWikiReferenceItemDTO(
@@ -80,6 +105,7 @@ public class ListChapterWikiReferencesUseCase {
                 currentContentVersion,
                 ref.getWikiArticleId(),
                 status,
+                wikiArticle,
                 ref.getCreatedBy(),
                 ref.getUpdatedBy(),
                 ref.getCreatedAt(),

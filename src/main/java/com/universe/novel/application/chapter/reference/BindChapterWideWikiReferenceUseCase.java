@@ -56,7 +56,7 @@ public class BindChapterWideWikiReferenceUseCase {
         Chapter chapter = chapterRepositoryPort.findById(command.chapterId())
                 .orElseThrow(() -> new ChapterNotFoundException(command.chapterId()));
 
-        publishedWikiArticlePort.findPublishedById(command.wikiArticleId())
+        PublishedWikiArticleSummary articleSummary = publishedWikiArticlePort.findPublishedById(command.wikiArticleId())
                 .orElseThrow(() -> new TargetWikiArticleNotPublishedException(command.wikiArticleId()));
 
         String displayTerm = ChapterWikiReferenceTermNormalizer.normalizeDisplayTerm(command.term());
@@ -95,6 +95,7 @@ public class BindChapterWideWikiReferenceUseCase {
                 chapter.getContentVersion(),
                 saved.getWikiArticleId(),
                 ChapterWikiReferenceStatus.ACTIVE,
+                articleSummary,
                 saved.getCreatedBy(),
                 saved.getUpdatedBy(),
                 saved.getCreatedAt(),

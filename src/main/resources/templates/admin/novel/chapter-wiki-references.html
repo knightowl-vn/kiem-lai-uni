@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý liên kết Wiki | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+</head>
+
+<body>
+<div class="admin-layout">
+
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+
+            <div class="novel-admin-create-heading">
+                <div>
+                    <a th:href="@{/admin/novel/chapters/{id}(id=${chapter.id})}"
+                       class="novel-admin-back-link">
+                        ← Quay lại chi tiết chương
+                    </a>
+                    <span class="novel-admin-eyebrow">NOVEL MODULE</span>
+                    <h2>Quản lý liên kết Wiki</h2>
+                    <p>
+                        Liên kết thuật ngữ chương <strong th:text="${chapter.chapterNumber + ': ' + chapter.title}">1: Khởi Đầu</strong>
+                        (Tập: <strong th:text="${volume.title}">Quyển Một</strong>)
+                    </p>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- STATS SUMMARY                              -->
+            <!-- ========================================== -->
+            <div class="novel-admin-stats-row" style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">TỔNG SỐ LIÊN KẾT</span>
+                    <strong style="font-size: 20px; font-weight: 700;" th:text="${pageResult.totalCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">ĐANG HOẠT ĐỘNG (ACTIVE)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--success, #2e7d32);" th:text="${pageResult.activeCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CẦN CẬP NHẬT (STALE)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--warning, #ed6c02);" th:text="${pageResult.staleCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CONTENT VERSION</span>
+                    <strong style="font-size: 20px; font-weight: 700;" th:text="${chapter.contentVersion}">1</strong>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- REFERENCES TABLE / LIST                    -->
+            <!-- ========================================== -->
+            <section class="novel-admin-table-panel" style="margin-bottom: 28px;">
+                <div class="novel-admin-detail-section-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+                    <span class="novel-admin-detail-section-eyebrow">DANH SÁCH LIÊN KẾT WIKI</span>
+                    <h3>Các thuật ngữ đã gán bài viết</h3>
+                </div>
+
+                <div th:if="${referenceItems.isEmpty()}" class="novel-admin-form-panel" style="padding: 24px;">
+                    <p style="margin: 0; color: var(--text-secondary);">Chương hiện chưa có liên kết Wiki nào.</p>
+                </div>
+
+                <div th:unless="${referenceItems.isEmpty()}" class="novel-admin-table-wrapper">
+                    <table class="novel-admin-table">
+                        <thead>
+                        <tr>
+                            <th>Thuật ngữ</th>
+                            <th>Phạm vi</th>
+                            <th>Bài viết Wiki liên kết</th>
+                            <th>Trạng thái</th>
+                            <th>Ngữ cảnh</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="item : ${referenceItems}">
+                            <td>
+                                <strong th:text="${item.term}">Trần Bình An</strong>
+                            </td>
+                            <td>
+                                <span th:if="${item.referenceScope.name() == 'CHAPTER_WIDE'}"
+                                      class="novel-admin-badge"
+                                      style="background: #e3f2fd; color: #1565c0; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+                                    Toàn chương
+                                </span>
+                                <span th:if="${item.referenceScope.name() == 'OCCURRENCE_SPECIFIC'}"
+                                      class="novel-admin-badge"
+                                      style="background: #f3e5f5; color: #7b1fa2; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;"
+                                      th:text="${'Vị trí #' + item.occurrenceIndex}">
+                                    Vị trí #1
+                                </span>
+                            </td>
+                            <td>
+                                <div th:if="${item.isWikiArticleAvailable()}">
+                                    <strong th:text="${item.targetTitle()}">Trần Bình An</strong>
+                                    <span class="novel-admin-type-badge"
+                                          style="font-size: 10px; color: var(--text-secondary); margin-left: 6px;"
+                                          th:text="${item.targetArticleType()}">
+                                        CHARACTER
+                                    </span>
+                                </div>
+                                <div th:unless="${item.isWikiArticleAvailable()}">
+                                    <span style="color: var(--danger, #d32f2f); font-style: italic;">
+                                        ⚠ Bài viết không khả dụng
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="novel-admin-status-badge"
+                                      th:classappend="${item.status.name() == 'ACTIVE' ? ' is-published' : ' is-draft'}"
+                                      th:text="${item.status.name()}">
+                                    ACTIVE
+                                </span>
+                            </td>
+                            <td>
+                                <span th:if="${item.contextSnippet != null and !#strings.isEmpty(item.contextSnippet)}"
+                                      style="font-size: 12px; color: var(--text-secondary);"
+                                      th:text="${item.contextSnippet}">
+                                    Ngữ cảnh mẫu...
+                                </span>
+                                <span th:unless="${item.contextSnippet != null and !#strings.isEmpty(item.contextSnippet)}"
+                                      style="color: var(--text-secondary);">
+                                    —
+                                </span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ========================================== -->
+            <!-- CHAPTER CONTENT PREVIEW                    -->
+            <!-- ========================================== -->
+            <section class="novel-admin-detail-section" style="border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 24px;">
+                <div class="novel-admin-detail-section-heading" style="margin-bottom: 16px;">
+                    <span class="novel-admin-detail-section-eyebrow">NỘI DUNG CHAPTER</span>
+                    <h3>Bản xem trước nội dung</h3>
+                    <p style="margin: 4px 0 0; font-size: 12px; color: var(--text-secondary);">
+                        Văn bản render từ Markdown của chương để đối chiếu ngữ cảnh các liên kết Wiki.
+                    </p>
+                </div>
+
+                <div class="novel-admin-chapter-preview-wrapper" style="border: 1px solid var(--border); border-radius: 12px; padding: 20px; background: var(--surface);">
+                    <article class="novel-reader-chapter-body"
+                             th:attr="data-chapter-id=${chapter.id}"
+                             th:utext="${contentHtml}">
+                        <p>Nội dung chương...</p>
+                    </article>
+                </div>
+            </section>
+
+        </section>
+    </main>
+</div>
+</body>
+</html>

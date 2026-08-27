@@ -56,7 +56,7 @@ public class BindOccurrenceSpecificWikiReferenceUseCase {
         Chapter chapter = chapterRepositoryPort.findById(command.chapterId())
                 .orElseThrow(() -> new ChapterNotFoundException(command.chapterId()));
 
-        publishedWikiArticlePort.findPublishedById(command.wikiArticleId())
+        PublishedWikiArticleSummary articleSummary = publishedWikiArticlePort.findPublishedById(command.wikiArticleId())
                 .orElseThrow(() -> new TargetWikiArticleNotPublishedException(command.wikiArticleId()));
 
         long currentContentVersion = chapter.getContentVersion();
@@ -110,6 +110,7 @@ public class BindOccurrenceSpecificWikiReferenceUseCase {
                 currentContentVersion,
                 saved.getWikiArticleId(),
                 ChapterWikiReferenceStatus.ACTIVE,
+                articleSummary,
                 saved.getCreatedBy(),
                 saved.getUpdatedBy(),
                 saved.getCreatedAt(),
