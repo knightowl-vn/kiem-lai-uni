@@ -9,39 +9,62 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@DisplayName("Reader Wiki Lookup Template and JavaScript Contract Tests")
 class ReaderWikiLookupTemplateContractTest {
 
     @Test
-    @DisplayName("Novel chapter reading page (chapter.html) links reader-wiki-lookup.css and includes reader-wiki-lookup.js")
+    @DisplayName("Novel chapter reading page (chapter.html) links reader-wiki-lookup.css, includes reader-wiki-lookup.js, and exposes data-chapter-id")
     void chapterReadingPageIncludesWikiLookupAssetsContract() throws Exception {
         String chapterPage = read("src/main/resources/templates/novel/chapter.html");
 
         assertThat(chapterPage).contains("th:href=\"@{/css/novel/reader-wiki-lookup.css}\"");
         assertThat(chapterPage).contains("th:src=\"@{/js/novel/reader-wiki-lookup.js}\"");
         assertThat(chapterPage).contains("defer");
+
+        // Chapter ID exposure on reader body
+        assertThat(chapterPage).contains("class=\"novel-reader-chapter-body\"");
+        assertThat(chapterPage).contains("th:attr=\"data-chapter-id=${chapter.id}\"");
     }
 
     @Test
-    @DisplayName("reader-wiki-lookup.js defines expected DOM structure, presentation states, dialog semantics, and public Wiki routing")
+    @DisplayName("reader-wiki-lookup.js defines expected DOM structure, occurrence calculation, presentation states, and routing")
     void wikiLookupJsScriptContract() throws Exception {
         String js = read("src/main/resources/static/js/novel/reader-wiki-lookup.js");
 
-        // 1. Selection & Trigger
+        // 1. Selection & Chapter ID Extraction
         assertThat(js).contains(".novel-reader-chapter-body");
+        assertThat(js).contains("dataset.chapterId");
+
+        // 2. Rendered DOM Occurrence Calculation Algorithm
+        assertThat(js).contains("calculateOccurrenceIndex");
+        assertThat(js).contains("normalizeDisplayTerm");
+        assertThat(js).contains("normalizeSearchKey");
+        assertThat(js).contains("countOccurrences");
+        assertThat(js).contains(".normalize('NFC')");
+        assertThat(js).contains("replace(/\\s+/g, ' ')");
+        assertThat(js).contains("document.createRange()");
+        assertThat(js).contains("preRange.selectNodeContents(chapterBody)");
+        assertThat(js).contains("preRange.setEnd(range.startContainer, range.startOffset)");
+        assertThat(js).contains("priorOccurrences + 1");
+
+        // 3. Trigger & Request Construction
         assertThat(js).contains("novelWikiLookupActionBtn");
         assertThat(js).contains("Tra Wiki");
+        assertThat(js).contains("actionBtn.addEventListener('click', onActionButtonClick)");
         assertThat(js).contains("/novel/api/wiki/lookup?q=");
+        assertThat(js).contains("&chapterId=");
+        assertThat(js).contains("&occurrence=");
         assertThat(js).contains("AbortController");
-        assertThat(js).contains("normalizedText.length > 100");
+        assertThat(js).contains("displayTerm.length > 100");
 
-        // 2. Accessibility & Container
+        // 4. Accessibility & Container
         assertThat(js).contains("novelWikiLookupResultContainer");
         assertThat(js).contains("novelWikiLookupBackdrop");
         assertThat(js).contains("novelWikiLookupCloseBtn");
         assertThat(js).contains("role");
         assertThat(js).contains("dialog");
 
-        // 3. States & Presentation
+        // 5. States & Presentation
         assertThat(js).contains("novel-wiki-lookup-loading");
         assertThat(js).contains("novel-wiki-lookup-empty");
         assertThat(js).contains("novel-wiki-lookup-error");
@@ -51,7 +74,7 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(js).contains("novel-wiki-lookup-secondary-alias");
         assertThat(js).contains("Khớp danh xưng:");
 
-        // 4. Public Wiki Route Mapping (/wiki/{type}/{slug}) matching ArticleTypePathMapper
+        // 6. Public Wiki Route Mapping
         assertThat(js).contains("CHARACTER: 'character'");
         assertThat(js).contains("REALM: 'realm'");
         assertThat(js).contains("CULTIVATION_PATH: 'cultivation-path'");
@@ -62,6 +85,9 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(js).contains("WORLD: 'world'");
         assertThat(js).contains("TIMELINE_EVENT: 'timeline-event'");
         assertThat(js).contains("/wiki/");
+
+        // 7. No Global Variable Leakage
+        assertThat(js).doesNotContain("window.NovelWikiLookup");
     }
 
     @Test
