@@ -1,8 +1,10 @@
 package com.universe.novel.application.chapter.reference;
 
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.TargetWikiArticleNotPublishedException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.ChapterWikiReferenceRepositoryPort;
+import com.universe.novel.application.ports.PublishedWikiArticlePort;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.Slug;
@@ -41,6 +43,9 @@ class ChapterWikiReferenceApplicationUseCasesTest {
     private ChapterWikiReferenceRepositoryPort referenceRepositoryPort;
 
     @Mock
+    private PublishedWikiArticlePort publishedWikiArticlePort;
+
+    @Mock
     private IdGeneratorPort idGeneratorPort;
 
     private BindChapterWideWikiReferenceUseCase bindChapterWideUseCase;
@@ -56,13 +61,15 @@ class ChapterWikiReferenceApplicationUseCasesTest {
     private static final UUID GENERATED_REF_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
 
     private Chapter dummyChapter;
+    private PublishedWikiArticleSummary articleSummary1;
+    private PublishedWikiArticleSummary articleSummary2;
 
     @BeforeEach
     void setUp() {
         bindChapterWideUseCase = new BindChapterWideWikiReferenceUseCase(
-                chapterRepositoryPort, referenceRepositoryPort, idGeneratorPort);
+                chapterRepositoryPort, referenceRepositoryPort, publishedWikiArticlePort, idGeneratorPort);
         bindOccurrenceSpecificUseCase = new BindOccurrenceSpecificWikiReferenceUseCase(
-                chapterRepositoryPort, referenceRepositoryPort, idGeneratorPort);
+                chapterRepositoryPort, referenceRepositoryPort, publishedWikiArticlePort, idGeneratorPort);
         removeUseCase = new RemoveChapterWikiReferenceUseCase(referenceRepositoryPort);
         listUseCase = new ListChapterWikiReferencesUseCase(chapterRepositoryPort, referenceRepositoryPort);
 
@@ -86,6 +93,11 @@ class ChapterWikiReferenceApplicationUseCasesTest {
                 1L,
                 3L // contentVersion = 3
         );
+
+        articleSummary1 = new PublishedWikiArticleSummary(
+                ARTICLE_1_ID, "Trần Bình An", "tran-binh-an", "CHARACTER");
+        articleSummary2 = new PublishedWikiArticleSummary(
+                ARTICLE_2_ID, "Nhất Khí Hóa Tam Thanh", "nhat-khi-hoa-tam-thanh", "TECHNIQUE");
     }
 
     @Nested
@@ -93,9 +105,10 @@ class ChapterWikiReferenceApplicationUseCasesTest {
     class BindChapterWideTests {
 
         @Test
-        @DisplayName("Should create new CHAPTER_WIDE reference when no binding exists")
+        @DisplayName("Should create new CHAPTER_WIDE reference when target article is PUBLISHED and no binding exists")
         void shouldCreateNewChapterWideReference() {
             when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.of(articleSummary1));
             when(idGeneratorPort.generate()).thenReturn(GENERATED_REF_ID);
             when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
                     CHAPTER_ID, "trần bình an", 0)).thenReturn(Optional.empty());
@@ -129,6 +142,25 @@ class ChapterWikiReferenceApplicationUseCasesTest {
         }
 
         @Test
+        @DisplayName("Should reject CHAPTER_WIDE binding when target Wiki article is not published or nonexistent")
+        void shouldRejectChapterWideWhenTargetWikiArticleNotPublished() {
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.empty());
+
+            BindChapterWideWikiReferenceCommand command = new BindChapterWideWikiReferenceCommand(
+                    CHAPTER_ID,
+                    "Trần Bình An",
+                    ARTICLE_1_ID,
+                    ACTOR_ID
+            );
+
+            assertThatThrownBy(() -> bindChapterWideUseCase.execute(command))
+                    .isInstanceOf(TargetWikiArticleNotPublishedException.class);
+
+            verify(referenceRepositoryPort, never()).save(any());
+        }
+
+        @Test
         @DisplayName("Should update existing CHAPTER_WIDE reference target and preserve original id/creation metadata")
         void shouldUpdateExistingChapterWideReference() {
             Instant createdAt = Instant.parse("2026-08-27T01:00:00Z");
@@ -144,6 +176,7 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             );
 
             when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_2_ID)).thenReturn(Optional.of(articleSummary2));
             when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
                     CHAPTER_ID, "trần bình an", 0)).thenReturn(Optional.of(existing));
             when(referenceRepositoryPort.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -163,6 +196,38 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             assertThat(result.createdAt()).isEqualTo(createdAt);
             assertThat(result.updatedBy()).isEqualTo(ACTOR_ID);
             verify(idGeneratorPort, never()).generate();
+        }
+
+        @Test
+        @DisplayName("Should reject rebinding existing CHAPTER_WIDE reference when new target is unpublished and leave existing unchanged")
+        void shouldRejectRebindingExistingChapterWideWhenNewTargetWikiArticleNotPublished() {
+            Instant createdAt = Instant.parse("2026-08-27T01:00:00Z");
+            UUID originalRefId = UUID.randomUUID();
+            UUID originalCreator = UUID.randomUUID();
+            ChapterWikiReference existing = ChapterWikiReference.createChapterWide(
+                    originalRefId,
+                    CHAPTER_ID,
+                    "Trần Bình An",
+                    ARTICLE_1_ID,
+                    originalCreator,
+                    createdAt
+            );
+
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_2_ID)).thenReturn(Optional.empty());
+
+            BindChapterWideWikiReferenceCommand command = new BindChapterWideWikiReferenceCommand(
+                    CHAPTER_ID,
+                    "Trần Bình An",
+                    ARTICLE_2_ID,
+                    ACTOR_ID
+            );
+
+            assertThatThrownBy(() -> bindChapterWideUseCase.execute(command))
+                    .isInstanceOf(TargetWikiArticleNotPublishedException.class);
+
+            assertThat(existing.getWikiArticleId()).isEqualTo(ARTICLE_1_ID);
+            verify(referenceRepositoryPort, never()).save(any());
         }
 
         @Test
@@ -190,6 +255,7 @@ class ChapterWikiReferenceApplicationUseCasesTest {
         @DisplayName("Should create new OCCURRENCE_SPECIFIC reference deriving boundContentVersion from current chapter")
         void shouldCreateOccurrenceSpecificDerivingChapterContentVersion() {
             when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.of(articleSummary1));
             when(idGeneratorPort.generate()).thenReturn(GENERATED_REF_ID);
             when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
                     CHAPTER_ID, "nhất khí hóa tam thanh", 2)).thenReturn(Optional.empty());
@@ -215,6 +281,27 @@ class ChapterWikiReferenceApplicationUseCasesTest {
         }
 
         @Test
+        @DisplayName("Should reject OCCURRENCE_SPECIFIC binding when target Wiki article is not published")
+        void shouldRejectOccurrenceSpecificWhenTargetWikiArticleNotPublished() {
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.empty());
+
+            BindOccurrenceSpecificWikiReferenceCommand command = new BindOccurrenceSpecificWikiReferenceCommand(
+                    CHAPTER_ID,
+                    "Nhất Khí Hóa Tam Thanh",
+                    1,
+                    "ngữ cảnh",
+                    ARTICLE_1_ID,
+                    ACTOR_ID
+            );
+
+            assertThatThrownBy(() -> bindOccurrenceSpecificUseCase.execute(command))
+                    .isInstanceOf(TargetWikiArticleNotPublishedException.class);
+
+            verify(referenceRepositoryPort, never()).save(any());
+        }
+
+        @Test
         @DisplayName("Should update existing OCCURRENCE_SPECIFIC reference target and context and rebind contentVersion")
         void shouldUpdateExistingOccurrenceSpecificReference() {
             Instant createdAt = Instant.parse("2026-08-27T01:00:00Z");
@@ -232,6 +319,7 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             );
 
             when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_2_ID)).thenReturn(Optional.of(articleSummary2));
             when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
                     CHAPTER_ID, "thuật ngữ", 1)).thenReturn(Optional.of(existing));
             when(referenceRepositoryPort.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -252,6 +340,45 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             assertThat(result.contextSnippet()).isEqualTo("ngữ cảnh mới");
             assertThat(result.boundContentVersion()).isEqualTo(3L); // re-anchored to current chapter contentVersion (3)
             assertThat(result.status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
+        }
+
+        @Test
+        @DisplayName("Should reject rebinding existing OCCURRENCE_SPECIFIC reference when new target is unpublished and leave existing unchanged")
+        void shouldRejectRebindingExistingOccurrenceSpecificWhenNewTargetWikiArticleNotPublished() {
+            Instant createdAt = Instant.parse("2026-08-27T01:00:00Z");
+            UUID originalRefId = UUID.randomUUID();
+            UUID originalCreator = UUID.randomUUID();
+            ChapterWikiReference existing = ChapterWikiReference.createOccurrenceSpecific(
+                    originalRefId,
+                    CHAPTER_ID,
+                    "Thuật ngữ",
+                    1,
+                    "ngữ cảnh cũ",
+                    2L,
+                    ARTICLE_1_ID,
+                    originalCreator,
+                    createdAt
+            );
+
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(dummyChapter));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_2_ID)).thenReturn(Optional.empty());
+
+            BindOccurrenceSpecificWikiReferenceCommand command = new BindOccurrenceSpecificWikiReferenceCommand(
+                    CHAPTER_ID,
+                    "thuật ngữ",
+                    1,
+                    "ngữ cảnh mới",
+                    ARTICLE_2_ID,
+                    ACTOR_ID
+            );
+
+            assertThatThrownBy(() -> bindOccurrenceSpecificUseCase.execute(command))
+                    .isInstanceOf(TargetWikiArticleNotPublishedException.class);
+
+            assertThat(existing.getWikiArticleId()).isEqualTo(ARTICLE_1_ID);
+            assertThat(existing.getContextSnippet()).isEqualTo("ngữ cảnh cũ");
+            assertThat(existing.getBoundContentVersion()).isEqualTo(2L);
+            verify(referenceRepositoryPort, never()).save(any());
         }
 
         @Test

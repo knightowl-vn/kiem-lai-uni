@@ -1,8 +1,10 @@
 package com.universe.novel.application.chapter.reference;
 
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.TargetWikiArticleNotPublishedException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.ChapterWikiReferenceRepositoryPort;
+import com.universe.novel.application.ports.PublishedWikiArticlePort;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.reference.ChapterWikiReference;
 import com.universe.novel.domain.reference.ChapterWikiReferenceTermNormalizer;
@@ -21,11 +23,13 @@ public class BindChapterWideWikiReferenceUseCase {
 
     private final ChapterRepositoryPort chapterRepositoryPort;
     private final ChapterWikiReferenceRepositoryPort referenceRepositoryPort;
+    private final PublishedWikiArticlePort publishedWikiArticlePort;
     private final IdGeneratorPort idGeneratorPort;
 
     public BindChapterWideWikiReferenceUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             ChapterWikiReferenceRepositoryPort referenceRepositoryPort,
+            PublishedWikiArticlePort publishedWikiArticlePort,
             IdGeneratorPort idGeneratorPort
     ) {
         this.chapterRepositoryPort = Objects.requireNonNull(
@@ -35,6 +39,10 @@ public class BindChapterWideWikiReferenceUseCase {
         this.referenceRepositoryPort = Objects.requireNonNull(
                 referenceRepositoryPort,
                 "ChapterWikiReferenceRepositoryPort không được để trống."
+        );
+        this.publishedWikiArticlePort = Objects.requireNonNull(
+                publishedWikiArticlePort,
+                "PublishedWikiArticlePort không được để trống."
         );
         this.idGeneratorPort = Objects.requireNonNull(
                 idGeneratorPort,
@@ -47,6 +55,9 @@ public class BindChapterWideWikiReferenceUseCase {
 
         Chapter chapter = chapterRepositoryPort.findById(command.chapterId())
                 .orElseThrow(() -> new ChapterNotFoundException(command.chapterId()));
+
+        publishedWikiArticlePort.findPublishedById(command.wikiArticleId())
+                .orElseThrow(() -> new TargetWikiArticleNotPublishedException(command.wikiArticleId()));
 
         String displayTerm = ChapterWikiReferenceTermNormalizer.normalizeDisplayTerm(command.term());
         String normalizedTerm = ChapterWikiReferenceTermNormalizer.normalizeSearchKey(command.term());

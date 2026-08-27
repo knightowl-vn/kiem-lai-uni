@@ -26,6 +26,13 @@ public interface WikiArticleQueryPort {
     );
 
     /**
+     * Lấy bài viết công khai theo ID chỉ khi đang ở trạng thái PUBLISHED.
+     */
+    Optional<PublishedWikiArticleDTO> findPublishedById(
+            UUID articleId
+    );
+
+    /**
      * Lấy danh sách bài viết có phân trang và bộ lọc.
      */
     WikiArticlePageDTO findPage(

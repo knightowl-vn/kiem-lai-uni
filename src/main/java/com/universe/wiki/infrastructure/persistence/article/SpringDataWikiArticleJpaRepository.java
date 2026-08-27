@@ -32,6 +32,11 @@ public interface SpringDataWikiArticleJpaRepository
             String slug
     );
 
+    Optional<WikiArticleJpaEntity> findByIdAndStatus(
+            String id,
+            String status
+    );
+
     /**
      * Truy vấn danh sách bài Wiki dành cho trang quản trị.
      *
