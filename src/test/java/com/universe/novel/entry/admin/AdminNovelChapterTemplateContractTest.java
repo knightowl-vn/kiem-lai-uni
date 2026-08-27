@@ -95,15 +95,22 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(page).contains("CẦN CẬP NHẬT (STALE)");
 		assertThat(page).contains("CONTENT VERSION");
 
+		// Flash Alerts
+		assertThat(page).contains("th:if=\"${successMessage != null}\"");
+		assertThat(page).contains("th:if=\"${errorMessage != null}\"");
+
 		// References Table Columns & Scope / Status Badges
 		assertThat(page).contains("Thuật ngữ");
 		assertThat(page).contains("Phạm vi");
 		assertThat(page).contains("Bài viết Wiki liên kết");
 		assertThat(page).contains("Trạng thái");
 		assertThat(page).contains("Ngữ cảnh");
+		assertThat(page).contains("Thao tác");
 		assertThat(page).contains("Toàn chương");
 		assertThat(page).contains("Vị trí #");
 		assertThat(page).contains("Bài viết không khả dụng");
+		assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/wiki-references/{refId}/delete(");
+		assertThat(page).doesNotContain("name=\"actorId\"");
 
 		// Content Preview Section
 		assertThat(page).contains("NỘI DUNG CHAPTER");

@@ -30,7 +30,7 @@ public class RemoveChapterWikiReferenceUseCase {
         }
 
         ChapterWikiReference reference = referenceOpt.get();
-        if (command.chapterId() != null && !Objects.equals(command.chapterId(), reference.getChapterId())) {
+        if (!Objects.equals(command.chapterId(), reference.getChapterId())) {
             return false;
         }
 

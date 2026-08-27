@@ -19,6 +19,18 @@
 
         <section class="dashboard-content">
 
+            <div th:if="${successMessage != null}"
+                 class="novel-admin-success-message"
+                 th:text="${successMessage}">
+                Thao tác thành công.
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 class="novel-admin-form-error"
+                 th:text="${errorMessage}">
+                Không thể thực hiện thao tác.
+            </div>
+
             <div class="novel-admin-create-heading">
                 <div>
                     <a th:href="@{/admin/novel/chapters/{id}(id=${chapter.id})}"
@@ -78,6 +90,7 @@
                             <th>Bài viết Wiki liên kết</th>
                             <th>Trạng thái</th>
                             <th>Ngữ cảnh</th>
+                            <th>Thao tác</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -130,6 +143,17 @@
                                       style="color: var(--text-secondary);">
                                     —
                                 </span>
+                            </td>
+                            <td>
+                                <form method="post"
+                                      th:action="@{/admin/novel/chapters/{chapterId}/wiki-references/{refId}/delete(chapterId=${chapter.id}, refId=${item.id})}"
+                                      data-novel-confirm="Bạn có chắc muốn xóa liên kết Wiki này không?">
+                                    <button type="submit"
+                                            class="novel-admin-button-link is-danger"
+                                            style="background: none; border: none; color: var(--danger, #d32f2f); cursor: pointer; font-size: 12px; padding: 0;">
+                                        ✕ Xóa
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                         </tbody>

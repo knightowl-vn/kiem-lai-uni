@@ -523,5 +523,22 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             assertThat(result).isFalse();
             verify(referenceRepositoryPort, never()).delete(any());
         }
+
+        @Test
+        @DisplayName("Should return false and NOT delete when existing reference belongs to a different chapterId")
+        void shouldNotDeleteWhenChapterIdDoesNotMatch() {
+            UUID refId = UUID.randomUUID();
+            UUID otherChapterId = UUID.randomUUID();
+            ChapterWikiReference ref = ChapterWikiReference.createChapterWide(
+                    refId, otherChapterId, "Thuật ngữ", ARTICLE_1_ID, ACTOR_ID, Instant.now());
+
+            when(referenceRepositoryPort.findById(refId)).thenReturn(Optional.of(ref));
+
+            // Attempting to remove otherChapterId's reference via CHAPTER_ID URL
+            boolean result = removeUseCase.execute(new RemoveChapterWikiReferenceCommand(refId, CHAPTER_ID, ACTOR_ID));
+
+            assertThat(result).isFalse();
+            verify(referenceRepositoryPort, never()).delete(any());
+        }
     }
 }

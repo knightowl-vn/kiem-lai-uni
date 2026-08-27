@@ -10,6 +10,7 @@ public record RemoveChapterWikiReferenceCommand(
 ) {
     public RemoveChapterWikiReferenceCommand {
         Objects.requireNonNull(referenceId, "Reference ID không được để trống.");
+        Objects.requireNonNull(chapterId, "Chapter ID không được để trống.");
         Objects.requireNonNull(actorId, "Người thực hiện không được để trống.");
     }
 }
