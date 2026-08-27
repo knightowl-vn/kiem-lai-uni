@@ -59,14 +59,12 @@ class WikiContextualLookupPersistenceIntegrationTest {
         if (testDbPass == null || testDbPass.isBlank()) {
             testDbPass = System.getenv("DB_PASSWORD");
         }
-        if (testDbPass == null || testDbPass.isBlank()) {
-            testDbPass = "123456";
-        }
+        final String finalPass = (testDbPass != null && !testDbPass.isBlank()) ? testDbPass : "123456";
 
         registry.add("spring.datasource.url", () ->
                 "jdbc:mysql://localhost:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC");
         registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> "123456");
+        registry.add("spring.datasource.password", () -> finalPass);
         registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
     }
 
