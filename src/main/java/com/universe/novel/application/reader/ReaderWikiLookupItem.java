@@ -11,6 +11,16 @@ public record ReaderWikiLookupItem(
         String title,
         String articleType,
         String slug,
-        String summary
+        String summary,
+        String matchedAlias
 ) {
+    public ReaderWikiLookupItem(
+            UUID id,
+            String title,
+            String articleType,
+            String slug,
+            String summary
+    ) {
+        this(id, title, articleType, slug, summary, null);
+    }
 }

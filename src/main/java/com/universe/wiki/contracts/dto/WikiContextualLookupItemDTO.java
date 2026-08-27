@@ -10,6 +10,16 @@ public record WikiContextualLookupItemDTO(
         String title,
         String articleType,
         String slug,
-        String summary
+        String summary,
+        String matchedAlias
 ) {
+    public WikiContextualLookupItemDTO(
+            UUID id,
+            String title,
+            String articleType,
+            String slug,
+            String summary
+    ) {
+        this(id, title, articleType, slug, summary, null);
+    }
 }

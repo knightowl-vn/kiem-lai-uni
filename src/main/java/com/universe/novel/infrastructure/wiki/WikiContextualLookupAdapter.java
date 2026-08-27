@@ -57,7 +57,8 @@ public class WikiContextualLookupAdapter implements WikiContextualLookupPort {
                 dto.title(),
                 dto.articleType(),
                 dto.slug(),
-                dto.summary()
+                dto.summary(),
+                dto.matchedAlias()
         );
     }
 }

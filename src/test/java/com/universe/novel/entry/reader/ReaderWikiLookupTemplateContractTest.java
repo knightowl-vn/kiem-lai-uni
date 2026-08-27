@@ -47,6 +47,9 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(js).contains("novel-wiki-lookup-error");
         assertThat(js).contains("novel-wiki-lookup-primary-card");
         assertThat(js).contains("novel-wiki-lookup-secondary-section");
+        assertThat(js).contains("novel-wiki-lookup-alias-badge");
+        assertThat(js).contains("novel-wiki-lookup-secondary-alias");
+        assertThat(js).contains("Khớp danh xưng:");
 
         // 4. Public Wiki Route Mapping (/wiki/{type}/{slug}) matching ArticleTypePathMapper
         assertThat(js).contains("CHARACTER: 'character'");
@@ -80,6 +83,8 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(css).contains(".novel-wiki-lookup-primary-card");
         assertThat(css).contains(".novel-wiki-lookup-secondary-section");
         assertThat(css).contains(".novel-wiki-lookup-type-badge");
+        assertThat(css).contains(".novel-wiki-lookup-alias-badge");
+        assertThat(css).contains(".novel-wiki-lookup-secondary-alias");
         assertThat(css).contains(".novel-wiki-lookup-article-link");
         assertThat(css).contains("env(safe-area-inset-bottom");
     }

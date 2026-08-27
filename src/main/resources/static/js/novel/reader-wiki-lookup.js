@@ -466,6 +466,7 @@
             <div class="novel-wiki-lookup-primary-card">
                 <div class="novel-wiki-lookup-card-meta">
                     <span class="novel-wiki-lookup-type-badge">${escapeHtml(getArticleTypeLabel(primaryItem.articleType))}</span>
+                    ${primaryItem.matchedAlias ? `<span class="novel-wiki-lookup-alias-badge">Khớp danh xưng: "${escapeHtml(primaryItem.matchedAlias)}"</span>` : ''}
                 </div>
                 <h3 class="novel-wiki-lookup-card-title">${escapeHtml(primaryItem.title)}</h3>
                 <p class="novel-wiki-lookup-card-summary">${escapeHtml(primaryItem.summary || 'Chưa có tóm tắt chi tiết.')}</p>
@@ -492,7 +493,10 @@
                 html += `
                     <li>
                         <a href="${escapeHtml(getArticleUrl(item.articleType, item.slug))}" target="_blank" rel="noopener noreferrer" class="novel-wiki-lookup-secondary-item">
-                            <span class="novel-wiki-lookup-secondary-title">${escapeHtml(item.title)}</span>
+                            <div class="novel-wiki-lookup-secondary-content">
+                                <span class="novel-wiki-lookup-secondary-title">${escapeHtml(item.title)}</span>
+                                ${item.matchedAlias ? `<span class="novel-wiki-lookup-secondary-alias">Khớp danh xưng: "${escapeHtml(item.matchedAlias)}"</span>` : ''}
+                            </div>
                             <span class="novel-wiki-lookup-secondary-meta">
                                 <span class="novel-wiki-lookup-type-badge">${escapeHtml(getArticleTypeLabel(item.articleType))}</span>
                             </span>

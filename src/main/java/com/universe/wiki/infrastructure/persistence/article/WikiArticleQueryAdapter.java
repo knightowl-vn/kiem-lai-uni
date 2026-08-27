@@ -207,6 +207,26 @@ public class WikiArticleQueryAdapter
                 .toList();
     }
 
+    @Override
+    public List<PublishedWikiArticleListItemDTO> findPublishedArticlesByNormalizedAlias(
+            String normalizedAlias,
+            int maxResults
+    ) {
+        if (normalizedAlias == null || normalizedAlias.isBlank() || maxResults <= 0) {
+            return List.of();
+        }
+
+        Pageable pageable = PageRequest.of(0, maxResults);
+        List<WikiArticleJpaEntity> entities = repository.findPublishedArticlesByNormalizedAlias(
+                normalizedAlias.trim(),
+                pageable
+        );
+
+        return entities.stream()
+                .map(this::toPublishedListItemDTO)
+                .toList();
+    }
+
     private String escapeLikeWildcards(String input) {
         if (input == null) {
             return "";

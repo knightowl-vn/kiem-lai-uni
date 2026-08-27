@@ -81,7 +81,22 @@ class WikiContextualLookupPersistenceIntegrationTest {
     }
 
     private void cleanTestData() {
+        jdbcTemplate.update("DELETE FROM wiki_article_aliases WHERE article_id IN (SELECT id FROM wiki_articles WHERE created_by = ?)", TEST_USER_ID);
         jdbcTemplate.update("DELETE FROM wiki_articles WHERE created_by = ?", TEST_USER_ID);
+    }
+
+    private void seedAlias(UUID id, UUID articleId, String alias, String normalizedAlias) {
+        jdbcTemplate.update("""
+                INSERT INTO wiki_article_aliases (
+                    id, article_id, alias, normalized_alias, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                id.toString(),
+                articleId.toString(),
+                alias,
+                normalizedAlias,
+                Timestamp.from(Instant.now())
+        );
     }
 
     private void seedArticle(UUID id, String title, String slug, String articleType, String status) {
@@ -214,5 +229,72 @@ class WikiContextualLookupPersistenceIntegrationTest {
                 wikiContextualLookupContract.lookupByTitle("50_discount");
 
         assertThat(nonMatchResult.items()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("5. Locked ranking with exact alias: exact title -> exact alias -> prefix title -> contains title")
+    void shouldRankExactTitleThenExactAliasThenPrefixThenContains() {
+        UUID exactTitleId = UUID.randomUUID();
+        UUID exactAliasId = UUID.randomUUID();
+        UUID prefixTitleId = UUID.randomUUID();
+        UUID containsTitleId = UUID.randomUUID();
+
+        seedArticle(exactTitleId, "Kiếm Tiên", "kiem-tien", "CHARACTER", "PUBLISHED");
+        seedArticle(exactAliasId, "Trần Bình An", "tran-binh-an", "CHARACTER", "PUBLISHED");
+        seedAlias(UUID.randomUUID(), exactAliasId, "Kiếm Tiên", "kiếm tiên");
+
+        seedArticle(prefixTitleId, "Kiếm Tiên Lâu", "kiem-tien-lau", "LOCATION", "PUBLISHED");
+        seedArticle(containsTitleId, "Đại Kiếm Tiên", "dai-kiem-tien", "CHARACTER", "PUBLISHED");
+
+        WikiContextualLookupResultDTO result =
+                wikiContextualLookupContract.lookupByTitle("Kiếm Tiên");
+
+        assertThat(result.hasExactMatch()).isTrue();
+        assertThat(result.items()).hasSize(4);
+
+        // 1. exact title
+        assertThat(result.items().get(0).id()).isEqualTo(exactTitleId);
+        assertThat(result.items().get(0).matchedAlias()).isNull();
+
+        // 2. exact alias
+        assertThat(result.items().get(1).id()).isEqualTo(exactAliasId);
+        assertThat(result.items().get(1).matchedAlias()).isEqualTo("Kiếm Tiên");
+
+        // 3. prefix title
+        assertThat(result.items().get(2).id()).isEqualTo(prefixTitleId);
+        assertThat(result.items().get(2).matchedAlias()).isNull();
+
+        // 4. contains title
+        assertThat(result.items().get(3).id()).isEqualTo(containsTitleId);
+        assertThat(result.items().get(3).matchedAlias()).isNull();
+    }
+
+    @Test
+    @DisplayName("6. Shared alias returns multiple published articles and excludes drafts/archived")
+    void shouldSupportSharedAliasAcrossMultiplePublishedArticles() {
+        UUID article1Id = UUID.randomUUID();
+        UUID article2Id = UUID.randomUUID();
+        UUID draftArticleId = UUID.randomUUID();
+
+        seedArticle(article1Id, "Trần Bình An", "tran-binh-an", "CHARACTER", "PUBLISHED");
+        seedAlias(UUID.randomUUID(), article1Id, "Kiếm Tiên", "kiếm tiên");
+
+        seedArticle(article2Id, "Tạ Triêu Nhan", "ta-trieu-nhan", "CHARACTER", "PUBLISHED");
+        seedAlias(UUID.randomUUID(), article2Id, "Kiếm Tiên", "kiếm tiên");
+
+        seedArticle(draftArticleId, "Bản Thảo Kiếm Tiên", "ban-thao-kt", "CHARACTER", "DRAFT");
+        seedAlias(UUID.randomUUID(), draftArticleId, "Kiếm Tiên", "kiếm tiên");
+
+        WikiContextualLookupResultDTO result =
+                wikiContextualLookupContract.lookupByTitle("kiếm tiên");
+
+        assertThat(result.hasExactMatch()).isTrue();
+        assertThat(result.items()).hasSize(2);
+        assertThat(result.items())
+                .extracting(com.universe.wiki.contracts.dto.WikiContextualLookupItemDTO::id)
+                .containsExactlyInAnyOrder(article1Id, article2Id);
+        assertThat(result.items())
+                .extracting(com.universe.wiki.contracts.dto.WikiContextualLookupItemDTO::matchedAlias)
+                .containsOnly("kiếm tiên");
     }
 }

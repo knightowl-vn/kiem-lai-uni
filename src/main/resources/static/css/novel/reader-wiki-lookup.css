@@ -328,6 +328,18 @@ html[data-bs-theme="dark"] .novel-wiki-lookup-close-btn:hover {
     border: 1px solid rgba(108, 88, 76, 0.15);
 }
 
+.novel-wiki-lookup-alias-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 12px;
+    background-color: rgba(93, 77, 168, 0.1);
+    color: #5d4da8;
+    border: 1px solid rgba(93, 77, 168, 0.2);
+}
+
 .novel-wiki-lookup-card-title {
     font-size: 17px;
     font-weight: 700;
@@ -432,6 +444,13 @@ html[data-bs-theme="dark"] .novel-wiki-lookup-close-btn:hover {
     outline-offset: 1px;
 }
 
+.novel-wiki-lookup-secondary-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
 .novel-wiki-lookup-secondary-title {
     font-size: 13.5px;
     font-weight: 600;
@@ -439,6 +458,12 @@ html[data-bs-theme="dark"] .novel-wiki-lookup-close-btn:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--reader-text, #24221f);
+}
+
+.novel-wiki-lookup-secondary-alias {
+    font-size: 11px;
+    color: var(--reader-text-muted, #969089);
+    font-style: italic;
 }
 
 .novel-wiki-lookup-secondary-meta {

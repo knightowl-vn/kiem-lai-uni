@@ -65,4 +65,16 @@ public interface WikiArticleQueryPort {
             String query,
             int maxResults
     );
+
+    /**
+     * Tra cứu các bài viết đã xuất bản theo danh xưng/biệt danh chính xác (normalized alias).
+     *
+     * @param normalizedAlias alias đã chuẩn hóa (lowercase, trimmed, NFC)
+     * @param maxResults số lượng kết quả tối đa
+     * @return danh sách bài viết đã xuất bản có alias khớp chính xác
+     */
+    List<PublishedWikiArticleListItemDTO> findPublishedArticlesByNormalizedAlias(
+            String normalizedAlias,
+            int maxResults
+    );
 }

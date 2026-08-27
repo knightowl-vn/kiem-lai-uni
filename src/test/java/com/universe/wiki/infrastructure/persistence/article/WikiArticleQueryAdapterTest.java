@@ -869,4 +869,34 @@ class WikiArticleQueryAdapterTest {
 
         verify(repository, never()).findPublishedContextualMatches(anyString(), anyString(), any(Pageable.class));
     }
+
+    @Test
+    @DisplayName("findPublishedArticlesByNormalizedAlias: Queries repository with Pageable and maps to DTO")
+    void shouldFindPublishedArticlesByNormalizedAlias() {
+        WikiArticleJpaEntity entity = createPublishedEntity();
+        Pageable expectedPageable = PageRequest.of(0, 5);
+
+        when(repository.findPublishedArticlesByNormalizedAlias("tiểu phu tử", expectedPageable))
+                .thenReturn(List.of(entity));
+
+        List<com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO> result =
+                queryAdapter.findPublishedArticlesByNormalizedAlias("  tiểu phu tử  ", 5);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).id()).isEqualTo(ARTICLE_ID);
+        assertThat(result.get(0).title()).isEqualTo("Trần Bình An");
+
+        verify(repository).findPublishedArticlesByNormalizedAlias("tiểu phu tử", expectedPageable);
+    }
+
+    @Test
+    @DisplayName("findPublishedArticlesByNormalizedAlias: Returns empty when alias is null, blank, or maxResults <= 0")
+    void shouldReturnEmptyWhenAliasIsBlankOrInvalidLimit() {
+        assertThat(queryAdapter.findPublishedArticlesByNormalizedAlias(null, 5)).isEmpty();
+        assertThat(queryAdapter.findPublishedArticlesByNormalizedAlias("   ", 5)).isEmpty();
+        assertThat(queryAdapter.findPublishedArticlesByNormalizedAlias("test", 0)).isEmpty();
+        assertThat(queryAdapter.findPublishedArticlesByNormalizedAlias("test", -1)).isEmpty();
+
+        verify(repository, never()).findPublishedArticlesByNormalizedAlias(anyString(), any(Pageable.class));
+    }
 }

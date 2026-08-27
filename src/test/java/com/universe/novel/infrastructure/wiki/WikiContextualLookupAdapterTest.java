@@ -51,19 +51,20 @@ class WikiContextualLookupAdapterTest {
                 "Trần Bình An",
                 "CHARACTER",
                 "tran-binh-an",
-                "Nhân vật chính của Kiếm Lai"
+                "Nhân vật chính của Kiếm Lai",
+                "Tiểu Phu Tử"
         );
         WikiContextualLookupResultDTO resultDTO = new WikiContextualLookupResultDTO(
-                "Trần Bình An",
+                "Tiểu Phu Tử",
                 true,
                 List.of(itemDTO)
         );
 
-        when(wikiContextualLookupContract.lookupByTitle("Trần Bình An")).thenReturn(resultDTO);
+        when(wikiContextualLookupContract.lookupByTitle("Tiểu Phu Tử")).thenReturn(resultDTO);
 
-        ReaderWikiLookupResult result = adapter.lookup("Trần Bình An");
+        ReaderWikiLookupResult result = adapter.lookup("Tiểu Phu Tử");
 
-        assertThat(result.query()).isEqualTo("Trần Bình An");
+        assertThat(result.query()).isEqualTo("Tiểu Phu Tử");
         assertThat(result.hasExactMatch()).isTrue();
         assertThat(result.items()).hasSize(1);
 
@@ -73,8 +74,9 @@ class WikiContextualLookupAdapterTest {
         assertThat(item.articleType()).isEqualTo("CHARACTER");
         assertThat(item.slug()).isEqualTo("tran-binh-an");
         assertThat(item.summary()).isEqualTo("Nhân vật chính của Kiếm Lai");
+        assertThat(item.matchedAlias()).isEqualTo("Tiểu Phu Tử");
 
-        verify(wikiContextualLookupContract).lookupByTitle("Trần Bình An");
+        verify(wikiContextualLookupContract).lookupByTitle("Tiểu Phu Tử");
     }
 
     @Test

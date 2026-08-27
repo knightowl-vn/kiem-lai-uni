@@ -131,11 +131,128 @@ class WikiContextualLookupServiceTest {
 
         when(wikiArticleQueryPort.findPublishedContextualMatches("trần bình", 5))
                 .thenReturn(List.of(item));
+        when(wikiArticleQueryPort.findPublishedArticlesByNormalizedAlias("trần bình", 5))
+                .thenReturn(List.of());
 
         WikiContextualLookupResultDTO result = lookupService.lookupByTitle("trần bình");
 
         assertThat(result.query()).isEqualTo("trần bình");
         assertThat(result.hasExactMatch()).isFalse();
         assertThat(result.items()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Locked ranking: exact title -> exact alias -> prefix title -> contains title")
+    void shouldRankResultsAccordingToLockedRules() {
+        UUID exactTitleId = UUID.randomUUID();
+        UUID exactAliasId = UUID.randomUUID();
+        UUID prefixTitleId = UUID.randomUUID();
+        UUID containsTitleId = UUID.randomUUID();
+
+        PublishedWikiArticleListItemDTO exactTitle = new PublishedWikiArticleListItemDTO(
+                exactTitleId, "Kiếm Tiên", "kiem-tien", "CHARACTER", "Bài viết chính", Instant.now(), Instant.now()
+        );
+        PublishedWikiArticleListItemDTO prefixTitle = new PublishedWikiArticleListItemDTO(
+                prefixTitleId, "Kiếm Tiên Lâu", "kiem-tien-lau", "LOCATION", "Địa danh", Instant.now(), Instant.now()
+        );
+        PublishedWikiArticleListItemDTO containsTitle = new PublishedWikiArticleListItemDTO(
+                containsTitleId, "Đại Kiếm Tiên", "dai-kiem-tien", "CHARACTER", "Nhân vật", Instant.now(), Instant.now()
+        );
+
+        PublishedWikiArticleListItemDTO aliasArticle = new PublishedWikiArticleListItemDTO(
+                exactAliasId, "Trần Bình An", "tran-binh-an", "CHARACTER", "Có alias Kiếm Tiên", Instant.now(), Instant.now()
+        );
+
+        when(wikiArticleQueryPort.findPublishedContextualMatches("Kiếm Tiên", 5))
+                .thenReturn(List.of(exactTitle, prefixTitle, containsTitle));
+        when(wikiArticleQueryPort.findPublishedArticlesByNormalizedAlias("kiếm tiên", 5))
+                .thenReturn(List.of(aliasArticle));
+
+        WikiContextualLookupResultDTO result = lookupService.lookupByTitle("Kiếm Tiên");
+
+        assertThat(result.query()).isEqualTo("Kiếm Tiên");
+        assertThat(result.hasExactMatch()).isTrue();
+        assertThat(result.items()).hasSize(4);
+
+        // 1. exact title
+        assertThat(result.items().get(0).id()).isEqualTo(exactTitleId);
+        assertThat(result.items().get(0).title()).isEqualTo("Kiếm Tiên");
+        assertThat(result.items().get(0).matchedAlias()).isNull();
+
+        // 2. exact alias
+        assertThat(result.items().get(1).id()).isEqualTo(exactAliasId);
+        assertThat(result.items().get(1).title()).isEqualTo("Trần Bình An");
+        assertThat(result.items().get(1).matchedAlias()).isEqualTo("Kiếm Tiên");
+
+        // 3. prefix title
+        assertThat(result.items().get(2).id()).isEqualTo(prefixTitleId);
+        assertThat(result.items().get(2).title()).isEqualTo("Kiếm Tiên Lâu");
+        assertThat(result.items().get(2).matchedAlias()).isNull();
+
+        // 4. contains title
+        assertThat(result.items().get(3).id()).isEqualTo(containsTitleId);
+        assertThat(result.items().get(3).title()).isEqualTo("Đại Kiếm Tiên");
+        assertThat(result.items().get(3).matchedAlias()).isNull();
+    }
+
+    @Test
+    @DisplayName("Shared alias returns multiple articles under exact alias rank with deduplication")
+    void shouldSupportSharedAliasAndDeduplicate() {
+        UUID article1Id = UUID.randomUUID();
+        UUID article2Id = UUID.randomUUID();
+
+        PublishedWikiArticleListItemDTO article1 = new PublishedWikiArticleListItemDTO(
+                article1Id, "Trần Bình An", "tran-binh-an", "CHARACTER", "Nhân vật 1", Instant.now(), Instant.now()
+        );
+        PublishedWikiArticleListItemDTO article2 = new PublishedWikiArticleListItemDTO(
+                article2Id, "Tạ Triêu Nhan", "ta-trieu-nhan", "CHARACTER", "Nhân vật 2", Instant.now(), Instant.now()
+        );
+
+        // Title matches also contains article 1 as a contains match
+        when(wikiArticleQueryPort.findPublishedContextualMatches("Kiếm Tiên", 5))
+                .thenReturn(List.of(article1));
+        when(wikiArticleQueryPort.findPublishedArticlesByNormalizedAlias("kiếm tiên", 5))
+                .thenReturn(List.of(article1, article2));
+
+        WikiContextualLookupResultDTO result = lookupService.lookupByTitle("Kiếm Tiên");
+
+        assertThat(result.items()).hasSize(2);
+        // Exact alias rank (Rank 2) takes priority and deduplicates article1
+        assertThat(result.items().get(0).id()).isEqualTo(article1Id);
+        assertThat(result.items().get(0).matchedAlias()).isEqualTo("Kiếm Tiên");
+        assertThat(result.items().get(1).id()).isEqualTo(article2Id);
+        assertThat(result.items().get(1).matchedAlias()).isEqualTo("Kiếm Tiên");
+    }
+
+    @Test
+    @DisplayName("Caps final merged result at 5")
+    void shouldCapMergedResultsAtFive() {
+        List<PublishedWikiArticleListItemDTO> aliasItems = List.of(
+                createMockItem("Item 1"),
+                createMockItem("Item 2"),
+                createMockItem("Item 3"),
+                createMockItem("Item 4")
+        );
+        List<PublishedWikiArticleListItemDTO> titleItems = List.of(
+                createMockItem("Prefix 1"),
+                createMockItem("Prefix 2"),
+                createMockItem("Prefix 3")
+        );
+
+        when(wikiArticleQueryPort.findPublishedContextualMatches("test", 5))
+                .thenReturn(titleItems);
+        when(wikiArticleQueryPort.findPublishedArticlesByNormalizedAlias("test", 5))
+                .thenReturn(aliasItems);
+
+        WikiContextualLookupResultDTO result = lookupService.lookupByTitle("test");
+
+        assertThat(result.items()).hasSize(5);
+    }
+
+    private PublishedWikiArticleListItemDTO createMockItem(String title) {
+        return new PublishedWikiArticleListItemDTO(
+                UUID.randomUUID(), title, title.toLowerCase().replace(" ", "-"),
+                "CHARACTER", "Tóm tắt", Instant.now(), Instant.now()
+        );
     }
 }

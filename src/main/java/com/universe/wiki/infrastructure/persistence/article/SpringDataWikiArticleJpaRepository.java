@@ -125,4 +125,17 @@ public interface SpringDataWikiArticleJpaRepository
             @Param("escapedQuery") String escapedQuery,
             Pageable pageable
     );
+
+    @Query("""
+            SELECT article
+            FROM WikiArticleAliasJpaEntity a
+            JOIN WikiArticleJpaEntity article ON article.id = a.articleId
+            WHERE a.normalizedAlias = :normalizedAlias
+              AND article.status = 'PUBLISHED'
+            ORDER BY article.updatedAt DESC, article.publishedAt DESC
+            """)
+    List<WikiArticleJpaEntity> findPublishedArticlesByNormalizedAlias(
+            @Param("normalizedAlias") String normalizedAlias,
+            Pageable pageable
+    );
 }
