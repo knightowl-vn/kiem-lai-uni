@@ -3,6 +3,13 @@ package com.universe.wiki.entry.admin;
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 
+import com.universe.wiki.application.article.alias.AddWikiArticleAliasCommand;
+import com.universe.wiki.application.article.alias.AddWikiArticleAliasUseCase;
+import com.universe.wiki.application.article.alias.RemoveWikiArticleAliasCommand;
+import com.universe.wiki.application.article.alias.RemoveWikiArticleAliasUseCase;
+import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.contracts.dto.WikiArticleAliasDTO;
+
 import com.universe.wiki.application.article.create.CreateAndPublishWikiArticleCommand;
 import com.universe.wiki.application.article.create.CreateAndPublishWikiArticleUseCase;
 import com.universe.wiki.application.article.create.CreateWikiArticleCommand;
@@ -36,6 +43,8 @@ import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishW
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleCommand;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleUseCase;
 
+import com.universe.shared.security.AuthenticatedEmailResolver;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,7 +53,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
@@ -57,6 +68,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
 
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,6 +97,9 @@ class AdminWikiArticleCommandControllerTest {
 
 	@Mock
 	private Authentication authentication;
+
+	private AuthenticatedEmailResolver authenticatedEmailResolver;
+
 	@Mock
 	private PublishWikiArticleUseCase publishWikiArticleUseCase;
 
@@ -110,10 +127,18 @@ class AdminWikiArticleCommandControllerTest {
 	@Mock
 	private RestoreWikiArticleUseCase restoreWikiArticleUseCase;
 
+	@Mock
+	private AddWikiArticleAliasUseCase addWikiArticleAliasUseCase;
+
+	@Mock
+	private RemoveWikiArticleAliasUseCase removeWikiArticleAliasUseCase;
+
 	private AdminWikiArticleCommandController controller;
 
 	@BeforeEach
 	void setUp() {
+		authenticatedEmailResolver = new AuthenticatedEmailResolver();
+
 		controller = new AdminWikiArticleCommandController(createWikiArticleUseCase, createAndPublishWikiArticleUseCase,
 
 				updateDraftWikiArticleUseCase, updateDraftAndPublishWikiArticleUseCase,
@@ -124,6 +149,9 @@ class AdminWikiArticleCommandControllerTest {
 				publishWikiArticleUseCase, unpublishWikiArticleUseCase, archiveWikiArticleUseCase,
 				restoreWikiArticleUseCase, deleteWikiArticleUseCase,
 
+				addWikiArticleAliasUseCase, removeWikiArticleAliasUseCase,
+
+				authenticatedEmailResolver,
 				userIdentityContract);
 	}
 
@@ -137,9 +165,7 @@ class AdminWikiArticleCommandControllerTest {
 	void shouldCreateWikiDraft() {
 		CreateWikiArticleForm form = createValidForm();
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(createWikiArticleUseCase.execute(
 				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
@@ -175,9 +201,7 @@ class AdminWikiArticleCommandControllerTest {
 	void shouldCreateAndPublishWikiArticle() {
 		CreateWikiArticleForm form = createValidForm();
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(createAndPublishWikiArticleUseCase.execute(new CreateAndPublishWikiArticleCommand("Trần Bình An",
 				ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.", "Nội dung ban đầu của bài viết.",
@@ -232,6 +256,7 @@ class AdminWikiArticleCommandControllerTest {
 	void shouldRejectWhenAuthenticatedUserDoesNotExist() {
 		CreateWikiArticleForm form = createValidForm();
 
+		when(authentication.isAuthenticated()).thenReturn(true);
 		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.empty());
@@ -266,9 +291,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		form.setEditSummary("  Cập nhật bản nháp  ");
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
 				.thenReturn(createDraftArticleDTO());
@@ -323,9 +346,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		form.setEditSummary("  Hoàn thiện và xuất bản  ");
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
 				.thenReturn(createDraftArticleDTO());
@@ -370,9 +391,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		form.setContent("Nội dung");
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
 				.thenReturn(createPublishedArticleDTO());
@@ -422,9 +441,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		form.setEditSummary("  Bổ sung nội dung  ");
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
 				.thenReturn(createPublishedArticleDTO());
@@ -468,9 +485,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		form.setContent("Nội dung mới");
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
 				.thenReturn(createArchivedArticleDTO());
@@ -500,9 +515,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		long revisionNumber = 3L;
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		WikiArticleDTO restoredArticle = createDraftArticleDTO();
 
@@ -530,9 +543,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		long revisionNumber = 2L;
 
-		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
-
-		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		prepareAuthenticatedAdmin();
 
 		when(restoreWikiArticleUseCase
 				.execute(new RestoreWikiArticleCommand(ARTICLE_ID, revisionNumber, null, ADMIN_ID)))
@@ -681,7 +692,210 @@ class AdminWikiArticleCommandControllerTest {
 		verify(publishWikiArticleUseCase).execute(new PublishWikiArticleCommand(ARTICLE_ID, null, ADMIN_ID));
 	}
 
+	@Test
+	@DisplayName("Thêm alias thành công quay lại trang chi tiết và hiển thị flash message thành công")
+	void shouldAddAliasSuccessfullyAndRedirectToDetail() {
+		WikiArticleAliasDTO aliasDTO = new WikiArticleAliasDTO(
+				UUID.randomUUID(), ARTICLE_ID, "Tiểu Phu Tử", "tiểu phu tử", Instant.now()
+		);
+		when(addWikiArticleAliasUseCase.execute(new AddWikiArticleAliasCommand(ARTICLE_ID, "Tiểu Phu Tử")))
+				.thenReturn(aliasDTO);
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.addAlias(ARTICLE_ID, "Tiểu Phu Tử", redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã thêm danh xưng/biệt danh \"Tiểu Phu Tử\".");
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isNull();
+
+		verify(addWikiArticleAliasUseCase).execute(new AddWikiArticleAliasCommand(ARTICLE_ID, "Tiểu Phu Tử"));
+	}
+
+	@Test
+	@DisplayName("Thêm alias thất bại do validation hoặc không tìm thấy bài viết sẽ quay lại trang chi tiết kèm flash error")
+	void shouldRedirectWithErrorMessageWhenAddAliasFails() {
+		when(addWikiArticleAliasUseCase.execute(new AddWikiArticleAliasCommand(ARTICLE_ID, "")))
+				.thenThrow(new IllegalArgumentException("Danh xưng/biệt danh phải có độ dài từ 1 đến 200 ký tự."));
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.addAlias(ARTICLE_ID, "", redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+				.isEqualTo("Danh xưng/biệt danh phải có độ dài từ 1 đến 200 ký tự.");
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
+
+		verify(addWikiArticleAliasUseCase).execute(new AddWikiArticleAliasCommand(ARTICLE_ID, ""));
+	}
+
+	@Test
+	@DisplayName("Xóa alias thành công quay lại trang chi tiết và hiển thị flash message thành công")
+	void shouldRemoveAliasSuccessfullyAndRedirectToDetail() {
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.removeAlias(ARTICLE_ID, "Tiểu Phu Tử", redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã xóa danh xưng/biệt danh.");
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isNull();
+
+		verify(removeWikiArticleAliasUseCase).execute(new RemoveWikiArticleAliasCommand(ARTICLE_ID, "Tiểu Phu Tử"));
+	}
+
+	@Test
+	@DisplayName("Xóa alias thất bại do bài viết không tồn tại sẽ quay lại trang chi tiết kèm flash error")
+	void shouldRedirectWithErrorMessageWhenRemoveAliasFails() {
+		doThrow(new WikiArticleNotFoundException(ARTICLE_ID))
+				.when(removeWikiArticleAliasUseCase).execute(new RemoveWikiArticleAliasCommand(ARTICLE_ID, "Tiểu Phu Tử"));
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.removeAlias(ARTICLE_ID, "Tiểu Phu Tử", redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+				.isEqualTo("Không tìm thấy bài viết Wiki: " + ARTICLE_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
+
+		verify(removeWikiArticleAliasUseCase).execute(new RemoveWikiArticleAliasCommand(ARTICLE_ID, "Tiểu Phu Tử"));
+	}
+
+	/*
+	 * ===================================================== ACTOR RESOLUTION TESTS
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Tạo bài Wiki thành công khi Admin đăng nhập bằng OAuth2 (Google) với subject ID số và email attribute")
+	void shouldCreateWikiDraftWhenAuthenticatedViaOAuth2() {
+		CreateWikiArticleForm form = createValidForm();
+
+		OAuth2User oauth2User = mock(OAuth2User.class);
+		when(oauth2User.getAttribute("email")).thenReturn(ADMIN_EMAIL);
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getPrincipal()).thenReturn(oauth2User);
+		lenient().when(authentication.getName()).thenReturn("104829374019283746152");
+
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		when(createWikiArticleUseCase.execute(any(CreateWikiArticleCommand.class)))
+				.thenReturn(createDraftArticleDTO());
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã lưu bản nháp Wiki \"Trần Bình An\".");
+
+		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+		verify(createWikiArticleUseCase).execute(
+				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID));
+	}
+
+	@Test
+	@DisplayName("Tạo bài Wiki thành công khi Admin đăng nhập bằng form login chuẩn với email principal")
+	void shouldCreateWikiDraftWhenAuthenticatedViaFormLogin() {
+		CreateWikiArticleForm form = createValidForm();
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
+		when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
+
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
+		when(createWikiArticleUseCase.execute(any(CreateWikiArticleCommand.class)))
+				.thenReturn(createDraftArticleDTO());
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã lưu bản nháp Wiki \"Trần Bình An\".");
+
+		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+		verify(createWikiArticleUseCase).execute(
+				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID));
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài khi Authentication là null")
+	void shouldRejectWhenAuthenticationIsNull() {
+		CreateWikiArticleForm form = createValidForm();
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, null,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài khi Authentication là AnonymousAuthenticationToken")
+	void shouldRejectWhenAuthenticationIsAnonymous() {
+		CreateWikiArticleForm form = createValidForm();
+
+		Authentication anonymousAuth = mock(AnonymousAuthenticationToken.class);
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, anonymousAuth,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài khi Authentication chưa được xác thực (isAuthenticated = false)")
+	void shouldRejectWhenAuthenticationIsNotAuthenticated() {
+		CreateWikiArticleForm form = createValidForm();
+
+		when(authentication.isAuthenticated()).thenReturn(false);
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài khi OAuth2 principal không có email attribute")
+	void shouldRejectWhenOAuth2UserHasNoEmailAttribute() {
+		CreateWikiArticleForm form = createValidForm();
+
+		OAuth2User oauth2User = mock(OAuth2User.class);
+		when(oauth2User.getAttribute("email")).thenReturn(null);
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getPrincipal()).thenReturn(oauth2User);
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+	}
+
 	private void prepareAuthenticatedAdmin() {
+		when(authentication.isAuthenticated()).thenReturn(true);
 		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));

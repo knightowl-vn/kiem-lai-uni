@@ -1,5 +1,9 @@
 package com.universe.wiki.entry.admin;
 
+import com.universe.wiki.application.article.alias.ListWikiArticleAliasesQuery;
+import com.universe.wiki.application.article.alias.ListWikiArticleAliasesUseCase;
+import com.universe.wiki.contracts.dto.WikiArticleAliasDTO;
+import java.util.List;
 import com.universe.wiki.application.article.query.list.ListWikiArticlesQuery;
 import com.universe.wiki.application.article.query.list.ListWikiArticlesUseCase;
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
@@ -59,12 +63,15 @@ public class AdminWikiArticlePageController {
 
 	private final WikiMarkdownRenderer wikiMarkdownRenderer;
 
+	private final ListWikiArticleAliasesUseCase listWikiArticleAliasesUseCase;
+
 	public AdminWikiArticlePageController(ListWikiArticlesUseCase listWikiArticlesUseCase,
 			WikiArticleContentTemplateProvider contentTemplateProvider,
 			GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
 			ListWikiArticleRevisionsUseCase listWikiArticleRevisionsUseCase,
 			GetWikiArticleRevisionDetailUseCase getWikiArticleRevisionDetailUseCase,
-			WikiMarkdownRenderer wikiMarkdownRenderer) {
+			WikiMarkdownRenderer wikiMarkdownRenderer,
+			ListWikiArticleAliasesUseCase listWikiArticleAliasesUseCase) {
 		this.listWikiArticlesUseCase = listWikiArticlesUseCase;
 
 		this.contentTemplateProvider = contentTemplateProvider;
@@ -76,6 +83,8 @@ public class AdminWikiArticlePageController {
 		this.getWikiArticleRevisionDetailUseCase = getWikiArticleRevisionDetailUseCase;
 
 		this.wikiMarkdownRenderer = wikiMarkdownRenderer;
+
+		this.listWikiArticleAliasesUseCase = listWikiArticleAliasesUseCase;
 	}
 
 	/**
@@ -214,7 +223,12 @@ public class AdminWikiArticlePageController {
 
 		String renderedContent = wikiMarkdownRenderer.render(article.content()).html();
 
+		List<WikiArticleAliasDTO> aliases = listWikiArticleAliasesUseCase
+				.execute(new ListWikiArticleAliasesQuery(id));
+
 		model.addAttribute("article", article);
+
+		model.addAttribute("aliases", aliases);
 
 		model.addAttribute("renderedContent", renderedContent);
 
