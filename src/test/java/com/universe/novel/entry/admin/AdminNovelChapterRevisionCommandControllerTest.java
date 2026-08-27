@@ -9,6 +9,7 @@ import com.universe.novel.application.exceptions.ChapterRevisionAlreadyCurrentEx
 import com.universe.novel.application.exceptions.ChapterRevisionNotFoundException;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.entry.admin.form.RestoreChapterRevisionForm;
+import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,7 +20,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
@@ -30,7 +33,11 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -74,7 +81,8 @@ class AdminNovelChapterRevisionCommandControllerTest {
     void setUp() {
         controller = new AdminNovelChapterRevisionCommandController(
                 restoreChapterRevisionUseCase,
-                userIdentityContract
+                userIdentityContract,
+                new AuthenticatedEmailResolver()
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -88,6 +96,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
 
         UserDTO user = createUserDTO();
 
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -130,6 +139,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
 
         UserDTO user = createUserDTO();
 
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -164,6 +174,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
         form.setExpectedAggregateVersion(1L);
 
         UserDTO user = createUserDTO();
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -192,6 +203,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
         form.setExpectedAggregateVersion(1L);
 
         UserDTO user = createUserDTO();
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -220,6 +232,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
         form.setExpectedAggregateVersion(1L);
 
         UserDTO user = createUserDTO();
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -265,6 +278,7 @@ class AdminNovelChapterRevisionCommandControllerTest {
     @DisplayName("MockMvc: POST /admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore định tuyến và redirect chính xác")
     void shouldPerformPostRestoreThroughMockMvcRoute() throws Exception {
         UserDTO user = createUserDTO();
+        when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getName()).thenReturn(ADMIN_EMAIL);
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(user));
 
@@ -290,6 +304,185 @@ class AdminNovelChapterRevisionCommandControllerTest {
                 get("/admin/novel/chapters/{chapterId}/revisions/{revisionNumber}/restore", CHAPTER_ID, 2L)
         )
                 .andExpect(status().isMethodNotAllowed());
+    }
+
+    /*
+     * ===================================================== ACTOR RESOLUTION TESTS
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName("Restore Revision thành công khi Admin đăng nhập bằng OAuth2 (Google) với subject ID số và email attribute")
+    void shouldRestoreRevisionWhenAuthenticatedViaOAuth2() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+        form.setEditSummary("Khôi phục OAuth2");
+
+        OAuth2User oauth2User = mock(OAuth2User.class);
+        when(oauth2User.getAttribute("email")).thenReturn(ADMIN_EMAIL);
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        lenient().when(authentication.getName()).thenReturn("104829374019283746152");
+
+        when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createUserDTO()));
+        when(restoreChapterRevisionUseCase.execute(any(RestoreChapterRevisionCommand.class)))
+                .thenReturn(createChapterDTO());
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                authentication,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                .isEqualTo("Đã khôi phục nội dung từ phiên bản #2.");
+
+        verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+        ArgumentCaptor<RestoreChapterRevisionCommand> captor =
+                ArgumentCaptor.forClass(RestoreChapterRevisionCommand.class);
+        verify(restoreChapterRevisionUseCase).execute(captor.capture());
+        assertThat(captor.getValue().actorId()).isEqualTo(ACTOR_ID);
+    }
+
+    @Test
+    @DisplayName("Restore Revision thành công khi Admin đăng nhập bằng form login chuẩn với email principal")
+    void shouldRestoreRevisionWhenAuthenticatedViaFormLogin() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+        form.setEditSummary("Khôi phục Form Login");
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn(ADMIN_EMAIL);
+        when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
+
+        when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createUserDTO()));
+        when(restoreChapterRevisionUseCase.execute(any(RestoreChapterRevisionCommand.class)))
+                .thenReturn(createChapterDTO());
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                authentication,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                .isEqualTo("Đã khôi phục nội dung từ phiên bản #2.");
+
+        verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+    }
+
+    @Test
+    @DisplayName("Từ chối Restore Revision khi Authentication là null")
+    void shouldRejectRestoreWhenAuthenticationIsNull() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                null,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/revisions/2");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(restoreChapterRevisionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối Restore Revision khi Authentication là AnonymousAuthenticationToken")
+    void shouldRejectRestoreWhenAuthenticationIsAnonymous() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+
+        Authentication anonymousAuth = mock(AnonymousAuthenticationToken.class);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                anonymousAuth,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/revisions/2");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(restoreChapterRevisionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối Restore Revision khi Authentication chưa được xác thực (isAuthenticated = false)")
+    void shouldRejectRestoreWhenAuthenticationIsNotAuthenticated() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+
+        when(authentication.isAuthenticated()).thenReturn(false);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                authentication,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/revisions/2");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(restoreChapterRevisionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("Từ chối Restore Revision khi OAuth2 principal không có email attribute")
+    void shouldRejectRestoreWhenOAuth2UserHasNoEmailAttribute() {
+        RestoreChapterRevisionForm form = new RestoreChapterRevisionForm();
+        form.setExpectedAggregateVersion(3L);
+
+        OAuth2User oauth2User = mock(OAuth2User.class);
+        when(oauth2User.getAttribute("email")).thenReturn(null);
+
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getPrincipal()).thenReturn(oauth2User);
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.restoreRevision(
+                CHAPTER_ID,
+                2L,
+                form,
+                authentication,
+                redirectAttributes
+        );
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/revisions/2");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không xác định được người dùng đang đăng nhập.");
+
+        verify(userIdentityContract, never()).findByEmail(any());
+        verify(restoreChapterRevisionUseCase, never()).execute(any());
     }
 
     private ChapterDTO createChapterDTO() {

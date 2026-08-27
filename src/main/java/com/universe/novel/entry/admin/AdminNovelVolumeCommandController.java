@@ -2,6 +2,7 @@ package com.universe.novel.entry.admin;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import com.universe.novel.application.exceptions.VolumeHasPublishedChaptersException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
@@ -44,6 +45,8 @@ public class AdminNovelVolumeCommandController {
 
 	private final UserIdentityContract userIdentityContract;
 
+	private final AuthenticatedEmailResolver authenticatedEmailResolver;
+
 	private final UpdateDraftVolumeUseCase updateDraftVolumeUseCase;
 
 	private final PublishVolumeUseCase publishVolumeUseCase;
@@ -55,7 +58,8 @@ public class AdminNovelVolumeCommandController {
 	public AdminNovelVolumeCommandController(CreateVolumeUseCase createVolumeUseCase,
 			UpdateDraftVolumeUseCase updateDraftVolumeUseCase, PublishVolumeUseCase publishVolumeUseCase,
 			ArchiveVolumeUseCase archiveVolumeUseCase, RestoreVolumeUseCase restoreVolumeUseCase,
-			UserIdentityContract userIdentityContract) {
+			UserIdentityContract userIdentityContract,
+			AuthenticatedEmailResolver authenticatedEmailResolver) {
 		this.createVolumeUseCase = createVolumeUseCase;
 
 		this.updateDraftVolumeUseCase = updateDraftVolumeUseCase;
@@ -67,6 +71,8 @@ public class AdminNovelVolumeCommandController {
 		this.restoreVolumeUseCase = restoreVolumeUseCase;
 
 		this.userIdentityContract = userIdentityContract;
+
+		this.authenticatedEmailResolver = authenticatedEmailResolver;
 	}
 
 	/*
@@ -325,12 +331,7 @@ public class AdminNovelVolumeCommandController {
 	 */
 
 	private UUID resolveActorId(Authentication authentication) {
-
-		if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
-			throw new IllegalStateException("Không xác định được người dùng đang đăng nhập.");
-		}
-
-		String email = authentication.getName().trim();
+		String email = authenticatedEmailResolver.require(authentication);
 
 		UserDTO user = userIdentityContract.findByEmail(email)
 				.orElseThrow(() -> new IllegalStateException("Không tìm thấy người dùng đang đăng nhập."));
