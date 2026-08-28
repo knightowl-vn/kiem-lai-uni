@@ -1,6 +1,8 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.ports.WikiContextualLookupPort;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupItem;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -66,28 +68,40 @@ class LookupContextualWikiUseCaseTest {
     }
 
     @Test
-    @DisplayName("Delegates to port with trimmed query when length is within 1..100 characters")
+    @DisplayName("Delegates to port with trimmed query and maps neutral result to Reader model")
     void shouldDelegateToPortWhenQueryIsValid() {
         String rawQuery = "  Trần Bình An  ";
         String normalized = "Trần Bình An";
+        UUID id = UUID.randomUUID();
 
-        ReaderWikiLookupResult expectedResult = new ReaderWikiLookupResult(
+        WikiContextualLookupResult portResult = new WikiContextualLookupResult(
                 normalized,
                 true,
-                List.of(new ReaderWikiLookupItem(
-                        UUID.randomUUID(),
+                List.of(new WikiContextualLookupItem(
+                        id,
                         "Trần Bình An",
                         "CHARACTER",
                         "tran-binh-an",
-                        "Nhân vật chính"
+                        "Nhân vật chính",
+                        "Tiểu Bình An"
                 ))
         );
 
-        when(wikiContextualLookupPort.lookup(normalized)).thenReturn(expectedResult);
+        when(wikiContextualLookupPort.lookup(normalized)).thenReturn(portResult);
 
         ReaderWikiLookupResult result = useCase.execute(rawQuery);
 
-        assertThat(result).isSameAs(expectedResult);
         verify(wikiContextualLookupPort).lookup(normalized);
+        assertThat(result.query()).isEqualTo(normalized);
+        assertThat(result.hasExactMatch()).isTrue();
+        assertThat(result.items()).hasSize(1);
+
+        ReaderWikiLookupItem item = result.items().get(0);
+        assertThat(item.id()).isEqualTo(id);
+        assertThat(item.title()).isEqualTo("Trần Bình An");
+        assertThat(item.articleType()).isEqualTo("CHARACTER");
+        assertThat(item.slug()).isEqualTo("tran-binh-an");
+        assertThat(item.summary()).isEqualTo("Nhân vật chính");
+        assertThat(item.matchedAlias()).isEqualTo("Tiểu Bình An");
     }
 }

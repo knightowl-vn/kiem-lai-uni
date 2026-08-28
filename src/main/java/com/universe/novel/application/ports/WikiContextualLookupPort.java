@@ -1,17 +1,17 @@
 package com.universe.novel.application.ports;
 
-import com.universe.novel.application.reader.ReaderWikiLookupResult;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 
 /**
- * Port của Novel application để tra cứu bài viết Wiki liên quan từ ngữ cảnh đọc truyện.
+ * Port của Novel application để tra cứu bài viết Wiki liên quan từ ngữ cảnh.
  */
 public interface WikiContextualLookupPort {
 
     /**
-     * Tra cứu bài viết Wiki theo tiêu đề từ khóa đã chuẩn hóa.
+     * Tra cứu bài viết Wiki theo từ khóa đã chuẩn hóa.
      *
      * @param query từ khóa cần tra cứu
-     * @return kết quả tra cứu thuộc sở hữu của Novel module
+     * @return kết quả tra cứu trung lập thuộc sở hữu của Novel module
      */
-    ReaderWikiLookupResult lookup(String query);
+    WikiContextualLookupResult lookup(String query);
 }
