@@ -162,6 +162,62 @@
             </section>
 
             <!-- ========================================== -->
+            <!-- CHAPTER WIKI SELECTION PANEL               -->
+            <!-- ========================================== -->
+            <section id="novelAdminWikiSelectionPanel"
+                     class="novel-admin-wiki-selection-panel"
+                     style="margin-bottom: 28px;">
+                <div class="novel-admin-detail-section-heading" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+                    <div>
+                        <span class="novel-admin-detail-section-eyebrow">CHỌN THUẬT NGỮ TỪ BẢN XEM TRƯỚC</span>
+                        <h3 id="novelAdminSelectionHeading">Vùng chọn thuật ngữ</h3>
+                        <p style="margin: 4px 0 0; font-size: 12px; color: var(--text-secondary);">
+                            Bôi đen từ hoặc cụm từ (1 - 100 ký tự) trong bản xem trước nội dung bên dưới để phát hiện vị trí xuất hiện.
+                        </p>
+                    </div>
+                    <button type="button"
+                            id="novelAdminClearSelectionBtn"
+                            class="novel-admin-secondary-button"
+                            style="display: none; height: 34px; padding: 0 12px; font-size: 12px;"
+                            aria-label="Xóa lựa chọn hiện tại">
+                        ✕ Bỏ chọn
+                    </button>
+                </div>
+
+                <!-- IDLE / EMPTY SELECTION STATE -->
+                <div id="novelAdminSelectionEmptyState" class="novel-admin-selection-idle">
+                    <span>Chưa có văn bản nào được chọn. Hãy bôi đen một đoạn văn bản trong bản xem trước nội dung phía dưới.</span>
+                </div>
+
+                <!-- ACTIVE SELECTION STATE -->
+                <div id="novelAdminSelectionActiveState" class="novel-admin-selection-active" style="display: none;">
+                    <div class="novel-admin-selection-meta-row">
+                        <div class="novel-admin-selection-meta-group">
+                            <span class="novel-admin-detail-meta-label" style="margin: 0;">THUẬT NGỮ:</span>
+                            <strong id="novelAdminSelectedTermText" style="font-size: 16px; color: var(--primary); font-weight: 700;">—</strong>
+                        </div>
+                        <div class="novel-admin-selection-meta-group">
+                            <span class="novel-admin-detail-meta-label" style="margin: 0;">VỊ TRÍ:</span>
+                            <span id="novelAdminSelectedOccurrenceBadge" class="novel-admin-badge novel-admin-occurrence-badge">
+                                —
+                            </span>
+                        </div>
+                        <div class="novel-admin-selection-meta-group">
+                            <span class="novel-admin-detail-meta-label" style="margin: 0;">CHAPTER ID:</span>
+                            <span id="novelAdminSelectedChapterId" class="novel-admin-detail-slug" th:text="${chapter.id}">—</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <span class="novel-admin-detail-meta-label" style="margin-bottom: 4px;">NGỮ CẢNH TRÍCH XUẤT (CONTEXT SNIPPET):</span>
+                        <div id="novelAdminSelectedSnippet" class="novel-admin-snippet-box">
+                            —
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========================================== -->
             <!-- CHAPTER CONTENT PREVIEW                    -->
             <!-- ========================================== -->
             <section class="novel-admin-detail-section" style="border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 24px;">
@@ -185,5 +241,7 @@
         </section>
     </main>
 </div>
+
+<script th:src="@{/js/novel/admin-chapter-wiki-references.js}" defer></script>
 </body>
 </html>
