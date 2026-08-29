@@ -99,7 +99,7 @@ class ReaderWikiLookupTemplateContractTest {
         assertThat(css).contains(".novel-wiki-lookup-action-btn");
         assertThat(css).contains(".novel-wiki-lookup-container");
         assertThat(css).contains(".novel-wiki-lookup-backdrop");
-        assertThat(css).contains("z-index: 960");
+        assertThat(css).contains("z-index: 1060");
 
         // 2. Responsive Breakpoints
         assertThat(css).contains("@media (min-width: 641px)");

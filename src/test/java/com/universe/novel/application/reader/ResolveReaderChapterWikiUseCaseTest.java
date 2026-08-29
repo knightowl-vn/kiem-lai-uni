@@ -175,6 +175,49 @@ class ResolveReaderChapterWikiUseCaseTest {
             assertThat(res2.items().get(0).id()).isEqualTo(ARTICLE_2_ID);
             assertThat(res2.items().get(0).matchedAlias()).isNull();
         }
+
+        @Test
+        @DisplayName("Should resolve rebound occurrence binding as ACTIVE at new contentVersion after previously being STALE")
+        void shouldResolveReboundOccurrenceBindingAtNewContentVersionAfterBeingStale() {
+            Instant now = Instant.now();
+            UUID refId = UUID.randomUUID();
+
+            // 1. Stale occurrence (bound to version 1, chapter is at version 3)
+            ChapterWikiReference staleOccRef = ChapterWikiReference.createOccurrenceSpecific(
+                    refId, CHAPTER_ID, "Trần Bình An", 1, "ngữ cảnh cũ", 1L, ARTICLE_1_ID, ACTOR_ID, now);
+
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(publishedChapter));
+            when(volumeRepositoryPort.findById(VOLUME_ID)).thenReturn(Optional.of(publishedVolume));
+            when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
+                    CHAPTER_ID, "trần bình an", 1)).thenReturn(Optional.of(staleOccRef));
+            when(referenceRepositoryPort.findByChapterIdAndNormalizedTermAndOccurrenceIndex(
+                    CHAPTER_ID, "trần bình an", 0)).thenReturn(Optional.empty());
+
+            ReaderWikiLookupItem globalItem = new ReaderWikiLookupItem(
+                    ARTICLE_2_ID, "Trần Bình An Toàn Cục", "CHARACTER", "tran-binh-an", "Tóm tắt");
+            when(lookupContextualWikiUseCase.execute("Trần Bình An"))
+                    .thenReturn(new ReaderWikiLookupResult("Trần Bình An", true, List.of(globalItem)));
+
+            // When stale -> ignored by Priority 1, falls through to Priority 3 Global Lookup
+            ReaderChapterWikiResolutionResult staleResult = resolveUseCase.execute(
+                    new ResolveReaderChapterWikiQuery(CHAPTER_ID, "Trần Bình An", 1));
+
+            assertThat(staleResult.source()).isEqualTo(ChapterWikiReferenceResolutionSource.GLOBAL_LOOKUP);
+            assertThat(staleResult.items().get(0).id()).isEqualTo(ARTICLE_2_ID);
+
+            // 2. Occurrence is rebound to current contentVersion (3L)
+            staleOccRef.updateOccurrenceContext(1, "ngữ cảnh mới cập nhật", 3L, ACTOR_ID, now.plusSeconds(60));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID)).thenReturn(Optional.of(articleSummary1));
+
+            // When rebound to current version -> Priority 1 resolves directly as OCCURRENCE_BINDING
+            ReaderChapterWikiResolutionResult activeResult = resolveUseCase.execute(
+                    new ResolveReaderChapterWikiQuery(CHAPTER_ID, "Trần Bình An", 1));
+
+            assertThat(activeResult.source()).isEqualTo(ChapterWikiReferenceResolutionSource.OCCURRENCE_BINDING);
+            assertThat(activeResult.hasExactMatch()).isTrue();
+            assertThat(activeResult.items().get(0).id()).isEqualTo(ARTICLE_1_ID);
+            assertThat(activeResult.items().get(0).matchedAlias()).isNull();
+        }
     }
 
     @Nested

@@ -491,6 +491,49 @@ class ChapterWikiReferenceApplicationUseCasesTest {
             ChapterWikiReferenceItemDTO item = page.references().get(0);
             assertThat(item.wikiArticle()).isNull();
         }
+
+        @Test
+        @DisplayName("Should ensure chapter-wide bindings remain ACTIVE across chapter contentVersion updates while older occurrence bindings become STALE")
+        void shouldEnsureChapterWideRemainsActiveAcrossContentVersionUpdates() {
+            Instant now = Instant.now();
+            ChapterWikiReference chapterWide = ChapterWikiReference.createChapterWide(
+                    UUID.randomUUID(), CHAPTER_ID, "Bảo Bình Châu", ARTICLE_1_ID, ACTOR_ID, now);
+            ChapterWikiReference occRefVersion1 = ChapterWikiReference.createOccurrenceSpecific(
+                    UUID.randomUUID(), CHAPTER_ID, "Trần Bình An", 1, "snip 1", 1L, ARTICLE_1_ID, ACTOR_ID, now);
+
+            when(referenceRepositoryPort.findByChapterId(CHAPTER_ID))
+                    .thenReturn(List.of(chapterWide, occRefVersion1));
+            when(publishedWikiArticlePort.findPublishedById(ARTICLE_1_ID))
+                    .thenReturn(Optional.of(articleSummary1));
+
+            // Initial: chapter contentVersion = 1 -> both are ACTIVE
+            Chapter chapterV1 = Chapter.rehydrate(
+                    CHAPTER_ID, VOLUME_ID, 1, "Chương 1", new Slug("chuong-1"),
+                    "Tóm tắt", "Nội dung", ChapterStatus.PUBLISHED, ACTOR_ID, ACTOR_ID, ACTOR_ID,
+                    null, now, now, now, null, 1L, 1L);
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapterV1));
+
+            ChapterWikiReferenceListPageDTO pageV1 = listUseCase.execute(CHAPTER_ID);
+            assertThat(pageV1.currentContentVersion()).isEqualTo(1L);
+            assertThat(pageV1.activeCount()).isEqualTo(2);
+            assertThat(pageV1.staleCount()).isEqualTo(0);
+            assertThat(pageV1.references().get(0).status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
+            assertThat(pageV1.references().get(1).status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
+
+            // Evolved: chapter contentVersion updated to 5 -> chapter-wide remains ACTIVE, occurrence becomes STALE
+            Chapter chapterV5 = Chapter.rehydrate(
+                    CHAPTER_ID, VOLUME_ID, 1, "Chương 1", new Slug("chuong-1"),
+                    "Tóm tắt", "Nội dung sửa đổi", ChapterStatus.PUBLISHED, ACTOR_ID, ACTOR_ID, ACTOR_ID,
+                    null, now, now, now, null, 2L, 5L);
+            when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapterV5));
+
+            ChapterWikiReferenceListPageDTO pageV5 = listUseCase.execute(CHAPTER_ID);
+            assertThat(pageV5.currentContentVersion()).isEqualTo(5L);
+            assertThat(pageV5.activeCount()).isEqualTo(1);
+            assertThat(pageV5.staleCount()).isEqualTo(1);
+            assertThat(pageV5.references().get(0).status()).isEqualTo(ChapterWikiReferenceStatus.ACTIVE);
+            assertThat(pageV5.references().get(1).status()).isEqualTo(ChapterWikiReferenceStatus.STALE);
+        }
     }
 
     @Nested
