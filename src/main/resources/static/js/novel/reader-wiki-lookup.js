@@ -3,10 +3,11 @@
  *
  * Handles:
  * 1. Text selection evaluation inside .novel-reader-chapter-body
- * 2. Floating "Tra Wiki" trigger button
- * 3. Desktop Popover / Mobile Bottom Sheet presentation
- * 4. Loading, Empty, Error, Single-result, and Multi-result rendering
- * 5. Keyboard accessibility and dismissal mechanics
+ * 2. Occurrence calculation (1-based index) of selected terms within rendered DOM
+ * 3. Floating "Tra Wiki" trigger button
+ * 4. Desktop Popover / Mobile Bottom Sheet presentation
+ * 5. Loading, Empty, Error, Single-result, and Multi-result rendering
+ * 6. Keyboard accessibility and dismissal mechanics
  */
 (function () {
     'use strict';
@@ -43,6 +44,8 @@
 
     let currentSelectionText = '';
     let currentSelectionRect = null;
+    let currentChapterId = null;
+    let currentOccurrenceIndex = null;
     let currentAbortController = null;
     let selectionTimeout = null;
 
@@ -167,15 +170,18 @@
         }
 
         const rawText = selection.toString();
-        const normalizedText = rawText ? rawText.trim() : '';
+        const displayTerm = normalizeDisplayTerm(rawText);
 
         // Length validation: must be 1..100 characters
-        if (normalizedText.length === 0 || normalizedText.length > 100) {
+        if (displayTerm.length === 0 || displayTerm.length > 100) {
             hideActionButton();
             return;
         }
 
-        currentSelectionText = normalizedText;
+        currentSelectionText = displayTerm;
+
+        // Extract chapter ID from data attribute
+        currentChapterId = chapterBody.dataset.chapterId || chapterBody.getAttribute('data-chapter-id') || null;
 
         if (selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
@@ -185,6 +191,7 @@
                 return;
             }
             currentSelectionRect = rect;
+            currentOccurrenceIndex = calculateOccurrenceIndex(chapterBody, range, displayTerm);
             positionActionButton(rect);
         }
     }
@@ -355,7 +362,14 @@
         currentAbortController = new AbortController();
 
         try {
-            const url = `/novel/api/wiki/lookup?q=${encodeURIComponent(query)}`;
+            let url = `/novel/api/wiki/lookup?q=${encodeURIComponent(query)}`;
+            if (currentChapterId) {
+                url += `&chapterId=${encodeURIComponent(currentChapterId)}`;
+                if (currentOccurrenceIndex !== null && currentOccurrenceIndex >= 1) {
+                    url += `&occurrence=${encodeURIComponent(currentOccurrenceIndex)}`;
+                }
+            }
+
             const response = await fetch(url, {
                 method: 'GET',
                 signal: currentAbortController.signal,
@@ -378,6 +392,51 @@
                 console.error('Lỗi khi tra cứu Wiki:', err);
                 renderError(query);
             }
+        }
+    }
+
+    function normalizeDisplayTerm(term) {
+        if (!term) return '';
+        return term.normalize('NFC').trim().replace(/\s+/g, ' ');
+    }
+
+    function normalizeSearchKey(term) {
+        if (!term) return '';
+        return normalizeDisplayTerm(term).toLowerCase();
+    }
+
+    function countOccurrences(haystack, needle) {
+        if (!haystack || !needle) return 0;
+        let count = 0;
+        let pos = 0;
+        while ((pos = haystack.indexOf(needle, pos)) !== -1) {
+            count++;
+            pos += needle.length;
+        }
+        return count;
+    }
+
+    function calculateOccurrenceIndex(chapterBody, range, displayTerm) {
+        try {
+            if (!chapterBody || !range || !displayTerm) {
+                return null;
+            }
+            const searchKey = normalizeSearchKey(displayTerm);
+            if (!searchKey) {
+                return null;
+            }
+
+            const preRange = document.createRange();
+            preRange.selectNodeContents(chapterBody);
+            preRange.setEnd(range.startContainer, range.startOffset);
+
+            const preText = preRange.toString();
+            const normalizedPreText = preText.normalize('NFC').replace(/\s+/g, ' ').toLowerCase();
+
+            const priorOccurrences = countOccurrences(normalizedPreText, searchKey);
+            return priorOccurrences + 1;
+        } catch (e) {
+            return null;
         }
     }
 

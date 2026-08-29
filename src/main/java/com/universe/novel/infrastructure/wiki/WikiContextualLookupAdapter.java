@@ -1,8 +1,8 @@
 package com.universe.novel.infrastructure.wiki;
 
 import com.universe.novel.application.ports.WikiContextualLookupPort;
-import com.universe.novel.application.reader.ReaderWikiLookupItem;
-import com.universe.novel.application.reader.ReaderWikiLookupResult;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupItem;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import com.universe.wiki.contracts.dto.WikiContextualLookupItemDTO;
 import com.universe.wiki.contracts.dto.WikiContextualLookupResultDTO;
 import com.universe.wiki.contracts.interfaces.WikiContextualLookupContract;
@@ -13,7 +13,7 @@ import java.util.Objects;
 
 /**
  * Adapter thực thi WikiContextualLookupPort bằng cách gọi sang WikiContextualLookupContract
- * và ánh xạ các DTO của Wiki sang model thuộc Novel module.
+ * và ánh xạ các DTO của Wiki sang model trung lập thuộc Novel module.
  */
 @Component
 public class WikiContextualLookupAdapter implements WikiContextualLookupPort {
@@ -28,31 +28,31 @@ public class WikiContextualLookupAdapter implements WikiContextualLookupPort {
     }
 
     @Override
-    public ReaderWikiLookupResult lookup(String query) {
+    public WikiContextualLookupResult lookup(String query) {
         if (query == null || query.isBlank()) {
-            return new ReaderWikiLookupResult("", false, List.of());
+            return WikiContextualLookupResult.empty("");
         }
 
         WikiContextualLookupResultDTO resultDTO =
                 wikiContextualLookupContract.lookupByTitle(query);
 
         if (resultDTO == null || resultDTO.items() == null) {
-            return new ReaderWikiLookupResult(query, false, List.of());
+            return WikiContextualLookupResult.empty(query);
         }
 
-        List<ReaderWikiLookupItem> items = resultDTO.items().stream()
-                .map(this::toReaderLookupItem)
+        List<WikiContextualLookupItem> items = resultDTO.items().stream()
+                .map(this::toLookupItem)
                 .toList();
 
-        return new ReaderWikiLookupResult(
+        return new WikiContextualLookupResult(
                 resultDTO.query() != null ? resultDTO.query() : query,
                 resultDTO.hasExactMatch(),
                 items
         );
     }
 
-    private ReaderWikiLookupItem toReaderLookupItem(WikiContextualLookupItemDTO dto) {
-        return new ReaderWikiLookupItem(
+    private WikiContextualLookupItem toLookupItem(WikiContextualLookupItemDTO dto) {
+        return new WikiContextualLookupItem(
                 dto.id(),
                 dto.title(),
                 dto.articleType(),

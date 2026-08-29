@@ -1,7 +1,7 @@
 package com.universe.novel.infrastructure.wiki;
 
-import com.universe.novel.application.reader.ReaderWikiLookupItem;
-import com.universe.novel.application.reader.ReaderWikiLookupResult;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupItem;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import com.universe.wiki.contracts.dto.WikiContextualLookupItemDTO;
 import com.universe.wiki.contracts.dto.WikiContextualLookupResultDTO;
 import com.universe.wiki.contracts.interfaces.WikiContextualLookupContract;
@@ -43,7 +43,7 @@ class WikiContextualLookupAdapterTest {
     }
 
     @Test
-    @DisplayName("Maps Wiki contract DTOs into Novel-owned models accurately")
+    @DisplayName("Maps Wiki contract DTOs into Novel-owned neutral models accurately")
     void shouldMapWikiContractDtoToNovelModel() {
         UUID id = UUID.randomUUID();
         WikiContextualLookupItemDTO itemDTO = new WikiContextualLookupItemDTO(
@@ -62,13 +62,13 @@ class WikiContextualLookupAdapterTest {
 
         when(wikiContextualLookupContract.lookupByTitle("Tiểu Phu Tử")).thenReturn(resultDTO);
 
-        ReaderWikiLookupResult result = adapter.lookup("Tiểu Phu Tử");
+        WikiContextualLookupResult result = adapter.lookup("Tiểu Phu Tử");
 
         assertThat(result.query()).isEqualTo("Tiểu Phu Tử");
         assertThat(result.hasExactMatch()).isTrue();
         assertThat(result.items()).hasSize(1);
 
-        ReaderWikiLookupItem item = result.items().get(0);
+        WikiContextualLookupItem item = result.items().get(0);
         assertThat(item.id()).isEqualTo(id);
         assertThat(item.title()).isEqualTo("Trần Bình An");
         assertThat(item.articleType()).isEqualTo("CHARACTER");
@@ -84,7 +84,7 @@ class WikiContextualLookupAdapterTest {
     void shouldHandleNullContractResultGracefully() {
         when(wikiContextualLookupContract.lookupByTitle("non-existent")).thenReturn(null);
 
-        ReaderWikiLookupResult result = adapter.lookup("non-existent");
+        WikiContextualLookupResult result = adapter.lookup("non-existent");
 
         assertThat(result.query()).isEqualTo("non-existent");
         assertThat(result.hasExactMatch()).isFalse();

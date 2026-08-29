@@ -1,6 +1,8 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.ports.WikiContextualLookupPort;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupItem;
+import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -30,6 +32,30 @@ public class LookupContextualWikiUseCase {
             return new ReaderWikiLookupResult(normalizedQuery, false, List.of());
         }
 
-        return wikiContextualLookupPort.lookup(normalizedQuery);
+        WikiContextualLookupResult result = wikiContextualLookupPort.lookup(normalizedQuery);
+        if (result == null || result.items() == null) {
+            return new ReaderWikiLookupResult(normalizedQuery, false, List.of());
+        }
+
+        List<ReaderWikiLookupItem> readerItems = result.items().stream()
+                .map(this::toReaderLookupItem)
+                .toList();
+
+        return new ReaderWikiLookupResult(
+                result.query() != null ? result.query() : normalizedQuery,
+                result.hasExactMatch(),
+                readerItems
+        );
+    }
+
+    private ReaderWikiLookupItem toReaderLookupItem(WikiContextualLookupItem item) {
+        return new ReaderWikiLookupItem(
+                item.id(),
+                item.title(),
+                item.articleType(),
+                item.slug(),
+                item.summary(),
+                item.matchedAlias()
+        );
     }
 }
