@@ -2141,6 +2141,19 @@ a.novel-admin-detail-action-item {
 	color: var(--text-secondary);
 }
 
+.novel-admin-wiki-bind-actions {
+	display: flex;
+	gap: 10px;
+	margin-top: 10px;
+	flex-wrap: wrap;
+}
+
+.novel-admin-wiki-bind-actions button:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
 @media (max-width: 640px) {
 	.novel-admin-selection-idle {
 		height: 220px;

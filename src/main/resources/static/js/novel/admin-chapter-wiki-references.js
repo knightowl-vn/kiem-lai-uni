@@ -41,6 +41,17 @@
     let selectedWikiAliasEl = null;
     let selectedWikiSummaryEl = null;
 
+    // Wiki binding action elements (Step 6D2B)
+    let bindChapterWideTermEl = null;
+    let bindChapterWideWikiIdEl = null;
+    let bindChapterWideBtnEl = null;
+
+    let bindOccurrenceTermEl = null;
+    let bindOccurrenceIndexEl = null;
+    let bindOccurrenceSnippetEl = null;
+    let bindOccurrenceWikiIdEl = null;
+    let bindOccurrenceBtnEl = null;
+
     let currentChapterId = null;
     let selectionTimeout = null;
 
@@ -78,6 +89,17 @@
         selectedWikiTypeEl = document.getElementById('novelAdminSelectedWikiType');
         selectedWikiAliasEl = document.getElementById('novelAdminSelectedWikiAlias');
         selectedWikiSummaryEl = document.getElementById('novelAdminSelectedWikiSummary');
+
+        // Wiki binding action elements (Step 6D2B)
+        bindChapterWideTermEl = document.getElementById('novelAdminBindChapterWideTerm');
+        bindChapterWideWikiIdEl = document.getElementById('novelAdminBindChapterWideWikiArticleId');
+        bindChapterWideBtnEl = document.getElementById('novelAdminBindChapterWideBtn');
+
+        bindOccurrenceTermEl = document.getElementById('novelAdminBindOccurrenceTerm');
+        bindOccurrenceIndexEl = document.getElementById('novelAdminBindOccurrenceIndex');
+        bindOccurrenceSnippetEl = document.getElementById('novelAdminBindOccurrenceSnippet');
+        bindOccurrenceWikiIdEl = document.getElementById('novelAdminBindOccurrenceWikiArticleId');
+        bindOccurrenceBtnEl = document.getElementById('novelAdminBindOccurrenceBtn');
 
         currentChapterId = chapterBodyEl.dataset.chapterId || chapterBodyEl.getAttribute('data-chapter-id') || null;
 
@@ -387,6 +409,9 @@
         if (currentChapterId) {
             selectionPanel.dataset.chapterId = currentChapterId;
         }
+
+        // Synchronize binding action fields and buttons (Step 6D2B)
+        syncBindingActions();
     }
 
     function handleClearSelection() {
@@ -649,6 +674,9 @@
         }
 
         if (selectedWikiTargetEl) selectedWikiTargetEl.style.display = 'flex';
+
+        // Synchronize binding action fields and buttons (Step 6D2B)
+        syncBindingActions();
     }
 
     /** Clears the selected wiki target from both DOM state and the card display. */
@@ -676,6 +704,83 @@
             delete selectionPanel.dataset.wikiTargetId;
             delete selectionPanel.dataset.wikiTargetTitle;
             delete selectionPanel.dataset.wikiTargetType;
+        }
+
+        // Clear binding action fields and buttons (Step 6D2B)
+        clearBindingActions();
+    }
+
+    // ----------------------------------------------------------------
+    // Step 6D2B: Wiki Binding Actions
+    // ----------------------------------------------------------------
+
+    /**
+     * Synchronizes hidden form fields and button states for Chapter-Wide and Occurrence binding forms.
+     */
+    function syncBindingActions() {
+        if (!selectionPanel) {
+            return;
+        }
+
+        const selectedTerm = selectionPanel.dataset.selectedTerm || '';
+        const wikiTargetId = selectionPanel.dataset.wikiTargetId || '';
+        const occurrenceValid = selectionPanel.dataset.occurrenceValid === 'true';
+        const occurrenceIndexStr = selectionPanel.dataset.occurrenceIndex || '';
+        const contextSnippet = selectionPanel.dataset.contextSnippet || selectedTerm || '';
+
+        const occurrenceIndex = occurrenceIndexStr ? parseInt(occurrenceIndexStr, 10) : null;
+        const hasValidTerm = selectedTerm.length >= 1 && selectedTerm.length <= MAX_TERM_LENGTH;
+        const hasValidTarget = wikiTargetId.length > 0;
+        const hasValidOccurrence = occurrenceValid && occurrenceIndex !== null && !isNaN(occurrenceIndex) && occurrenceIndex >= 1;
+
+        // 1. Chapter-Wide Binding Action: requires valid term + selected wiki target
+        if (hasValidTerm && hasValidTarget) {
+            if (bindChapterWideTermEl) bindChapterWideTermEl.value = selectedTerm;
+            if (bindChapterWideWikiIdEl) bindChapterWideWikiIdEl.value = wikiTargetId;
+            if (bindChapterWideBtnEl) bindChapterWideBtnEl.disabled = false;
+        } else {
+            if (bindChapterWideTermEl) bindChapterWideTermEl.value = '';
+            if (bindChapterWideWikiIdEl) bindChapterWideWikiIdEl.value = '';
+            if (bindChapterWideBtnEl) bindChapterWideBtnEl.disabled = true;
+        }
+
+        // 2. Occurrence-Specific Binding Action: requires valid term + selected wiki target + valid occurrence (>= 1)
+        if (hasValidTerm && hasValidTarget && hasValidOccurrence) {
+            if (bindOccurrenceTermEl) bindOccurrenceTermEl.value = selectedTerm;
+            if (bindOccurrenceIndexEl) bindOccurrenceIndexEl.value = String(occurrenceIndex);
+            if (bindOccurrenceSnippetEl) bindOccurrenceSnippetEl.value = contextSnippet;
+            if (bindOccurrenceWikiIdEl) bindOccurrenceWikiIdEl.value = wikiTargetId;
+            if (bindOccurrenceBtnEl) {
+                bindOccurrenceBtnEl.disabled = false;
+                bindOccurrenceBtnEl.textContent = 'Gán vị trí #' + occurrenceIndex;
+            }
+        } else {
+            if (bindOccurrenceTermEl) bindOccurrenceTermEl.value = '';
+            if (bindOccurrenceIndexEl) bindOccurrenceIndexEl.value = '';
+            if (bindOccurrenceSnippetEl) bindOccurrenceSnippetEl.value = '';
+            if (bindOccurrenceWikiIdEl) bindOccurrenceWikiIdEl.value = '';
+            if (bindOccurrenceBtnEl) {
+                bindOccurrenceBtnEl.disabled = true;
+                bindOccurrenceBtnEl.textContent = 'Gán vị trí này';
+            }
+        }
+    }
+
+    /**
+     * Clears all binding form inputs and disables action buttons.
+     */
+    function clearBindingActions() {
+        if (bindChapterWideTermEl) bindChapterWideTermEl.value = '';
+        if (bindChapterWideWikiIdEl) bindChapterWideWikiIdEl.value = '';
+        if (bindChapterWideBtnEl) bindChapterWideBtnEl.disabled = true;
+
+        if (bindOccurrenceTermEl) bindOccurrenceTermEl.value = '';
+        if (bindOccurrenceIndexEl) bindOccurrenceIndexEl.value = '';
+        if (bindOccurrenceSnippetEl) bindOccurrenceSnippetEl.value = '';
+        if (bindOccurrenceWikiIdEl) bindOccurrenceWikiIdEl.value = '';
+        if (bindOccurrenceBtnEl) {
+            bindOccurrenceBtnEl.disabled = true;
+            bindOccurrenceBtnEl.textContent = 'Gán vị trí này';
         }
     }
 

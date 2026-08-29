@@ -379,7 +379,88 @@ class AdminNovelChapterWikiReferenceTemplateContractTest {
         assertThat(wikiMediaBlock).contains("height: 220px;");
         assertThat(wikiMediaBlock).contains(".novel-admin-wiki-target-results-list");
         assertThat(wikiMediaBlock).contains("max-height: 160px;");
-        }
+    }
+
+    // ----------------------------------------------------------------
+    // Step 6D2B: Wiki Reference Binding Actions Contract Tests
+    // ----------------------------------------------------------------
+
+    @Test
+    @DisplayName("chapter-wiki-references.html defines server-rendered Chapter-Wide and Occurrence-Specific binding forms with exact field contracts")
+    void templateDefinesWikiBindingFormsAndActionContract() throws Exception {
+        String page = read("src/main/resources/templates/admin/novel/chapter-wiki-references.html");
+
+        // Binding Actions Container
+        assertThat(page).contains("id=\"novelAdminWikiBindActions\"");
+        assertThat(page).contains("class=\"novel-admin-wiki-bind-actions\"");
+
+        // Chapter-Wide Form & Endpoint
+        assertThat(page).contains("id=\"novelAdminBindChapterWideForm\"");
+        assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/wiki-references/chapter-wide(chapterId=${chapter.id})}\"");
+        assertThat(page).contains("id=\"novelAdminBindChapterWideTerm\"");
+        assertThat(page).contains("name=\"term\"");
+        assertThat(page).contains("id=\"novelAdminBindChapterWideWikiArticleId\"");
+        assertThat(page).contains("name=\"wikiArticleId\"");
+        assertThat(page).contains("id=\"novelAdminBindChapterWideBtn\"");
+
+        // Occurrence-Specific Form & Endpoint
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceForm\"");
+        assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/wiki-references/occurrence(chapterId=${chapter.id})}\"");
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceTerm\"");
+        assertThat(page).contains("name=\"term\"");
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceIndex\"");
+        assertThat(page).contains("name=\"occurrenceIndex\"");
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceSnippet\"");
+        assertThat(page).contains("name=\"contextSnippet\"");
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceWikiArticleId\"");
+        assertThat(page).contains("name=\"wikiArticleId\"");
+        assertThat(page).contains("id=\"novelAdminBindOccurrenceBtn\"");
+
+        // Security: Neither form submits actorId or overrides chapterId via input
+        int bindActionsIndex = page.indexOf("id=\"novelAdminWikiBindActions\"");
+        int previewIndex = page.indexOf("class=\"novel-reader-chapter-body\"");
+        String formsBlock = page.substring(bindActionsIndex, previewIndex);
+
+        assertThat(formsBlock).doesNotContain("name=\"actorId\"");
+        assertThat(formsBlock).doesNotContain("name=\"chapterId\"");
+    }
+
+    @Test
+    @DisplayName("admin-chapter-wiki-references.js synchronizes hidden form fields, sets button labels/disabled state, and clears stale values on reset")
+    void adminScriptSynchronizesBindingActionFieldsAndButtonStatesContract() throws Exception {
+        String js = read("src/main/resources/static/js/novel/admin-chapter-wiki-references.js");
+
+        // Synchronization helper defined
+        assertThat(js).contains("function syncBindingActions()");
+        assertThat(js).contains("function clearBindingActions()");
+
+        // Chapter-Wide sync: enabled with valid term and wikiTargetId
+        assertThat(js).contains("hasValidTerm && hasValidTarget");
+        assertThat(js).contains("bindChapterWideBtnEl.disabled = false");
+        assertThat(js).contains("bindChapterWideBtnEl.disabled = true");
+
+        // Occurrence sync: enabled only when occurrenceValid=true and occurrenceIndex >= 1
+        assertThat(js).contains("hasValidOccurrence = occurrenceValid && occurrenceIndex !== null && !isNaN(occurrenceIndex) && occurrenceIndex >= 1");
+        assertThat(js).contains("bindOccurrenceBtnEl.disabled = false");
+        assertThat(js).contains("'Gán vị trí #' + occurrenceIndex");
+        assertThat(js).contains("bindOccurrenceBtnEl.disabled = true");
+
+        // Integration with selection and target lifecycle
+        int renderSelectionIndex = js.indexOf("function renderSelectionState");
+        int syncInRenderIndex = js.indexOf("syncBindingActions();", renderSelectionIndex);
+        int selectWikiIndex = js.indexOf("function selectWikiTarget");
+        int syncInSelectIndex = js.indexOf("syncBindingActions();", selectWikiIndex);
+        int resetWikiIndex = js.indexOf("function resetWikiTarget()");
+        int clearInResetIndex = js.indexOf("clearBindingActions();", resetWikiIndex);
+
+        assertThat(syncInRenderIndex).isGreaterThan(renderSelectionIndex);
+        assertThat(syncInSelectIndex).isGreaterThan(selectWikiIndex);
+        assertThat(clearInResetIndex).isGreaterThan(resetWikiIndex);
+
+        // Does NOT perform POST mutations with fetch or AJAX
+        assertThat(js).doesNotContain("method: 'POST'");
+        assertThat(js).doesNotContain("method: \"POST\"");
+    }
 
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");

@@ -246,6 +246,39 @@
                                 <span id="novelAdminSelectedWikiAlias" class="novel-admin-wiki-target-alias" style="display: none;"></span>
                                 <span id="novelAdminSelectedWikiSummary" class="novel-admin-wiki-target-summary" style="display: none;"></span>
                             </div>
+
+                            <!-- WIKI BINDING ACTIONS (Step 6D2B) -->
+                            <div id="novelAdminWikiBindActions" class="novel-admin-wiki-bind-actions">
+                                <!-- Bind Chapter-Wide Form -->
+                                <form id="novelAdminBindChapterWideForm"
+                                      method="post"
+                                      th:action="@{/admin/novel/chapters/{chapterId}/wiki-references/chapter-wide(chapterId=${chapter.id})}">
+                                    <input type="hidden" id="novelAdminBindChapterWideTerm" name="term" value="">
+                                    <input type="hidden" id="novelAdminBindChapterWideWikiArticleId" name="wikiArticleId" value="">
+                                    <button type="submit"
+                                            id="novelAdminBindChapterWideBtn"
+                                            class="novel-admin-primary-button"
+                                            disabled>
+                                        Gán toàn chương
+                                    </button>
+                                </form>
+
+                                <!-- Bind Occurrence-Specific Form -->
+                                <form id="novelAdminBindOccurrenceForm"
+                                      method="post"
+                                      th:action="@{/admin/novel/chapters/{chapterId}/wiki-references/occurrence(chapterId=${chapter.id})}">
+                                    <input type="hidden" id="novelAdminBindOccurrenceTerm" name="term" value="">
+                                    <input type="hidden" id="novelAdminBindOccurrenceIndex" name="occurrenceIndex" value="">
+                                    <input type="hidden" id="novelAdminBindOccurrenceSnippet" name="contextSnippet" value="">
+                                    <input type="hidden" id="novelAdminBindOccurrenceWikiArticleId" name="wikiArticleId" value="">
+                                    <button type="submit"
+                                            id="novelAdminBindOccurrenceBtn"
+                                            class="novel-admin-secondary-button"
+                                            disabled>
+                                        Gán vị trí này
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
