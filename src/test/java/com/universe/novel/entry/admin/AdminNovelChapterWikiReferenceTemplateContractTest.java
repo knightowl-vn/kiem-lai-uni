@@ -122,23 +122,29 @@ class AdminNovelChapterWikiReferenceTemplateContractTest {
         assertThat(js).contains("postRange.setStart(range.endContainer, range.endOffset)");
         assertThat(js).contains("slice(0, MAX_SNIPPET_LENGTH)");
 
-        // Extracts plain text from DOM Range without innerHTML/markup
+        // Extracts plain text from DOM Range without reading innerHTML/markup for snippet content
         assertThat(js).contains("preRange.toString()");
         assertThat(js).contains("postRange.toString()");
-        assertThat(js).doesNotContain("innerHTML");
+        // The snippet functions must not use innerHTML to read range content
+        assertThat(js).doesNotContain("range.innerHTML");
+        assertThat(js).doesNotContain("preRange.innerHTML");
+        assertThat(js).doesNotContain("postRange.innerHTML");
     }
 
     @Test
-    @DisplayName("admin-chapter-wiki-references.js sends no HTTP requests and does not leak global helpers to window")
-    void adminScriptContainsNoHttpRequestsAndNoGlobalLeaksContract() throws Exception {
+    @DisplayName("admin-chapter-wiki-references.js uses no legacy HTTP APIs, no mutation requests, and does not leak global helpers to window")
+    void adminScriptContainsNoLegacyHttpMutationsAndNoGlobalLeaksContract() throws Exception {
         String js = read("src/main/resources/static/js/novel/admin-chapter-wiki-references.js");
 
-        // Pure client-side: no HTTP calls on selection
-        assertThat(js).doesNotContain("fetch(");
+        // No legacy or library-based HTTP (fetch is allowed for wiki search, Step 6D2A)
         assertThat(js).doesNotContain("XMLHttpRequest");
         assertThat(js).doesNotContain("sendBeacon");
         assertThat(js).doesNotContain("$.ajax");
         assertThat(js).doesNotContain("axios");
+
+        // No POST mutations (selection and search are read-only)
+        assertThat(js).doesNotContain("method: 'POST'");
+        assertThat(js).doesNotContain("method: \"POST\"");
 
         // Encapsulation: IIFE and strict mode
         assertThat(js).startsWith("/**");
@@ -192,6 +198,188 @@ class AdminNovelChapterWikiReferenceTemplateContractTest {
         // 5. Explicit reset calls in evaluateSelection
         assertThat(js).contains("resetSelectionPanel();");
     }
+
+    // ----------------------------------------------------------------
+    // Step 6D2A: Wiki Target Search UI contract tests
+    // ----------------------------------------------------------------
+
+    @Test
+    @DisplayName("chapter-wiki-references.html defines wiki target search area and selected-target display elements")
+    void templateDefinesWikiTargetSearchAreaAndSelectedTargetElementsContract() throws Exception {
+        String page = read("src/main/resources/templates/admin/novel/chapter-wiki-references.html");
+
+        // Search area wrapper
+        assertThat(page).contains("class=\"novel-admin-wiki-target-search-area\"");
+
+        // Search input
+        assertThat(page).contains("id=\"novelAdminWikiTargetSearchInput\"");
+        assertThat(page).contains("class=\"novel-admin-wiki-search-input\"");
+        assertThat(page).contains("maxlength=\"100\"");
+        assertThat(page).contains("autocomplete=\"off\"");
+
+        // Status and results list
+        assertThat(page).contains("id=\"novelAdminWikiTargetSearchStatus\"");
+        assertThat(page).contains("id=\"novelAdminWikiTargetResultsList\"");
+        assertThat(page).contains("role=\"listbox\"");
+
+        // Selected target card
+        assertThat(page).contains("id=\"novelAdminSelectedWikiTarget\"");
+        assertThat(page).contains("id=\"novelAdminSelectedWikiTitle\"");
+        assertThat(page).contains("id=\"novelAdminSelectedWikiType\"");
+        assertThat(page).contains("id=\"novelAdminSelectedWikiAlias\"");
+        assertThat(page).contains("id=\"novelAdminSelectedWikiSummary\"");
+    }
+
+    @Test
+    @DisplayName("admin-chapter-wiki-references.js cancels stale Wiki searches immediately on input, debounces valid queries, and guards async completions with request-local controller")
+    void adminScriptImplementsDebouncedWikiTargetSearchContract() throws Exception {
+        String js = read("src/main/resources/static/js/novel/admin-chapter-wiki-references.js");
+
+        // Input event handler: immediately cancels debounce timer and aborts in-flight request
+        assertThat(js).contains("function handleWikiSearchInput()");
+        int handleInputIndex = js.indexOf("function handleWikiSearchInput()");
+        int clearTimeoutIndex = js.indexOf("clearTimeout(wikiSearchDebounceTimer)", handleInputIndex);
+        int abortIndex = js.indexOf("wikiSearchAbortController.abort()", handleInputIndex);
+        assertThat(handleInputIndex).isGreaterThan(-1);
+        assertThat(clearTimeoutIndex).isGreaterThan(handleInputIndex);
+        assertThat(abortIndex).isGreaterThan(handleInputIndex);
+
+        // Immediately invalidates old displayed search results and status on any input change
+        int clearResultsIndex = js.indexOf("clearWikiSearchResults()", handleInputIndex);
+        int hideStatusIndex = js.indexOf("hideWikiSearchStatus()", handleInputIndex);
+        int setDebounceIndex = js.indexOf("setTimeout(performWikiSearch, 250)", handleInputIndex);
+        assertThat(clearResultsIndex).isGreaterThan(handleInputIndex).isLessThan(setDebounceIndex);
+        assertThat(hideStatusIndex).isGreaterThan(handleInputIndex).isLessThan(setDebounceIndex);
+
+        // Blank or >100-char query immediately returns without scheduling a request
+        assertThat(js).contains("!trimmed || trimmed.length > 100");
+        int blankGuardIndex = js.indexOf("!trimmed || trimmed.length > 100", handleInputIndex);
+        assertThat(blankGuardIndex).isGreaterThan(handleInputIndex).isLessThan(setDebounceIndex);
+
+        // Debounce ~250ms for valid queries
+        assertThat(js).contains("setTimeout(performWikiSearch, 250)");
+
+        // Request-local AbortController instantiated and signal passed in fetch
+        assertThat(js).contains("function performWikiSearch()");
+        int performSearchIndex = js.indexOf("function performWikiSearch()");
+        assertThat(js.substring(performSearchIndex)).contains("const currentController = new AbortController()");
+        assertThat(js.substring(performSearchIndex)).contains("fetch(url, { signal: currentController.signal })");
+
+        // Request-local controller guard and query guard against stale async completion (success and failure)
+        assertThat(js.substring(performSearchIndex)).contains("currentController.signal.aborted || wikiSearchAbortController !== currentController");
+        assertThat(js.substring(performSearchIndex)).contains("currentQuery !== trimmed");
+        assertThat(js.substring(performSearchIndex)).contains("err.name === 'AbortError'");
+
+        // Correct Admin endpoint with encodeURIComponent
+        assertThat(js.substring(performSearchIndex)).contains("/wiki-references/search-targets?q=");
+        assertThat(js.substring(performSearchIndex)).contains("encodeURIComponent(currentChapterId)");
+        assertThat(js.substring(performSearchIndex)).contains("encodeURIComponent(trimmed)");
+
+        // Safe error handling for non-abort failures
+        assertThat(js.substring(performSearchIndex)).contains("'Không thể tải kết quả tìm kiếm.'");
+    }
+
+    @Test
+    @DisplayName("admin-chapter-wiki-references.js renders wiki results with metadata, stores selected target, and clears target only on captured selection identity change")
+    void adminScriptRendersWikiResultsAndStoresSelectedTargetInDomStateContract() throws Exception {
+        String js = read("src/main/resources/static/js/novel/admin-chapter-wiki-references.js");
+
+        // Render function
+        assertThat(js).contains("function renderWikiSearchResults(items)");
+        assertThat(js).contains("'novel-admin-wiki-result-item'");
+        assertThat(js).contains("item.title");
+        assertThat(js).contains("item.articleType");
+        assertThat(js).contains("item.matchedAlias");
+        assertThat(js).contains("item.summary");
+
+        // Accessible: role=option, tabindex, keyboard support
+        assertThat(js).contains("role', 'option'");
+        assertThat(js).contains("tabindex', '0'");
+        assertThat(js).contains("'Enter'");
+
+        // Select target: stores id, title, type in dataset
+        assertThat(js).contains("function selectWikiTarget(item)");
+        assertThat(js).contains("selectionPanel.dataset.wikiTargetId");
+        assertThat(js).contains("selectionPanel.dataset.wikiTargetTitle");
+        assertThat(js).contains("selectionPanel.dataset.wikiTargetType");
+
+        // resetWikiTarget clears dataset entries, search input, results, and status
+        assertThat(js).contains("function resetWikiTarget()");
+        assertThat(js).contains("delete selectionPanel.dataset.wikiTargetId");
+        assertThat(js).contains("delete selectionPanel.dataset.wikiTargetTitle");
+        assertThat(js).contains("delete selectionPanel.dataset.wikiTargetType");
+
+        // Selection identity helper distinguishes term, occurrence index / unknown occurrence, and context snippet
+        assertThat(js).contains("function isSameCapturedSelection(displayTerm, occurrenceIndex, contextSnippet)");
+        int isSameFuncIndex = js.indexOf("function isSameCapturedSelection");
+        String isSameSub = js.substring(isSameFuncIndex, js.indexOf("function renderSelectionState"));
+        assertThat(isSameSub).contains("prevTerm !== displayTerm");
+        assertThat(isSameSub).contains("prevValid !== newValid");
+        assertThat(isSameSub).contains("prevIndex !== newIndex");
+        assertThat(isSameSub).contains("prevSnippet !== newSnippet");
+
+        // renderSelectionState conditionally clears Wiki target only when captured selection identity actually changes
+        assertThat(js).contains("function renderSelectionState(displayTerm, occurrenceIndex, contextSnippet)");
+        int renderSelectionIndex = js.indexOf("function renderSelectionState");
+        int sameSelectionCheckIndex = js.indexOf("isSameCapturedSelection(displayTerm, occurrenceIndex, contextSnippet)", renderSelectionIndex);
+        int conditionalResetIndex = js.indexOf("if (!sameSelection)", renderSelectionIndex);
+        int storeTermIndex = js.indexOf("selectionPanel.dataset.selectedTerm = displayTerm", renderSelectionIndex);
+
+        assertThat(sameSelectionCheckIndex).isGreaterThan(renderSelectionIndex);
+        assertThat(conditionalResetIndex).isGreaterThan(sameSelectionCheckIndex).isLessThan(storeTermIndex);
+
+        // Reset selection panel also calls resetWikiTarget
+        int resetPanelIndex = js.indexOf("function resetSelectionPanel()");
+        int resetWikiInPanelIndex = js.indexOf("resetWikiTarget();", resetPanelIndex);
+        assertThat(resetPanelIndex).isGreaterThan(-1);
+        assertThat(resetWikiInPanelIndex).isGreaterThan(resetPanelIndex);
+    }
+
+    @Test
+    @DisplayName("admin.css reserves fixed vertical space for idle/active selection states and bounds search results with vertical scroll")
+    void adminCssReservesStableSelectionSpaceAndBoundsSearchResultsScrollContract() throws Exception {
+        String css = read("src/main/resources/static/css/novel/admin.css");
+
+        // Reserved fixed height on idle and active selection states to prevent layout shift of Chapter Preview
+        assertThat(css).contains(".novel-admin-selection-idle");
+        assertThat(css).contains(".novel-admin-selection-active");
+        int idleIndex = css.indexOf(".novel-admin-selection-idle");
+        int activeIndex = css.indexOf(".novel-admin-selection-active");
+        String idleBlock = css.substring(idleIndex, activeIndex);
+        String activeBlock = css.substring(activeIndex, css.indexOf(".novel-admin-selection-meta-row", activeIndex));
+
+        assertThat(idleBlock).contains("height: 320px;");
+        assertThat(idleBlock).contains("display: flex");
+        assertThat(idleBlock).contains("align-items: center");
+        assertThat(idleBlock).contains("justify-content: center");
+
+        assertThat(activeBlock).contains("height: 320px;");
+        assertThat(activeBlock).contains("display: grid");
+        assertThat(activeBlock).contains("overflow-y: auto");
+
+        // Bounded max-height with vertical scrolling for Wiki search results list
+        assertThat(css).contains(".novel-admin-wiki-target-results-list");
+        int resultsListIndex = css.indexOf(".novel-admin-wiki-target-results-list");
+        String resultsListBlock = css.substring(resultsListIndex, css.indexOf(".novel-admin-wiki-result-item", resultsListIndex));
+        assertThat(resultsListBlock).contains("max-height:");
+        assertThat(resultsListBlock).contains("overflow-y: auto");
+
+     // Responsive Wiki selection-panel rules on small viewports
+        int wikiMediaIndex = css.indexOf(
+                "@media (max-width: 640px)",
+                resultsListIndex
+        );
+
+        assertThat(wikiMediaIndex).isGreaterThan(resultsListIndex);
+
+        String wikiMediaBlock = css.substring(wikiMediaIndex);
+
+        assertThat(wikiMediaBlock).contains(".novel-admin-selection-idle");
+        assertThat(wikiMediaBlock).contains(".novel-admin-selection-active");
+        assertThat(wikiMediaBlock).contains("height: 220px;");
+        assertThat(wikiMediaBlock).contains(".novel-admin-wiki-target-results-list");
+        assertThat(wikiMediaBlock).contains("max-height: 160px;");
+        }
 
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");

@@ -214,6 +214,40 @@
                             —
                         </div>
                     </div>
+
+                    <!-- WIKI TARGET SEARCH -->
+                    <div class="novel-admin-wiki-target-search-area">
+                        <span class="novel-admin-detail-meta-label" style="margin-bottom: 6px; display: block;">TÌM BÀI VIẾT WIKI MỤC TIÊU:</span>
+                        <div class="novel-admin-wiki-search-input-row">
+                            <input type="text"
+                                   id="novelAdminWikiTargetSearchInput"
+                                   class="novel-admin-wiki-search-input"
+                                   placeholder="Nhập tên bài viết Wiki..."
+                                   autocomplete="off"
+                                   aria-label="Tìm kiếm bài viết Wiki mục tiêu"
+                                   maxlength="100">
+                        </div>
+                        <div id="novelAdminWikiTargetSearchStatus" class="novel-admin-wiki-search-status" style="display: none;" aria-live="polite"></div>
+                        <ul id="novelAdminWikiTargetResultsList"
+                            class="novel-admin-wiki-target-results-list"
+                            role="listbox"
+                            aria-label="Kết quả tìm kiếm Wiki"
+                            style="display: none;"></ul>
+
+                        <!-- SELECTED WIKI TARGET DISPLAY -->
+                        <div id="novelAdminSelectedWikiTarget"
+                             class="novel-admin-selected-wiki-target"
+                             style="display: none;"
+                             aria-label="Bài viết Wiki đã chọn">
+                            <span class="novel-admin-detail-meta-label" style="margin: 0;">BÀI VIẾT ĐÃ CHỌN:</span>
+                            <div class="novel-admin-wiki-target-card">
+                                <strong id="novelAdminSelectedWikiTitle" class="novel-admin-wiki-target-title">—</strong>
+                                <span id="novelAdminSelectedWikiType" class="novel-admin-wiki-target-type"></span>
+                                <span id="novelAdminSelectedWikiAlias" class="novel-admin-wiki-target-alias" style="display: none;"></span>
+                                <span id="novelAdminSelectedWikiSummary" class="novel-admin-wiki-target-summary" style="display: none;"></span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
