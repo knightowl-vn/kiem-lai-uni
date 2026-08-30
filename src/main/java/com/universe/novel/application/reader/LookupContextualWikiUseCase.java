@@ -4,11 +4,13 @@ import com.universe.novel.application.ports.WikiContextualLookupPort;
 import com.universe.novel.application.wiki.lookup.WikiContextualLookupItem;
 import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
 
 @Service
+@Transactional(readOnly = true)
 public class LookupContextualWikiUseCase {
 
     private static final int MAX_QUERY_LENGTH = 100;
