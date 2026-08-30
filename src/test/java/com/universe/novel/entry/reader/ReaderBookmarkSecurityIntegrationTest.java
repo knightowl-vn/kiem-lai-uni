@@ -50,6 +50,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -161,23 +162,21 @@ class ReaderBookmarkSecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("3. POST bookmark anonymous with CSRF returns 401 Unauthorized")
-    void postBookmarkAnonymousShouldReturn401() throws Exception {
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
-
+    @DisplayName("3. POST bookmark anonymous with CSRF redirects to /login")
+    void postBookmarkAnonymousShouldRedirectToLogin() throws Exception {
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/bookmark").with(csrf()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(bookmarkChapterUseCase);
     }
 
     @Test
-    @DisplayName("4. DELETE bookmark anonymous with CSRF returns 401 Unauthorized")
-    void deleteBookmarkAnonymousShouldReturn401() throws Exception {
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
-
+    @DisplayName("4. DELETE bookmark anonymous with CSRF redirects to /login")
+    void deleteBookmarkAnonymousShouldRedirectToLogin() throws Exception {
         mockMvc.perform(delete("/novel/chapters/" + CHAPTER_ID + "/bookmark").with(csrf()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(unbookmarkChapterUseCase);
     }
@@ -247,7 +246,7 @@ class ReaderBookmarkSecurityIntegrationTest {
 
         mockMvc.perform(get("/novel/bookmarks"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/login"));
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(listUserBookmarkedChaptersUseCase);
     }

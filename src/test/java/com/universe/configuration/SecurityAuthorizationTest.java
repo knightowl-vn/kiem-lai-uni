@@ -51,15 +51,38 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.universe.identity.contracts.dto.UserDTO;
+import com.universe.novel.application.reader.BookmarkChapterUseCase;
+import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
+import com.universe.novel.application.reader.ListUserBookmarkedChaptersUseCase;
+import com.universe.novel.application.reader.ListUserReadingHistoryUseCase;
+import com.universe.novel.application.reader.LookupContextualWikiUseCase;
+import com.universe.novel.application.reader.ReaderWikiLookupResult;
+import com.universe.novel.application.reader.RecordReadingHistoryUseCase;
+import com.universe.novel.application.reader.RecordReadingProgressUseCase;
+import com.universe.novel.application.reader.ResolveReaderChapterWikiUseCase;
+import com.universe.novel.application.reader.UnbookmarkChapterUseCase;
+import com.universe.novel.entry.reader.ReaderBookmarkController;
+import com.universe.novel.entry.reader.ReaderReadingHistoryController;
+import com.universe.novel.entry.reader.ReaderReadingProgressController;
+import com.universe.novel.entry.reader.ReaderWikiLookupController;
 
 @WebMvcTest(controllers = {
         ReaderNovelPageController.class,
         ReaderChapterListFragmentController.class,
         ReaderChapterPageController.class,
+        ReaderBookmarkController.class,
+        ReaderReadingHistoryController.class,
+        ReaderReadingProgressController.class,
+        ReaderWikiLookupController.class,
         AdminNovelVolumePageController.class,
         AdminNovelProfilePageController.class,
         AdminNovelProfileCommandController.class
@@ -117,7 +140,31 @@ class SecurityAuthorizationTest {
     private com.universe.novel.application.reader.GetContinueReadingUseCase getContinueReadingUseCase;
 
     @MockBean
-    private com.universe.novel.application.reader.IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
+    private IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
+
+    @MockBean
+    private BookmarkChapterUseCase bookmarkChapterUseCase;
+
+    @MockBean
+    private UnbookmarkChapterUseCase unbookmarkChapterUseCase;
+
+    @MockBean
+    private ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase;
+
+    @MockBean
+    private RecordReadingHistoryUseCase recordReadingHistoryUseCase;
+
+    @MockBean
+    private ListUserReadingHistoryUseCase listUserReadingHistoryUseCase;
+
+    @MockBean
+    private RecordReadingProgressUseCase recordReadingProgressUseCase;
+
+    @MockBean
+    private LookupContextualWikiUseCase lookupContextualWikiUseCase;
+
+    @MockBean
+    private ResolveReaderChapterWikiUseCase resolveReaderChapterWikiUseCase;
 
     @MockBean
     private AuthenticatedEmailResolver authenticatedEmailResolver;
@@ -282,6 +329,109 @@ class SecurityAuthorizationTest {
                 .thenReturn(List.of());
 
         mockMvc.perform(get("/admin/novel/volumes"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /novel/bookmarks (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingBookmarksPage() throws Exception {
+        mockMvc.perform(get("/novel/bookmarks"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /novel/history (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingHistoryPage() throws Exception {
+        mockMvc.perform(get("/novel/history"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi ghi nhận progress (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingProgress() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        mockMvc.perform(post("/novel/chapters/" + chapterId + "/progress").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thêm bookmark (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingBookmark() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        mockMvc.perform(post("/novel/chapters/" + chapterId + "/bookmark").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi ghi nhận history (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingHistory() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        mockMvc.perform(post("/novel/chapters/" + chapterId + "/history").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/bookmarks")
+    void shouldAllowAuthenticatedUserToAccessBookmarksPage() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UserDTO user = new UserDTO(
+                userId,
+                "reader@universe.local",
+                "Reader",
+                null,
+                "ACTIVE",
+                "USER",
+                Instant.now()
+        );
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
+        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
+        when(listUserBookmarkedChaptersUseCase.execute(userId)).thenReturn(List.of());
+
+        mockMvc.perform(get("/novel/bookmarks"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/history")
+    void shouldAllowAuthenticatedUserToAccessHistoryPage() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UserDTO user = new UserDTO(
+                userId,
+                "reader@universe.local",
+                "Reader",
+                null,
+                "ACTIVE",
+                "USER",
+                Instant.now()
+        );
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
+        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
+        when(listUserReadingHistoryUseCase.execute(userId)).thenReturn(List.of());
+
+        mockMvc.perform(get("/novel/history"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép tra cứu Wiki công khai /novel/api/wiki/lookup")
+    void shouldAllowAnonymousAccessToPublicWikiLookup() throws Exception {
+        when(lookupContextualWikiUseCase.execute("kiem-lai"))
+                .thenReturn(new ReaderWikiLookupResult("kiem-lai", false, List.of()));
+
+        mockMvc.perform(get("/novel/api/wiki/lookup").param("q", "kiem-lai"))
                 .andExpect(status().isOk());
     }
 }
