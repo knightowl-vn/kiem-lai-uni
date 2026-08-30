@@ -146,7 +146,10 @@ class ReaderReadingHistoryQueryPersistenceIntegrationTest {
         if (dbPass != null && !dbPass.isBlank()) {
             return dbPass;
         }
-        return "";
+        throw new IllegalStateException(
+                "MySQL integration test requires a database password. "
+                        + "Please configure system property 'test.mysql.pass' or environment variable 'TEST_MYSQL_PASS' / 'MYSQL_ROOT_PASSWORD'."
+        );
     }
 
     @DynamicPropertySource
