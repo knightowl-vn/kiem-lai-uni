@@ -30,6 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
+import com.universe.test.TestDatabaseSupport;
+
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
@@ -47,88 +49,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 class ReaderReadingProgressEndToEndIntegrationTest {
 
-    private static String resolveHost() {
-        String host = System.getProperty("test.mysql.host");
-        if (host != null && !host.isBlank()) {
-            return host.trim();
-        }
-        String envHost = System.getenv("TEST_MYSQL_HOST");
-        if (envHost != null && !envHost.isBlank()) {
-            return envHost.trim();
-        }
-        return "localhost:3306";
-    }
-
-    private static String resolveDatabaseName() {
-        String db = System.getProperty("test.mysql.db");
-        if (db != null && !db.isBlank()) {
-            return db.trim();
-        }
-        String envDb = System.getenv("TEST_MYSQL_DB");
-        if (envDb != null && !envDb.isBlank()) {
-            return envDb.trim();
-        }
-        String dbName = System.getenv("MYSQL_DATABASE");
-        if (dbName != null && !dbName.isBlank()) {
-            return dbName.trim();
-        }
-        String dbUrl = System.getenv("DB_URL");
-        if (dbUrl != null && !dbUrl.isBlank()) {
-            int slashIndex = dbUrl.indexOf('/', "jdbc:mysql://".length());
-            if (slashIndex != -1) {
-                int qIndex = dbUrl.indexOf('?', slashIndex);
-                if (qIndex != -1) {
-                    return dbUrl.substring(slashIndex + 1, qIndex);
-                } else {
-                    return dbUrl.substring(slashIndex + 1);
-                }
-            }
-        }
-        return "kiemlai_test";
-    }
-
-    private static String resolveUser() {
-        String user = System.getProperty("test.mysql.user");
-        if (user != null && !user.isBlank()) {
-            return user.trim();
-        }
-        String envUser = System.getenv("TEST_MYSQL_USER");
-        if (envUser != null && !envUser.isBlank()) {
-            return envUser.trim();
-        }
-        String dbUser = System.getenv("DB_USERNAME");
-        if (dbUser != null && !dbUser.isBlank()) {
-            return dbUser.trim();
-        }
-        return "root";
-    }
-
-    private static String resolvePassword() {
-        String pass = System.getProperty("test.mysql.pass");
-        if (pass != null && !pass.isBlank()) {
-            return pass;
-        }
-        String envPass = System.getenv("TEST_MYSQL_PASS");
-        if (envPass != null && !envPass.isBlank()) {
-            return envPass;
-        }
-        String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
-        if (rootPass != null && !rootPass.isBlank()) {
-            return rootPass;
-        }
-        String dbPass = System.getenv("DB_PASSWORD");
-        if (dbPass != null && !dbPass.isBlank()) {
-            return dbPass;
-        }
-        return "";
-    }
-
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
-        String url = "jdbc:mysql://" + resolveHost() + "/" + resolveDatabaseName() + "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
-        registry.add("spring.datasource.url", () -> url);
-        registry.add("spring.datasource.username", ReaderReadingProgressEndToEndIntegrationTest::resolveUser);
-        registry.add("spring.datasource.password", ReaderReadingProgressEndToEndIntegrationTest::resolvePassword);
+        TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
     private static final UUID USER_ID =
