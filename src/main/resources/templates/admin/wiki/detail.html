@@ -56,6 +56,19 @@
 
 
 				<!-- ================================================= -->
+				<!-- FEEDBACK MESSAGES                                 -->
+				<!-- ================================================= -->
+
+				<div th:if="${successMessage != null}"
+					class="wiki-admin-success-message" th:text="${successMessage}">
+					Thao tác thành công.</div>
+
+				<div th:if="${errorMessage != null}" class="wiki-admin-form-error"
+					th:text="${errorMessage}">Không thể thực hiện thao tác.</div>
+
+
+
+				<!-- ================================================= -->
 				<!-- AUTOSAVE CLEANUP SIGNAL                           -->
 				<!-- ================================================= -->
 
@@ -386,6 +399,58 @@
 						</div>
 
 					</div>
+
+
+
+					<!-- ================================================= -->
+					<!-- ALIASES (DANH XƯNG & BIỆT DANH)                    -->
+					<!-- ================================================= -->
+
+					<section class="wiki-admin-detail-section wiki-admin-alias-section">
+
+						<div class="wiki-admin-detail-section-heading">
+
+							<span class="wiki-admin-detail-section-eyebrow"> DANH XƯNG &amp; BIỆT DANH </span>
+
+							<h3>Danh xưng, biệt hiệu</h3>
+
+						</div>
+
+						<!-- List of current aliases -->
+						<div class="wiki-admin-alias-list" th:if="${aliases != null and !aliases.isEmpty()}">
+							<div class="wiki-admin-alias-tag" th:each="item : ${aliases}">
+								<span class="wiki-admin-alias-text" th:text="${item.alias}">Tiểu Phu Tử</span>
+								<form method="post"
+									th:action="@{/admin/wiki/articles/{id}/aliases/remove(id=${article.id})}"
+									class="wiki-admin-alias-remove-form"
+									th:attr="data-wiki-confirm='Xóa danh xưng &quot;' + ${item.alias} + '&quot; khỏi bài viết này?'">
+									<input type="hidden" name="alias" th:value="${item.alias}">
+									<button type="submit" class="wiki-admin-alias-remove-button"
+										th:aria-label="'Xóa danh xưng ' + ${item.alias}" title="Xóa danh xưng">
+										✕
+									</button>
+								</form>
+							</div>
+						</div>
+
+						<p class="wiki-admin-detail-summary is-empty" th:if="${aliases == null or aliases.isEmpty()}">
+							Chưa có danh xưng hoặc biệt danh nào cho bài viết này.
+						</p>
+
+						<!-- Form to add alias -->
+						<form method="post" th:action="@{/admin/wiki/articles/{id}/aliases(id=${article.id})}"
+							class="wiki-admin-alias-add-form">
+							<div class="wiki-admin-alias-input-group">
+								<input type="text" name="alias" class="wiki-admin-alias-input"
+									placeholder="Nhập danh xưng / biệt danh mới (vd: Trần tiên sinh)..."
+									maxlength="200" required>
+								<button type="submit" class="wiki-admin-secondary-button wiki-admin-alias-add-button">
+									+ Thêm danh xưng
+								</button>
+							</div>
+						</form>
+
+					</section>
 
 
 

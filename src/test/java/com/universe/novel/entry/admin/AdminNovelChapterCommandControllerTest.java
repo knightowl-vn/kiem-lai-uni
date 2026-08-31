@@ -35,14 +35,22 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
+
+import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -101,7 +109,8 @@ class AdminNovelChapterCommandControllerTest {
 	void setUp() {
 		controller = new AdminNovelChapterCommandController(createChapterUseCase, updateDraftChapterUseCase,
 				publishChapterUseCase, unpublishChapterUseCase, archiveChapterUseCase, restoreChapterUseCase,
-				deleteDraftChapterUseCase, moveChapterUseCase, getChapterDetailUseCase, userIdentityContract);
+				deleteDraftChapterUseCase, moveChapterUseCase, getChapterDetailUseCase, userIdentityContract,
+				new AuthenticatedEmailResolver());
 	}
 
 	@Test
@@ -348,9 +357,155 @@ class AdminNovelChapterCommandControllerTest {
 	}
 
 	private void stubCurrentActor() {
+		when(authentication.isAuthenticated()).thenReturn(true);
 		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
 				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+	}
+
+	/*
+	 * ===================================================== ACTOR RESOLUTION TESTS
+	 * =====================================================
+	 */
+
+	@Test
+	@DisplayName("Tạo Chapter thành công khi Admin đăng nhập bằng OAuth2 (Google) với subject ID số và email attribute")
+	void shouldCreateChapterWhenAuthenticatedViaOAuth2() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+		form.setSummary("Tóm tắt 100");
+		form.setContent("Nội dung 100");
+
+		OAuth2User oauth2User = mock(OAuth2User.class);
+		when(oauth2User.getAttribute("email")).thenReturn(ADMIN_EMAIL);
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getPrincipal()).thenReturn(oauth2User);
+		lenient().when(authentication.getName()).thenReturn("104829374019283746152");
+
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
+				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+
+		when(createChapterUseCase.execute(any(CreateChapterCommand.class)))
+				.thenReturn(chapterDto("DRAFT"));
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String viewName = controller.createChapter(VOLUME_ID, form, authentication, redirectAttributes);
+
+		assertThat(viewName).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã tạo Chapter \"Chương Một\".");
+
+		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+		ArgumentCaptor<CreateChapterCommand> commandCaptor = ArgumentCaptor.forClass(CreateChapterCommand.class);
+		verify(createChapterUseCase).execute(commandCaptor.capture());
+		assertThat(commandCaptor.getValue().actorId()).isEqualTo(ADMIN_ID);
+	}
+
+	@Test
+	@DisplayName("Tạo Chapter thành công khi Admin đăng nhập bằng form login chuẩn với email principal")
+	void shouldCreateChapterWhenAuthenticatedViaFormLogin() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+		form.setSummary("Tóm tắt 100");
+		form.setContent("Nội dung 100");
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getName()).thenReturn(ADMIN_EMAIL);
+		when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
+
+		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(new UserDTO(ADMIN_ID, ADMIN_EMAIL,
+				"Admin", null, "ACTIVE", "ADMIN", NOW)));
+
+		when(createChapterUseCase.execute(any(CreateChapterCommand.class)))
+				.thenReturn(chapterDto("DRAFT"));
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String viewName = controller.createChapter(VOLUME_ID, form, authentication, redirectAttributes);
+
+		assertThat(viewName).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID);
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã tạo Chapter \"Chương Một\".");
+
+		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo Chapter khi Authentication là null")
+	void shouldRejectWhenAuthenticationIsNull() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+
+		assertThatThrownBy(() -> controller.createChapter(VOLUME_ID, form, null,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createChapterUseCase, never()).execute(any());
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo Chapter khi Authentication là AnonymousAuthenticationToken")
+	void shouldRejectWhenAuthenticationIsAnonymous() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+
+		Authentication anonymousAuth = mock(AnonymousAuthenticationToken.class);
+
+		assertThatThrownBy(() -> controller.createChapter(VOLUME_ID, form, anonymousAuth,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createChapterUseCase, never()).execute(any());
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo Chapter khi Authentication chưa được xác thực (isAuthenticated = false)")
+	void shouldRejectWhenAuthenticationIsNotAuthenticated() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+
+		when(authentication.isAuthenticated()).thenReturn(false);
+
+		assertThatThrownBy(() -> controller.createChapter(VOLUME_ID, form, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createChapterUseCase, never()).execute(any());
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo Chapter khi OAuth2 principal không có email attribute")
+	void shouldRejectWhenOAuth2UserHasNoEmailAttribute() {
+		CreateChapterForm form = new CreateChapterForm();
+		form.setChapterNumber(100);
+		form.setTitle("Chương 100");
+
+		OAuth2User oauth2User = mock(OAuth2User.class);
+		when(oauth2User.getAttribute("email")).thenReturn(null);
+
+		when(authentication.isAuthenticated()).thenReturn(true);
+		when(authentication.getPrincipal()).thenReturn(oauth2User);
+
+		assertThatThrownBy(() -> controller.createChapter(VOLUME_ID, form, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessage("Không xác định được người dùng đang đăng nhập.");
+
+		verify(userIdentityContract, never()).findByEmail(any());
+		verify(createChapterUseCase, never()).execute(any());
 	}
 
 	private ChapterDTO chapterDto(String status) {

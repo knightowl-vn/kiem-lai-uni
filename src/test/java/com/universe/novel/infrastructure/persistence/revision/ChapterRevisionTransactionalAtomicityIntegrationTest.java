@@ -25,6 +25,10 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+import com.universe.test.TestDatabaseSupport;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +46,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@TestPropertySource(properties = {
+        "spring.jpa.hibernate.ddl-auto=validate",
+        "spring.flyway.enabled=true"
+})
 @Import({
         VolumePersistenceAdapter.class,
         ChapterPersistenceAdapter.class,
@@ -53,6 +61,11 @@ import static org.mockito.ArgumentMatchers.anyLong;
         ChapterRevisionTransactionalAtomicityIntegrationTest.TestConfig.class
 })
 class ChapterRevisionTransactionalAtomicityIntegrationTest {
+
+    @DynamicPropertySource
+    static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.configureDynamicProperties(registry);
+    }
 
     private static final UUID ADMIN_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final UUID VOLUME_ID = UUID.fromString("22222222-3333-4444-5555-666666666666");

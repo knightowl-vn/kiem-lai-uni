@@ -1,8 +1,10 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
 import com.universe.novel.application.ports.ReaderNovelLandingQueryPort;
+import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
+import com.universe.novel.infrastructure.persistence.chapter.SpringDataChapterJpaRepository;
 import com.universe.novel.infrastructure.persistence.profile.NovelProfileJpaEntity;
 import com.universe.novel.infrastructure.persistence.profile.SpringDataNovelProfileJpaRepository;
 import com.universe.novel.infrastructure.persistence.volume.ReaderVolumeListItemProjection;
@@ -27,15 +29,22 @@ public class ReaderNovelLandingQueryPersistenceAdapter
     private final SpringDataVolumeJpaRepository
             volumeRepository;
 
+    private final SpringDataChapterJpaRepository
+            chapterRepository;
+
     public ReaderNovelLandingQueryPersistenceAdapter(
             SpringDataNovelProfileJpaRepository novelProfileRepository,
-            SpringDataVolumeJpaRepository volumeRepository
+            SpringDataVolumeJpaRepository volumeRepository,
+            SpringDataChapterJpaRepository chapterRepository
     ) {
         this.novelProfileRepository =
                 novelProfileRepository;
 
         this.volumeRepository =
                 volumeRepository;
+
+        this.chapterRepository =
+                chapterRepository;
     }
 
     @Override
@@ -58,6 +67,17 @@ public class ReaderNovelLandingQueryPersistenceAdapter
                         this::toVolumeListItemDTO
                 )
                 .toList();
+    }
+
+    @Override
+    public Optional<ReaderChapterNavigationDTO> findFirstPublishedChapter() {
+        return chapterRepository
+                .findFirstPublishedReaderChapter()
+                .map(projection -> new ReaderChapterNavigationDTO(
+                        projection.getChapterNumber(),
+                        projection.getTitle(),
+                        projection.getSlug()
+                ));
     }
 
     private ReaderNovelOverviewDTO toNovelOverviewDTO(

@@ -46,16 +46,28 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.universe.test.TestDatabaseSupport;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@TestPropertySource(properties = { "spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true" })
 @Import({ VolumePersistenceAdapter.class, ChapterPersistenceAdapter.class, ChapterRevisionPersistenceAdapter.class,
-		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class, PublishChapterUseCase.class,
-		VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
+		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class,
+		PublishChapterUseCase.class, VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
 class VolumeArchivePublishChapterConcurrencyIntegrationTest {
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		TestDatabaseSupport.configureDynamicProperties(registry);
+	}
 
 	private static final UUID VOLUME_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1");
 
@@ -64,6 +76,7 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 	private static final UUID ADMIN_ID = UUID.fromString("cccccccc-cccc-cccc-cccc-ccccccccccc1");
 
 	private static final int VOLUME_SORT_ORDER = 2_000_000_001;
+	private static final int CHAPTER_NUMBER = 999_999;
 
 	private static final Instant BASE_TIME = Instant.parse("2026-08-18T00:00:00Z");
 
@@ -284,18 +297,9 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 		 * CREATE Chapter DRAFT.
 		 */
 		transactionTemplate.executeWithoutResult(status -> {
-
-			// Sửa số 1 thành một số rất lớn, ví dụ 999_999
-			Chapter chapter = Chapter.createDraft(
-			        CHAPTER_ID,
-			        VOLUME_ID,
-			        999_999, // <--- Thay đổi ở đây
-			        "Integration Lock Chapter",
-			        new Slug("integration-lock-chapter"),
-			        "Chapter dùng cho concurrency test.",
-			        "Nội dung Chapter.",
-			        ADMIN_ID,
-			        BASE_TIME.plusSeconds(20));
+			Chapter chapter = Chapter.createDraft(CHAPTER_ID, VOLUME_ID, CHAPTER_NUMBER, "Integration Lock Chapter",
+					new Slug("integration-lock-chapter"), "Chapter dùng cho concurrency test.", "Nội dung Chapter.",
+					ADMIN_ID, BASE_TIME.plusSeconds(20));
 
 			chapterRepositoryPort.save(chapter, 0L);
 		});

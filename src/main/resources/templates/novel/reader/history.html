@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Lịch sử đọc | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-history.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='novel')}"></div>
+
+<main class="novel-history-page">
+
+    <div class="novel-history-container">
+
+        <!-- Breadcrumb -->
+        <nav class="novel-chapter-breadcrumb mb-4"
+             aria-label="Breadcrumb">
+            <a th:href="@{/home}">Trang chủ</a>
+            <span class="novel-breadcrumb-separator" aria-hidden="true">/</span>
+            <a th:href="@{/novel}">Kiếm Lai</a>
+            <span class="novel-breadcrumb-separator" aria-hidden="true">/</span>
+            <span aria-current="page">Lịch sử đọc</span>
+        </nav>
+
+        <!-- Header -->
+        <header class="novel-history-header">
+            <h1 class="novel-history-title">
+                <svg class="novel-history-header-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="28"
+                     height="28"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span>Lịch sử đọc</span>
+            </h1>
+            <p class="novel-history-subtitle">
+                Danh sách các chương bạn đã đọc gần đây, sắp xếp theo hoạt động mới nhất.
+            </p>
+        </header>
+
+        <!-- History List -->
+        <div th:if="${!#lists.isEmpty(historyList)}"
+             id="novelHistoryList"
+             class="novel-history-list"
+             role="list">
+
+            <div th:each="item : ${historyList}"
+                 class="novel-history-item"
+                 role="listitem">
+
+                <div class="novel-history-item-content">
+                    <div class="novel-history-volume-badge"
+                         th:text="${item.volumeTitle}">
+                        Quyển 1
+                    </div>
+
+                    <a th:href="@{/novel/chapters/{slug}(slug=${item.chapterSlug})}"
+                       class="novel-history-chapter-link">
+                        <span class="novel-history-chapter-number"
+                              th:text="${'Chương ' + item.chapterNumber + ':'}">
+                            Chương 1:
+                        </span>
+                        <span class="novel-history-chapter-title"
+                              th:text="${item.chapterTitle}">
+                            Tiêu đề chương
+                        </span>
+                    </a>
+
+                    <div class="novel-history-meta">
+                        <span class="novel-history-time"
+                              th:text="${'Đọc lần cuối: ' + #temporals.format(item.lastReadAt, 'dd/MM/yyyy HH:mm')}">
+                            Đọc lần cuối: 26/08/2026 10:30
+                        </span>
+                    </div>
+                </div>
+
+                <div class="novel-history-item-actions">
+                    <a th:href="@{/novel/chapters/{slug}(slug=${item.chapterSlug})}"
+                       class="novel-history-read-btn"
+                       aria-label="Đọc tiếp chương này">
+                        Đọc tiếp
+                    </a>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Empty State -->
+        <div id="novelHistoryEmpty"
+             class="novel-history-empty"
+             th:if="${#lists.isEmpty(historyList)}">
+            <div class="novel-history-empty-icon">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="48"
+                     height="48"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+            </div>
+            <h2 class="novel-history-empty-title">Bạn chưa có lịch sử đọc nào</h2>
+            <p class="novel-history-empty-text">
+                Khi bạn mở đọc bất kỳ chương nào trong Kiếm Lai, hệ thống sẽ tự động ghi nhận lại tại đây.
+            </p>
+            <a th:href="@{/novel}"
+               class="novel-history-empty-cta">
+                Bắt đầu đọc Kiếm Lai
+            </a>
+        </div>
+
+    </div>
+
+</main>
+
+<script th:src="@{/js/theme.js}"></script>
+
+</body>
+</html>

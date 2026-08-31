@@ -1,11 +1,15 @@
 package com.universe.novel.entry.reader;
 
+import com.universe.identity.contracts.dto.UserDTO;
+import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.GetReaderChapterDetailUseCase;
+import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO;
+import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,11 +17,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -34,9 +44,25 @@ class ReaderChapterPageControllerTest {
     private static final UUID VOLUME_ID =
             UUID.fromString("22222222-2222-2222-2222-222222222222");
 
+    private static final UUID USER_ID =
+            UUID.fromString("33333333-3333-3333-3333-333333333333");
+
+    private static final String USER_EMAIL = "reader@example.com";
+
     @Mock
-    private GetReaderChapterDetailUseCase
-            getReaderChapterDetailUseCase;
+    private GetReaderChapterDetailUseCase getReaderChapterDetailUseCase;
+
+    @Mock
+    private IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
+
+    @Mock
+    private AuthenticatedEmailResolver authenticatedEmailResolver;
+
+    @Mock
+    private UserIdentityContract userIdentityContract;
+
+    @Mock
+    private Authentication authentication;
 
     private MockMvc mockMvc;
 
@@ -44,7 +70,10 @@ class ReaderChapterPageControllerTest {
     void setUp() {
         ReaderChapterPageController controller =
                 new ReaderChapterPageController(
-                        getReaderChapterDetailUseCase
+                        getReaderChapterDetailUseCase,
+                        isChapterBookmarkedUseCase,
+                        authenticatedEmailResolver,
+                        userIdentityContract
                 );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
@@ -52,11 +81,7 @@ class ReaderChapterPageControllerTest {
                 .build();
     }
 
-    @Test
-    @DisplayName("GET /novel/chapters/{slug} trả về 200 OK và view novel/chapter khi chương đã xuất bản")
-    void shouldRenderChapterReadingPage() throws Exception {
-        String slug = "chuong-1-khoi-dau";
-
+    private ReaderChapterDetailDTO createChapterDetail(String slug) {
         ReaderVolumeSummaryDTO volume = new ReaderVolumeSummaryDTO(
                 VOLUME_ID,
                 "Quyển Một - Lung Trung Tước",
@@ -82,7 +107,7 @@ class ReaderChapterPageControllerTest {
                 "chuong-2-can-duyen"
         );
 
-        ReaderChapterDetailDTO chapter = new ReaderChapterDetailDTO(
+        return new ReaderChapterDetailDTO(
                 CHAPTER_ID,
                 1,
                 "Khởi Đầu",
@@ -91,23 +116,85 @@ class ReaderChapterPageControllerTest {
                 volume,
                 null,
                 next,
-                java.util.List.of(tocItem1, tocItem2)
+                List.of(tocItem1, tocItem2)
         );
+    }
 
-        when(getReaderChapterDetailUseCase.execute(slug))
-                .thenReturn(chapter);
+    private UserDTO createTestUser() {
+        return new UserDTO(
+                USER_ID,
+                USER_EMAIL,
+                "Reader User",
+                null,
+                "ACTIVE",
+                "USER",
+                Instant.now()
+        );
+    }
+
+    @Test
+    @DisplayName("1. Anonymous Reader: Trả về 200 OK và isBookmarked=false mà không truy vấn bookmark state")
+    void shouldRenderChapterReadingPageForAnonymous() throws Exception {
+        String slug = "chuong-1-khoi-dau";
+        ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+
+        when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/novel/chapters/" + slug))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))
-                .andExpect(model().attribute("pageTitle", "Chương 1: Khởi Đầu"));
+                .andExpect(model().attribute("pageTitle", "Chương 1: Khởi Đầu"))
+                .andExpect(model().attribute("isBookmarked", false));
 
         verify(getReaderChapterDetailUseCase).execute(slug);
+        verify(isChapterBookmarkedUseCase, never()).execute(any(), any());
     }
 
     @Test
-    @DisplayName("GET /novel/chapters/{missingSlug} trả về HTTP 404 NOT_FOUND và view novel/not-found khi chương không tồn tại hoặc chưa xuất bản")
+    @DisplayName("2. Authenticated Reader: Gán isBookmarked=true khi người dùng đã đánh dấu chương")
+    void shouldPopulateIsBookmarkedTrueWhenAuthenticatedAndBookmarked() throws Exception {
+        String slug = "chuong-1-khoi-dau";
+        ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+        UserDTO user = createTestUser();
+
+        when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
+        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
+        when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID)).thenReturn(true);
+
+        mockMvc.perform(get("/novel/chapters/" + slug).principal(authentication))
+                .andExpect(status().isOk())
+                .andExpect(view().name("novel/chapter"))
+                .andExpect(model().attribute("chapter", chapter))
+                .andExpect(model().attribute("isBookmarked", true));
+
+        verify(isChapterBookmarkedUseCase).execute(USER_ID, CHAPTER_ID);
+    }
+
+    @Test
+    @DisplayName("3. Graceful Degradation: Không chặn hiển thị chương khi kiểm tra bookmark gặp lỗi bất ngờ")
+    void shouldDegradeIsBookmarkedFalseWhenBookmarkLookupFails() throws Exception {
+        String slug = "chuong-1-khoi-dau";
+        ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+        UserDTO user = createTestUser();
+
+        when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
+        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
+        when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID))
+                .thenThrow(new RuntimeException("Bookmark service transient error"));
+
+        mockMvc.perform(get("/novel/chapters/" + slug).principal(authentication))
+                .andExpect(status().isOk())
+                .andExpect(view().name("novel/chapter"))
+                .andExpect(model().attribute("chapter", chapter))
+                .andExpect(model().attribute("isBookmarked", false));
+    }
+
+    @Test
+    @DisplayName("4. 404 NOT_FOUND: Trả về HTTP 404 NOT_FOUND và view novel/not-found khi chương không tồn tại hoặc chưa xuất bản")
     void shouldReturn404WhenChapterNotFoundOrUnpublished() throws Exception {
         String slug = "chuong-khong-ton-tai";
 

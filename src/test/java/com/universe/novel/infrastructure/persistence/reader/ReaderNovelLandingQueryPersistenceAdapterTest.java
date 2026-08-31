@@ -1,7 +1,10 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
+import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
+import com.universe.novel.infrastructure.persistence.chapter.ReaderChapterListItemProjection;
+import com.universe.novel.infrastructure.persistence.chapter.SpringDataChapterJpaRepository;
 import com.universe.novel.infrastructure.persistence.profile.NovelProfileJpaEntity;
 import com.universe.novel.infrastructure.persistence.profile.SpringDataNovelProfileJpaRepository;
 import com.universe.novel.infrastructure.persistence.volume.ReaderVolumeListItemProjection;
@@ -40,12 +43,20 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
             volumeRepository;
 
     @Mock
+    private SpringDataChapterJpaRepository
+            chapterRepository;
+
+    @Mock
     private NovelProfileJpaEntity
             novelProfile;
 
     @Mock
     private ReaderVolumeListItemProjection
             volumeProjection;
+
+    @Mock
+    private ReaderChapterListItemProjection
+            chapterProjection;
 
     private ReaderNovelLandingQueryPersistenceAdapter
             adapter;
@@ -55,7 +66,8 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
         adapter =
                 new ReaderNovelLandingQueryPersistenceAdapter(
                         novelProfileRepository,
-                        volumeRepository
+                        volumeRepository,
+                        chapterRepository
                 );
     }
 
@@ -281,5 +293,94 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
         verify(
                 volumeRepository
         ).findPublishedReaderVolumes();
+    }
+
+    @Test
+    @DisplayName(
+            "Ánh xạ First Published Chapter projection thành ReaderChapterNavigationDTO"
+    )
+    void shouldMapFirstPublishedChapterToNavigationDTO() {
+
+        when(
+                chapterProjection.getChapterNumber()
+        ).thenReturn(
+                1
+        );
+
+        when(
+                chapterProjection.getTitle()
+        ).thenReturn(
+                "Khởi Đầu"
+        );
+
+        when(
+                chapterProjection.getSlug()
+        ).thenReturn(
+                "chuong-1-khoi-dau"
+        );
+
+        when(
+                chapterRepository.findFirstPublishedReaderChapter()
+        ).thenReturn(
+                Optional.of(
+                        chapterProjection
+                )
+        );
+
+        Optional<ReaderChapterNavigationDTO> result =
+                adapter.findFirstPublishedChapter();
+
+        assertThat(
+                result
+        ).isPresent();
+
+        ReaderChapterNavigationDTO chapter =
+                result.orElseThrow();
+
+        assertThat(
+                chapter.chapterNumber()
+        ).isEqualTo(
+                1
+        );
+
+        assertThat(
+                chapter.title()
+        ).isEqualTo(
+                "Khởi Đầu"
+        );
+
+        assertThat(
+                chapter.slug()
+        ).isEqualTo(
+                "chuong-1-khoi-dau"
+        );
+
+        verify(
+                chapterRepository
+        ).findFirstPublishedReaderChapter();
+    }
+
+    @Test
+    @DisplayName(
+            "Trả Optional rỗng khi không có Chapter Published nào"
+    )
+    void shouldReturnEmptyWhenNoPublishedChapterExists() {
+
+        when(
+                chapterRepository.findFirstPublishedReaderChapter()
+        ).thenReturn(
+                Optional.empty()
+        );
+
+        Optional<ReaderChapterNavigationDTO> result =
+                adapter.findFirstPublishedChapter();
+
+        assertThat(
+                result
+        ).isEmpty();
+
+        verify(
+                chapterRepository
+        ).findFirstPublishedReaderChapter();
     }
 }

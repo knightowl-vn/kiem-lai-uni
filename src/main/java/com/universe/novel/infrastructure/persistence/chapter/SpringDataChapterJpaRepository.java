@@ -121,6 +121,30 @@ public interface SpringDataChapterJpaRepository
             findAllPublishedReaderChaptersOrderByChapterNumber();
 
     /*
+     * Public Reader First Chapter
+     *
+     * Tìm Chapter PUBLISHED đầu tiên (lowest chapter_number) thuộc Volume PUBLISHED.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    order by c.chapter_number asc
+                    limit 1
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReaderChapterListItemProjection> findFirstPublishedReaderChapter();
+
+    /*
      * Public Reader Chapter Detail
      *
      * Chỉ trả Chapter PUBLISHED thuộc Volume PUBLISHED.
@@ -214,5 +238,72 @@ public interface SpringDataChapterJpaRepository
     boolean existsByVolumeIdAndStatus(
             String volumeId,
             String status
+    );
+
+    /*
+     * Lightweight Published Chapter lookup for Reading Progress
+     *
+     * Chỉ trả id và chapter_number của Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Không load summary/content/audit/version hay Chapter/Volume aggregate.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.id = :id
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReadableChapterAccessProjection> findPublishedAccessById(
+            @Param("id") String id
+    );
+
+    /*
+     * Public Reader Published Chapter by ID (for Continue Reading)
+     *
+     * Chỉ trả id, chapter_number, title, slug của Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Không load summary/content/audit/version.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.id = :id
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReaderChapterListItemProjection> findPublishedReaderChapterById(
+            @Param("id") String id
+    );
+
+    /*
+     * Structural Chapter Number lookup by ID (for Continue Reading Fallback)
+     *
+     * Lấy chapter_number cấu trúc không phụ thuộc trạng thái xuất bản.
+     */
+    @Query(
+            value = """
+                    select c.chapter_number
+                    from novel_chapters c
+                    where c.id = :id
+                    """,
+            nativeQuery = true
+    )
+    Optional<Integer> findChapterNumberById(
+            @Param("id") String id
     );
 }

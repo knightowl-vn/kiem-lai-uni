@@ -95,6 +95,12 @@ class PublicNavbarRenderingTest {
     @MockBean
     private GetReaderNovelLandingUseCase getReaderNovelLandingUseCase;
 
+    @MockBean
+    private com.universe.novel.application.reader.GetContinueReadingUseCase getContinueReadingUseCase;
+
+    @MockBean
+    private com.universe.identity.contracts.interfaces.UserIdentityContract userIdentityContract;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {

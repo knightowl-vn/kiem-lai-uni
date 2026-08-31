@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="vi"
-      xmlns:th="http://www.thymeleaf.org">
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 
 <head>
     <meta charset="UTF-8">
@@ -24,6 +25,9 @@
 
     <link rel="stylesheet"
           th:href="@{/css/novel/reader.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-wiki-lookup.css}">
 </head>
 
 <body>
@@ -66,6 +70,32 @@
         </nav>
 
         <div class="novel-reading-settings-wrapper">
+
+            <button sec:authorize="isAuthenticated()"
+                    type="button"
+                    class="novel-chapter-bookmark-btn"
+                    id="novelChapterBookmarkBtn"
+                    th:classappend="${isBookmarked} ? ' is-bookmarked' : ''"
+                    th:attr="data-chapter-id=${chapter.id},data-bookmarked=${isBookmarked},data-bookmark-url=@{/novel/chapters/{id}/bookmark(id=${chapter.id})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+                    aria-label="Đánh dấu chương">
+                <svg class="novel-bookmark-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="16"
+                     height="16"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+                <span class="novel-bookmark-btn-text"
+                      th:text="${isBookmarked ? 'Đã đánh dấu' : 'Đánh dấu'}">
+                    Đánh dấu
+                </span>
+            </button>
 
             <button type="button"
                     class="novel-reading-settings-trigger"
@@ -238,6 +268,7 @@
          CHAPTER BODY (RENDERED MARKDOWN HTML)
          ===================================================== -->
     <article class="novel-reader-chapter-body"
+             th:attr="data-chapter-id=${chapter.id}"
              th:utext="${chapter.contentHtml}">
         <p>Nội dung chương...</p>
     </article>
@@ -284,6 +315,16 @@
         </span>
 
     </nav>
+
+    <div sec:authorize="isAuthenticated()"
+         id="novelReadingProgressTracker"
+         th:attr="data-chapter-id=${chapter.id},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+         hidden></div>
+
+    <div sec:authorize="isAuthenticated()"
+         id="novelReadingHistoryTracker"
+         th:attr="data-chapter-id=${chapter.id},data-history-url=@{/novel/chapters/{id}/history(id=${chapter.id})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
+         hidden></div>
 
 </main>
 
@@ -352,6 +393,16 @@
 <script th:src="@{/js/reading/reading-preferences.js}"></script>
 <script th:src="@{/js/novel/reader-reading-settings.js}"></script>
 <script th:src="@{/js/novel/reader-chapter-toc.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-progress.js}"
+        defer></script>
+<script sec:authorize="isAuthenticated()"
+        th:src="@{/js/novel/reader-bookmark.js}"
+        defer></script>
+<script sec:authorize="isAuthenticated()"
+        th:src="@{/js/novel/reader-history.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-wiki-lookup.js}"
         defer></script>
 
 </body>

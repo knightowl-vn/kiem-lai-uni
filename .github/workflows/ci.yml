@@ -38,6 +38,8 @@ jobs:
       DB_URL: jdbc:mysql://127.0.0.1:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       DB_USERNAME: kiemlai
       DB_PASSWORD: kiemlai_test_password
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 3
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 0
 
       # ===============================
       # TEST RUNTIME VERIFICATION
@@ -45,6 +47,7 @@ jobs:
       TEST_MYSQL_HOST: 127.0.0.1:3306
       TEST_MYSQL_USER: root
       TEST_MYSQL_PASS: root
+      TEST_MYSQL_DB: kiemlai_test
 
       # ===============================
       # REMEMBER ME
@@ -92,6 +95,7 @@ jobs:
           test -n "$TEST_MYSQL_HOST"
           test -n "$TEST_MYSQL_USER"
           test -n "$TEST_MYSQL_PASS"
+          test -n "$TEST_MYSQL_DB"
           test -n "$REMEMBER_ME_KEY"
           test -n "$MAIL_USERNAME"
           test -n "$MAIL_PASSWORD"

@@ -8,6 +8,7 @@ import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ChapterRevisionAlreadyCurrentException;
 import com.universe.novel.application.exceptions.ChapterRevisionNotFoundException;
 import com.universe.novel.entry.admin.form.RestoreChapterRevisionForm;
+import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
@@ -31,9 +32,13 @@ public class AdminNovelChapterRevisionCommandController {
     private final UserIdentityContract
             userIdentityContract;
 
+    private final AuthenticatedEmailResolver
+            authenticatedEmailResolver;
+
     public AdminNovelChapterRevisionCommandController(
             RestoreChapterRevisionUseCase restoreChapterRevisionUseCase,
-            UserIdentityContract userIdentityContract
+            UserIdentityContract userIdentityContract,
+            AuthenticatedEmailResolver authenticatedEmailResolver
     ) {
         this.restoreChapterRevisionUseCase =
                 Objects.requireNonNull(
@@ -45,6 +50,12 @@ public class AdminNovelChapterRevisionCommandController {
                 Objects.requireNonNull(
                         userIdentityContract,
                         "UserIdentityContract không được để trống."
+                );
+
+        this.authenticatedEmailResolver =
+                Objects.requireNonNull(
+                        authenticatedEmailResolver,
+                        "AuthenticatedEmailResolver không được để trống."
                 );
     }
 
@@ -113,16 +124,10 @@ public class AdminNovelChapterRevisionCommandController {
     private UUID resolveActorId(
             Authentication authentication
     ) {
-        if (authentication == null
-                || authentication.getName() == null
-                || authentication.getName().isBlank()) {
-            throw new IllegalStateException(
-                    "Không xác định được người dùng đang đăng nhập."
-            );
-        }
-
         String email =
-                authentication.getName().trim();
+                authenticatedEmailResolver.require(
+                        authentication
+                );
 
         UserDTO user =
                 userIdentityContract

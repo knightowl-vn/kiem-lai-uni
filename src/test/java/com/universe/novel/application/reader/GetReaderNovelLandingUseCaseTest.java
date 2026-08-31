@@ -1,6 +1,7 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.ports.ReaderNovelLandingQueryPort;
+import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
@@ -48,7 +49,7 @@ class GetReaderNovelLandingUseCaseTest {
 
     @Test
     @DisplayName(
-            "Ghép Novel Overview và Published Volumes thành Reader Landing"
+            "Ghép Novel Overview, Published Volumes và First Published Chapter thành Reader Landing"
     )
     void shouldGetReaderNovelLanding() {
 
@@ -71,6 +72,13 @@ class GetReaderNovelLandingUseCaseTest {
                         81L
                 );
 
+        ReaderChapterNavigationDTO firstChapter =
+                new ReaderChapterNavigationDTO(
+                        1,
+                        "Khởi Đầu",
+                        "chuong-1-khoi-dau"
+                );
+
         when(
                 readerNovelLandingQueryPort.findNovelOverview()
         ).thenReturn(
@@ -84,6 +92,14 @@ class GetReaderNovelLandingUseCaseTest {
         ).thenReturn(
                 List.of(
                         volume
+                )
+        );
+
+        when(
+                readerNovelLandingQueryPort.findFirstPublishedChapter()
+        ).thenReturn(
+                Optional.of(
+                        firstChapter
                 )
         );
 
@@ -102,6 +118,12 @@ class GetReaderNovelLandingUseCaseTest {
                 volume
         );
 
+        assertThat(
+                result.firstChapter()
+        ).isEqualTo(
+                firstChapter
+        );
+
         verify(
                 readerNovelLandingQueryPort
         ).findNovelOverview();
@@ -109,6 +131,10 @@ class GetReaderNovelLandingUseCaseTest {
         verify(
                 readerNovelLandingQueryPort
         ).findPublishedVolumes();
+
+        verify(
+                readerNovelLandingQueryPort
+        ).findFirstPublishedChapter();
     }
 
     @Test
