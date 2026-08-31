@@ -43,6 +43,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ReaderReadingProgressController.class)
@@ -124,13 +125,11 @@ class ReaderReadingProgressSecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("POST progress by anonymous user returns 401 Unauthorized")
-    void postProgressAnonymousShouldReturn401() throws Exception {
-        when(authenticatedEmailResolver.resolve(any()))
-                .thenReturn(Optional.empty());
-
+    @DisplayName("POST progress by anonymous user redirects to /login")
+    void postProgressAnonymousShouldRedirectToLogin() throws Exception {
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/progress").with(csrf()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(recordReadingProgressUseCase);
     }

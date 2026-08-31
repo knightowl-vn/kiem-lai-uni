@@ -90,10 +90,24 @@ public class SecurityBeanConfig {
                                 "/images/**",
                                 "/error",
                                 "/wiki",
-                                "/wiki/**",
+                                "/wiki/**"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                "/novel/bookmarks",
+                                "/novel/bookmarks/**",
+                                "/novel/history",
+                                "/novel/history/**",
+                                "/novel/chapters/*/bookmark",
+                                "/novel/chapters/*/history",
+                                "/novel/chapters/*/progress"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
                                 "/novel",
                                 "/novel/**"
-                                
                         )
                         .permitAll()
 

@@ -25,6 +25,8 @@ import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,6 +55,82 @@ import static org.mockito.ArgumentMatchers.anyLong;
         ChapterRevisionTransactionalAtomicityIntegrationTest.TestConfig.class
 })
 class ChapterRevisionTransactionalAtomicityIntegrationTest {
+
+    private static String resolveHost() {
+        String host = System.getProperty("test.mysql.host");
+        if (host != null && !host.isBlank()) {
+            return host.trim();
+        }
+        String envHost = System.getenv("TEST_MYSQL_HOST");
+        if (envHost != null && !envHost.isBlank()) {
+            return envHost.trim();
+        }
+        String dbHost = System.getenv("DB_HOST");
+        if (dbHost != null && !dbHost.isBlank()) {
+            return dbHost.trim();
+        }
+        return "localhost:3306";
+    }
+
+    private static String resolveDatabaseName() {
+        String db = System.getProperty("test.mysql.db");
+        if (db != null && !db.isBlank()) {
+            return db.trim();
+        }
+        String envDb = System.getenv("TEST_MYSQL_DB");
+        if (envDb != null && !envDb.isBlank()) {
+            return envDb.trim();
+        }
+        String dbName = System.getenv("DB_NAME");
+        if (dbName != null && !dbName.isBlank()) {
+            return dbName.trim();
+        }
+        return "kiemlai_test";
+    }
+
+    private static String resolveUser() {
+        String user = System.getProperty("test.mysql.user");
+        if (user != null && !user.isBlank()) {
+            return user.trim();
+        }
+        String envUser = System.getenv("TEST_MYSQL_USER");
+        if (envUser != null && !envUser.isBlank()) {
+            return envUser.trim();
+        }
+        String dbUser = System.getenv("DB_USERNAME");
+        if (dbUser != null && !dbUser.isBlank()) {
+            return dbUser.trim();
+        }
+        return "root";
+    }
+
+    private static String resolvePassword() {
+        String pass = System.getProperty("test.mysql.pass");
+        if (pass != null && !pass.isBlank()) {
+            return pass;
+        }
+        String envPass = System.getenv("TEST_MYSQL_PASS");
+        if (envPass != null && !envPass.isBlank()) {
+            return envPass;
+        }
+        String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
+        if (rootPass != null && !rootPass.isBlank()) {
+            return rootPass;
+        }
+        throw new IllegalStateException(
+                "MySQL integration test requires a database password. "
+                        + "Please configure system property 'test.mysql.pass' or environment variable 'TEST_MYSQL_PASS' / 'MYSQL_ROOT_PASSWORD'."
+        );
+    }
+
+    @DynamicPropertySource
+    static void configureDataSource(DynamicPropertyRegistry registry) {
+        String url = "jdbc:mysql://" + resolveHost() + "/" + resolveDatabaseName() + "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+        registry.add("spring.datasource.url", () -> url);
+        registry.add("spring.datasource.username", ChapterRevisionTransactionalAtomicityIntegrationTest::resolveUser);
+        registry.add("spring.datasource.password", ChapterRevisionTransactionalAtomicityIntegrationTest::resolvePassword);
+        registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+    }
 
     private static final UUID ADMIN_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final UUID VOLUME_ID = UUID.fromString("22222222-3333-4444-5555-666666666666");

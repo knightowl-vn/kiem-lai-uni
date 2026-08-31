@@ -28,7 +28,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -122,7 +122,12 @@ class ReaderReadingHistoryEndToEndIntegrationTest {
         if (dbPass != null && !dbPass.isBlank()) {
             return dbPass;
         }
-        return "";
+        throw new IllegalStateException(
+                "MySQL integration test requires a database password. "
+                        + "Please configure system property 'test.mysql.pass' "
+                        + "or environment variable 'TEST_MYSQL_PASS', "
+                        + "'MYSQL_ROOT_PASSWORD', or 'DB_PASSWORD'."
+        );
     }
 
     @DynamicPropertySource
@@ -322,11 +327,12 @@ class ReaderReadingHistoryEndToEndIntegrationTest {
         // Anonymous GET /novel/history redirects to /login
         mockMvc.perform(get("/novel/history"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/login"));
+                .andExpect(redirectedUrlPattern("**/login"));
 
-        // Anonymous POST /novel/chapters/{id}/history returns 401
+        // Anonymous POST /novel/chapters/{id}/history redirects to /login
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_1_ID + "/history").with(csrf()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.universe.novel.application.chapter.reference;
 import com.universe.novel.application.ports.WikiContextualLookupPort;
 import com.universe.novel.application.wiki.lookup.WikiContextualLookupResult;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
@@ -12,6 +13,7 @@ import java.util.Objects;
  * để phục vụ gán liên kết Wiki trong quản trị Chapter (MS-02.8.1 Step 6D1).
  */
 @Service
+@Transactional(readOnly = true)
 public class SearchTargetWikiArticlesUseCase {
 
     public static final int MAX_QUERY_LENGTH = 100;

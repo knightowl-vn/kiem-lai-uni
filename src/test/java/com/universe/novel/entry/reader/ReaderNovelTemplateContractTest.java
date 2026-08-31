@@ -293,6 +293,21 @@ class ReaderNovelTemplateContractTest {
         assertThat(progressJs).contains("/progress");
     }
 
+    @Test
+    @DisplayName("Novel not-found page (not-found.html) nạp shared navbar fragment, theme styles, favicon, reader styles và theme.js")
+    void notFoundPageIncludesSharedNavbarAndThemeContract() throws Exception {
+        String notFound = read("src/main/resources/templates/novel/not-found.html");
+
+        assertThat(notFound).contains("th:replace=\"~{fragments/navbar :: navbar(activeNav='novel')}\"");
+        assertThat(notFound).contains("th:href=\"@{/images/favicon.png}\"");
+        assertThat(notFound).contains("th:href=\"@{/css/theme.css}\"");
+        assertThat(notFound).contains("th:href=\"@{/css/navbar.css}\"");
+        assertThat(notFound).contains("th:href=\"@{/css/novel/reader.css}\"");
+        assertThat(notFound).contains("th:src=\"@{/js/theme.js}\"");
+        assertThat(notFound).contains("class=\"novel-reader-empty-state\"");
+        assertThat(notFound).contains("th:href=\"@{/novel}\"");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

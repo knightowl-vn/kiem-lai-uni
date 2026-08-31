@@ -38,6 +38,8 @@ jobs:
       DB_URL: jdbc:mysql://127.0.0.1:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       DB_USERNAME: kiemlai
       DB_PASSWORD: kiemlai_test_password
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: 3
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: 0
 
       # ===============================
       # TEST RUNTIME VERIFICATION

@@ -46,16 +46,97 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@TestPropertySource(properties = { "spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true" })
 @Import({ VolumePersistenceAdapter.class, ChapterPersistenceAdapter.class, ChapterRevisionPersistenceAdapter.class,
-		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class, PublishChapterUseCase.class,
-		VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
+		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class,
+		PublishChapterUseCase.class, VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
 class VolumeArchivePublishChapterConcurrencyIntegrationTest {
+
+	private static String resolveHost() {
+		String host = System.getProperty("test.mysql.host");
+		if (host != null && !host.isBlank()) {
+			return host.trim();
+		}
+		String envHost = System.getenv("TEST_MYSQL_HOST");
+		if (envHost != null && !envHost.isBlank()) {
+			return envHost.trim();
+		}
+		String dbHost = System.getenv("DB_HOST");
+		if (dbHost != null && !dbHost.isBlank()) {
+			return dbHost.trim();
+		}
+		return "localhost:3306";
+	}
+
+	private static String resolveDatabaseName() {
+		String db = System.getProperty("test.mysql.db");
+		if (db != null && !db.isBlank()) {
+			return db.trim();
+		}
+		String envDb = System.getenv("TEST_MYSQL_DB");
+		if (envDb != null && !envDb.isBlank()) {
+			return envDb.trim();
+		}
+		String dbName = System.getenv("DB_NAME");
+		if (dbName != null && !dbName.isBlank()) {
+			return dbName.trim();
+		}
+		return "kiemlai_test";
+	}
+
+	private static String resolveUser() {
+		String user = System.getProperty("test.mysql.user");
+		if (user != null && !user.isBlank()) {
+			return user.trim();
+		}
+		String envUser = System.getenv("TEST_MYSQL_USER");
+		if (envUser != null && !envUser.isBlank()) {
+			return envUser.trim();
+		}
+		String dbUser = System.getenv("DB_USERNAME");
+		if (dbUser != null && !dbUser.isBlank()) {
+			return dbUser.trim();
+		}
+		return "root";
+	}
+
+	private static String resolvePassword() {
+		String pass = System.getProperty("test.mysql.pass");
+		if (pass != null && !pass.isBlank()) {
+			return pass;
+		}
+		String envPass = System.getenv("TEST_MYSQL_PASS");
+		if (envPass != null && !envPass.isBlank()) {
+			return envPass;
+		}
+		String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
+		if (rootPass != null && !rootPass.isBlank()) {
+			return rootPass;
+		}
+		throw new IllegalStateException("MySQL integration test requires a database password. "
+				+ "Please configure system property 'test.mysql.pass' or environment variable 'TEST_MYSQL_PASS' / 'MYSQL_ROOT_PASSWORD'.");
+	}
+
+	@DynamicPropertySource
+	static void configureDataSource(DynamicPropertyRegistry registry) {
+		String url = "jdbc:mysql://" + resolveHost() + "/" + resolveDatabaseName()
+				+ "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+		registry.add("spring.datasource.url", () -> url);
+		registry.add("spring.datasource.username", VolumeArchivePublishChapterConcurrencyIntegrationTest::resolveUser);
+		registry.add("spring.datasource.password",
+				VolumeArchivePublishChapterConcurrencyIntegrationTest::resolvePassword);
+		registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+	}
 
 	private static final UUID VOLUME_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1");
 
@@ -64,6 +145,7 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 	private static final UUID ADMIN_ID = UUID.fromString("cccccccc-cccc-cccc-cccc-ccccccccccc1");
 
 	private static final int VOLUME_SORT_ORDER = 2_000_000_001;
+	private static final int CHAPTER_NUMBER = 999_999;
 
 	private static final Instant BASE_TIME = Instant.parse("2026-08-18T00:00:00Z");
 
@@ -284,18 +366,9 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 		 * CREATE Chapter DRAFT.
 		 */
 		transactionTemplate.executeWithoutResult(status -> {
-
-			// Sửa số 1 thành một số rất lớn, ví dụ 999_999
-			Chapter chapter = Chapter.createDraft(
-			        CHAPTER_ID,
-			        VOLUME_ID,
-			        999_999, // <--- Thay đổi ở đây
-			        "Integration Lock Chapter",
-			        new Slug("integration-lock-chapter"),
-			        "Chapter dùng cho concurrency test.",
-			        "Nội dung Chapter.",
-			        ADMIN_ID,
-			        BASE_TIME.plusSeconds(20));
+			Chapter chapter = Chapter.createDraft(CHAPTER_ID, VOLUME_ID, CHAPTER_NUMBER, "Integration Lock Chapter",
+					new Slug("integration-lock-chapter"), "Chapter dùng cho concurrency test.", "Nội dung Chapter.",
+					ADMIN_ID, BASE_TIME.plusSeconds(20));
 
 			chapterRepositoryPort.save(chapter, 0L);
 		});

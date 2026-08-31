@@ -47,6 +47,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -144,12 +145,11 @@ class ReaderReadingHistorySecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("2. POST history anonymous with CSRF returns 401 Unauthorized")
-    void postHistoryAnonymousShouldReturn401() throws Exception {
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
-
+    @DisplayName("2. POST history anonymous with CSRF redirects to /login")
+    void postHistoryAnonymousShouldRedirectToLogin() throws Exception {
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/history").with(csrf()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(recordReadingHistoryUseCase);
     }
@@ -186,11 +186,9 @@ class ReaderReadingHistorySecurityIntegrationTest {
     @Test
     @DisplayName("5. GET /novel/history anonymous redirects to /login")
     void getHistoryAnonymousShouldRedirectToLogin() throws Exception {
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
-
         mockMvc.perform(get("/novel/history"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/login"));
+                .andExpect(redirectedUrlPattern("**/login"));
 
         verifyNoInteractions(listUserReadingHistoryUseCase);
     }
