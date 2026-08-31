@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.article;
 
+import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,19 +47,7 @@ class WikiArticleAliasJpaPersistenceIntegrationTest {
 
     @DynamicPropertySource
     static void configureDatabaseProperties(DynamicPropertyRegistry registry) {
-        String testDbPass = System.getProperty("test.mysql.pass");
-        if (testDbPass == null || testDbPass.isBlank()) {
-            testDbPass = System.getenv("TEST_MYSQL_PASS");
-        }
-        if (testDbPass == null || testDbPass.isBlank()) {
-            testDbPass = System.getenv("DB_PASSWORD");
-        }
-        registry.add("spring.datasource.url", () ->
-                "jdbc:mysql://localhost:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC");
-        registry.add("spring.datasource.username", () -> "root");
-        final String finalPass = testDbPass;
-        registry.add("spring.datasource.password", () -> finalPass);
-        registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+        TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
     @BeforeEach

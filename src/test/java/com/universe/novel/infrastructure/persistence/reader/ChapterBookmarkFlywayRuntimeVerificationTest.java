@@ -17,71 +17,16 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.universe.test.TestDatabaseSupport;
+
 class ChapterBookmarkFlywayRuntimeVerificationTest {
 
-    private static String resolveHost() {
-        String host = System.getProperty("test.mysql.host");
-        if (host != null && !host.isBlank()) {
-            return host.trim();
-        }
-        String envHost = System.getenv("TEST_MYSQL_HOST");
-        if (envHost != null && !envHost.isBlank()) {
-            return envHost.trim();
-        }
-        return "localhost:3306";
-    }
-
-    private static String resolveUser() {
-        String user = System.getProperty("test.mysql.user");
-        if (user != null && !user.isBlank()) {
-            return user.trim();
-        }
-        String envUser = System.getenv("TEST_MYSQL_USER");
-        if (envUser != null && !envUser.isBlank()) {
-            return envUser.trim();
-        }
-        return "root";
-    }
-
-    private static String resolvePassword() {
-        String pass = System.getProperty("test.mysql.pass");
-        if (pass != null && !pass.isBlank()) {
-            return pass;
-        }
-        String envPass = System.getenv("TEST_MYSQL_PASS");
-        if (envPass != null && !envPass.isBlank()) {
-            return envPass;
-        }
-        String rootPass = System.getenv("MYSQL_ROOT_PASSWORD");
-        if (rootPass != null && !rootPass.isBlank()) {
-            return rootPass;
-        }
-        String dbPass = System.getenv("DB_PASSWORD");
-        if (dbPass != null && !dbPass.isBlank()) {
-            return dbPass;
-        }
-        return "";
-    }
-
     private static DataSource createDataSource(String dbName) {
-        DriverManagerDataSource ds = new DriverManagerDataSource();
-        ds.setDriverClassName("com.mysql.cj.jdbc.Driver");
-        ds.setUrl("jdbc:mysql://" + resolveHost() + "/" + dbName + "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC");
-        ds.setUsername(resolveUser());
-        ds.setPassword(resolvePassword());
-        return ds;
+        return TestDatabaseSupport.createTestDataSource(dbName);
     }
 
     private static void resetDatabase(String dbName) {
-        DriverManagerDataSource rootDs = new DriverManagerDataSource();
-        rootDs.setDriverClassName("com.mysql.cj.jdbc.Driver");
-        rootDs.setUrl("jdbc:mysql://" + resolveHost() + "/mysql?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC");
-        rootDs.setUsername(resolveUser());
-        rootDs.setPassword(resolvePassword());
-
-        JdbcTemplate rootJdbc = new JdbcTemplate(rootDs);
-        rootJdbc.execute("DROP DATABASE IF EXISTS " + dbName);
-        rootJdbc.execute("CREATE DATABASE " + dbName + " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        TestDatabaseSupport.resetTestDatabase(dbName);
     }
 
     @Test

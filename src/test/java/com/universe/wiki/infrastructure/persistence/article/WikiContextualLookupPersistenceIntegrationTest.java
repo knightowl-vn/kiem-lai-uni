@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.article;
 
+import com.universe.test.TestDatabaseSupport;
 import com.universe.wiki.application.article.query.lookup.WikiContextualLookupService;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiContextualLookupResultDTO;
@@ -52,20 +53,7 @@ class WikiContextualLookupPersistenceIntegrationTest {
 
     @DynamicPropertySource
     static void configureDatabaseProperties(DynamicPropertyRegistry registry) {
-        String testDbPass = System.getProperty("test.mysql.pass");
-        if (testDbPass == null || testDbPass.isBlank()) {
-            testDbPass = System.getenv("TEST_MYSQL_PASS");
-        }
-        if (testDbPass == null || testDbPass.isBlank()) {
-            testDbPass = System.getenv("DB_PASSWORD");
-        }
-        final String finalPass = (testDbPass != null && !testDbPass.isBlank()) ? testDbPass : "123456";
-
-        registry.add("spring.datasource.url", () ->
-                "jdbc:mysql://localhost:3306/kiemlai_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC");
-        registry.add("spring.datasource.username", () -> "root");
-        registry.add("spring.datasource.password", () -> finalPass);
-        registry.add("spring.datasource.driver-class-name", () -> "com.mysql.cj.jdbc.Driver");
+        TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
     @BeforeEach
