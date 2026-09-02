@@ -54,6 +54,12 @@ public class NovelProfileJpaEntity {
     private String coverImageUrl;
 
     @Column(
+            name = "cover_media_asset_id",
+            columnDefinition = "CHAR(36)"
+    )
+    private String coverMediaAssetId;
+
+    @Column(
             name = "status",
             nullable = false,
             length = 20
@@ -99,6 +105,10 @@ public class NovelProfileJpaEntity {
         return coverImageUrl;
     }
 
+    public String getCoverMediaAssetId() {
+        return coverMediaAssetId;
+    }
+
     public String getStatus() {
         return status;
     }
@@ -116,6 +126,7 @@ public class NovelProfileJpaEntity {
             String author,
             String description,
             String coverImageUrl,
+            String coverMediaAssetId,
             String status,
             Instant updatedAt
     ) {
@@ -123,7 +134,19 @@ public class NovelProfileJpaEntity {
         this.author = author;
         this.description = description;
         this.coverImageUrl = coverImageUrl;
+        this.coverMediaAssetId = coverMediaAssetId;
         this.status = status;
         this.updatedAt = updatedAt;
+    }
+
+    public void update(
+            String title,
+            String author,
+            String description,
+            String coverImageUrl,
+            String status,
+            Instant updatedAt
+    ) {
+        update(title, author, description, coverImageUrl, this.coverMediaAssetId, status, updatedAt);
     }
 }

@@ -43,6 +43,47 @@ public class NovelProfilePersistenceAdapter
             String author,
             String description,
             String coverImageUrl,
+            UUID coverMediaAssetId,
+            String status,
+            Instant updatedAt
+    ) {
+        NovelProfileJpaEntity entity =
+                novelProfileRepository
+                        .findBySlug(
+                                slug
+                        )
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Không tìm thấy hồ sơ tiểu thuyết với slug: "
+                                        + slug
+                        ));
+
+        entity.update(
+                title,
+                author,
+                description,
+                coverImageUrl,
+                coverMediaAssetId != null ? coverMediaAssetId.toString() : null,
+                status,
+                updatedAt
+        );
+
+        NovelProfileJpaEntity savedEntity =
+                novelProfileRepository.save(
+                        entity
+                );
+
+        return toDTO(
+                savedEntity
+        );
+    }
+
+    @Override
+    public NovelProfileDTO update(
+            String slug,
+            String title,
+            String author,
+            String description,
+            String coverImageUrl,
             String status,
             Instant updatedAt
     ) {
@@ -87,6 +128,9 @@ public class NovelProfilePersistenceAdapter
                 entity.getAuthor(),
                 entity.getDescription(),
                 entity.getCoverImageUrl(),
+                entity.getCoverMediaAssetId() != null
+                        ? UUID.fromString(entity.getCoverMediaAssetId())
+                        : null,
                 entity.getStatus(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
