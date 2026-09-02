@@ -12,10 +12,20 @@ import com.universe.media.application.asset.MediaAssetDetailResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetCommand;
+import com.universe.media.application.asset.UploadMediaAssetResult;
+import com.universe.media.application.asset.UploadMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import org.springframework.stereotype.Service;
 
@@ -37,13 +47,17 @@ public class MediaFacade implements MediaContract {
     private final ArchiveMediaAssetUseCase archiveMediaAssetUseCase;
     private final RestoreMediaAssetUseCase restoreMediaAssetUseCase;
     private final DeleteMediaAssetUseCase deleteMediaAssetUseCase;
+    private final UploadMediaAssetUseCase uploadMediaAssetUseCase;
+    private final UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
             ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase,
             ArchiveMediaAssetUseCase archiveMediaAssetUseCase,
             RestoreMediaAssetUseCase restoreMediaAssetUseCase,
-            DeleteMediaAssetUseCase deleteMediaAssetUseCase
+            DeleteMediaAssetUseCase deleteMediaAssetUseCase,
+            UploadMediaAssetUseCase uploadMediaAssetUseCase,
+            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -64,6 +78,52 @@ public class MediaFacade implements MediaContract {
         this.deleteMediaAssetUseCase = Objects.requireNonNull(
                 deleteMediaAssetUseCase,
                 "DeleteMediaAssetUseCase cannot be null."
+        );
+        this.uploadMediaAssetUseCase = Objects.requireNonNull(
+                uploadMediaAssetUseCase,
+                "UploadMediaAssetUseCase cannot be null."
+        );
+        this.uploadMediaAssetVersionUseCase = Objects.requireNonNull(
+                uploadMediaAssetVersionUseCase,
+                "UploadMediaAssetVersionUseCase cannot be null."
+        );
+    }
+
+    @Override
+    public UploadMediaAssetResponseDTO uploadAsset(UploadMediaAssetRequestDTO request) {
+        Objects.requireNonNull(
+                request,
+                "UploadMediaAssetRequestDTO cannot be null."
+        );
+        UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                request.content(),
+                request.sizeBytes(),
+                request.mimeType(),
+                request.mediaType(),
+                request.visibility(),
+                request.originalFilename()
+        );
+        UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+        return new UploadMediaAssetResponseDTO(result.assetId());
+    }
+
+    @Override
+    public UploadMediaAssetVersionResponseDTO uploadVersion(UploadMediaAssetVersionRequestDTO request) {
+        Objects.requireNonNull(
+                request,
+                "UploadMediaAssetVersionRequestDTO cannot be null."
+        );
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                request.assetId(),
+                request.content(),
+                request.sizeBytes(),
+                request.mimeType(),
+                request.originalFilename()
+        );
+        UploadMediaAssetVersionResult result = uploadMediaAssetVersionUseCase.execute(command);
+        return new UploadMediaAssetVersionResponseDTO(
+                result.assetId(),
+                result.versionNumber()
         );
     }
 

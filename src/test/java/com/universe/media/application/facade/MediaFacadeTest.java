@@ -12,11 +12,21 @@ import com.universe.media.application.asset.MediaAssetDetailResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetCommand;
+import com.universe.media.application.asset.UploadMediaAssetResult;
+import com.universe.media.application.asset.UploadMediaAssetUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
@@ -69,6 +79,12 @@ class MediaFacadeTest {
     @Mock
     private DeleteMediaAssetUseCase deleteMediaAssetUseCase;
 
+    @Mock
+    private UploadMediaAssetUseCase uploadMediaAssetUseCase;
+
+    @Mock
+    private UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
+
     private MediaFacade facade;
 
     @BeforeEach
@@ -78,7 +94,9 @@ class MediaFacadeTest {
                 changeMediaVisibilityUseCase,
                 archiveMediaAssetUseCase,
                 restoreMediaAssetUseCase,
-                deleteMediaAssetUseCase
+                deleteMediaAssetUseCase,
+                uploadMediaAssetUseCase,
+                uploadMediaAssetVersionUseCase
         );
     }
 
@@ -220,5 +238,109 @@ class MediaFacadeTest {
         verify(deleteMediaAssetUseCase).execute(captor.capture());
 
         assertThat(captor.getValue().assetId()).isEqualTo(ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("uploadAsset maps request DTO to command and returns minimal response DTO")
+    void shouldDelegateUploadAsset() {
+        java.io.InputStream in = new java.io.ByteArrayInputStream("data".getBytes());
+        UploadMediaAssetRequestDTO request = new UploadMediaAssetRequestDTO(
+                in,
+                4L,
+                "image/webp",
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                "banner.webp"
+        );
+
+        UploadMediaAssetResult appResult = new UploadMediaAssetResult(
+                ASSET_ID,
+                VERSION_ID,
+                1,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ACTIVE,
+                T1
+        );
+
+        when(uploadMediaAssetUseCase.execute(any(UploadMediaAssetCommand.class)))
+                .thenReturn(appResult);
+
+        UploadMediaAssetResponseDTO response = facade.uploadAsset(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.assetId()).isEqualTo(ASSET_ID);
+
+        ArgumentCaptor<UploadMediaAssetCommand> captor =
+                ArgumentCaptor.forClass(UploadMediaAssetCommand.class);
+        verify(uploadMediaAssetUseCase).execute(captor.capture());
+
+        UploadMediaAssetCommand cmd = captor.getValue();
+        assertThat(cmd.content()).isSameAs(in);
+        assertThat(cmd.sizeBytes()).isEqualTo(4L);
+        assertThat(cmd.mimeType()).isEqualTo("image/webp");
+        assertThat(cmd.mediaType()).isEqualTo(MediaType.IMAGE);
+        assertThat(cmd.visibility()).isEqualTo(MediaVisibility.PUBLIC);
+        assertThat(cmd.originalFilename()).isEqualTo("banner.webp");
+    }
+
+    @Test
+    @DisplayName("uploadAsset fails fast on null request DTO")
+    void shouldFailFastOnNullUploadAssetRequest() {
+        assertThatThrownBy(() -> facade.uploadAsset(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("UploadMediaAssetRequestDTO cannot be null.");
+
+        verifyNoInteractions(uploadMediaAssetUseCase);
+    }
+
+    @Test
+    @DisplayName("uploadVersion maps request DTO to command and returns minimal response DTO")
+    void shouldDelegateUploadVersion() {
+        java.io.InputStream in = new java.io.ByteArrayInputStream("v2 data".getBytes());
+        UploadMediaAssetVersionRequestDTO request = new UploadMediaAssetVersionRequestDTO(
+                ASSET_ID,
+                in,
+                7L,
+                "image/webp",
+                "banner_v2.webp"
+        );
+
+        UploadMediaAssetVersionResult appResult = new UploadMediaAssetVersionResult(
+                ASSET_ID,
+                VERSION_ID,
+                2,
+                T2
+        );
+
+        when(uploadMediaAssetVersionUseCase.execute(any(UploadMediaAssetVersionCommand.class)))
+                .thenReturn(appResult);
+
+        UploadMediaAssetVersionResponseDTO response = facade.uploadVersion(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.assetId()).isEqualTo(ASSET_ID);
+        assertThat(response.versionNumber()).isEqualTo(2);
+
+        ArgumentCaptor<UploadMediaAssetVersionCommand> captor =
+                ArgumentCaptor.forClass(UploadMediaAssetVersionCommand.class);
+        verify(uploadMediaAssetVersionUseCase).execute(captor.capture());
+
+        UploadMediaAssetVersionCommand cmd = captor.getValue();
+        assertThat(cmd.assetId()).isEqualTo(ASSET_ID);
+        assertThat(cmd.content()).isSameAs(in);
+        assertThat(cmd.sizeBytes()).isEqualTo(7L);
+        assertThat(cmd.mimeType()).isEqualTo("image/webp");
+        assertThat(cmd.originalFilename()).isEqualTo("banner_v2.webp");
+    }
+
+    @Test
+    @DisplayName("uploadVersion fails fast on null request DTO")
+    void shouldFailFastOnNullUploadVersionRequest() {
+        assertThatThrownBy(() -> facade.uploadVersion(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("UploadMediaAssetVersionRequestDTO cannot be null.");
+
+        verifyNoInteractions(uploadMediaAssetVersionUseCase);
     }
 }

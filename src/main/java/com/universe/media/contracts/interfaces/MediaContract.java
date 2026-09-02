@@ -2,6 +2,10 @@ package com.universe.media.contracts.interfaces;
 
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +17,34 @@ import java.util.UUID;
  * without leaking Media Application internals, persistence, or vendor storage abstractions.
  */
 public interface MediaContract {
+
+    /**
+     * Uploads a new media asset binary and registers its initial metadata.
+     *
+     * <p><strong>Stream Ownership:</strong> The caller retains ownership of the request
+     * {@link java.io.InputStream}. The Media module reads from the stream to store and hash the binary
+     * but does not close it. The caller is responsible for closing the stream after execution.
+     *
+     * @param request upload request
+     * @return upload response containing the new asset ID
+     */
+    UploadMediaAssetResponseDTO uploadAsset(
+            UploadMediaAssetRequestDTO request
+    );
+
+    /**
+     * Uploads a new binary version for an existing media asset.
+     *
+     * <p><strong>Stream Ownership:</strong> The caller retains ownership of the request
+     * {@link java.io.InputStream}. The Media module reads from the stream to store and hash the binary
+     * but does not close it. The caller is responsible for closing the stream after execution.
+     *
+     * @param request upload version request
+     * @return upload version response containing the asset ID and newly registered version number
+     */
+    UploadMediaAssetVersionResponseDTO uploadVersion(
+            UploadMediaAssetVersionRequestDTO request
+    );
 
     /**
      * Retrieves the asset summary and its current version metadata.
