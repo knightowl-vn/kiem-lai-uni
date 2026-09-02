@@ -22,7 +22,10 @@ import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
@@ -64,6 +67,9 @@ class MediaFacadeTest {
     private static final Instant T2 =
             Instant.parse("2026-09-01T12:00:00Z");
 
+    private static final String VALID_HASH =
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
     @Mock
     private GetMediaAssetDetailUseCase getMediaAssetDetailUseCase;
 
@@ -101,16 +107,16 @@ class MediaFacadeTest {
     }
 
     @Test
-    @DisplayName("getAssetDetail returns mapped public DTO with current version")
-    void shouldReturnMappedAssetDetailDTO() {
+    @DisplayName("getAssetDetail returns mapped MediaAssetDetailDTO with contract DTO types when asset is found")
+    void shouldReturnAssetDetailWhenFound() {
         MediaVersionItemResult versionItem = new MediaVersionItemResult(
                 VERSION_ID,
                 ASSET_ID,
                 1,
-                "cloudinary",
-                "covers/novel.webp",
+                "local",
+                "objects/novel-cover",
                 "https://cdn.universe.com/covers/novel.webp",
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                VALID_HASH,
                 "image/webp",
                 2048L,
                 "novel.webp",
@@ -136,9 +142,9 @@ class MediaFacadeTest {
         assertThat(optDetail).isPresent();
         MediaAssetDetailDTO detail = optDetail.get();
         assertThat(detail.id()).isEqualTo(ASSET_ID);
-        assertThat(detail.mediaType()).isEqualTo(MediaType.IMAGE);
-        assertThat(detail.visibility()).isEqualTo(MediaVisibility.PUBLIC);
-        assertThat(detail.status()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(detail.mediaType()).isEqualTo(MediaTypeDTO.IMAGE);
+        assertThat(detail.visibility()).isEqualTo(MediaVisibilityDTO.PUBLIC);
+        assertThat(detail.status()).isEqualTo(MediaAssetStatusDTO.ACTIVE);
         assertThat(detail.currentVersionNumber()).isEqualTo(1);
         assertThat(detail.createdAt()).isEqualTo(T1);
         assertThat(detail.updatedAt()).isEqualTo(T2);
@@ -188,10 +194,10 @@ class MediaFacadeTest {
     }
 
     @Test
-    @DisplayName("changeVisibility delegates with mapped command")
+    @DisplayName("changeVisibility delegates with mapped command converting MediaVisibilityDTO to domain MediaVisibility")
     void shouldDelegateChangeVisibility() {
         ChangeMediaVisibilityRequestDTO request =
-                new ChangeMediaVisibilityRequestDTO(ASSET_ID, MediaVisibility.RESTRICTED);
+                new ChangeMediaVisibilityRequestDTO(ASSET_ID, MediaVisibilityDTO.RESTRICTED);
 
         facade.changeVisibility(request);
 
@@ -241,15 +247,15 @@ class MediaFacadeTest {
     }
 
     @Test
-    @DisplayName("uploadAsset maps request DTO to command and returns minimal response DTO")
+    @DisplayName("uploadAsset maps request DTO (with contract enums) to command (with domain enums) and returns response DTO")
     void shouldDelegateUploadAsset() {
         java.io.InputStream in = new java.io.ByteArrayInputStream("data".getBytes());
         UploadMediaAssetRequestDTO request = new UploadMediaAssetRequestDTO(
                 in,
                 4L,
                 "image/webp",
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
+                MediaTypeDTO.IMAGE,
+                MediaVisibilityDTO.PUBLIC,
                 "banner.webp"
         );
 

@@ -12,14 +12,14 @@ import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
-import com.universe.media.domain.MediaAssetStatus;
-import com.universe.media.domain.MediaType;
-import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
@@ -152,8 +152,8 @@ class MediaUploadIntegrationTest {
                 new ByteArrayInputStream(initialBytes),
                 initialBytes.length,
                 "image/webp",
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
+                MediaTypeDTO.IMAGE,
+                MediaVisibilityDTO.PUBLIC,
                 "banner.webp"
         );
 
@@ -169,9 +169,9 @@ class MediaUploadIntegrationTest {
         assertThat(optDetail).isPresent();
         MediaAssetDetailDTO detail = optDetail.get();
         assertThat(detail.id()).isEqualTo(assetId);
-        assertThat(detail.mediaType()).isEqualTo(MediaType.IMAGE);
-        assertThat(detail.visibility()).isEqualTo(MediaVisibility.PUBLIC);
-        assertThat(detail.status()).isEqualTo(MediaAssetStatus.ACTIVE);
+        assertThat(detail.mediaType()).isEqualTo(MediaTypeDTO.IMAGE);
+        assertThat(detail.visibility()).isEqualTo(MediaVisibilityDTO.PUBLIC);
+        assertThat(detail.status()).isEqualTo(MediaAssetStatusDTO.ACTIVE);
         assertThat(detail.currentVersionNumber()).isEqualTo(1);
         assertThat(detail.currentVersion()).isNotNull();
         assertThat(detail.currentVersion().versionNumber()).isEqualTo(1);

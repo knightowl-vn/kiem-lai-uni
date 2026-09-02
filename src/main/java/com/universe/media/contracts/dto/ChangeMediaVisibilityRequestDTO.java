@@ -1,7 +1,5 @@
 package com.universe.media.contracts.dto;
 
-import com.universe.media.domain.MediaVisibility;
-
 import java.util.UUID;
 
 /**
@@ -9,6 +7,6 @@ import java.util.UUID;
  */
 public record ChangeMediaVisibilityRequestDTO(
         UUID assetId,
-        MediaVisibility newVisibility
+        MediaVisibilityDTO newVisibility
 ) {
 }

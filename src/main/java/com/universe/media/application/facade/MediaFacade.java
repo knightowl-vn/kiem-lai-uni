@@ -21,12 +21,18 @@ import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.media.domain.MediaAssetStatus;
+import com.universe.media.domain.MediaType;
+import com.universe.media.domain.MediaVisibility;
 import org.springframework.stereotype.Service;
 
 import java.util.Objects;
@@ -99,8 +105,8 @@ public class MediaFacade implements MediaContract {
                 request.content(),
                 request.sizeBytes(),
                 request.mimeType(),
-                request.mediaType(),
-                request.visibility(),
+                toDomainMediaType(request.mediaType()),
+                toDomainVisibility(request.visibility()),
                 request.originalFilename()
         );
         UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
@@ -152,7 +158,7 @@ public class MediaFacade implements MediaContract {
         changeMediaVisibilityUseCase.execute(
                 new ChangeMediaVisibilityCommand(
                         request.assetId(),
-                        request.newVisibility()
+                        toDomainVisibility(request.newVisibility())
                 )
         );
     }
@@ -194,9 +200,9 @@ public class MediaFacade implements MediaContract {
         MediaVersionDTO versionDto = toMediaVersionDTO(result.currentVersion());
         return new MediaAssetDetailDTO(
                 result.id(),
-                result.mediaType(),
-                result.visibility(),
-                result.status(),
+                toMediaTypeDTO(result.mediaType()),
+                toMediaVisibilityDTO(result.visibility()),
+                toMediaAssetStatusDTO(result.status()),
                 result.currentVersionNumber(),
                 result.createdAt(),
                 result.updatedAt(),
@@ -215,5 +221,62 @@ public class MediaFacade implements MediaContract {
                 versionItem.originalFilename(),
                 versionItem.createdAt()
         );
+    }
+
+    private MediaType toDomainMediaType(MediaTypeDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        return switch (dto) {
+            case IMAGE -> MediaType.IMAGE;
+            case AUDIO -> MediaType.AUDIO;
+            case VIDEO -> MediaType.VIDEO;
+            case DOCUMENT -> MediaType.DOCUMENT;
+        };
+    }
+
+    private MediaVisibility toDomainVisibility(MediaVisibilityDTO dto) {
+        if (dto == null) {
+            return null;
+        }
+        return switch (dto) {
+            case PUBLIC -> MediaVisibility.PUBLIC;
+            case PRIVATE -> MediaVisibility.PRIVATE;
+            case RESTRICTED -> MediaVisibility.RESTRICTED;
+        };
+    }
+
+    private MediaTypeDTO toMediaTypeDTO(MediaType domain) {
+        if (domain == null) {
+            return null;
+        }
+        return switch (domain) {
+            case IMAGE -> MediaTypeDTO.IMAGE;
+            case AUDIO -> MediaTypeDTO.AUDIO;
+            case VIDEO -> MediaTypeDTO.VIDEO;
+            case DOCUMENT -> MediaTypeDTO.DOCUMENT;
+        };
+    }
+
+    private MediaVisibilityDTO toMediaVisibilityDTO(MediaVisibility domain) {
+        if (domain == null) {
+            return null;
+        }
+        return switch (domain) {
+            case PUBLIC -> MediaVisibilityDTO.PUBLIC;
+            case PRIVATE -> MediaVisibilityDTO.PRIVATE;
+            case RESTRICTED -> MediaVisibilityDTO.RESTRICTED;
+        };
+    }
+
+    private MediaAssetStatusDTO toMediaAssetStatusDTO(MediaAssetStatus domain) {
+        if (domain == null) {
+            return null;
+        }
+        return switch (domain) {
+            case ACTIVE -> MediaAssetStatusDTO.ACTIVE;
+            case ARCHIVED -> MediaAssetStatusDTO.ARCHIVED;
+            case DELETED -> MediaAssetStatusDTO.DELETED;
+        };
     }
 }

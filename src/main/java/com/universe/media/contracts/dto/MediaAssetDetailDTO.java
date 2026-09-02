@@ -1,9 +1,5 @@
 package com.universe.media.contracts.dto;
 
-import com.universe.media.domain.MediaAssetStatus;
-import com.universe.media.domain.MediaType;
-import com.universe.media.domain.MediaVisibility;
-
 import java.time.Instant;
 import java.util.UUID;
 
@@ -12,9 +8,9 @@ import java.util.UUID;
  */
 public record MediaAssetDetailDTO(
         UUID id,
-        MediaType mediaType,
-        MediaVisibility visibility,
-        MediaAssetStatus status,
+        MediaTypeDTO mediaType,
+        MediaVisibilityDTO visibility,
+        MediaAssetStatusDTO status,
         int currentVersionNumber,
         Instant createdAt,
         Instant updatedAt,

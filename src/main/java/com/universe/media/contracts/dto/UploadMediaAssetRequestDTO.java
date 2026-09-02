@@ -1,8 +1,5 @@
 package com.universe.media.contracts.dto;
 
-import com.universe.media.domain.MediaType;
-import com.universe.media.domain.MediaVisibility;
-
 import java.io.InputStream;
 
 /**
@@ -16,8 +13,8 @@ public record UploadMediaAssetRequestDTO(
         InputStream content,
         long sizeBytes,
         String mimeType,
-        MediaType mediaType,
-        MediaVisibility visibility,
+        MediaTypeDTO mediaType,
+        MediaVisibilityDTO visibility,
         String originalFilename
 ) {
 }
