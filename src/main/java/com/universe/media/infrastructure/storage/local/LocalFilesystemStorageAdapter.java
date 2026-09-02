@@ -7,6 +7,7 @@ import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +45,7 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
 
     private final Path rootDir;
 
+    @Autowired
     public LocalFilesystemStorageAdapter(
             @Value("${media.storage.local.root-dir:uploads/media}") String rootDir
     ) {
