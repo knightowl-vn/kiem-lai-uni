@@ -4,10 +4,10 @@ import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaVisibility;
+import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -16,21 +16,21 @@ import java.util.UUID;
 public class ChangeMediaVisibilityUseCase {
 
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
-    private final Clock clock;
+    private final ClockPort clockPort;
 
     public ChangeMediaVisibilityUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            Clock clock
+            ClockPort clockPort
     ) {
         this.mediaAssetRepositoryPort =
                 Objects.requireNonNull(
                         mediaAssetRepositoryPort,
                         "MediaAssetRepositoryPort cannot be null."
                 );
-        this.clock =
+        this.clockPort =
                 Objects.requireNonNull(
-                        clock,
-                        "Clock cannot be null."
+                        clockPort,
+                        "ClockPort cannot be null."
                 );
     }
 
@@ -56,7 +56,7 @@ public class ChangeMediaVisibilityUseCase {
                                 new MediaAssetNotFoundException(assetId)
                         );
 
-        Instant now = Instant.now(clock);
+        Instant now = clockPort.now();
 
         MediaVisibility currentVisibility = asset.getVisibility();
 

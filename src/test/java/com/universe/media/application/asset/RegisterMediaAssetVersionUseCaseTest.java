@@ -10,6 +10,7 @@ import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.StorageLocation;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,9 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,8 +40,8 @@ class RegisterMediaAssetVersionUseCaseTest {
     private static final Instant FIXED_NOW =
             Instant.parse("2026-09-01T12:00:00Z");
 
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+    private static final ClockPort FIXED_CLOCK =
+            () -> FIXED_NOW;
 
     private static final String VALID_HASH =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";

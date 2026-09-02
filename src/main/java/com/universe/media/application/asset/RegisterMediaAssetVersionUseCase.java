@@ -11,10 +11,10 @@ import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
+import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,12 +24,12 @@ public class RegisterMediaAssetVersionUseCase {
 
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
-    private final Clock clock;
+    private final ClockPort clockPort;
 
     public RegisterMediaAssetVersionUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
-            Clock clock
+            ClockPort clockPort
     ) {
         this.mediaAssetRepositoryPort =
                 Objects.requireNonNull(
@@ -41,10 +41,10 @@ public class RegisterMediaAssetVersionUseCase {
                         mediaAssetVersionRepositoryPort,
                         "MediaAssetVersionRepositoryPort cannot be null."
                 );
-        this.clock =
+        this.clockPort =
                 Objects.requireNonNull(
-                        clock,
-                        "Clock cannot be null."
+                        clockPort,
+                        "ClockPort cannot be null."
                 );
     }
 
@@ -86,7 +86,7 @@ public class RegisterMediaAssetVersionUseCase {
         MimeType mimeType =
                 MimeType.of(command.mimeType());
 
-        Instant now = Instant.now(clock);
+        Instant now = clockPort.now();
 
         int newVersionNumber = asset.registerNextVersion(now);
 

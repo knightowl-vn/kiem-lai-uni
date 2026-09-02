@@ -6,6 +6,7 @@ import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -15,9 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,8 +36,8 @@ class MediaAssetLifecycleUseCasesTest {
     private static final Instant FIXED_NOW =
             Instant.parse("2026-09-01T12:00:00Z");
 
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+    private static final ClockPort FIXED_CLOCK =
+            () -> FIXED_NOW;
 
     private static final UUID ASSET_ID =
             UUID.fromString("11111111-1111-1111-1111-111111111111");
