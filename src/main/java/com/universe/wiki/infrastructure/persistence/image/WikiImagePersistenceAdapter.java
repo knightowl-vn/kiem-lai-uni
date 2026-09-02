@@ -106,6 +106,12 @@ public class WikiImagePersistenceAdapter
                 asset.publicId()
         );
 
+        entity.setMediaAssetId(
+                asset.mediaAssetId() != null
+                        ? asset.mediaAssetId().toString()
+                        : null
+        );
+
         entity.setSourceContentType(
                 asset.sourceContentType()
         );
@@ -142,6 +148,11 @@ public class WikiImagePersistenceAdapter
     private WikiImageAsset toAsset(
             WikiImageJpaEntity entity
     ) {
+        UUID mediaAssetId =
+                entity.getMediaAssetId() != null && !entity.getMediaAssetId().isBlank()
+                        ? UUID.fromString(entity.getMediaAssetId())
+                        : null;
+
         return new WikiImageAsset(
                 UUID.fromString(
                         entity.getId()
@@ -149,6 +160,7 @@ public class WikiImagePersistenceAdapter
                 entity.getContentHash(),
                 entity.getUrl(),
                 entity.getPublicId(),
+                mediaAssetId,
                 entity.getSourceContentType(),
                 entity.getSizeBytes(),
                 entity.getCreatedAt()
