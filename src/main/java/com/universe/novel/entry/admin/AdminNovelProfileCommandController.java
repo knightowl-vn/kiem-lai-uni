@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 
 @Controller
@@ -52,30 +53,23 @@ public class AdminNovelProfileCommandController {
             Model model,
             RedirectAttributes redirectAttributes
     ) {
+        MultipartFile coverFile = form.getCoverImageFile();
+        boolean hasFile = coverFile != null && !coverFile.isEmpty();
+
         try {
-            NovelCoverUpload coverUpload = null;
-            MultipartFile coverFile = form.getCoverImageFile();
-
-            if (coverFile != null && !coverFile.isEmpty()) {
-                coverUpload = new NovelCoverUpload(
-                        coverFile.getOriginalFilename(),
-                        coverFile.getContentType(),
-                        coverFile.getBytes()
-                );
-            }
-
-            UpdateNovelProfileCommand command =
-                    new UpdateNovelProfileCommand(
-                            form.getTitle(),
-                            form.getAuthor(),
-                            form.getDescription(),
-                            form.getStatus(),
-                            coverUpload
+            if (hasFile) {
+                try (InputStream in = coverFile.getInputStream()) {
+                    NovelCoverUpload coverUpload = new NovelCoverUpload(
+                            in,
+                            coverFile.getSize(),
+                            coverFile.getContentType(),
+                            coverFile.getOriginalFilename()
                     );
-
-            updateNovelProfileUseCase.execute(
-                    command
-            );
+                    executeProfileUpdate(form, coverUpload);
+                }
+            } else {
+                executeProfileUpdate(form, null);
+            }
 
             redirectAttributes.addFlashAttribute(
                     "successMessage",
@@ -91,6 +85,11 @@ public class AdminNovelProfileCommandController {
             model.addAttribute(
                     "profile",
                     profile
+            );
+
+            model.addAttribute(
+                    "displayCoverUrl",
+                    profile.displayCoverImageUrl()
             );
 
             model.addAttribute(
@@ -125,5 +124,23 @@ public class AdminNovelProfileCommandController {
 
             return "admin/novel/profile";
         }
+    }
+
+    private void executeProfileUpdate(
+            EditNovelProfileForm form,
+            NovelCoverUpload coverUpload
+    ) {
+        UpdateNovelProfileCommand command =
+                new UpdateNovelProfileCommand(
+                        form.getTitle(),
+                        form.getAuthor(),
+                        form.getDescription(),
+                        form.getStatus(),
+                        coverUpload
+                );
+
+        updateNovelProfileUseCase.execute(
+                command
+        );
     }
 }

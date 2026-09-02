@@ -87,7 +87,7 @@ class AdminNovelProfileCommandControllerTest {
     }
 
     @Test
-    @DisplayName("POST /admin/novel/profile có file ảnh mới -> chuyển đổi MultipartFile sang NovelCoverUpload và gọi usecase")
+    @DisplayName("POST /admin/novel/profile có file ảnh mới -> chuyển đổi MultipartFile sang NovelCoverUpload streaming và gọi usecase")
     void shouldConvertMultipartFileToNovelCoverUploadWhenFileProvided() {
         MockMultipartFile mockFile = new MockMultipartFile(
                 "coverImageFile",
@@ -119,7 +119,8 @@ class AdminNovelProfileCommandControllerTest {
         NovelCoverUpload upload = command.coverUpload();
         assertThat(upload.originalFilename()).isEqualTo("cover.png");
         assertThat(upload.contentType()).isEqualTo("image/png");
-        assertThat(upload.content()).isEqualTo(new byte[]{1, 2, 3, 4});
+        assertThat(upload.sizeBytes()).isEqualTo(4L);
+        assertThat(upload.content()).isNotNull();
     }
 
     @Test

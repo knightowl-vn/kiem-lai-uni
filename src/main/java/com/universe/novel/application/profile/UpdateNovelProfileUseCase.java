@@ -1,19 +1,40 @@
 package com.universe.novel.application.profile;
 
-import com.universe.novel.application.ports.NovelCoverStoragePort;
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.ports.NovelProfileRepositoryPort;
 import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
 import com.universe.novel.domain.NovelStatus;
 import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
+/**
+ * Use case orchestrating updates to the default Novel profile and managing cover media asset lifecycle.
+ *
+ * <p><strong>Transaction Boundary:</strong> This service does NOT hold an outer database transaction while
+ * executing binary storage operations via {@link MediaContract}. Database updates occur only after media upload
+ * has completed.
+ *
+ * <p><strong>Compensation Semantics:</strong>
+ * <ul>
+ *   <li>Initial Asset: If {@code uploadAsset} succeeds but Novel database persistence fails, compensation deletes
+ *       the newly registered media asset via {@link MediaContract#delete(UUID)}. If compensation also fails, the
+ *       suppressed exception is attached to the primary persistence exception.</li>
+ *   <li>Replacement Version: If {@code uploadVersion} succeeds but Novel database persistence fails, the existing
+ *       asset is preserved without deletion or synthetic version rollback (non-atomic cross-module limitation).</li>
+ * </ul>
+ */
 @Service
 public class UpdateNovelProfileUseCase {
 
@@ -41,15 +62,15 @@ public class UpdateNovelProfileUseCase {
     private final NovelProfileRepositoryPort
             novelProfileRepositoryPort;
 
-    private final NovelCoverStoragePort
-            novelCoverStoragePort;
+    private final MediaContract
+            mediaContract;
 
     private final ClockPort
             clockPort;
 
     public UpdateNovelProfileUseCase(
             NovelProfileRepositoryPort novelProfileRepositoryPort,
-            NovelCoverStoragePort novelCoverStoragePort,
+            MediaContract mediaContract,
             ClockPort clockPort
     ) {
         this.novelProfileRepositoryPort =
@@ -58,10 +79,10 @@ public class UpdateNovelProfileUseCase {
                         "NovelProfileRepositoryPort không được để trống."
                 );
 
-        this.novelCoverStoragePort =
+        this.mediaContract =
                 Objects.requireNonNull(
-                        novelCoverStoragePort,
-                        "NovelCoverStoragePort không được để trống."
+                        mediaContract,
+                        "MediaContract không được để trống."
                 );
 
         this.clockPort =
@@ -71,7 +92,6 @@ public class UpdateNovelProfileUseCase {
                 );
     }
 
-    @Transactional
     public NovelProfileDTO execute(
             UpdateNovelProfileCommand command
     ) {
@@ -122,36 +142,76 @@ public class UpdateNovelProfileUseCase {
                         ));
 
         /*
-         * 4. Giải quyết đường dẫn ảnh bìa:
-         *    - Nếu có file mới hợp lệ: tải lên storage provider và nhận URL mới.
-         *    - Nếu không có file mới: giữ nguyên coverImageUrl hiện có.
+         * 4. Giải quyết Media Cover:
+         *    - Nếu không upload ảnh mới: không tương tác MediaContract, giữ nguyên coverMediaAssetId và coverImageUrl legacy.
+         *    - Nếu upload ảnh mới và chưa có coverMediaAssetId: uploadAsset tạo asset mới, lưu coverMediaAssetId mới.
+         *    - Nếu upload ảnh mới và đã có coverMediaAssetId: uploadVersion tạo version mới cho asset hiện có, giữ nguyên coverMediaAssetId.
          */
-        String resolvedCoverUrl;
+        UUID targetCoverMediaAssetId = existingProfile.coverMediaAssetId();
+        boolean isInitialMediaAssetUpload = false;
+        UUID newlyCreatedMediaAssetId = null;
+
         if (command.coverUpload() != null) {
-            resolvedCoverUrl =
-                    novelCoverStoragePort.upload(
-                            DEFAULT_NOVEL_SLUG,
-                            command.coverUpload()
-                    );
-        } else {
-            resolvedCoverUrl =
-                    existingProfile.coverImageUrl();
+            NovelCoverUpload coverUpload = command.coverUpload();
+
+            if (existingProfile.coverMediaAssetId() == null) {
+                UploadMediaAssetRequestDTO uploadRequest = new UploadMediaAssetRequestDTO(
+                        coverUpload.content(),
+                        coverUpload.sizeBytes(),
+                        coverUpload.contentType(),
+                        MediaTypeDTO.IMAGE,
+                        MediaVisibilityDTO.PUBLIC,
+                        coverUpload.originalFilename()
+                );
+
+                UploadMediaAssetResponseDTO uploadResponse =
+                        mediaContract.uploadAsset(uploadRequest);
+
+                targetCoverMediaAssetId = uploadResponse.assetId();
+                newlyCreatedMediaAssetId = uploadResponse.assetId();
+                isInitialMediaAssetUpload = true;
+
+            } else {
+                UploadMediaAssetVersionRequestDTO uploadVersionRequest = new UploadMediaAssetVersionRequestDTO(
+                        existingProfile.coverMediaAssetId(),
+                        coverUpload.content(),
+                        coverUpload.sizeBytes(),
+                        coverUpload.contentType(),
+                        coverUpload.originalFilename()
+                );
+
+                mediaContract.uploadVersion(uploadVersionRequest);
+                targetCoverMediaAssetId = existingProfile.coverMediaAssetId();
+            }
         }
 
         /*
-         * 5. Cập nhật hồ sơ trong persistence layer.
+         * 5. Cập nhật hồ sơ trong persistence layer (bảo toàn raw coverImageUrl legacy).
+         *    Nếu cập nhật database thất bại sau khi uploadAsset ban đầu thành công, thực hiện compensation xóa media asset mới.
          */
         Instant now = clockPort.now();
 
-        return novelProfileRepositoryPort.update(
-                DEFAULT_NOVEL_SLUG,
-                title,
-                author,
-                description,
-                resolvedCoverUrl,
-                status,
-                now
-        );
+        try {
+            return novelProfileRepositoryPort.update(
+                    DEFAULT_NOVEL_SLUG,
+                    title,
+                    author,
+                    description,
+                    existingProfile.coverImageUrl(),
+                    targetCoverMediaAssetId,
+                    status,
+                    now
+            );
+        } catch (RuntimeException ex) {
+            if (isInitialMediaAssetUpload && newlyCreatedMediaAssetId != null) {
+                try {
+                    mediaContract.delete(newlyCreatedMediaAssetId);
+                } catch (Exception compEx) {
+                    ex.addSuppressed(compEx);
+                }
+            }
+            throw ex;
+        }
     }
 
     private String validateTitle(
@@ -240,14 +300,13 @@ public class UpdateNovelProfileUseCase {
     private void validateCoverUpload(
             NovelCoverUpload coverUpload
     ) {
-        byte[] content = coverUpload.content();
-        if (content == null || content.length == 0) {
+        if (coverUpload.content() == null || coverUpload.sizeBytes() <= 0) {
             throw new IllegalArgumentException(
                     "Vui lòng chọn file ảnh bìa hợp lệ."
             );
         }
 
-        if (content.length > MAX_COVER_FILE_SIZE) {
+        if (coverUpload.sizeBytes() > MAX_COVER_FILE_SIZE) {
             throw new IllegalArgumentException(
                     "Ảnh bìa không được vượt quá 5 MB."
             );

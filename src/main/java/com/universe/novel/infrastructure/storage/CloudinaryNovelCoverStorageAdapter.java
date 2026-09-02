@@ -76,11 +76,12 @@ public class CloudinaryNovelCoverStorageAdapter
                         + UUID.randomUUID();
 
         try {
+            byte[] bytes = coverUpload.content().readAllBytes();
             Map<?, ?> uploadResult =
                     cloudinary
                             .uploader()
                             .upload(
-                                    coverUpload.content(),
+                                    bytes,
                                     ObjectUtils.asMap(
                                             "asset_folder", folder,
                                             "public_id", publicId,
@@ -130,15 +131,13 @@ public class CloudinaryNovelCoverStorageAdapter
             );
         }
 
-        byte[] content = coverUpload.content();
-        if (content == null
-                || content.length == 0) {
+        if (coverUpload.content() == null || coverUpload.sizeBytes() <= 0) {
             throw new IllegalArgumentException(
                     "Vui lòng chọn file ảnh bìa hợp lệ."
             );
         }
 
-        if (content.length > MAX_FILE_SIZE) {
+        if (coverUpload.sizeBytes() > MAX_FILE_SIZE) {
             throw new IllegalArgumentException(
                     "Ảnh bìa không được vượt quá 5 MB."
             );

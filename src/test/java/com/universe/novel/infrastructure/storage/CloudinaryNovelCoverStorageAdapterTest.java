@@ -12,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
@@ -60,9 +61,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
                 .thenReturn(Map.of("secure_url", SECURE_URL));
 
         NovelCoverUpload coverUpload = new NovelCoverUpload(
-                "cover-art.png",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/png",
-                VALID_IMAGE_BYTES
+                "cover-art.png"
         );
 
         String resultUrl = adapter.upload("kiem-lai", coverUpload);
@@ -93,14 +95,21 @@ class CloudinaryNovelCoverStorageAdapterTest {
         when(uploader.upload(any(byte[].class), anyMap()))
                 .thenReturn(Map.of("secure_url", SECURE_URL));
 
-        NovelCoverUpload coverUpload = new NovelCoverUpload(
-                "cover.jpg",
+        NovelCoverUpload coverUpload1 = new NovelCoverUpload(
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/jpeg",
-                VALID_IMAGE_BYTES
+                "cover.jpg"
+        );
+        NovelCoverUpload coverUpload2 = new NovelCoverUpload(
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
+                "image/jpeg",
+                "cover.jpg"
         );
 
-        adapter.upload("kiem-lai", coverUpload);
-        adapter.upload("kiem-lai", coverUpload);
+        adapter.upload("kiem-lai", coverUpload1);
+        adapter.upload("kiem-lai", coverUpload2);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> optionsCaptor =
@@ -118,9 +127,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
     @DisplayName("Ném IllegalArgumentException khi MIME type không được hỗ trợ")
     void shouldThrowExceptionWhenMimeTypeIsInvalid() {
         NovelCoverUpload invalidMime = new NovelCoverUpload(
-                "cover.gif",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/gif",
-                VALID_IMAGE_BYTES
+                "cover.gif"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", invalidMime))
@@ -134,9 +144,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
     @DisplayName("Ném IllegalArgumentException khi đuôi mở rộng file không hợp lệ")
     void shouldThrowExceptionWhenExtensionIsInvalid() {
         NovelCoverUpload invalidExt = new NovelCoverUpload(
-                "cover.bmp",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/png",
-                VALID_IMAGE_BYTES
+                "cover.bmp"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", invalidExt))
@@ -151,9 +162,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
     void shouldThrowExceptionWhenFileSizeExceeds5MB() {
         byte[] oversizedBytes = new byte[5 * 1024 * 1024 + 1];
         NovelCoverUpload oversizedUpload = new NovelCoverUpload(
-                "huge-cover.jpg",
+                new ByteArrayInputStream(oversizedBytes),
+                oversizedBytes.length,
                 "image/jpeg",
-                oversizedBytes
+                "huge-cover.jpg"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", oversizedUpload))
@@ -167,9 +179,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
     @DisplayName("Ném IllegalArgumentException khi dữ liệu file rỗng hoặc null")
     void shouldThrowExceptionWhenContentIsEmptyOrNull() {
         NovelCoverUpload emptyUpload = new NovelCoverUpload(
-                "empty.jpg",
+                new ByteArrayInputStream(new byte[0]),
+                0,
                 "image/jpeg",
-                new byte[0]
+                "empty.jpg"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", emptyUpload))
@@ -187,9 +200,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
     @DisplayName("Ném IllegalArgumentException khi novel slug rỗng")
     void shouldThrowExceptionWhenSlugIsBlank() {
         NovelCoverUpload validUpload = new NovelCoverUpload(
-                "cover.webp",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/webp",
-                VALID_IMAGE_BYTES
+                "cover.webp"
         );
 
         assertThatThrownBy(() -> adapter.upload("   ", validUpload))
@@ -207,9 +221,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
                 .thenThrow(new IOException("Connection reset by peer"));
 
         NovelCoverUpload validUpload = new NovelCoverUpload(
-                "cover.png",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/png",
-                VALID_IMAGE_BYTES
+                "cover.png"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", validUpload))
@@ -225,9 +240,10 @@ class CloudinaryNovelCoverStorageAdapterTest {
                 .thenReturn(Map.of("public_id", "some-public-id"));
 
         NovelCoverUpload validUpload = new NovelCoverUpload(
-                "cover.png",
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
                 "image/png",
-                VALID_IMAGE_BYTES
+                "cover.png"
         );
 
         assertThatThrownBy(() -> adapter.upload("kiem-lai", validUpload))

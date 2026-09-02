@@ -4,6 +4,7 @@ import com.universe.novel.application.ports.NovelProfileRepositoryPort;
 import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
 
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -37,6 +38,7 @@ public class NovelProfilePersistenceAdapter
     }
 
     @Override
+    @Transactional
     public NovelProfileDTO update(
             String slug,
             String title,
@@ -78,6 +80,7 @@ public class NovelProfilePersistenceAdapter
     }
 
     @Override
+    @Transactional
     public NovelProfileDTO update(
             String slug,
             String title,
