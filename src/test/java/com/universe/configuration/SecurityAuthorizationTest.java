@@ -74,6 +74,10 @@ import com.universe.novel.entry.reader.ReaderBookmarkController;
 import com.universe.novel.entry.reader.ReaderReadingHistoryController;
 import com.universe.novel.entry.reader.ReaderReadingProgressController;
 import com.universe.novel.entry.reader.ReaderWikiLookupController;
+import com.universe.media.entry.delivery.MediaDeliveryController;
+import com.universe.media.application.asset.GetMediaAssetContentUseCase;
+import com.universe.media.application.asset.GetMediaAssetContentQuery;
+import com.universe.media.application.asset.GetMediaAssetContentResult;
 
 @WebMvcTest(controllers = {
         ReaderNovelPageController.class,
@@ -85,7 +89,8 @@ import com.universe.novel.entry.reader.ReaderWikiLookupController;
         ReaderWikiLookupController.class,
         AdminNovelVolumePageController.class,
         AdminNovelProfilePageController.class,
-        AdminNovelProfileCommandController.class
+        AdminNovelProfileCommandController.class,
+        MediaDeliveryController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -175,6 +180,9 @@ class SecurityAuthorizationTest {
     @MockBean
     private CurrentUserQueryPort currentUserQueryPort;
 
+    @MockBean
+    private GetMediaAssetContentUseCase getMediaAssetContentUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -184,6 +192,26 @@ class SecurityAuthorizationTest {
             chain.doFilter(request, response);
             return null;
         }).when(accountStatusFilter).doFilter(any(), any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh (anonymous) có thể truy cập GET /media/assets/{assetId}/content")
+    void shouldAllowAnonymousAccessToMediaAssetContentEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        byte[] payload = new byte[]{1, 2, 3};
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                new java.io.ByteArrayInputStream(payload),
+                payload.length,
+                "image/webp",
+                "dummyhash"
+        );
+
+        when(getMediaAssetContentUseCase.execute(new GetMediaAssetContentQuery(assetId)))
+                .thenReturn(result);
+
+        mockMvc.perform(get("/media/assets/" + assetId + "/content"))
+                .andExpect(status().isOk());
     }
 
     @Test

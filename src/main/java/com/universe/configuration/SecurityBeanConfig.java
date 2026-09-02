@@ -95,6 +95,12 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/media/assets/*/content"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 "/novel/bookmarks",
                                 "/novel/bookmarks/**",
                                 "/novel/history",
