@@ -1,340 +1,218 @@
 package com.universe.wiki.application.image;
 
+import com.universe.media.contracts.dto.MediaTypeDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.shared.time.ClockPort;
+import com.universe.wiki.application.ports.WikiImageRepositoryPort;
+
 import org.springframework.stereotype.Service;
 
-import com.universe.wiki.application.ports.WikiImageStoragePort;
-import com.universe.wiki.application.ports.WikiImageRepositoryPort;
-import com.universe.wiki.application.ports.WikiImageStoragePort;
-
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-import java.util.Locale;
-import java.util.Objects;
-import java.util.Set;
-
 @Service
 public class UploadWikiImageUseCase {
 
-    private static final long MAX_FILE_SIZE =
-            5L * 1024 * 1024;
+	private static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
 
-    private static final Set<String>
-            SUPPORTED_CONTENT_TYPES =
-            Set.of(
-                    "image/jpeg",
-                    "image/png",
-                    "image/webp"
-            );
+	private static final Set<String> SUPPORTED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
 
-    private static final Set<String>
-            SUPPORTED_EXTENSIONS =
-            Set.of(
-                    "jpg",
-                    "jpeg",
-                    "png",
-                    "webp"
-            );
+	private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
 
-    private final WikiImageStoragePort
-            imageStoragePort;
-    
-    private final WikiImageRepositoryPort
-    imageRepositoryPort;
+	private final MediaContract mediaContract;
+	private final WikiImageRepositoryPort imageRepositoryPort;
+	private final ClockPort clockPort;
 
-    public UploadWikiImageUseCase(
-            WikiImageStoragePort imageStoragePort,
-            WikiImageRepositoryPort imageRepositoryPort
-    ) {
-        this.imageStoragePort =
-                Objects.requireNonNull(
-                        imageStoragePort,
-                        "WikiImageStoragePort không được để trống."
-                );
+	public UploadWikiImageUseCase(MediaContract mediaContract, WikiImageRepositoryPort imageRepositoryPort,
+			ClockPort clockPort) {
+		this.mediaContract = Objects.requireNonNull(mediaContract, "MediaContract không được để trống.");
+		this.imageRepositoryPort = Objects.requireNonNull(imageRepositoryPort,
+				"WikiImageRepositoryPort không được để trống.");
+		this.clockPort = Objects.requireNonNull(clockPort, "ClockPort không được để trống.");
+	}
 
-        this.imageRepositoryPort =
-                Objects.requireNonNull(
-                        imageRepositoryPort,
-                        "WikiImageRepositoryPort không được để trống."
-                );
-    }
+	public WikiImageUploadResult execute(InputStream content, long declaredSizeBytes, String contentType,
+			String originalFilename) {
+		validateMetadata(originalFilename, contentType, content);
 
-    public WikiImageUploadResult execute(
-            String originalFilename,
-            String contentType,
-            byte[] content
-    ) {
-        validate(
-                originalFilename,
-                contentType,
-                content
-        );
+		if (declaredSizeBytes <= 0) {
+			throw new IllegalArgumentException("Vui lòng chọn một ảnh Wiki.");
+		}
 
-        String contentHash =
-                calculateSha256(
-                        content
-                );
+		if (declaredSizeBytes > MAX_FILE_SIZE) {
+			throw new IllegalArgumentException("Ảnh Wiki không được vượt quá 5 MB.");
+		}
 
-        /*
-         * Nếu binary của ảnh đã từng được upload,
-         * tái sử dụng asset Cloudinary cũ.
-         */
-        return imageRepositoryPort
-                .findByContentHash(
-                        contentHash
-                )
-                .map(
-                        existingAsset ->
-                                new WikiImageUploadResult(
-                                        existingAsset.url(),
-                                        existingAsset.publicId()
-                                )
-                )
-                .orElseGet(
-                        () -> uploadNewImage(
-                                originalFilename,
-                                contentType,
-                                content,
-                                contentHash
-                        )
-                );
-    }
-    
-    private WikiImageUploadResult uploadNewImage(
-            String originalFilename,
-            String contentType,
-            byte[] content,
-            String contentHash
-    ) {
-        WikiImageUploadResult uploadResult =
-                imageStoragePort.upload(
-                        normalizeFilename(
-                                originalFilename
-                        ),
-                        contentType,
-                        content
-                );
+		Path spoolFile = null;
+		try {
+			try {
+				spoolFile = Files.createTempFile("wiki-upload-spool-", ".tmp");
+			} catch (IOException exception) {
+				throw new UncheckedIOException("Không thể tạo file tạm để xử lý ảnh Wiki.", exception);
+			}
 
-        WikiImageAsset asset =
-                new WikiImageAsset(
-                        UUID.randomUUID(),
-                        contentHash,
-                        uploadResult.url(),
-                        uploadResult.publicId(),
-                        contentType,
-                        content.length,
-                        Instant.now()
-                );
+			MessageDigest digest;
+			try {
+				digest = MessageDigest.getInstance("SHA-256");
+			} catch (NoSuchAlgorithmException exception) {
+				throw new IllegalStateException("Không thể tạo fingerprint cho ảnh Wiki.", exception);
+			}
 
-        imageRepositoryPort.save(
-                asset
-        );
+			long actualSizeBytes = 0;
+			try (OutputStream out = Files.newOutputStream(spoolFile)) {
+				byte[] buffer = new byte[8192];
+				int bytesRead;
+				while ((bytesRead = content.read(buffer)) != -1) {
+					actualSizeBytes += bytesRead;
+					if (actualSizeBytes > MAX_FILE_SIZE) {
+						throw new IllegalArgumentException("Ảnh Wiki không được vượt quá 5 MB.");
+					}
+					digest.update(buffer, 0, bytesRead);
+					out.write(buffer, 0, bytesRead);
+				}
+			} catch (IOException exception) {
+				throw new UncheckedIOException("Không thể ghi file tạm khi upload ảnh Wiki.", exception);
+			}
 
-        return uploadResult;
-    }
-    
-    private String calculateSha256(
-            byte[] content
-    ) {
-        try {
-            MessageDigest digest =
-                    MessageDigest.getInstance(
-                            "SHA-256"
-                    );
+			if (actualSizeBytes == 0) {
+				throw new IllegalArgumentException("Vui lòng chọn một ảnh Wiki.");
+			}
 
-            byte[] hash =
-                    digest.digest(
-                            content
-                    );
+			String contentHash = HexFormat.of().formatHex(digest.digest());
 
-            return HexFormat
-                    .of()
-                    .formatHex(
-                            hash
-                    );
+			var existingAssetOpt = imageRepositoryPort.findByContentHash(contentHash);
 
-        } catch (
-                NoSuchAlgorithmException exception
-        ) {
-            /*
-             * SHA-256 là thuật toán bắt buộc
-             * phải có trong Java runtime.
-             */
-            throw new IllegalStateException(
-                    "Không thể tạo fingerprint cho ảnh Wiki.",
-                    exception
-            );
-        }
-    }
+			if (existingAssetOpt.isPresent()) {
+				WikiImageAsset existing = existingAssetOpt.get();
+				return new WikiImageUploadResult(existing.url(), existing.publicId());
+			}
 
-    /*
-     * =====================================================
-     * VALIDATION
-     * =====================================================
-     */
+			UploadMediaAssetResponseDTO mediaResponse;
+			try (InputStream uploadIn = Files.newInputStream(spoolFile)) {
+				UploadMediaAssetRequestDTO uploadRequest = new UploadMediaAssetRequestDTO(uploadIn, actualSizeBytes,
+						contentType, MediaTypeDTO.IMAGE, MediaVisibilityDTO.PUBLIC,
+						normalizeFilename(originalFilename));
+				mediaResponse = mediaContract.uploadAsset(uploadRequest);
+			} catch (IOException exception) {
+				throw new UncheckedIOException("Không thể đọc file tạm để upload lên Media.", exception);
+			}
 
-    private void validate(
-            String originalFilename,
-            String contentType,
-            byte[] content
-    ) {
-        validateContent(
-                content
-        );
+			UUID mediaAssetId = mediaResponse.assetId();
+			String mediaDeliveryUrl = "/media/assets/" + mediaAssetId + "/content";
 
-        validateContentType(
-                contentType
-        );
+			WikiImageAsset newAsset = new WikiImageAsset(UUID.randomUUID(), contentHash, mediaDeliveryUrl, null,
+					mediaAssetId, contentType, actualSizeBytes, clockPort.now());
 
-        validateFilename(
-                originalFilename
-        );
-    }
+			try {
+				imageRepositoryPort.save(newAsset);
+			} catch (Exception persistEx) {
+				try {
+					mediaContract.delete(mediaAssetId);
+				} catch (Exception compEx) {
+					persistEx.addSuppressed(compEx);
+				}
+				throw persistEx;
+			}
 
-    private void validateContent(
-            byte[] content
-    ) {
-        if (
-                content == null
-                || content.length == 0
-        ) {
-            throw new IllegalArgumentException(
-                    "Vui lòng chọn một ảnh Wiki."
-            );
-        }
+			return new WikiImageUploadResult(mediaDeliveryUrl, null);
 
-        if (
-                content.length > MAX_FILE_SIZE
-        ) {
-            throw new IllegalArgumentException(
-                    "Ảnh Wiki không được vượt quá 5 MB."
-            );
-        }
-    }
+		} finally {
+			if (spoolFile != null) {
+				try {
+					Files.deleteIfExists(spoolFile);
+				} catch (IOException ignored) {
+				}
+			}
+		}
+	}
 
-    private void validateContentType(
-            String contentType
-    ) {
-        if (
-                contentType == null
-                || !SUPPORTED_CONTENT_TYPES.contains(
-                        contentType
-                )
-        ) {
-            throw new IllegalArgumentException(
-                    "Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP."
-            );
-        }
-    }
+	public WikiImageUploadResult execute(String originalFilename, String contentType, InputStream content,
+			long declaredSizeBytes) {
+		return execute(content, declaredSizeBytes, contentType, originalFilename);
+	}
 
-    private void validateFilename(
-            String originalFilename
-    ) {
-        if (
-                originalFilename == null
-                || originalFilename.isBlank()
-        ) {
-            throw new IllegalArgumentException(
-                    "Tên file ảnh không hợp lệ."
-            );
-        }
+	/*
+	 * ===================================================== VALIDATION
+	 * =====================================================
+	 */
 
-        String extension =
-                extractExtension(
-                        originalFilename
-                );
+	private void validateMetadata(String originalFilename, String contentType, InputStream content) {
+		if (content == null) {
+			throw new IllegalArgumentException("Vui lòng chọn một ảnh Wiki.");
+		}
 
-        if (
-                !SUPPORTED_EXTENSIONS.contains(
-                        extension
-                )
-        ) {
-            throw new IllegalArgumentException(
-                    "Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP."
-            );
-        }
-    }
+		validateContentType(contentType);
+		validateFilename(originalFilename);
+	}
 
-    /*
-     * =====================================================
-     * FILENAME
-     * =====================================================
-     */
+	private void validateContentType(String contentType) {
+		if (contentType == null || !SUPPORTED_CONTENT_TYPES.contains(contentType)) {
+			throw new IllegalArgumentException("Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP.");
+		}
+	}
 
-    private String normalizeFilename(
-            String originalFilename
-    ) {
-        String normalized =
-                originalFilename.trim();
+	private void validateFilename(String originalFilename) {
+		if (originalFilename == null || originalFilename.isBlank()) {
+			throw new IllegalArgumentException("Tên file ảnh không hợp lệ.");
+		}
 
-        /*
-         * Phòng trường hợp client gửi cả đường dẫn:
-         *
-         * C:\fakepath\image.png
-         * /home/user/image.png
-         */
-        normalized =
-                normalized.replace(
-                        '\\',
-                        '/'
-                );
+		String extension = extractExtension(originalFilename);
 
-        int lastSlashIndex =
-                normalized.lastIndexOf('/');
+		if (!SUPPORTED_EXTENSIONS.contains(extension)) {
+			throw new IllegalArgumentException("Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP.");
+		}
+	}
 
-        if (
-                lastSlashIndex >= 0
-                && lastSlashIndex
-                        < normalized.length() - 1
-        ) {
-            normalized =
-                    normalized.substring(
-                            lastSlashIndex + 1
-                    );
-        }
+	/*
+	 * ===================================================== FILENAME
+	 * =====================================================
+	 */
 
-        return normalized;
-    }
+	private String normalizeFilename(String originalFilename) {
+		String normalized = originalFilename.trim();
 
-    private String extractExtension(
-            String originalFilename
-    ) {
-        if (
-                originalFilename == null
-                || originalFilename.isBlank()
-        ) {
-            return "";
-        }
+		/*
+		 * Phòng trường hợp client gửi cả đường dẫn: C:\fakepath\image.png
+		 * /home/user/image.png
+		 */
+		normalized = normalized.replace('\\', '/');
 
-        String normalizedFilename =
-                normalizeFilename(
-                        originalFilename
-                );
+		int lastSlashIndex = normalized.lastIndexOf('/');
 
-        int dotIndex =
-                normalizedFilename.lastIndexOf('.');
+		if (lastSlashIndex >= 0 && lastSlashIndex < normalized.length() - 1) {
+			normalized = normalized.substring(lastSlashIndex + 1);
+		}
 
-        if (
-                dotIndex < 0
-                || dotIndex
-                        == normalizedFilename.length() - 1
-        ) {
-            return "";
-        }
+		return normalized;
+	}
 
-        return normalizedFilename
-                .substring(
-                        dotIndex + 1
-                )
-                .toLowerCase(
-                        Locale.ROOT
-                );
-    }
+	private String extractExtension(String originalFilename) {
+		if (originalFilename == null || originalFilename.isBlank()) {
+			return "";
+		}
+
+		String normalizedFilename = normalizeFilename(originalFilename);
+
+		int dotIndex = normalizedFilename.lastIndexOf('.');
+
+		if (dotIndex < 0 || dotIndex == normalizedFilename.length() - 1) {
+			return "";
+		}
+
+		return normalizedFilename.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+	}
 }

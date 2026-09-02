@@ -17,6 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -43,22 +45,39 @@ public class AdminWikiImageController {
             @RequestParam("file")
             MultipartFile file
     ) {
-        try {
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity
+                    .badRequest()
+                    .body(
+                            Map.of(
+                                    "message",
+                                    "Vui lòng chọn một ảnh Wiki."
+                            )
+                    );
+        }
+
+        try (InputStream inputStream = file.getInputStream()) {
             WikiImageUploadResult result =
                     uploadWikiImageUseCase.execute(
-                            file.getOriginalFilename(),
+                            inputStream,
+                            file.getSize(),
                             file.getContentType(),
-                            file.getBytes()
+                            file.getOriginalFilename()
                     );
 
-            return ResponseEntity.ok(
-                    Map.of(
-                            "url",
-                            result.url(),
+            Map<String, Object> response =
+                    new HashMap<>();
+            response.put(
+                    "url",
+                    result.url()
+            );
+            response.put(
+                    "publicId",
+                    result.publicId()
+            );
 
-                            "publicId",
-                            result.publicId()
-                    )
+            return ResponseEntity.ok(
+                    response
             );
 
         } catch (
