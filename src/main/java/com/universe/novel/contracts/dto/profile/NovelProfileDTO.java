@@ -29,4 +29,11 @@ public record NovelProfileDTO(
     ) {
         this(id, title, slug, author, description, coverImageUrl, null, status, createdAt, updatedAt);
     }
+
+    public String displayCoverImageUrl() {
+        if (coverMediaAssetId != null) {
+            return "/media/assets/" + coverMediaAssetId + "/content";
+        }
+        return coverImageUrl;
+    }
 }

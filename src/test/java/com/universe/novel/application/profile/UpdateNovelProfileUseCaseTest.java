@@ -131,6 +131,76 @@ class UpdateNovelProfileUseCaseTest {
     }
 
     @Test
+    @DisplayName("Update khi entity có coverMediaAssetId và coverImageUrl legacy nhưng không upload ảnh mới -> Giữ nguyên coverImageUrl legacy và không bao giờ ghi đè /media/assets/{id}/content")
+    void shouldPreserveLegacyCoverUrlAndNotOverwriteWithMediaDeliveryUrlWhenNoNewCoverUploaded() {
+        UUID mediaAssetId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai (Tái Bản)",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả cập nhật",
+                "ONGOING",
+                null
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả cũ",
+                "https://res.cloudinary.com/legacy-cover.jpg",
+                mediaAssetId,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        NovelProfileDTO updatedResult = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai (Tái Bản)",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả cập nhật",
+                "https://res.cloudinary.com/legacy-cover.jpg",
+                mediaAssetId,
+                "ONGOING",
+                CREATED_AT,
+                NOW
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                "kiem-lai",
+                "Kiếm Lai (Tái Bản)",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả cập nhật",
+                "https://res.cloudinary.com/legacy-cover.jpg",
+                "ONGOING",
+                NOW
+        )).thenReturn(updatedResult);
+
+        NovelProfileDTO result = useCase.execute(command);
+
+        assertThat(result.coverImageUrl())
+                .isEqualTo("https://res.cloudinary.com/legacy-cover.jpg");
+        assertThat(result.coverMediaAssetId())
+                .isEqualTo(mediaAssetId);
+
+        verify(novelCoverStoragePort, never()).upload(any(), any());
+        verify(novelProfileRepositoryPort).update(
+                eq("kiem-lai"),
+                eq("Kiếm Lai (Tái Bản)"),
+                eq("Phong Hỏa Hí Chư Hầu"),
+                eq("Mô tả cập nhật"),
+                eq("https://res.cloudinary.com/legacy-cover.jpg"),
+                eq("ONGOING"),
+                eq(NOW)
+        );
+    }
+
+    @Test
     @DisplayName("Chọn ảnh mới hợp lệ -> Gọi NovelCoverStoragePort một lần và cập nhật URL mới")
     void shouldUploadNewCoverAndPersistNewUrlWhenValidCoverProvided() {
         NovelCoverUpload coverUpload = new NovelCoverUpload(

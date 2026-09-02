@@ -36,13 +36,15 @@ public class AdminNovelProfilePageController {
         NovelProfileDTO profile =
                 getNovelProfileUseCase.execute();
 
+        String displayCoverUrl = profile.displayCoverImageUrl();
+
         if (!model.containsAttribute("form")) {
             EditNovelProfileForm form =
                     new EditNovelProfileForm();
             form.setTitle(profile.title());
             form.setAuthor(profile.author());
             form.setDescription(profile.description());
-            form.setCoverImageUrl(profile.coverImageUrl());
+            form.setCoverImageUrl(displayCoverUrl);
             form.setStatus(profile.status());
 
             model.addAttribute(
@@ -54,6 +56,11 @@ public class AdminNovelProfilePageController {
         model.addAttribute(
                 "profile",
                 profile
+        );
+
+        model.addAttribute(
+                "displayCoverUrl",
+                displayCoverUrl
         );
 
         model.addAttribute(

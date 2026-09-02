@@ -60,7 +60,7 @@ class AdminNovelProfileTemplateContractTest {
         assertThat(profile).contains("accept=\"image/jpeg,image/png,image/webp\"");
 
         // Cover preview & placeholder
-        assertThat(profile).contains("profile.coverImageUrl");
+        assertThat(profile).contains("displayCoverUrl");
         assertThat(profile).contains("Chưa có ảnh bìa");
 
         // Đảm bảo không còn ô text input chỉnh sửa coverImageUrl thủ công

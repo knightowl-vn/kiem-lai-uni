@@ -73,7 +73,7 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
 
     @Test
     @DisplayName(
-            "Ánh xạ Novel Profile thành Reader Novel Overview"
+            "Ánh xạ Novel Profile legacy (coverMediaAssetId null) thành Reader Novel Overview"
     )
     void shouldMapNovelProfileToReaderNovelOverview() {
 
@@ -87,41 +87,13 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
                 )
         );
 
-        when(
-                novelProfile.getTitle()
-        ).thenReturn(
-                "Kiếm Lai"
-        );
-
-        when(
-                novelProfile.getSlug()
-        ).thenReturn(
-                "kiem-lai"
-        );
-
-        when(
-                novelProfile.getAuthor()
-        ).thenReturn(
-                "Phong Hỏa Hí Chư Hầu"
-        );
-
-        when(
-                novelProfile.getDescription()
-        ).thenReturn(
-                "Giới thiệu Kiếm Lai."
-        );
-
-        when(
-                novelProfile.getCoverImageUrl()
-        ).thenReturn(
-                "/images/novel/kiem-lai.jpg"
-        );
-
-        when(
-                novelProfile.getStatus()
-        ).thenReturn(
-                "ONGOING"
-        );
+        when(novelProfile.getTitle()).thenReturn("Kiếm Lai");
+        when(novelProfile.getSlug()).thenReturn("kiem-lai");
+        when(novelProfile.getAuthor()).thenReturn("Phong Hỏa Hí Chư Hầu");
+        when(novelProfile.getDescription()).thenReturn("Giới thiệu Kiếm Lai.");
+        when(novelProfile.getCoverImageUrl()).thenReturn("/images/novel/kiem-lai.jpg");
+        when(novelProfile.getCoverMediaAssetId()).thenReturn(null);
+        when(novelProfile.getStatus()).thenReturn("ONGOING");
 
         Optional<ReaderNovelOverviewDTO> result =
                 adapter.findNovelOverview();
@@ -133,47 +105,85 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
         ReaderNovelOverviewDTO novel =
                 result.orElseThrow();
 
-        assertThat(
-                novel.title()
-        ).isEqualTo(
-                "Kiếm Lai"
-        );
+        assertThat(novel.title()).isEqualTo("Kiếm Lai");
+        assertThat(novel.slug()).isEqualTo("kiem-lai");
+        assertThat(novel.author()).isEqualTo("Phong Hỏa Hí Chư Hầu");
+        assertThat(novel.description()).isEqualTo("Giới thiệu Kiếm Lai.");
+        assertThat(novel.coverImageUrl()).isEqualTo("/images/novel/kiem-lai.jpg");
+        assertThat(novel.coverMediaAssetId()).isNull();
+        assertThat(novel.status()).isEqualTo("ONGOING");
 
-        assertThat(
-                novel.slug()
-        ).isEqualTo(
-                "kiem-lai"
-        );
+        verify(novelProfileRepository).findBySlug("kiem-lai");
+    }
 
-        assertThat(
-                novel.author()
-        ).isEqualTo(
-                "Phong Hỏa Hí Chư Hầu"
-        );
+    @Test
+    @DisplayName(
+            "Ánh xạ Novel Profile Media-backed (coverMediaAssetId non-null) thành /media/assets/{id}/content"
+    )
+    void shouldMapMediaBackedNovelProfileToReaderNovelOverview() {
+        UUID mediaAssetId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
-        assertThat(
-                novel.description()
-        ).isEqualTo(
-                "Giới thiệu Kiếm Lai."
-        );
+        when(novelProfileRepository.findBySlug("kiem-lai")).thenReturn(Optional.of(novelProfile));
+        when(novelProfile.getTitle()).thenReturn("Kiếm Lai");
+        when(novelProfile.getSlug()).thenReturn("kiem-lai");
+        when(novelProfile.getAuthor()).thenReturn("Phong Hỏa Hí Chư Hầu");
+        when(novelProfile.getDescription()).thenReturn("Giới thiệu Kiếm Lai.");
+        when(novelProfile.getCoverImageUrl()).thenReturn(null);
+        when(novelProfile.getCoverMediaAssetId()).thenReturn(mediaAssetId.toString());
+        when(novelProfile.getStatus()).thenReturn("ONGOING");
 
-        assertThat(
-                novel.coverImageUrl()
-        ).isEqualTo(
-                "/images/novel/kiem-lai.jpg"
-        );
+        Optional<ReaderNovelOverviewDTO> result = adapter.findNovelOverview();
 
-        assertThat(
-                novel.status()
-        ).isEqualTo(
-                "ONGOING"
-        );
+        assertThat(result).isPresent();
+        ReaderNovelOverviewDTO novel = result.orElseThrow();
+        assertThat(novel.coverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(novel.coverMediaAssetId()).isEqualTo(mediaAssetId);
+    }
 
-        verify(
-                novelProfileRepository
-        ).findBySlug(
-                "kiem-lai"
-        );
+    @Test
+    @DisplayName(
+            "Khi cả coverMediaAssetId và coverImageUrl cùng tồn tại -> Media Asset ID thắng, không fallback legacy URL"
+    )
+    void shouldPreferMediaAssetIdOverLegacyCoverImageUrlWhenBothPresent() {
+        UUID mediaAssetId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+        when(novelProfileRepository.findBySlug("kiem-lai")).thenReturn(Optional.of(novelProfile));
+        when(novelProfile.getTitle()).thenReturn("Kiếm Lai");
+        when(novelProfile.getSlug()).thenReturn("kiem-lai");
+        when(novelProfile.getAuthor()).thenReturn("Phong Hỏa Hí Chư Hầu");
+        when(novelProfile.getDescription()).thenReturn("Giới thiệu Kiếm Lai.");
+        when(novelProfile.getCoverImageUrl()).thenReturn("https://res.cloudinary.com/legacy-cover.jpg");
+        when(novelProfile.getCoverMediaAssetId()).thenReturn(mediaAssetId.toString());
+        when(novelProfile.getStatus()).thenReturn("ONGOING");
+
+        Optional<ReaderNovelOverviewDTO> result = adapter.findNovelOverview();
+
+        assertThat(result).isPresent();
+        ReaderNovelOverviewDTO novel = result.orElseThrow();
+        assertThat(novel.coverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(novel.coverMediaAssetId()).isEqualTo(mediaAssetId);
+    }
+
+    @Test
+    @DisplayName(
+            "Khi cả coverMediaAssetId và coverImageUrl đều null -> coverImageUrl trong DTO là null"
+    )
+    void shouldHandleNoCoverWhenBothNull() {
+        when(novelProfileRepository.findBySlug("kiem-lai")).thenReturn(Optional.of(novelProfile));
+        when(novelProfile.getTitle()).thenReturn("Kiếm Lai");
+        when(novelProfile.getSlug()).thenReturn("kiem-lai");
+        when(novelProfile.getAuthor()).thenReturn("Phong Hỏa Hí Chư Hầu");
+        when(novelProfile.getDescription()).thenReturn("Giới thiệu Kiếm Lai.");
+        when(novelProfile.getCoverImageUrl()).thenReturn(null);
+        when(novelProfile.getCoverMediaAssetId()).thenReturn(null);
+        when(novelProfile.getStatus()).thenReturn("ONGOING");
+
+        Optional<ReaderNovelOverviewDTO> result = adapter.findNovelOverview();
+
+        assertThat(result).isPresent();
+        ReaderNovelOverviewDTO novel = result.orElseThrow();
+        assertThat(novel.coverImageUrl()).isNull();
+        assertThat(novel.coverMediaAssetId()).isNull();
     }
 
     @Test

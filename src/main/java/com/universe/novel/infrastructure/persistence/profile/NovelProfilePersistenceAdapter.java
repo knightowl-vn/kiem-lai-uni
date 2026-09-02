@@ -119,6 +119,10 @@ public class NovelProfilePersistenceAdapter
     private NovelProfileDTO toDTO(
             NovelProfileJpaEntity entity
     ) {
+        UUID coverMediaAssetId = entity.getCoverMediaAssetId() != null
+                ? UUID.fromString(entity.getCoverMediaAssetId())
+                : null;
+
         return new NovelProfileDTO(
                 UUID.fromString(
                         entity.getId()
@@ -128,9 +132,7 @@ public class NovelProfilePersistenceAdapter
                 entity.getAuthor(),
                 entity.getDescription(),
                 entity.getCoverImageUrl(),
-                entity.getCoverMediaAssetId() != null
-                        ? UUID.fromString(entity.getCoverMediaAssetId())
-                        : null,
+                coverMediaAssetId,
                 entity.getStatus(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()

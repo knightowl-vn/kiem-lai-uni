@@ -82,4 +82,44 @@ class AdminNovelProfilePageControllerTest {
 
         verify(getNovelProfileUseCase).execute();
     }
+
+    @Test
+    @DisplayName("GET /admin/novel/profile với Media-backed cover hiển thị form/displayCoverUrl với đường dẫn /media/assets/{id}/content trong khi profile giữ nguyên raw legacy URL")
+    void shouldRenderProfilePageWithMediaBackedCover() {
+        UUID mediaAssetId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        NovelProfileDTO profile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả tiểu thuyết Kiếm Lai.",
+                "https://res.cloudinary.com/legacy-cover.jpg",
+                mediaAssetId,
+                "ONGOING",
+                CREATED_AT,
+                UPDATED_AT
+        );
+
+        when(getNovelProfileUseCase.execute()).thenReturn(profile);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = controller.profilePage(model);
+
+        assertThat(view).isEqualTo("admin/novel/profile");
+        assertThat(model.getAttribute("profile")).isEqualTo(profile);
+        assertThat(model.getAttribute("displayCoverUrl")).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+
+        // Profile giữ nguyên raw legacy URL
+        assertThat(((NovelProfileDTO) model.getAttribute("profile")).coverImageUrl())
+                .isEqualTo("https://res.cloudinary.com/legacy-cover.jpg");
+        assertThat(((NovelProfileDTO) model.getAttribute("profile")).coverMediaAssetId())
+                .isEqualTo(mediaAssetId);
+
+        // Form và display nhận URL Media delivery (Media thắng cho display)
+        EditNovelProfileForm form = (EditNovelProfileForm) model.getAttribute("form");
+        assertThat(form).isNotNull();
+        assertThat(form.getCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+
+        verify(getNovelProfileUseCase).execute();
+    }
 }

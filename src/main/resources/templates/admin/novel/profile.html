@@ -246,13 +246,13 @@
 								<!-- Preview Box (2:3 aspect ratio) -->
 								<div class="novel-admin-cover-preview-wrapper">
 
-									<div th:if="${profile.coverImageUrl != null and !profile.coverImageUrl.isBlank()}"
+									<div th:if="${displayCoverUrl != null and !displayCoverUrl.isBlank()}"
 										class="novel-admin-cover-preview">
-										<img th:src="${profile.coverImageUrl}"
+										<img th:src="${displayCoverUrl}"
 											alt="Ảnh bìa tiểu thuyết Kiếm Lai">
 									</div>
 
-									<div th:unless="${profile.coverImageUrl != null and !profile.coverImageUrl.isBlank()}"
+									<div th:unless="${displayCoverUrl != null and !displayCoverUrl.isBlank()}"
 										class="novel-admin-cover-placeholder">
 										<span class="novel-admin-cover-placeholder-icon">📖</span>
 										<span class="novel-admin-cover-placeholder-text">Chưa có ảnh bìa</span>
