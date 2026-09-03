@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 @Controller
 public class ProfileUpdateController {
 
@@ -43,7 +46,21 @@ public class ProfileUpdateController {
 
 			Authentication authentication, RedirectAttributes redirectAttributes) {
 		try {
-			updateAvatarService.execute(resolveCurrentUserEmail(authentication), avatarFile);
+			if (avatarFile == null || avatarFile.isEmpty()) {
+				throw new IllegalArgumentException("Vui lòng chọn một ảnh đại diện.");
+			}
+
+			try (InputStream inputStream = avatarFile.getInputStream()) {
+				updateAvatarService.execute(
+						resolveCurrentUserEmail(authentication),
+						inputStream,
+						avatarFile.getSize(),
+						avatarFile.getContentType(),
+						avatarFile.getOriginalFilename()
+				);
+			} catch (IOException exception) {
+				throw new IllegalStateException("Không thể đọc dữ liệu ảnh tải lên.", exception);
+			}
 
 			redirectAttributes.addFlashAttribute("successMessage", "Cập nhật ảnh đại diện thành công.");
 
