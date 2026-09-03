@@ -520,5 +520,71 @@ class CommonMarkWikiMarkdownRendererTest {
                         "Đoạn văn phải chạy bên trái ảnh."
                 );
     }
-    
+
+    @Test
+    @DisplayName(
+            "Render anh Media-backed: src /media/assets/{uuid}/content duoc dung trong figure"
+    )
+    void shouldRenderMediaBackedWikiImageWithFigureAndSrc() {
+        String mediaUrl =
+                "/media/assets/3b999d3e-9080-48e0-bb15-0d29ca365287/content";
+
+        String markdown =
+                "![Media image]("
+                + mediaUrl
+                + " \"wiki:width=50;layout=block-center\")"
+                + "\n\n*Caption text*";
+
+        RenderedWikiContent result =
+                renderer.render(markdown);
+
+        assertThat(result.html())
+                .contains(
+                        "<figure class=\"wiki-media wiki-media--width-50 wiki-media--block-center\">"
+                )
+                .contains(
+                        "<img src=\"" + mediaUrl + "\" alt=\"Media image\""
+                )
+                .contains(
+                        "</figure>"
+                );
+    }
+
+    @Test
+    @DisplayName(
+            "Render dong thoi ca anh Media-backed va anh Cloudinary khong can logic rieng biet"
+    )
+    void shouldRenderBothMediaAndLegacyImagesUniformly() {
+        String mediaUrl =
+                "/media/assets/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/content";
+
+        String legacyUrl =
+                "https://res.cloudinary.com/demo/image/upload/v1/kiemlai/wiki/legacy.webp";
+
+        String markdown =
+                "![Media]("
+                + mediaUrl
+                + " \"wiki:width=40;layout=wrap-left\")"
+                + "\n\nText between.\n\n"
+                + "![Legacy]("
+                + legacyUrl
+                + " \"wiki:width=60;layout=block-right\")";
+
+        RenderedWikiContent result =
+                renderer.render(markdown);
+
+        assertThat(result.html())
+                .contains(
+                        "<img src=\"" + mediaUrl + "\""
+                )
+                .contains(
+                        "wiki-media--wrap-left"
+                )
+                .contains(
+                        "<img src=\"" + legacyUrl + "\""
+                )
+                .contains(
+                        "wiki-media--block-right"
+                );
+    }
 }
