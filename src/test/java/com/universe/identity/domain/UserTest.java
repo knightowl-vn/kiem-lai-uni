@@ -58,6 +58,9 @@ class UserTest {
         assertThat(user.getDisplayName())
                 .isEqualTo("Athena");
 
+        assertThat(user.getAvatarMediaAssetId())
+                .isNull();
+
         assertThat(user.getAvatarUrl())
                 .isNull();
 
@@ -185,6 +188,9 @@ class UserTest {
                         "google-subject-123"
                 );
 
+        assertThat(user.getAvatarMediaAssetId())
+                .isNull();
+
         assertThat(user.getAvatarUrl())
                 .isEqualTo(
                         "https://example.com/avatar.png"
@@ -217,6 +223,7 @@ class UserTest {
                         "athena@example.com",
                         "$2a$10$hashedPassword",
                         "Athena",
+                        null,
                         "https://example.com/avatar.png",
                         true,
                         "Bio của Athena",
@@ -304,6 +311,7 @@ class UserTest {
                         "athena@example.com",
                         "$2a$10$hashedPassword",
                         "Athena",
+                        null,
                         "https://example.com/avatar.png",
                         false,
                         null,
@@ -319,6 +327,9 @@ class UserTest {
                 user.getAggregateVersion();
 
         user.removeAvatar();
+
+        assertThat(user.getAvatarMediaAssetId())
+                .isNull();
 
         assertThat(user.getAvatarUrl())
                 .isNull();
@@ -435,6 +446,133 @@ class UserTest {
                 .isInstanceOf(
                         UnsupportedOperationException.class
                 );
+    }
+
+    @Test
+    @DisplayName(
+            "Cập nhật media avatar lưu ID + URL + customized=true và tăng version"
+    )
+    void shouldUpdateMediaAvatarAndMarkCustomized() {
+        User user = createLocalUser();
+        UUID mediaAssetId = UUID.randomUUID();
+        String deliveryUrl = "/media/assets/" + mediaAssetId + "/content";
+
+        long versionBefore = user.getAggregateVersion();
+
+        user.updateMediaAvatar(mediaAssetId, deliveryUrl);
+
+        assertThat(user.getAvatarMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(user.getAvatarUrl()).isEqualTo(deliveryUrl);
+        assertThat(user.isAvatarCustomized()).isTrue();
+        assertThat(user.getAggregateVersion()).isEqualTo(versionBefore + 1);
+
+        // Updating with exact same values should be idempotent and not increment version
+        user.updateMediaAvatar(mediaAssetId, deliveryUrl);
+        assertThat(user.getAggregateVersion()).isEqualTo(versionBefore + 1);
+    }
+
+    @Test
+    @DisplayName(
+            "Cập nhật avatar bằng URL-only xóa bỏ Media reference về null"
+    )
+    void shouldClearMediaAssetIdWhenUpdatingUrlOnlyAvatar() {
+        User user = createLocalUser();
+        UUID mediaAssetId = UUID.randomUUID();
+        user.updateMediaAvatar(mediaAssetId, "/media/assets/" + mediaAssetId + "/content");
+
+        long versionBefore = user.getAggregateVersion();
+
+        user.updateAvatarUrl("https://example.com/legacy.png");
+
+        assertThat(user.getAvatarMediaAssetId()).isNull();
+        assertThat(user.getAvatarUrl()).isEqualTo("https://example.com/legacy.png");
+        assertThat(user.isAvatarCustomized()).isTrue();
+        assertThat(user.getAggregateVersion()).isEqualTo(versionBefore + 1);
+    }
+
+    @Test
+    @DisplayName(
+            "Xóa avatar xóa cả Media reference và URL"
+    )
+    void shouldClearBothMediaAssetIdAndUrlWhenRemovingAvatar() {
+        User user = createLocalUser();
+        UUID mediaAssetId = UUID.randomUUID();
+        user.updateMediaAvatar(mediaAssetId, "/media/assets/" + mediaAssetId + "/content");
+
+        long versionBefore = user.getAggregateVersion();
+
+        user.removeAvatar();
+
+        assertThat(user.getAvatarMediaAssetId()).isNull();
+        assertThat(user.getAvatarUrl()).isNull();
+        assertThat(user.isAvatarCustomized()).isTrue();
+        assertThat(user.getAggregateVersion()).isEqualTo(versionBefore + 1);
+    }
+
+    @Test
+    @DisplayName(
+            "updateMediaAvatar từ chối null mediaAssetId hoặc URL rỗng"
+    )
+    void shouldRejectInvalidArgumentsInUpdateMediaAvatar() {
+        User user = createLocalUser();
+        UUID mediaAssetId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> user.updateMediaAvatar(null, "/media/assets/1/content"))
+                .isInstanceOf(NullPointerException.class);
+
+        assertThatThrownBy(() -> user.updateMediaAvatar(mediaAssetId, null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> user.updateMediaAvatar(mediaAssetId, "   "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName(
+            "Rehydrate hỗ trợ cả có avatarMediaAssetId và null"
+    )
+    void shouldRehydrateUserWithAndWithoutMediaAssetId() {
+        UUID mediaAssetId = UUID.randomUUID();
+
+        User userWithMedia = User.rehydrate(
+                USER_ID,
+                "athena@example.com",
+                "$2a$10$hashedPassword",
+                "Athena",
+                mediaAssetId,
+                "/media/assets/" + mediaAssetId + "/content",
+                true,
+                "Bio",
+                UserStatus.ACTIVE,
+                UserRole.USER,
+                AuthProvider.LOCAL,
+                null,
+                3L,
+                NOW
+        );
+
+        assertThat(userWithMedia.getAvatarMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(userWithMedia.getAvatarUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+
+        User userWithoutMedia = User.rehydrate(
+                USER_ID,
+                "athena@example.com",
+                "$2a$10$hashedPassword",
+                "Athena",
+                null,
+                "https://example.com/legacy.png",
+                true,
+                "Bio",
+                UserStatus.ACTIVE,
+                UserRole.USER,
+                AuthProvider.LOCAL,
+                null,
+                3L,
+                NOW
+        );
+
+        assertThat(userWithoutMedia.getAvatarMediaAssetId()).isNull();
+        assertThat(userWithoutMedia.getAvatarUrl()).isEqualTo("https://example.com/legacy.png");
     }
 
     private User createLocalUser() {

@@ -69,6 +69,12 @@ public class UserPersistenceMapper {
 
 		entity.setAvatarUrl(user.getAvatarUrl());
 
+		entity.setAvatarMediaAssetId(
+				user.getAvatarMediaAssetId() != null
+						? user.getAvatarMediaAssetId().toString()
+						: null
+		);
+
 		entity.setAvatarCustomized(user.isAvatarCustomized());
 
 		entity.setBio(user.getBio());
@@ -100,6 +106,8 @@ public class UserPersistenceMapper {
 
 		UUID userId = parseUserId(jpaEntity.getId());
 
+		UUID avatarMediaAssetId = parseNullableUuid(jpaEntity.getAvatarMediaAssetId());
+
 		UserStatus status = parseUserStatus(jpaEntity.getStatus());
 
 		UserRole role = jpaEntity.getRole() == null ? UserRole.USER : jpaEntity.getRole();
@@ -107,15 +115,24 @@ public class UserPersistenceMapper {
 		AuthProvider authProvider = parseAuthProvider(jpaEntity.getAuthProvider());
 
 		return User.rehydrate(userId, jpaEntity.getEmail(), jpaEntity.getPasswordHash(), jpaEntity.getDisplayName(),
-				jpaEntity.getAvatarUrl(),
-
-				/*
-				 * Phải đặt ngay sau avatarUrl để khớp với chữ ký User.rehydrate(...).
-				 */
-				jpaEntity.isAvatarCustomized(),
-
+				avatarMediaAssetId, jpaEntity.getAvatarUrl(), jpaEntity.isAvatarCustomized(),
 				jpaEntity.getBio(), status, role, authProvider, jpaEntity.getProviderSubject(),
 				Math.max(jpaEntity.getAggregateVersion(), 1L), jpaEntity.getCreatedAt());
+	}
+
+	private UUID parseNullableUuid(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+
+		try {
+			return UUID.fromString(raw.trim());
+		} catch (IllegalArgumentException exception) {
+			throw new IllegalStateException(
+					"Avatar Media Asset ID trong database không đúng định dạng UUID: " + raw,
+					exception
+			);
+		}
 	}
 
 	private UUID parseUserId(String userId) {
