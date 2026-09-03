@@ -8,9 +8,9 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.time.ClockPort;
 
 import com.universe.wiki.application.ports
-        .WikiImageRepositoryPort;
+        .LegacyWikiImageStoragePort;
 import com.universe.wiki.application.ports
-        .WikiImageStoragePort;
+        .WikiImageRepositoryPort;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,8 +60,8 @@ class CleanupOrphanWikiImagesUseCaseTest {
             imageRepositoryPort;
 
     @Mock
-    private WikiImageStoragePort
-            imageStoragePort;
+    private LegacyWikiImageStoragePort
+            legacyImageStoragePort;
 
     @Mock
     private MediaContract
@@ -92,7 +92,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         useCase =
                 new CleanupOrphanWikiImagesUseCase(
                         imageRepositoryPort,
-                        imageStoragePort,
+                        legacyImageStoragePort,
                         mediaContract,
                         clockPort
                 );
@@ -148,7 +148,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         assertThat(result.failed()).isZero();
 
         verifyNoInteractions(mediaContract);
-        verifyNoInteractions(imageStoragePort);
+        verifyNoInteractions(legacyImageStoragePort);
         verify(imageRepositoryPort, never()).deleteById(any());
     }
 
@@ -194,7 +194,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
     }
 
     @Test
-    @DisplayName("Media-backed orphan never calls WikiImageStoragePort")
+    @DisplayName("Media-backed orphan never calls LegacyWikiImageStoragePort")
     void shouldNeverCallStoragePortForMediaBackedOrphan() {
         UUID mediaAssetId = UUID.randomUUID();
         WikiImageAsset candidate =
@@ -224,11 +224,11 @@ class CleanupOrphanWikiImagesUseCaseTest {
 
         useCase.execute(false);
 
-        verify(imageStoragePort, never()).delete(any());
+        verify(legacyImageStoragePort, never()).delete(any());
     }
 
     @Test
-    @DisplayName("legacy orphan calls WikiImageStoragePort.delete then Wiki metadata delete")
+    @DisplayName("legacy orphan calls LegacyWikiImageStoragePort.delete then Wiki metadata delete")
     void shouldDeleteLegacyOrphanViaStoragePortThenWikiMetadata() {
         WikiImageAsset candidate =
                 new WikiImageAsset(
@@ -256,8 +256,8 @@ class CleanupOrphanWikiImagesUseCaseTest {
         assertThat(result.deleted()).isEqualTo(1);
         assertThat(result.failed()).isZero();
 
-        InOrder inOrder = inOrder(imageStoragePort, imageRepositoryPort);
-        inOrder.verify(imageStoragePort).delete("kiemlai/wiki/legacy");
+        InOrder inOrder = inOrder(legacyImageStoragePort, imageRepositoryPort);
+        inOrder.verify(legacyImageStoragePort).delete("kiemlai/wiki/legacy");
         inOrder.verify(imageRepositoryPort).deleteById(candidate.id());
     }
 
@@ -362,7 +362,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
                         "Cloudinary delete failed"
                 )
         ).when(
-                imageStoragePort
+                legacyImageStoragePort
         ).delete(
                 candidate.publicId()
         );
@@ -374,7 +374,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         assertThat(result.deleted()).isZero();
         assertThat(result.failed()).isEqualTo(1);
 
-        verify(imageStoragePort).delete(candidate.publicId());
+        verify(legacyImageStoragePort).delete(candidate.publicId());
         verify(imageRepositoryPort, never()).deleteById(candidate.id());
     }
 
@@ -420,7 +420,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         assertThat(result.failed()).isEqualTo(2);
 
         verifyNoInteractions(mediaContract);
-        verifyNoInteractions(imageStoragePort);
+        verifyNoInteractions(legacyImageStoragePort);
         verify(imageRepositoryPort, never()).deleteById(any());
     }
 
@@ -519,7 +519,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         doThrow(
                 new RuntimeException("Cloudinary delete c3 error")
         ).when(
-                imageStoragePort
+                legacyImageStoragePort
         ).delete(
                 c3FailedLegacy.publicId()
         );
@@ -536,7 +536,7 @@ class CleanupOrphanWikiImagesUseCaseTest {
         verify(imageRepositoryPort).deleteById(c2SuccessMedia.id());
 
         // c4 succeeded
-        verify(imageStoragePort).delete("kiemlai/wiki/c4");
+        verify(legacyImageStoragePort).delete("kiemlai/wiki/c4");
         verify(imageRepositoryPort).deleteById(c4SuccessLegacy.id());
 
         // c1, c3, c5 metadata rows were NOT deleted

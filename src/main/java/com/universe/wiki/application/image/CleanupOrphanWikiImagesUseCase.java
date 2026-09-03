@@ -6,9 +6,9 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.time.ClockPort;
 
 import com.universe.wiki.application.ports
-        .WikiImageRepositoryPort;
+        .LegacyWikiImageStoragePort;
 import com.universe.wiki.application.ports
-        .WikiImageStoragePort;
+        .WikiImageRepositoryPort;
 
 import org.springframework.stereotype.Service;
 
@@ -34,8 +34,8 @@ public class CleanupOrphanWikiImagesUseCase {
     private final WikiImageRepositoryPort
             imageRepositoryPort;
 
-    private final WikiImageStoragePort
-            imageStoragePort;
+    private final LegacyWikiImageStoragePort
+            legacyImageStoragePort;
 
     private final MediaContract
             mediaContract;
@@ -46,7 +46,7 @@ public class CleanupOrphanWikiImagesUseCase {
 
     public CleanupOrphanWikiImagesUseCase(
             WikiImageRepositoryPort imageRepositoryPort,
-            WikiImageStoragePort imageStoragePort,
+            LegacyWikiImageStoragePort legacyImageStoragePort,
             MediaContract mediaContract,
             ClockPort clockPort
     ) {
@@ -57,10 +57,10 @@ public class CleanupOrphanWikiImagesUseCase {
                                 + "không được để trống."
                 );
 
-        this.imageStoragePort =
+        this.legacyImageStoragePort =
                 Objects.requireNonNull(
-                        imageStoragePort,
-                        "WikiImageStoragePort "
+                        legacyImageStoragePort,
+                        "LegacyWikiImageStoragePort "
                                 + "không được để trống."
                 );
 
@@ -177,7 +177,7 @@ public class CleanupOrphanWikiImagesUseCase {
                      * 2. Xóa storage Cloudinary trước
                      * 3. Xóa metadata DB sau
                      */
-                    imageStoragePort
+                    legacyImageStoragePort
                             .delete(
                                     candidate.publicId()
                             );
