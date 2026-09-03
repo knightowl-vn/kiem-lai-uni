@@ -2,132 +2,99 @@ package com.universe.identity.infrastructure.storage;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
-import com.universe.identity.application.ports.AvatarStoragePort;
-
+import com.universe.identity.application.ports.LegacyAvatarStoragePort;
 import org.springframework.stereotype.Component;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.URI;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
 @Component
-public class CloudinaryAvatarStorageAdapter
-        implements AvatarStoragePort {
+public class CloudinaryAvatarStorageAdapter implements LegacyAvatarStoragePort {
 
-    private static final long MAX_FILE_SIZE =
-            2L * 1024 * 1024;
-
-    private static final String AVATAR_FOLDER =
-            "kiemlai/avatars";
+    private static final String AVATAR_FOLDER = "kiemlai/avatars";
 
     private final Cloudinary cloudinary;
 
-    public CloudinaryAvatarStorageAdapter(
-            Cloudinary cloudinary
-    ) {
-        this.cloudinary =
-                Objects.requireNonNull(
-                        cloudinary,
-                        "Cloudinary không được để trống."
-                );
+    public CloudinaryAvatarStorageAdapter(Cloudinary cloudinary) {
+        this.cloudinary = Objects.requireNonNull(
+                cloudinary,
+                "Cloudinary không được để trống."
+        );
     }
 
     @Override
-    public String uploadAvatar(
-            UUID userId,
-            MultipartFile file
-    ) {
-        validateUserId(userId);
-        validateFile(file);
+    public boolean isLegacyAvatarUrl(String avatarUrl) {
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            return false;
+        }
+
+        String configuredCloudName = getConfiguredCloudName();
+        if (configuredCloudName == null || configuredCloudName.isBlank()) {
+            return false;
+        }
 
         try {
-            String publicId =
-                    buildPublicId(userId);
-
-            Map<?, ?> uploadResult =
-                    cloudinary
-                            .uploader()
-                            .upload(
-                                    file.getBytes(),
-                                    ObjectUtils.asMap(
-                                            "asset_folder",
-                                            AVATAR_FOLDER,
-
-                                            "public_id",
-                                            publicId,
-
-                                            "overwrite",
-                                            true,
-
-                                            "invalidate",
-                                            true,
-
-                                            "resource_type",
-                                            "image"
-                                    )
-                            );
-
-            Object secureUrl =
-                    uploadResult.get(
-                            "secure_url"
-                    );
-
-            if (secureUrl == null
-                    || secureUrl.toString().isBlank()) {
-
-                throw new IllegalStateException(
-                        "Cloudinary không trả về secure_url."
-                );
+            URI uri = URI.create(avatarUrl.trim());
+            String host = uri.getHost();
+            if (host == null) {
+                return false;
             }
 
-            return secureUrl.toString();
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            String path = uri.getPath();
+            if (path == null) {
+                return false;
+            }
 
-        } catch (IOException exception) {
-            throw new IllegalStateException(
-                    "Không thể tải ảnh đại diện lên Cloudinary.",
-                    exception
-            );
+            String normalizedPath = path.toLowerCase(Locale.ROOT);
+
+            boolean isStandardHostWithCloudPath = normalizedHost.equals("res.cloudinary.com")
+                    && (normalizedPath.startsWith("/" + configuredCloudName + "/")
+                    || normalizedPath.equals("/" + configuredCloudName));
+
+            boolean isSubdomainHost = normalizedHost.equals(configuredCloudName + ".res.cloudinary.com");
+
+            if (!isStandardHostWithCloudPath && !isSubdomainHost) {
+                return false;
+            }
+
+            return path.contains("/" + AVATAR_FOLDER + "/");
+        } catch (IllegalArgumentException exception) {
+            return false;
         }
     }
 
     @Override
-    public void deleteAvatar(
-            UUID userId
-    ) {
+    public void deleteAvatar(UUID userId) {
         validateUserId(userId);
 
         try {
-            String publicId =
-                    buildPublicId(userId);
+            String publicId = buildPublicId(userId);
 
-            Map<?, ?> result =
-                    cloudinary
-                            .uploader()
-                            .destroy(
-                                    publicId,
-                                    ObjectUtils.asMap(
-                                            "resource_type",
-                                            "image",
-
-                                            "invalidate",
-                                            true
-                                    )
-                            );
-
-            String status =
-                    String.valueOf(
-                            result.get("result")
+            Map<?, ?> result = cloudinary
+                    .uploader()
+                    .destroy(
+                            publicId,
+                            ObjectUtils.asMap(
+                                    "resource_type",
+                                    "image",
+                                    "invalidate",
+                                    true
+                            )
                     );
 
-            if (!"ok".equalsIgnoreCase(status)
-                    && !"not found".equalsIgnoreCase(status)) {
+            if (result == null) {
+                throw new IllegalStateException("Cloudinary trả về kết quả rỗng khi xóa ảnh đại diện.");
+            }
 
-                throw new IllegalStateException(
-                        "Cloudinary xóa avatar thất bại: "
-                                + status
-                );
+            String status = String.valueOf(result.get("result"));
+
+            if (!"ok".equalsIgnoreCase(status) && !"not found".equalsIgnoreCase(status)) {
+                throw new IllegalStateException("Cloudinary xóa avatar thất bại: " + status);
             }
 
         } catch (IOException exception) {
@@ -138,53 +105,20 @@ public class CloudinaryAvatarStorageAdapter
         }
     }
 
-    private String buildPublicId(
-            UUID userId
-    ) {
-        return AVATAR_FOLDER
-                + "/"
-                + userId;
+    private String getConfiguredCloudName() {
+        if (cloudinary.config != null && cloudinary.config.cloudName != null) {
+            return cloudinary.config.cloudName.trim().toLowerCase(Locale.ROOT);
+        }
+        return null;
     }
 
-    private void validateUserId(
-            UUID userId
-    ) {
+    private String buildPublicId(UUID userId) {
+        return AVATAR_FOLDER + "/" + userId;
+    }
+
+    private void validateUserId(UUID userId) {
         if (userId == null) {
-            throw new IllegalArgumentException(
-                    "User ID không được để trống."
-            );
-        }
-    }
-
-    private void validateFile(
-            MultipartFile file
-    ) {
-        if (file == null
-                || file.isEmpty()) {
-
-            throw new IllegalArgumentException(
-                    "Vui lòng chọn một ảnh đại diện."
-            );
-        }
-
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new IllegalArgumentException(
-                    "Ảnh đại diện không được vượt quá 2 MB."
-            );
-        }
-
-        String contentType =
-                file.getContentType();
-
-        boolean supportedType =
-                "image/jpeg".equals(contentType)
-                        || "image/png".equals(contentType)
-                        || "image/webp".equals(contentType);
-
-        if (!supportedType) {
-            throw new IllegalArgumentException(
-                    "Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP."
-            );
+            throw new IllegalArgumentException("User ID không được để trống.");
         }
     }
 }

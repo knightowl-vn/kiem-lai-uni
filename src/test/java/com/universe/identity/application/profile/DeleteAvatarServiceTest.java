@@ -1,6 +1,6 @@
 package com.universe.identity.application.profile;
 
-import com.universe.identity.application.ports.AvatarStoragePort;
+import com.universe.identity.application.ports.LegacyAvatarStoragePort;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.domain.AuthProvider;
 import com.universe.identity.domain.Email;
@@ -44,7 +44,7 @@ class DeleteAvatarServiceTest {
     private UserRepositoryPort userRepository;
 
     @Mock
-    private AvatarStoragePort avatarStorage;
+    private LegacyAvatarStoragePort legacyAvatarStoragePort;
 
     @Mock
     private MediaContract mediaContract;
@@ -53,7 +53,7 @@ class DeleteAvatarServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DeleteAvatarService(userRepository, avatarStorage, mediaContract);
+        service = new DeleteAvatarService(userRepository, legacyAvatarStoragePort, mediaContract);
     }
 
     private User createUserWithMediaAvatar(UUID assetId) {
@@ -156,7 +156,7 @@ class DeleteAvatarServiceTest {
         service.execute(USER_EMAIL);
 
         verify(mediaContract).delete(MEDIA_ASSET_ID);
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         assertThat(user.getAvatarMediaAssetId()).isNull();
         assertThat(user.getAvatarUrl()).isNull();
         assertThat(user.isAvatarCustomized()).isTrue();
@@ -174,7 +174,7 @@ class DeleteAvatarServiceTest {
         service.execute(USER_EMAIL);
 
         verify(mediaContract).delete(MEDIA_ASSET_ID);
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         assertThat(user.getAvatarMediaAssetId()).isNull();
         assertThat(user.getAvatarUrl()).isNull();
         assertThat(user.isAvatarCustomized()).isTrue();
@@ -192,7 +192,7 @@ class DeleteAvatarServiceTest {
         service.execute(USER_EMAIL);
 
         verify(mediaContract, never()).delete(any());
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         assertThat(user.getAvatarMediaAssetId()).isNull();
         assertThat(user.getAvatarUrl()).isNull();
         assertThat(user.isAvatarCustomized()).isTrue();
@@ -270,14 +270,15 @@ class DeleteAvatarServiceTest {
     }
 
     @Test
-    @DisplayName("legacy Cloudinary avatar calls AvatarStoragePort.deleteAvatar and saves User")
+    @DisplayName("legacy Cloudinary avatar calls LegacyAvatarStoragePort.deleteAvatar and saves User")
     void shouldDeleteLegacyCloudinaryAvatar() {
         User user = createUserWithLegacyCloudinaryAvatar();
         when(userRepository.findByEmail(new Email(USER_EMAIL))).thenReturn(Optional.of(user));
+        when(legacyAvatarStoragePort.isLegacyAvatarUrl(user.getAvatarUrl())).thenReturn(true);
 
         service.execute(USER_EMAIL);
 
-        verify(avatarStorage).deleteAvatar(USER_ID);
+        verify(legacyAvatarStoragePort).deleteAvatar(USER_ID);
         verify(mediaContract, never()).getAssetDetail(any());
         verify(mediaContract, never()).delete(any());
         assertThat(user.getAvatarMediaAssetId()).isNull();
@@ -291,7 +292,8 @@ class DeleteAvatarServiceTest {
     void shouldPreserveIdentityStateWhenCloudinaryDeleteFails() {
         User user = createUserWithLegacyCloudinaryAvatar();
         when(userRepository.findByEmail(new Email(USER_EMAIL))).thenReturn(Optional.of(user));
-        doThrow(new IllegalStateException("Cloudinary unreachable")).when(avatarStorage).deleteAvatar(USER_ID);
+        when(legacyAvatarStoragePort.isLegacyAvatarUrl(user.getAvatarUrl())).thenReturn(true);
+        doThrow(new IllegalStateException("Cloudinary unreachable")).when(legacyAvatarStoragePort).deleteAvatar(USER_ID);
 
         assertThatThrownBy(() -> service.execute(USER_EMAIL))
                 .isInstanceOf(IllegalStateException.class)
@@ -306,10 +308,11 @@ class DeleteAvatarServiceTest {
     void shouldClearGoogleExternalAvatarWithoutCallingCloudinaryOrMedia() {
         User user = createUserWithGoogleAvatar();
         when(userRepository.findByEmail(new Email(USER_EMAIL))).thenReturn(Optional.of(user));
+        when(legacyAvatarStoragePort.isLegacyAvatarUrl(user.getAvatarUrl())).thenReturn(false);
 
         service.execute(USER_EMAIL);
 
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         verify(mediaContract, never()).getAssetDetail(any());
         verify(mediaContract, never()).delete(any());
         assertThat(user.getAvatarMediaAssetId()).isNull();
@@ -326,7 +329,7 @@ class DeleteAvatarServiceTest {
 
         service.execute(USER_EMAIL);
 
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         verify(mediaContract, never()).getAssetDetail(any());
         verify(mediaContract, never()).delete(any());
         assertThat(user.isAvatarCustomized()).isTrue();
@@ -341,7 +344,7 @@ class DeleteAvatarServiceTest {
 
         service.execute(USER_EMAIL);
 
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         verify(mediaContract, never()).getAssetDetail(any());
         verify(mediaContract, never()).delete(any());
         verify(userRepository, never()).save(any());
@@ -356,7 +359,7 @@ class DeleteAvatarServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Không tìm thấy tài khoản đang đăng nhập.");
 
-        verify(avatarStorage, never()).deleteAvatar(any());
+        verify(legacyAvatarStoragePort, never()).deleteAvatar(any());
         verify(mediaContract, never()).getAssetDetail(any());
         verify(userRepository, never()).save(any());
     }

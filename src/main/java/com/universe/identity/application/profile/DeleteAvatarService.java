@@ -1,6 +1,6 @@
 package com.universe.identity.application.profile;
 
-import com.universe.identity.application.ports.AvatarStoragePort;
+import com.universe.identity.application.ports.LegacyAvatarStoragePort;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.domain.Email;
 import com.universe.identity.domain.User;
@@ -9,7 +9,6 @@ import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -19,17 +18,26 @@ import java.util.UUID;
 public class DeleteAvatarService {
 
     private final UserRepositoryPort userRepository;
-    private final AvatarStoragePort avatarStorage;
+    private final LegacyAvatarStoragePort legacyAvatarStoragePort;
     private final MediaContract mediaContract;
 
     public DeleteAvatarService(
             UserRepositoryPort userRepository,
-            AvatarStoragePort avatarStorage,
+            LegacyAvatarStoragePort legacyAvatarStoragePort,
             MediaContract mediaContract
     ) {
-        this.userRepository = Objects.requireNonNull(userRepository, "User repository không được để trống.");
-        this.avatarStorage = Objects.requireNonNull(avatarStorage, "Avatar storage không được để trống.");
-        this.mediaContract = Objects.requireNonNull(mediaContract, "MediaContract không được để trống.");
+        this.userRepository = Objects.requireNonNull(
+                userRepository,
+                "User repository không được để trống."
+        );
+        this.legacyAvatarStoragePort = Objects.requireNonNull(
+                legacyAvatarStoragePort,
+                "Legacy avatar storage port không được để trống."
+        );
+        this.mediaContract = Objects.requireNonNull(
+                mediaContract,
+                "MediaContract không được để trống."
+        );
     }
 
     public void execute(String currentUserEmail) {
@@ -42,7 +50,7 @@ public class DeleteAvatarService {
         String currentAvatarUrl = user.getAvatarUrl();
 
         if (mediaAssetId != null) {
-            // 1. Media-backed avatar
+            // 1. Media-backed avatar lifecycle
             Optional<MediaAssetDetailDTO> maybeDetail = mediaContract.getAssetDetail(mediaAssetId);
             if (maybeDetail.isEmpty()) {
                 throw new IllegalStateException("Không tìm thấy thông tin Media asset của ảnh đại diện: " + mediaAssetId);
@@ -61,9 +69,9 @@ public class DeleteAvatarService {
             userRepository.save(user);
 
         } else if (currentAvatarUrl != null && !currentAvatarUrl.isBlank()) {
-            if (isLegacyCloudinaryAvatarUrl(currentAvatarUrl)) {
+            if (legacyAvatarStoragePort.isLegacyAvatarUrl(currentAvatarUrl)) {
                 // 2. Legacy Cloudinary avatar
-                avatarStorage.deleteAvatar(user.getId());
+                legacyAvatarStoragePort.deleteAvatar(user.getId());
                 user.removeAvatar();
                 userRepository.save(user);
             } else {
@@ -78,30 +86,6 @@ public class DeleteAvatarService {
             if (user.getAggregateVersion() != versionBefore) {
                 userRepository.save(user);
             }
-        }
-    }
-
-    private boolean isLegacyCloudinaryAvatarUrl(String url) {
-        if (url == null || url.isBlank()) {
-            return false;
-        }
-        try {
-            URI uri = URI.create(url.trim());
-            String host = uri.getHost();
-            if (host == null) {
-                return false;
-            }
-            String normalizedHost = host.toLowerCase(Locale.ROOT);
-            if (!normalizedHost.equals("res.cloudinary.com") && !normalizedHost.endsWith(".res.cloudinary.com")) {
-                return false;
-            }
-            String path = uri.getPath();
-            if (path == null) {
-                return false;
-            }
-            return path.contains("/kiemlai/avatars/");
-        } catch (IllegalArgumentException exception) {
-            return false;
         }
     }
 
