@@ -111,4 +111,35 @@ class ProfileUpdateControllerTest {
         assertThat(view).isEqualTo("redirect:/profile");
         assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isEqualTo("Ảnh đại diện không được vượt quá 2 MB.");
     }
+
+    @Test
+    @DisplayName("deleteAvatar delegates to DeleteAvatarService and sets success message")
+    void shouldDelegateDeleteAvatarToService() {
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn("user@example.com");
+
+        RedirectAttributes redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.deleteAvatar(authentication, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/profile");
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isEqualTo("Xóa ảnh đại diện thành công.");
+        verify(deleteAvatarService).execute("user@example.com");
+    }
+
+    @Test
+    @DisplayName("deleteAvatar handles errors and sets error flash message")
+    void shouldHandleErrorsInDeleteAvatar() {
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn("user@example.com");
+        doThrow(new IllegalStateException("Không thể xóa ảnh đại diện."))
+                .when(deleteAvatarService).execute("user@example.com");
+
+        RedirectAttributes redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.deleteAvatar(authentication, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/profile");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isEqualTo("Không thể xóa ảnh đại diện.");
+    }
 }
