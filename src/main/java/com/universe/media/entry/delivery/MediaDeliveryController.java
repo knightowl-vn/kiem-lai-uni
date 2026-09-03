@@ -5,7 +5,11 @@ import com.universe.media.application.asset.GetMediaAssetContentResult;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
+import com.universe.media.application.exceptions.MediaImageVariantNotFoundException;
+import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.variant.GetMediaImageVariantContentQuery;
+import com.universe.media.application.variant.GetMediaImageVariantContentUseCase;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,13 +33,19 @@ import java.util.UUID;
 public class MediaDeliveryController {
 
     private final GetMediaAssetContentUseCase getMediaAssetContentUseCase;
+    private final GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
 
     public MediaDeliveryController(
-            GetMediaAssetContentUseCase getMediaAssetContentUseCase
+            GetMediaAssetContentUseCase getMediaAssetContentUseCase,
+            GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase
     ) {
         this.getMediaAssetContentUseCase = Objects.requireNonNull(
                 getMediaAssetContentUseCase,
                 "GetMediaAssetContentUseCase cannot be null."
+        );
+        this.getMediaImageVariantContentUseCase = Objects.requireNonNull(
+                getMediaImageVariantContentUseCase,
+                "GetMediaImageVariantContentUseCase cannot be null."
         );
     }
 
@@ -47,13 +57,32 @@ public class MediaDeliveryController {
         GetMediaAssetContentResult result = getMediaAssetContentUseCase.execute(
                 new GetMediaAssetContentQuery(assetId)
         );
+        return streamContentResponse(result, request);
+    }
 
+    @GetMapping("/{assetId}/variants/{variantKey}")
+    public ResponseEntity<StreamingResponseBody> deliverVariantContent(
+            @PathVariable UUID assetId,
+            @PathVariable String variantKey,
+            WebRequest request
+    ) {
+        GetMediaAssetContentResult result = getMediaImageVariantContentUseCase.execute(
+                new GetMediaImageVariantContentQuery(assetId, variantKey)
+        );
+        return streamContentResponse(result, request);
+    }
+
+    private ResponseEntity<StreamingResponseBody> streamContentResponse(
+            GetMediaAssetContentResult result,
+            WebRequest request
+    ) {
         String eTag = "\"" + result.contentHash() + "\"";
 
         if (request.checkNotModified(eTag)) {
             try {
                 result.content().close();
-            } catch (IOException ignored) {
+            } catch (IOException e) {
+                throw new StorageException("Failed to close content stream on not-modified response", e);
             }
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
                     .header(HttpHeaders.CACHE_CONTROL, "public, no-cache")
@@ -78,6 +107,7 @@ public class MediaDeliveryController {
     @ExceptionHandler({
             MediaAssetNotFoundException.class,
             MediaAssetVersionNotFoundException.class,
+            MediaImageVariantNotFoundException.class,
             StorageObjectNotFoundException.class
     })
     public ResponseEntity<Void> handleNotFound() {

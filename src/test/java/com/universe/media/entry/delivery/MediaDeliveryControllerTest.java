@@ -5,8 +5,11 @@ import com.universe.media.application.asset.GetMediaAssetContentResult;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
+import com.universe.media.application.exceptions.MediaImageVariantNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
+import com.universe.media.application.variant.GetMediaImageVariantContentQuery;
+import com.universe.media.application.variant.GetMediaImageVariantContentUseCase;
 import com.universe.media.domain.StorageKey;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -48,11 +51,17 @@ class MediaDeliveryControllerTest {
     @Mock
     private GetMediaAssetContentUseCase getMediaAssetContentUseCase;
 
+    @Mock
+    private GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        MediaDeliveryController controller = new MediaDeliveryController(getMediaAssetContentUseCase);
+        MediaDeliveryController controller = new MediaDeliveryController(
+                getMediaAssetContentUseCase,
+                getMediaImageVariantContentUseCase
+        );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -128,6 +137,87 @@ class MediaDeliveryControllerTest {
     }
 
     @Test
+    @DisplayName("GET /media/assets/{assetId}/variants/{variantKey} returns 200 with streamed variant bytes and headers")
+    void shouldDeliverVariantContentSuccessfully() throws Exception {
+        byte[] payload = new byte[]{10, 20, 30, 40};
+        AtomicBoolean closed = new AtomicBoolean(false);
+        InputStream trackingStream = new ByteArrayInputStream(payload) {
+            @Override
+            public void close() throws IOException {
+                super.close();
+                closed.set(true);
+            }
+        };
+
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                trackingStream,
+                payload.length,
+                "image/jpeg",
+                HASH
+        );
+
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w300")))
+                .thenReturn(result);
+
+        MvcResult mvcResult = mockMvc.perform(get("/media/assets/{assetId}/variants/{variantKey}", ASSET_ID, "w300"))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"" + HASH + "\""))
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "image/jpeg"))
+                .andExpect(header().string(HttpHeaders.CONTENT_LENGTH, String.valueOf(payload.length)))
+                .andReturn();
+
+        mockMvc.perform(asyncDispatch(mvcResult))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(payload));
+
+        assertThat(closed).isTrue();
+    }
+
+    @Test
+    @DisplayName("GET /media/assets/{assetId}/variants/{variantKey} with matching If-None-Match returns 304 and closes stream")
+    void shouldReturn304AndCloseStreamWhenVariantIfNoneMatchMatches() throws Exception {
+        byte[] payload = new byte[]{10, 20, 30, 40};
+        AtomicBoolean closed = new AtomicBoolean(false);
+        InputStream trackingStream = new ByteArrayInputStream(payload) {
+            @Override
+            public void close() throws IOException {
+                super.close();
+                closed.set(true);
+            }
+        };
+
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                trackingStream,
+                payload.length,
+                "image/jpeg",
+                HASH
+        );
+
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w300")))
+                .thenReturn(result);
+
+        mockMvc.perform(get("/media/assets/{assetId}/variants/{variantKey}", ASSET_ID, "w300")
+                        .header(HttpHeaders.IF_NONE_MATCH, "\"" + HASH + "\""))
+                .andExpect(status().isNotModified())
+                .andExpect(header().string(HttpHeaders.ETAG, "\"" + HASH + "\""))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"));
+
+        assertThat(closed).isTrue();
+    }
+
+    @Test
+    @DisplayName("GET /media/assets/{assetId}/variants/{variantKey} when variant not found returns 404")
+    void shouldReturn404WhenVariantNotFound() throws Exception {
+        when(getMediaImageVariantContentUseCase.execute(any()))
+                .thenThrow(new MediaImageVariantNotFoundException(ASSET_ID, 1, "w300"));
+
+        mockMvc.perform(get("/media/assets/{assetId}/variants/{variantKey}", ASSET_ID, "w300"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("GET /media/assets/{assetId}/content when asset not found returns 404")
     void shouldReturn404WhenAssetNotFound() throws Exception {
         when(getMediaAssetContentUseCase.execute(any()))
@@ -155,6 +245,60 @@ class MediaDeliveryControllerTest {
 
         mockMvc.perform(get("/media/assets/{assetId}/content", ASSET_ID))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /media/assets/{assetId}/content with matching If-None-Match when stream close throws IOException propagates StorageException")
+    void shouldPropagateStorageExceptionWhenSource304StreamCloseFails() {
+        InputStream failingStream = new ByteArrayInputStream(new byte[]{1, 2}) {
+            @Override
+            public void close() throws IOException {
+                throw new IOException("Disk close error");
+            }
+        };
+
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                failingStream,
+                2L,
+                "image/webp",
+                HASH
+        );
+
+        when(getMediaAssetContentUseCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+                .thenReturn(result);
+
+        assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                Exception.class,
+                () -> mockMvc.perform(get("/media/assets/{assetId}/content", ASSET_ID)
+                        .header(HttpHeaders.IF_NONE_MATCH, "\"" + HASH + "\""))
+        )).hasCauseInstanceOf(StorageException.class);
+    }
+
+    @Test
+    @DisplayName("GET /media/assets/{assetId}/variants/{variantKey} with matching If-None-Match when stream close throws IOException propagates StorageException")
+    void shouldPropagateStorageExceptionWhenVariant304StreamCloseFails() {
+        InputStream failingStream = new ByteArrayInputStream(new byte[]{1, 2}) {
+            @Override
+            public void close() throws IOException {
+                throw new IOException("Disk close error");
+            }
+        };
+
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                failingStream,
+                2L,
+                "image/jpeg",
+                HASH
+        );
+
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w300")))
+                .thenReturn(result);
+
+        assertThat(org.junit.jupiter.api.Assertions.assertThrows(
+                Exception.class,
+                () -> mockMvc.perform(get("/media/assets/{assetId}/variants/{variantKey}", ASSET_ID, "w300")
+                        .header(HttpHeaders.IF_NONE_MATCH, "\"" + HASH + "\""))
+        )).hasCauseInstanceOf(StorageException.class);
     }
 
     @Test

@@ -355,4 +355,58 @@ class MediaImageVariantPersistenceIntegrationTest {
         assertThatThrownBy(() -> versionRepository.deleteById(versionId.toString()))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    @DisplayName("enforces exact, case-sensitive and whitespace-sensitive variant_key lookup in database")
+    void shouldEnforceExactCaseSensitiveAndWhitespaceSensitiveVariantKeyLookup() {
+        UUID assetId = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        assetAdapter.save(MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, now));
+        versionAdapter.save(MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                StorageLocation.of("local", "objects/source-exact.jpg"),
+                null,
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/jpeg"),
+                100000L,
+                "cover.jpg",
+                now
+        ));
+
+        // Persist variant with canonical key "w300"
+        variantAdapter.save(MediaImageVariant.create(
+                UUID.randomUUID(),
+                versionId,
+                ImageVariantSpec.of(300),
+                StorageLocation.of("local", "objects/variants/w300-exact.jpg"),
+                ContentHash.of("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"),
+                MimeType.of("image/jpeg"),
+                20000L,
+                300,
+                450,
+                now
+        ));
+
+        // 1. Exact match finds the variant
+        Optional<MediaImageVariant> exactMatch = variantAdapter.findByVersionIdAndVariantKey(versionId, "w300");
+        assertThat(exactMatch).isPresent();
+        assertThat(exactMatch.get().getVariantKey()).isEqualTo("w300");
+        assertThat(variantAdapter.existsByVersionIdAndVariantKey(versionId, "w300")).isTrue();
+
+        // 2. Uppercase "W300" must NOT match
+        assertThat(variantAdapter.findByVersionIdAndVariantKey(versionId, "W300")).isEmpty();
+        assertThat(variantAdapter.existsByVersionIdAndVariantKey(versionId, "W300")).isFalse();
+
+        // 3. Leading space " w300" must NOT match
+        assertThat(variantAdapter.findByVersionIdAndVariantKey(versionId, " w300")).isEmpty();
+        assertThat(variantAdapter.existsByVersionIdAndVariantKey(versionId, " w300")).isFalse();
+
+        // 4. Trailing space "w300 " must NOT match
+        assertThat(variantAdapter.findByVersionIdAndVariantKey(versionId, "w300 ")).isEmpty();
+        assertThat(variantAdapter.existsByVersionIdAndVariantKey(versionId, "w300 ")).isFalse();
+    }
 }

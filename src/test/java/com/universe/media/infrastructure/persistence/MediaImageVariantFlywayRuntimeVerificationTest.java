@@ -41,22 +41,29 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 .load();
 
         int migrationsApplied = flyway.migrate().migrationsExecuted;
-        assertThat(migrationsApplied).isGreaterThanOrEqualTo(35);
+        assertThat(migrationsApplied).isGreaterThanOrEqualTo(36);
 
         MigrationInfo[] info = flyway.info().all();
-        assertThat(info).hasSizeGreaterThanOrEqualTo(35);
+        assertThat(info).hasSizeGreaterThanOrEqualTo(36);
 
         MigrationInfo v35Info = null;
+        MigrationInfo v36Info = null;
         for (MigrationInfo mi : info) {
             assertThat(mi.getState()).isEqualTo(MigrationState.SUCCESS);
             if ("35".equals(mi.getVersion().getVersion())) {
                 v35Info = mi;
+            } else if ("36".equals(mi.getVersion().getVersion())) {
+                v36Info = mi;
             }
         }
 
         assertThat(v35Info).isNotNull();
         assertThat(v35Info.getDescription()).isEqualTo("create media image variants");
         assertThat(v35Info.getChecksum()).isNotNull();
+
+        assertThat(v36Info).isNotNull();
+        assertThat(v36Info.getDescription()).isEqualTo("align media image variant key collation");
+        assertThat(v36Info.getChecksum()).isNotNull();
 
         JdbcTemplate jdbc = new JdbcTemplate(ds);
 
@@ -68,7 +75,22 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
         );
         assertThat(tableCount).isEqualTo(1);
 
-        // 2. Columns
+        // 2. Column collations (variant_key and storage_key must be utf8mb4_0900_bin)
+        String variantKeyCollation = jdbc.queryForObject(
+                "SELECT collation_name FROM information_schema.columns WHERE table_schema = ? AND table_name = 'media_image_variants' AND column_name = 'variant_key'",
+                String.class,
+                dbName
+        );
+        assertThat(variantKeyCollation).isEqualTo("utf8mb4_0900_bin");
+
+        String storageKeyCollation = jdbc.queryForObject(
+                "SELECT collation_name FROM information_schema.columns WHERE table_schema = ? AND table_name = 'media_image_variants' AND column_name = 'storage_key'",
+                String.class,
+                dbName
+        );
+        assertThat(storageKeyCollation).isEqualTo("utf8mb4_0900_bin");
+
+        // 3. Columns
         List<String> columns = jdbc.queryForList(
                 "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = 'media_image_variants'",
                 String.class,
@@ -89,7 +111,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 "created_at"
         );
 
-        // 3. Foreign key to media_asset_versions
+        // 4. Foreign key to media_asset_versions
         List<Map<String, Object>> fkList = jdbc.queryForList(
                 "SELECT CONSTRAINT_NAME, REFERENCED_TABLE_NAME " +
                         "FROM information_schema.KEY_COLUMN_USAGE " +
@@ -100,7 +122,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
         assertThat(fkList).hasSize(1);
         assertThat(fkList.get(0).get("REFERENCED_TABLE_NAME")).isEqualTo("media_asset_versions");
 
-        // 4. Seed parent data to test constraints
+        // 5. Seed parent data to test constraints
         String assetId = UUID.randomUUID().toString();
         String versionId = UUID.randomUUID().toString();
         Timestamp now = Timestamp.from(Instant.now());
@@ -117,7 +139,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 versionId, assetId, now
         );
 
-        // 5. Valid insert into media_image_variants
+        // 6. Valid insert into media_image_variants
         String variantId1 = UUID.randomUUID().toString();
         jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
@@ -125,7 +147,36 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 variantId1, versionId, now
         );
 
-        // 6. Test UNIQUE(version_id, variant_key)
+        // 7. Test exact collation in SQL query
+        Integer exactCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM media_image_variants WHERE version_id = ? AND variant_key = 'w300'",
+                Integer.class,
+                versionId
+        );
+        assertThat(exactCount).isEqualTo(1);
+
+        Integer uppercaseCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM media_image_variants WHERE version_id = ? AND variant_key = 'W300'",
+                Integer.class,
+                versionId
+        );
+        assertThat(uppercaseCount).isEqualTo(0);
+
+        Integer leadingSpaceCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM media_image_variants WHERE version_id = ? AND variant_key = ' w300'",
+                Integer.class,
+                versionId
+        );
+        assertThat(leadingSpaceCount).isEqualTo(0);
+
+        Integer trailingSpaceCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM media_image_variants WHERE version_id = ? AND variant_key = 'w300 '",
+                Integer.class,
+                versionId
+        );
+        assertThat(trailingSpaceCount).isEqualTo(0);
+
+        // 8. Test UNIQUE(version_id, variant_key)
         String variantId2 = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
@@ -133,7 +184,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 variantId2, versionId, now
         )).hasMessageContaining("uq_media_image_variants_version_key");
 
-        // 7. Test UNIQUE(storage_provider_id, storage_key)
+        // 9. Test UNIQUE(storage_provider_id, storage_key)
         String variantId3 = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
@@ -141,7 +192,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 variantId3, versionId, now
         )).hasMessageContaining("uq_media_image_variants_provider_key");
 
-        // 8. Test CHECK constraints: target_width bounds [16, 7680]
+        // 10. Test CHECK constraints: target_width bounds [16, 7680]
         String variantIdBelowMin = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
@@ -156,7 +207,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 variantIdAboveMax, versionId, now
         )).hasMessageContaining("chk_media_image_variants_target_width");
 
-        // 9. Test CHECK constraints: width > 0 AND width <= target_width AND height > 0
+        // 11. Test CHECK constraints: width > 0 AND width <= target_width AND height > 0
         String variantIdWidthExceeds = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
@@ -164,7 +215,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 variantIdWidthExceeds, versionId, now
         )).hasMessageContaining("chk_media_image_variants_dimensions");
 
-        // 10. Valid insert with actual width smaller than target_width (proportional resize)
+        // 12. Valid insert with actual width smaller than target_width (proportional resize)
         String variantIdSmallerWidth = UUID.randomUUID().toString();
         int inserted = jdbc.update(
                 "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
