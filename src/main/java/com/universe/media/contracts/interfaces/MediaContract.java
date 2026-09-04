@@ -1,6 +1,7 @@
 package com.universe.media.contracts.interfaces;
 
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
@@ -44,6 +45,15 @@ public interface MediaContract {
      */
     UploadMediaAssetVersionResponseDTO uploadVersion(
             UploadMediaAssetVersionRequestDTO request
+    );
+
+    /**
+     * Synchronously generates an image variant for the current version of an existing image asset.
+     *
+     * @param request variant generation request
+     */
+    void generateImageVariant(
+            GenerateImageVariantRequestDTO request
     );
 
     /**

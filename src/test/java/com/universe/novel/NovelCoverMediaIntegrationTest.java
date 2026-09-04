@@ -79,6 +79,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         UpdateNovelProfileUseCase.class,
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
+        com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
+        com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
+        com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,
+        com.universe.media.application.variant.GetMediaImageVariantContentUseCase.class,
         RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         GetMediaAssetDetailUseCase.class,
@@ -96,13 +100,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelCoverMediaIntegrationTest {
 
     private static final byte[] FIRST_COVER_BYTES =
-            "PNG_FIRST_COVER_IMAGE_DATA_123456789".getBytes(StandardCharsets.UTF_8);
+            createPngBytes(600, 900);
 
     private static final byte[] SECOND_COVER_BYTES =
-            "PNG_SECOND_COVER_IMAGE_DATA_REPLACEMENT_987654321".getBytes(StandardCharsets.UTF_8);
+            createPngBytes(800, 1200);
 
     private static final String LEGACY_COVER_URL =
             "https://res.cloudinary.com/demo/image/upload/v123456/kiemlai/novel/covers/legacy.jpg";
+
+    private static byte[] createPngBytes(int width, int height) {
+        try {
+            java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                    width,
+                    height,
+                    java.awt.image.BufferedImage.TYPE_INT_RGB
+            );
+            java.awt.Graphics2D g = img.createGraphics();
+            g.setColor(java.awt.Color.BLUE);
+            g.fillRect(0, 0, width, height);
+            g.dispose();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(img, "png", baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     private static Path tempStorageDir;
     private static final List<Path> createdTempDirs = new CopyOnWriteArrayList<>();
@@ -141,6 +164,9 @@ class NovelCoverMediaIntegrationTest {
 
     @Autowired
     private GetMediaAssetContentUseCase getMediaAssetContentUseCase;
+
+    @Autowired
+    private com.universe.media.application.variant.GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
 
     private record NovelProfileSnapshot(
             String title,
@@ -182,6 +208,7 @@ class NovelCoverMediaIntegrationTest {
     @AfterEach
     void cleanUpDatabaseState() {
         for (UUID assetId : createdMediaAssetIds) {
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id IN (SELECT id FROM media_asset_versions WHERE asset_id = ?)", assetId.toString());
             jdbcTemplate.update("DELETE FROM media_asset_versions WHERE asset_id = ?", assetId.toString());
             jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
         }
@@ -261,7 +288,7 @@ class NovelCoverMediaIntegrationTest {
 
         assertThat(afterFirstUploadProfile.coverImageUrl()).isEqualTo(LEGACY_COVER_URL);
         assertThat(afterFirstUploadProfile.displayCoverImageUrl())
-                .isEqualTo("/media/assets/" + firstMediaAssetId + "/content");
+                .isEqualTo("/media/assets/" + firstMediaAssetId + "/variants/w300");
 
         // Kiểm tra database trực tiếp
         Map<String, Object> novelProfileRow = jdbcTemplate.queryForMap(
@@ -279,22 +306,36 @@ class NovelCoverMediaIntegrationTest {
         assertThat(mediaAssetRow.get("status")).isEqualTo("ACTIVE");
 
         List<Map<String, Object>> versions = jdbcTemplate.queryForList(
-                "SELECT version_number, mime_type, size_bytes FROM media_asset_versions WHERE asset_id = ? ORDER BY version_number ASC",
+                "SELECT id, version_number, mime_type, size_bytes FROM media_asset_versions WHERE asset_id = ? ORDER BY version_number ASC",
                 firstMediaAssetId.toString()
         );
         assertThat(versions).hasSize(1);
         assertThat(versions.get(0).get("version_number")).isEqualTo(1);
         assertThat(versions.get(0).get("mime_type")).isEqualTo("image/png");
         assertThat(((Number) versions.get(0).get("size_bytes")).longValue()).isEqualTo((long) FIRST_COVER_BYTES.length);
+        String v1Id = (String) versions.get(0).get("id");
+
+        // Kiểm tra biến thể w300 được sinh thành công cho version 1
+        List<Map<String, Object>> variantsV1 = jdbcTemplate.queryForList(
+                "SELECT variant_key, target_width, width, height FROM media_image_variants WHERE version_id = ?",
+                v1Id
+        );
+        assertThat(variantsV1).hasSize(1);
+        assertThat(variantsV1.get(0).get("variant_key")).isEqualTo("w300");
+        assertThat(variantsV1.get(0).get("target_width")).isEqualTo(300);
+        assertThat(variantsV1.get(0).get("width")).isEqualTo(300);
+        assertThat(variantsV1.get(0).get("height")).isEqualTo(450);
 
         // Reader display mapping
         ReaderNovelOverviewDTO readerOverviewAfterFirst = readerNovelLandingQueryPersistenceAdapter
                 .findNovelOverview()
                 .orElseThrow();
         assertThat(readerOverviewAfterFirst.coverImageUrl())
-                .isEqualTo("/media/assets/" + firstMediaAssetId + "/content");
+                .isEqualTo(LEGACY_COVER_URL);
+        assertThat(readerOverviewAfterFirst.displayCoverImageUrl())
+                .isEqualTo("/media/assets/" + firstMediaAssetId + "/variants/w300");
 
-        // Media delivery trả về đúng bytes của ảnh bìa đầu tiên
+        // Media source delivery trả về đúng bytes của ảnh bìa đầu tiên
         GetMediaAssetContentResult firstContentResult = getMediaAssetContentUseCase.execute(
                 new GetMediaAssetContentQuery(firstMediaAssetId)
         );
@@ -305,9 +346,21 @@ class NovelCoverMediaIntegrationTest {
             assertThat(deliveredBytes).isEqualTo(FIRST_COVER_BYTES);
         }
 
+        // Media variant delivery trả về đúng stream của biến thể w300
+        GetMediaAssetContentResult firstVariantResult = getMediaImageVariantContentUseCase.execute(
+                new com.universe.media.application.variant.GetMediaImageVariantContentQuery(firstMediaAssetId, "w300")
+        );
+        assertThat(firstVariantResult.mimeType()).isEqualTo("image/png");
+        assertThat(firstVariantResult.sizeBytes()).isGreaterThan(0L);
+        try (InputStream in = firstVariantResult.content()) {
+            byte[] variantBytes = in.readAllBytes();
+            assertThat(variantBytes.length).isEqualTo((int) firstVariantResult.sizeBytes());
+        }
+
         /*
          * 3. Thay thế ảnh bìa (Replacement cover upload):
          *    - Media tạo version 2 cho CÙNG assetId.
+         *    - Media tạo biến thể w300 mới cho version 2.
          *    - Novel giữ nguyên coverMediaAssetId.
          *    - Raw cover_image_url legacy trong DB tiếp tục được bảo toàn.
          */
@@ -331,11 +384,11 @@ class NovelCoverMediaIntegrationTest {
         assertThat(afterSecondUploadProfile.coverMediaAssetId()).isEqualTo(firstMediaAssetId);
         assertThat(afterSecondUploadProfile.coverImageUrl()).isEqualTo(LEGACY_COVER_URL);
         assertThat(afterSecondUploadProfile.displayCoverImageUrl())
-                .isEqualTo("/media/assets/" + firstMediaAssetId + "/content");
+                .isEqualTo("/media/assets/" + firstMediaAssetId + "/variants/w300");
 
         // Kiểm tra database: 2 versions cùng thuộc về firstMediaAssetId
         List<Map<String, Object>> versionsAfterSecond = jdbcTemplate.queryForList(
-                "SELECT version_number, size_bytes FROM media_asset_versions WHERE asset_id = ? ORDER BY version_number ASC",
+                "SELECT id, version_number, size_bytes FROM media_asset_versions WHERE asset_id = ? ORDER BY version_number ASC",
                 firstMediaAssetId.toString()
         );
         assertThat(versionsAfterSecond).hasSize(2);
@@ -343,8 +396,20 @@ class NovelCoverMediaIntegrationTest {
         assertThat(versionsAfterSecond.get(1).get("version_number")).isEqualTo(2);
         assertThat(((Number) versionsAfterSecond.get(1).get("size_bytes")).longValue())
                 .isEqualTo((long) SECOND_COVER_BYTES.length);
+        String v2Id = (String) versionsAfterSecond.get(1).get("id");
 
-        // Media delivery hiện tại trả về bytes của version mới nhất (version 2)
+        // Kiểm tra biến thể w300 được sinh thành công cho version 2
+        List<Map<String, Object>> variantsV2 = jdbcTemplate.queryForList(
+                "SELECT variant_key, target_width, width, height FROM media_image_variants WHERE version_id = ?",
+                v2Id
+        );
+        assertThat(variantsV2).hasSize(1);
+        assertThat(variantsV2.get(0).get("variant_key")).isEqualTo("w300");
+        assertThat(variantsV2.get(0).get("target_width")).isEqualTo(300);
+        assertThat(variantsV2.get(0).get("width")).isEqualTo(300);
+        assertThat(variantsV2.get(0).get("height")).isEqualTo(450);
+
+        // Media source delivery hiện tại trả về bytes của version mới nhất (version 2)
         GetMediaAssetContentResult secondContentResult = getMediaAssetContentUseCase.execute(
                 new GetMediaAssetContentQuery(firstMediaAssetId)
         );
@@ -353,6 +418,17 @@ class NovelCoverMediaIntegrationTest {
         try (InputStream in = secondContentResult.content()) {
             byte[] deliveredBytes = in.readAllBytes();
             assertThat(deliveredBytes).isEqualTo(SECOND_COVER_BYTES);
+        }
+
+        // Media variant delivery trả về đúng stream của biến thể w300 thuộc version 2 hiện tại
+        GetMediaAssetContentResult secondVariantResult = getMediaImageVariantContentUseCase.execute(
+                new com.universe.media.application.variant.GetMediaImageVariantContentQuery(firstMediaAssetId, "w300")
+        );
+        assertThat(secondVariantResult.mimeType()).isEqualTo("image/png");
+        assertThat(secondVariantResult.sizeBytes()).isGreaterThan(0L);
+        try (InputStream in = secondVariantResult.content()) {
+            byte[] variantBytes = in.readAllBytes();
+            assertThat(variantBytes.length).isEqualTo((int) secondVariantResult.sizeBytes());
         }
     }
 }

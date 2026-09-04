@@ -111,6 +111,8 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
         assertThat(novel.description()).isEqualTo("Giới thiệu Kiếm Lai.");
         assertThat(novel.coverImageUrl()).isEqualTo("/images/novel/kiem-lai.jpg");
         assertThat(novel.coverMediaAssetId()).isNull();
+        assertThat(novel.displayCoverImageUrl()).isEqualTo("/images/novel/kiem-lai.jpg");
+        assertThat(novel.fallbackCoverImageUrl()).isEqualTo("/images/novel/kiem-lai.jpg");
         assertThat(novel.status()).isEqualTo("ONGOING");
 
         verify(novelProfileRepository).findBySlug("kiem-lai");
@@ -118,7 +120,7 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
 
     @Test
     @DisplayName(
-            "Ánh xạ Novel Profile Media-backed (coverMediaAssetId non-null) thành /media/assets/{id}/content"
+            "Ánh xạ Novel Profile Media-backed (coverMediaAssetId non-null, coverImageUrl null)"
     )
     void shouldMapMediaBackedNovelProfileToReaderNovelOverview() {
         UUID mediaAssetId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -136,15 +138,17 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
 
         assertThat(result).isPresent();
         ReaderNovelOverviewDTO novel = result.orElseThrow();
-        assertThat(novel.coverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(novel.coverImageUrl()).isNull();
         assertThat(novel.coverMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(novel.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
+        assertThat(novel.fallbackCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
     }
 
     @Test
     @DisplayName(
-            "Khi cả coverMediaAssetId và coverImageUrl cùng tồn tại -> Media Asset ID thắng, không fallback legacy URL"
+            "Khi cả coverMediaAssetId và coverImageUrl cùng tồn tại -> Lưu giữ cả hai trường raw trong DTO, displayCoverImageUrl chọn Media variant w300"
     )
-    void shouldPreferMediaAssetIdOverLegacyCoverImageUrlWhenBothPresent() {
+    void shouldPreserveRawLegacyCoverImageUrlAndCoverMediaAssetIdWhenBothPresent() {
         UUID mediaAssetId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
         when(novelProfileRepository.findBySlug("kiem-lai")).thenReturn(Optional.of(novelProfile));
@@ -160,13 +164,15 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
 
         assertThat(result).isPresent();
         ReaderNovelOverviewDTO novel = result.orElseThrow();
-        assertThat(novel.coverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(novel.coverImageUrl()).isEqualTo("https://res.cloudinary.com/legacy-cover.jpg");
         assertThat(novel.coverMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(novel.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
+        assertThat(novel.fallbackCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
     }
 
     @Test
     @DisplayName(
-            "Khi cả coverMediaAssetId và coverImageUrl đều null -> coverImageUrl trong DTO là null"
+            "Khi cả coverMediaAssetId và coverImageUrl đều null -> coverImageUrl và display/fallback đều null"
     )
     void shouldHandleNoCoverWhenBothNull() {
         when(novelProfileRepository.findBySlug("kiem-lai")).thenReturn(Optional.of(novelProfile));
@@ -184,6 +190,8 @@ class ReaderNovelLandingQueryPersistenceAdapterTest {
         ReaderNovelOverviewDTO novel = result.orElseThrow();
         assertThat(novel.coverImageUrl()).isNull();
         assertThat(novel.coverMediaAssetId()).isNull();
+        assertThat(novel.displayCoverImageUrl()).isNull();
+        assertThat(novel.fallbackCoverImageUrl()).isNull();
     }
 
     @Test

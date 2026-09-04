@@ -1,5 +1,7 @@
 package com.universe.novel.contracts.dto.reader;
 
+import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
+
 import java.util.UUID;
 
 public record ReaderNovelOverviewDTO(
@@ -21,5 +23,19 @@ public record ReaderNovelOverviewDTO(
             String status
     ) {
         this(title, slug, author, description, coverImageUrl, null, status);
+    }
+
+    public String displayCoverImageUrl() {
+        if (coverMediaAssetId != null) {
+            return MediaDeliveryUrlSupport.variantUrl(coverMediaAssetId, 300);
+        }
+        return coverImageUrl;
+    }
+
+    public String fallbackCoverImageUrl() {
+        if (coverMediaAssetId != null) {
+            return MediaDeliveryUrlSupport.contentUrl(coverMediaAssetId);
+        }
+        return coverImageUrl;
     }
 }

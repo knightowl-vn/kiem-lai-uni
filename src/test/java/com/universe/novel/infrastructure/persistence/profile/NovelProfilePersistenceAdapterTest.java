@@ -105,7 +105,7 @@ class NovelProfilePersistenceAdapterTest {
         assertThat(dto.id()).isEqualTo(UUID.fromString(PROFILE_ID_STR));
         assertThat(dto.coverImageUrl()).isEqualTo("https://example.com/cover.jpg");
         assertThat(dto.coverMediaAssetId()).isEqualTo(mediaAssetId);
-        assertThat(dto.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(dto.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
 
         verify(novelProfileRepository).findBySlug("kiem-lai");
     }
@@ -145,7 +145,7 @@ class NovelProfilePersistenceAdapterTest {
         assertThat(updatedDTO.description()).isEqualTo("Mô tả Mới");
         assertThat(updatedDTO.coverImageUrl()).isEqualTo("https://example.com/cover2.jpg");
         assertThat(updatedDTO.coverMediaAssetId()).isEqualTo(mediaAssetId);
-        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
         assertThat(updatedDTO.status()).isEqualTo("COMPLETED");
         assertThat(updatedDTO.updatedAt()).isEqualTo(UPDATED_AT);
 
@@ -189,7 +189,7 @@ class NovelProfilePersistenceAdapterTest {
         assertThat(updatedDTO.description()).isEqualTo("Mô tả Mới");
         assertThat(updatedDTO.coverImageUrl()).isEqualTo("https://example.com/new-cover.jpg");
         assertThat(updatedDTO.coverMediaAssetId()).isEqualTo(existingMediaAssetId);
-        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + existingMediaAssetId + "/content");
+        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + existingMediaAssetId + "/variants/w300");
         assertThat(updatedDTO.status()).isEqualTo("COMPLETED");
         assertThat(updatedDTO.updatedAt()).isEqualTo(UPDATED_AT);
 

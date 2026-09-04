@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -227,6 +228,9 @@ class UpdateNovelProfileUseCaseTest {
         assertThat(capturedReq.visibility()).isEqualTo(MediaVisibilityDTO.PUBLIC);
         assertThat(capturedReq.originalFilename()).isEqualTo("new-cover.png");
 
+        verify(mediaContract).generateImageVariant(
+                new com.universe.media.contracts.dto.GenerateImageVariantRequestDTO(newAssetId, 300)
+        );
         verify(mediaContract, never()).uploadVersion(any());
         verify(novelProfileRepositoryPort).update(
                 "kiem-lai",
@@ -241,7 +245,7 @@ class UpdateNovelProfileUseCaseTest {
     }
 
     @Test
-    @DisplayName("Upload ảnh thay thế khi coverMediaAssetId != null -> Gọi uploadVersion với cùng assetId, không gọi uploadAsset")
+    @DisplayName("Upload ảnh thay thế khi coverMediaAssetId != null -> Gọi uploadVersion với cùng assetId và generateImageVariant(300)")
     void shouldUploadReplacementVersionForExistingMediaAsset() {
         UUID existingAssetId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         InputStream in = new ByteArrayInputStream(VALID_IMAGE_BYTES);
@@ -319,6 +323,9 @@ class UpdateNovelProfileUseCaseTest {
         assertThat(capturedReq.mimeType()).isEqualTo("image/webp");
         assertThat(capturedReq.originalFilename()).isEqualTo("cover-v2.webp");
 
+        verify(mediaContract).generateImageVariant(
+                new com.universe.media.contracts.dto.GenerateImageVariantRequestDTO(existingAssetId, 300)
+        );
         verify(mediaContract, never()).uploadAsset(any());
         verify(novelProfileRepositoryPort).update(
                 "kiem-lai",
@@ -330,6 +337,153 @@ class UpdateNovelProfileUseCaseTest {
                 "ONGOING",
                 NOW
         );
+    }
+
+    @Test
+    @DisplayName("Khi variant generation thất bại trong uploadAsset ban đầu -> Không rollback/xóa source asset, profile vẫn cập nhật thành công")
+    void shouldNotRollbackOrFailWhenVariantGenerationFailsForInitialUpload() {
+        UUID newAssetId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        InputStream in = new ByteArrayInputStream(VALID_IMAGE_BYTES);
+
+        NovelCoverUpload coverUpload = new NovelCoverUpload(
+                in,
+                VALID_IMAGE_BYTES.length,
+                "image/png",
+                "new-cover.png"
+        );
+
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả",
+                "ONGOING",
+                coverUpload
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả",
+                "https://example.com/legacy-cover.jpg",
+                null,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        NovelProfileDTO updatedResult = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả",
+                "https://example.com/legacy-cover.jpg",
+                newAssetId,
+                "ONGOING",
+                CREATED_AT,
+                NOW
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(mediaContract.uploadAsset(any(UploadMediaAssetRequestDTO.class)))
+                .thenReturn(new UploadMediaAssetResponseDTO(newAssetId));
+        // Variant generation throws exception (e.g. processor failure or corrupted dimensions)
+        doThrow(new RuntimeException("Variant generation failed"))
+                .when(mediaContract).generateImageVariant(any());
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                eq("kiem-lai"),
+                eq("Kiếm Lai"),
+                eq("Phong Hỏa Hí Chư Hầu"),
+                eq("Mô tả"),
+                eq("https://example.com/legacy-cover.jpg"),
+                eq(newAssetId),
+                eq("ONGOING"),
+                eq(NOW)
+        )).thenReturn(updatedResult);
+
+        // Execute must succeed without throwing
+        NovelProfileDTO result = useCase.execute(command);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(newAssetId);
+        // Source asset must NOT be deleted
+        verify(mediaContract, never()).delete(any());
+        verify(novelProfileRepositoryPort).update(any(), any(), any(), any(), any(), eq(newAssetId), any(), any());
+    }
+
+    @Test
+    @DisplayName("Khi variant generation thất bại trong uploadVersion -> Không fail, profile vẫn cập nhật thành công")
+    void shouldNotRollbackOrFailWhenVariantGenerationFailsForReplacement() {
+        UUID existingAssetId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        InputStream in = new ByteArrayInputStream(VALID_IMAGE_BYTES);
+
+        NovelCoverUpload coverUpload = new NovelCoverUpload(
+                in,
+                VALID_IMAGE_BYTES.length,
+                "image/webp",
+                "cover-v2.webp"
+        );
+
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai (Bản Mới)",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả mới",
+                "ONGOING",
+                coverUpload
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả cũ",
+                "https://example.com/legacy.jpg",
+                existingAssetId,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        NovelProfileDTO updatedResult = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai (Bản Mới)",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả mới",
+                "https://example.com/legacy.jpg",
+                existingAssetId,
+                "ONGOING",
+                CREATED_AT,
+                NOW
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(mediaContract.uploadVersion(any(UploadMediaAssetVersionRequestDTO.class)))
+                .thenReturn(new UploadMediaAssetVersionResponseDTO(existingAssetId, 2));
+        doThrow(new RuntimeException("Variant generation failed"))
+                .when(mediaContract).generateImageVariant(any());
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                eq("kiem-lai"),
+                eq("Kiếm Lai (Bản Mới)"),
+                eq("Phong Hỏa Hí Chư Hầu"),
+                eq("Mô tả mới"),
+                eq("https://example.com/legacy.jpg"),
+                eq(existingAssetId),
+                eq("ONGOING"),
+                eq(NOW)
+        )).thenReturn(updatedResult);
+
+        NovelProfileDTO result = useCase.execute(command);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(existingAssetId);
+        verify(mediaContract, never()).delete(any());
+        verify(novelProfileRepositoryPort).update(any(), any(), any(), any(), any(), eq(existingAssetId), any(), any());
     }
 
     @Test
@@ -529,6 +683,7 @@ class UpdateNovelProfileUseCaseTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Media storage unavailable");
 
+        verify(mediaContract, never()).generateImageVariant(any());
         verify(novelProfileRepositoryPort, never()).update(any(), any(), any(), any(), any(), any(), any(), any());
     }
 

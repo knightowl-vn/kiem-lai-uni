@@ -249,7 +249,9 @@
 									<div th:if="${displayCoverUrl != null and !displayCoverUrl.isBlank()}"
 										class="novel-admin-cover-preview">
 										<img th:src="${displayCoverUrl}"
-											alt="Ảnh bìa tiểu thuyết Kiếm Lai">
+											alt="Ảnh bìa tiểu thuyết Kiếm Lai"
+											th:attr="data-fallback-url=${fallbackCoverUrl != null ? fallbackCoverUrl : (profile != null ? profile.fallbackCoverImageUrl() : null)}"
+											onerror="if (this.getAttribute('data-fallback-url')) { this.src = this.getAttribute('data-fallback-url'); this.removeAttribute('data-fallback-url'); }">
 									</div>
 
 									<div th:unless="${displayCoverUrl != null and !displayCoverUrl.isBlank()}"

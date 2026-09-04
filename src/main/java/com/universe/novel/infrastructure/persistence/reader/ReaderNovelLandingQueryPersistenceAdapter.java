@@ -87,30 +87,15 @@ public class ReaderNovelLandingQueryPersistenceAdapter
                 ? UUID.fromString(entity.getCoverMediaAssetId())
                 : null;
 
-        String resolvedCoverUrl = resolveDisplayCoverUrl(
-                coverMediaAssetId,
-                entity.getCoverImageUrl()
-        );
-
         return new ReaderNovelOverviewDTO(
                 entity.getTitle(),
                 entity.getSlug(),
                 entity.getAuthor(),
                 entity.getDescription(),
-                resolvedCoverUrl,
+                entity.getCoverImageUrl(),
                 coverMediaAssetId,
                 entity.getStatus()
         );
-    }
-
-    private String resolveDisplayCoverUrl(
-            UUID coverMediaAssetId,
-            String legacyCoverImageUrl
-    ) {
-        if (coverMediaAssetId != null) {
-            return "/media/assets/" + coverMediaAssetId + "/content";
-        }
-        return legacyCoverImageUrl;
     }
 
     private ReaderVolumeListItemDTO toVolumeListItemDTO(

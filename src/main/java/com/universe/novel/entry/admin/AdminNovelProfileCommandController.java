@@ -93,6 +93,11 @@ public class AdminNovelProfileCommandController {
             );
 
             model.addAttribute(
+                    "fallbackCoverUrl",
+                    profile.fallbackCoverImageUrl()
+            );
+
+            model.addAttribute(
                     "form",
                     form
             );

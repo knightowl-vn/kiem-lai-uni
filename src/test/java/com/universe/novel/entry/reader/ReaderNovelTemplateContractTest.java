@@ -35,13 +35,14 @@ class ReaderNovelTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Novel reader landing page (index.html) định nghĩa hero cover với th:src novel.coverImageUrl và placeholder")
+    @DisplayName("Novel reader landing page (index.html) định nghĩa hero cover với th:src novel.displayCoverImageUrl, data-fallback-url và placeholder")
     void landingPageIncludesCoverRenderingContract() throws Exception {
         String index = read("src/main/resources/templates/novel/index.html");
 
         assertThat(index).contains("class=\"novel-reader-cover\"");
-        assertThat(index).contains("novel.coverImageUrl != null");
-        assertThat(index).contains("th:src=\"${novel.coverImageUrl}\"");
+        assertThat(index).contains("novel.displayCoverImageUrl != null");
+        assertThat(index).contains("th:src=\"${novel.displayCoverImageUrl}\"");
+        assertThat(index).contains("data-fallback-url");
         assertThat(index).contains("class=\"novel-reader-cover-placeholder\"");
     }
 

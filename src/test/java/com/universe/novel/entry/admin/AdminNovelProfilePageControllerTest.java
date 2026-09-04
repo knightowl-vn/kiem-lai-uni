@@ -84,7 +84,7 @@ class AdminNovelProfilePageControllerTest {
     }
 
     @Test
-    @DisplayName("GET /admin/novel/profile với Media-backed cover hiển thị form/displayCoverUrl với đường dẫn /media/assets/{id}/content trong khi profile giữ nguyên raw legacy URL")
+    @DisplayName("GET /admin/novel/profile với Media-backed cover hiển thị form/displayCoverUrl với đường dẫn /media/assets/{id}/variants/w300 trong khi profile giữ nguyên raw legacy URL")
     void shouldRenderProfilePageWithMediaBackedCover() {
         UUID mediaAssetId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
         NovelProfileDTO profile = new NovelProfileDTO(
@@ -107,7 +107,7 @@ class AdminNovelProfilePageControllerTest {
 
         assertThat(view).isEqualTo("admin/novel/profile");
         assertThat(model.getAttribute("profile")).isEqualTo(profile);
-        assertThat(model.getAttribute("displayCoverUrl")).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(model.getAttribute("displayCoverUrl")).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
 
         // Profile giữ nguyên raw legacy URL
         assertThat(((NovelProfileDTO) model.getAttribute("profile")).coverImageUrl())
@@ -115,10 +115,10 @@ class AdminNovelProfilePageControllerTest {
         assertThat(((NovelProfileDTO) model.getAttribute("profile")).coverMediaAssetId())
                 .isEqualTo(mediaAssetId);
 
-        // Form và display nhận URL Media delivery (Media thắng cho display)
+        // Form và display nhận URL Media variant delivery (Media variant thắng cho display)
         EditNovelProfileForm form = (EditNovelProfileForm) model.getAttribute("form");
         assertThat(form).isNotNull();
-        assertThat(form.getCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(form.getCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
 
         verify(getNovelProfileUseCase).execute();
     }

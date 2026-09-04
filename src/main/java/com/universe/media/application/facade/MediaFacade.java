@@ -19,7 +19,10 @@ import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
 import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.variant.GenerateMediaImageVariantCommand;
+import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -30,6 +33,7 @@ import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
@@ -55,6 +59,7 @@ public class MediaFacade implements MediaContract {
     private final DeleteMediaAssetUseCase deleteMediaAssetUseCase;
     private final UploadMediaAssetUseCase uploadMediaAssetUseCase;
     private final UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
+    private final GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
@@ -63,7 +68,8 @@ public class MediaFacade implements MediaContract {
             RestoreMediaAssetUseCase restoreMediaAssetUseCase,
             DeleteMediaAssetUseCase deleteMediaAssetUseCase,
             UploadMediaAssetUseCase uploadMediaAssetUseCase,
-            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase
+            UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
+            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -92,6 +98,10 @@ public class MediaFacade implements MediaContract {
         this.uploadMediaAssetVersionUseCase = Objects.requireNonNull(
                 uploadMediaAssetVersionUseCase,
                 "UploadMediaAssetVersionUseCase cannot be null."
+        );
+        this.generateMediaImageVariantUseCase = Objects.requireNonNull(
+                generateMediaImageVariantUseCase,
+                "GenerateMediaImageVariantUseCase cannot be null."
         );
     }
 
@@ -131,6 +141,23 @@ public class MediaFacade implements MediaContract {
                 result.assetId(),
                 result.versionNumber()
         );
+    }
+
+    @Override
+    public void generateImageVariant(GenerateImageVariantRequestDTO request) {
+        Objects.requireNonNull(
+                request,
+                "GenerateImageVariantRequestDTO cannot be null."
+        );
+        Objects.requireNonNull(
+                request.mediaAssetId(),
+                "Media asset ID cannot be null."
+        );
+        GenerateMediaImageVariantCommand command = GenerateMediaImageVariantCommand.of(
+                request.mediaAssetId(),
+                ImageVariantSpec.of(request.targetWidth())
+        );
+        generateMediaImageVariantUseCase.execute(command);
     }
 
     @Override

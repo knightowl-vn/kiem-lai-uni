@@ -64,6 +64,11 @@ public class AdminNovelProfilePageController {
         );
 
         model.addAttribute(
+                "fallbackCoverUrl",
+                profile.fallbackCoverImageUrl()
+        );
+
+        model.addAttribute(
                 "statuses",
                 NovelStatus.values()
         );

@@ -1,5 +1,6 @@
 package com.universe.novel.application.profile;
 
+import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
@@ -11,6 +12,8 @@ import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
 import com.universe.novel.domain.NovelStatus;
 import com.universe.shared.time.ClockPort;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -38,8 +41,14 @@ import java.util.UUID;
 @Service
 public class UpdateNovelProfileUseCase {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(UpdateNovelProfileUseCase.class);
+
     private static final String DEFAULT_NOVEL_SLUG =
             "kiem-lai";
+
+    private static final int COVER_IMAGE_VARIANT_WIDTH =
+            300;
 
     private static final long MAX_COVER_FILE_SIZE =
             5L * 1024 * 1024; // 5 MB
@@ -171,6 +180,8 @@ public class UpdateNovelProfileUseCase {
                 newlyCreatedMediaAssetId = uploadResponse.assetId();
                 isInitialMediaAssetUpload = true;
 
+                tryGenerateCoverVariant(targetCoverMediaAssetId);
+
             } else {
                 UploadMediaAssetVersionRequestDTO uploadVersionRequest = new UploadMediaAssetVersionRequestDTO(
                         existingProfile.coverMediaAssetId(),
@@ -182,6 +193,8 @@ public class UpdateNovelProfileUseCase {
 
                 mediaContract.uploadVersion(uploadVersionRequest);
                 targetCoverMediaAssetId = existingProfile.coverMediaAssetId();
+
+                tryGenerateCoverVariant(targetCoverMediaAssetId);
             }
         }
 
@@ -206,7 +219,7 @@ public class UpdateNovelProfileUseCase {
             if (isInitialMediaAssetUpload && newlyCreatedMediaAssetId != null) {
                 try {
                     mediaContract.delete(newlyCreatedMediaAssetId);
-                } catch (Exception compEx) {
+                } catch (RuntimeException compEx) {
                     ex.addSuppressed(compEx);
                 }
             }
@@ -352,5 +365,25 @@ public class UpdateNovelProfileUseCase {
         }
 
         return normalized.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private void tryGenerateCoverVariant(
+            UUID mediaAssetId
+    ) {
+        try {
+            mediaContract.generateImageVariant(
+                    new GenerateImageVariantRequestDTO(
+                            mediaAssetId,
+                            COVER_IMAGE_VARIANT_WIDTH
+                    )
+            );
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Không thể tạo biến thể ảnh bìa w300 cho Media Asset [{}]: {}. Giữ nguyên ảnh gốc.",
+                    mediaAssetId,
+                    ex.getMessage(),
+                    ex
+            );
+        }
     }
 }

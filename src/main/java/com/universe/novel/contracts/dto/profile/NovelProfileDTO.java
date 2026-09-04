@@ -1,5 +1,7 @@
 package com.universe.novel.contracts.dto.profile;
 
+import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -32,7 +34,14 @@ public record NovelProfileDTO(
 
     public String displayCoverImageUrl() {
         if (coverMediaAssetId != null) {
-            return "/media/assets/" + coverMediaAssetId + "/content";
+            return MediaDeliveryUrlSupport.variantUrl(coverMediaAssetId, 300);
+        }
+        return coverImageUrl;
+    }
+
+    public String fallbackCoverImageUrl() {
+        if (coverMediaAssetId != null) {
+            return MediaDeliveryUrlSupport.contentUrl(coverMediaAssetId);
         }
         return coverImageUrl;
     }

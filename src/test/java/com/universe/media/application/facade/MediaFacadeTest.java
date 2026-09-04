@@ -91,6 +91,9 @@ class MediaFacadeTest {
     @Mock
     private UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
 
+    @Mock
+    private com.universe.media.application.variant.GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
+
     private MediaFacade facade;
 
     @BeforeEach
@@ -102,7 +105,8 @@ class MediaFacadeTest {
                 restoreMediaAssetUseCase,
                 deleteMediaAssetUseCase,
                 uploadMediaAssetUseCase,
-                uploadMediaAssetVersionUseCase
+                uploadMediaAssetVersionUseCase,
+                generateMediaImageVariantUseCase
         );
     }
 
@@ -348,5 +352,64 @@ class MediaFacadeTest {
                 .hasMessageContaining("UploadMediaAssetVersionRequestDTO cannot be null.");
 
         verifyNoInteractions(uploadMediaAssetVersionUseCase);
+    }
+
+    @Test
+    @DisplayName("generateImageVariant delegates with mapped command")
+    void shouldDelegateGenerateImageVariant() {
+        com.universe.media.contracts.dto.GenerateImageVariantRequestDTO request =
+                new com.universe.media.contracts.dto.GenerateImageVariantRequestDTO(ASSET_ID, 300);
+
+        UUID variantId = UUID.randomUUID();
+        com.universe.media.application.variant.GenerateMediaImageVariantResult appResult =
+                new com.universe.media.application.variant.GenerateMediaImageVariantResult(
+                        variantId,
+                        ASSET_ID,
+                        VERSION_ID,
+                        1,
+                        "w300",
+                        300,
+                        "image/jpeg",
+                        15000L,
+                        300,
+                        450,
+                        T1
+                );
+
+        when(generateMediaImageVariantUseCase.execute(any(com.universe.media.application.variant.GenerateMediaImageVariantCommand.class)))
+                .thenReturn(appResult);
+
+        facade.generateImageVariant(request);
+
+        ArgumentCaptor<com.universe.media.application.variant.GenerateMediaImageVariantCommand> captor =
+                ArgumentCaptor.forClass(com.universe.media.application.variant.GenerateMediaImageVariantCommand.class);
+        verify(generateMediaImageVariantUseCase).execute(captor.capture());
+
+        com.universe.media.application.variant.GenerateMediaImageVariantCommand cmd = captor.getValue();
+        assertThat(cmd.assetId()).isEqualTo(ASSET_ID);
+        assertThat(cmd.spec().targetWidth()).isEqualTo(300);
+    }
+
+    @Test
+    @DisplayName("generateImageVariant fails fast on null request DTO")
+    void shouldFailFastOnNullGenerateImageVariantRequest() {
+        assertThatThrownBy(() -> facade.generateImageVariant(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("GenerateImageVariantRequestDTO cannot be null.");
+
+        verifyNoInteractions(generateMediaImageVariantUseCase);
+    }
+
+    @Test
+    @DisplayName("generateImageVariant fails fast on null mediaAssetId")
+    void shouldFailFastOnNullMediaAssetIdInGenerateImageVariantRequest() {
+        com.universe.media.contracts.dto.GenerateImageVariantRequestDTO request =
+                new com.universe.media.contracts.dto.GenerateImageVariantRequestDTO(null, 300);
+
+        assertThatThrownBy(() -> facade.generateImageVariant(request))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Media asset ID cannot be null.");
+
+        verifyNoInteractions(generateMediaImageVariantUseCase);
     }
 }
