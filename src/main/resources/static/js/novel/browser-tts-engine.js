@@ -456,6 +456,7 @@
         _speakCurrentChunk() {
             if (this.currentChunkIndex >= this.chunks.length) {
                 this.cancel();
+                this.currentChunkIndex = Math.max(0, this.chunks.length - 1);
                 this._transitionState(EngineState.STOPPED);
                 if (typeof this.options.onChapterEnd === 'function') {
                     try {
