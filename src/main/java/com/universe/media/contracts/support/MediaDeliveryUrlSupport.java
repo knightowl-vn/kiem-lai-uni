@@ -1,5 +1,6 @@
 package com.universe.media.contracts.support;
 
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -36,4 +37,33 @@ public final class MediaDeliveryUrlSupport {
         }
         return "/media/assets/" + assetId + "/variants/w" + targetWidth;
     }
+
+    /**
+     * Parses the asset ID from an exact canonical content streaming URL.
+     *
+     * <p>Recognizes only the exact canonical format produced by {@link #contentUrl(UUID)}:
+     * {@code /media/assets/{assetId}/content} where {assetId} is a standard 36-character canonical UUID.
+     *
+     * @param url URL string to parse
+     * @return Optional containing the UUID if the URL is an exact canonical content URL, empty otherwise
+     */
+    public static Optional<UUID> parseContentAssetId(String url) {
+        if (url == null || url.length() != 58) {
+            return Optional.empty();
+        }
+        if (!url.startsWith("/media/assets/") || !url.endsWith("/content")) {
+            return Optional.empty();
+        }
+        String uuidString = url.substring(14, 50);
+        try {
+            UUID assetId = UUID.fromString(uuidString);
+            if (!uuidString.equals(assetId.toString())) {
+                return Optional.empty();
+            }
+            return Optional.of(assetId);
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
 }
+

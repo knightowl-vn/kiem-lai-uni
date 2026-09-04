@@ -523,9 +523,9 @@ class CommonMarkWikiMarkdownRendererTest {
 
     @Test
     @DisplayName(
-            "Render anh Media-backed: src /media/assets/{uuid}/content duoc dung trong figure"
+            "Render ảnh Media-backed với wiki metadata thành figure với variant w1400 và fallback"
     )
-    void shouldRenderMediaBackedWikiImageWithFigureAndSrc() {
+    void shouldRenderMediaBackedWikiImageWithVariantAndFallback() {
         String mediaUrl =
                 "/media/assets/3b999d3e-9080-48e0-bb15-0d29ca365287/content";
 
@@ -543,7 +543,22 @@ class CommonMarkWikiMarkdownRendererTest {
                         "<figure class=\"wiki-media wiki-media--width-50 wiki-media--block-center\">"
                 )
                 .contains(
-                        "<img src=\"" + mediaUrl + "\" alt=\"Media image\""
+                        "<img src=\"/media/assets/3b999d3e-9080-48e0-bb15-0d29ca365287/variants/w1400\""
+                )
+                .contains(
+                        "alt=\"Media image\""
+                )
+                .contains(
+                        "class=\"wiki-content-image\""
+                )
+                .contains(
+                        "data-fallback-url=\"" + mediaUrl + "\""
+                )
+                .contains(
+                        "onerror=\"this.onerror=null;this.src=this.dataset.fallbackUrl;\""
+                )
+                .contains(
+                        "<figcaption>Caption text</figcaption>"
                 )
                 .contains(
                         "</figure>"
@@ -552,39 +567,71 @@ class CommonMarkWikiMarkdownRendererTest {
 
     @Test
     @DisplayName(
-            "Render dong thoi ca anh Media-backed va anh Cloudinary khong can logic rieng biet"
+            "Render ảnh Media-backed thường không có metadata wiki thành thẻ img với variant w1400 và fallback"
     )
-    void shouldRenderBothMediaAndLegacyImagesUniformly() {
+    void shouldRenderPlainMediaImageWithoutWikiMetadataAsVariantWithFallback() {
         String mediaUrl =
-                "/media/assets/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/content";
-
-        String legacyUrl =
-                "https://res.cloudinary.com/demo/image/upload/v1/kiemlai/wiki/legacy.webp";
+                "/media/assets/11111111-1111-1111-1111-111111111111/content";
 
         String markdown =
-                "![Media]("
+                "![Plain Media]("
                 + mediaUrl
-                + " \"wiki:width=40;layout=wrap-left\")"
-                + "\n\nText between.\n\n"
-                + "![Legacy]("
-                + legacyUrl
-                + " \"wiki:width=60;layout=block-right\")";
+                + ")";
 
         RenderedWikiContent result =
                 renderer.render(markdown);
 
         assertThat(result.html())
                 .contains(
-                        "<img src=\"" + mediaUrl + "\""
+                        "<img src=\"/media/assets/11111111-1111-1111-1111-111111111111/variants/w1400\""
                 )
                 .contains(
-                        "wiki-media--wrap-left"
+                        "alt=\"Plain Media\""
                 )
                 .contains(
-                        "<img src=\"" + legacyUrl + "\""
+                        "data-fallback-url=\"" + mediaUrl + "\""
                 )
                 .contains(
-                        "wiki-media--block-right"
+                        "onerror=\"this.onerror=null;this.src=this.dataset.fallbackUrl;\""
+                )
+                .doesNotContain(
+                        "<figure"
+                )
+                .doesNotContain(
+                        "class=\"wiki-content-image\""
                 );
     }
+
+    @Test
+    @DisplayName(
+            "Không transform ảnh Cloudinary, ảnh external, ảnh đã là variant, hoặc lookalike không chuẩn"
+    )
+    void shouldNotTransformNonCanonicalOrExternalOrAlreadyVariantImages() {
+        String legacyUrl =
+                "https://res.cloudinary.com/demo/image/upload/v1/kiemlai/wiki/legacy.webp";
+        String externalUrl =
+                "https://example.com/media/assets/11111111-1111-1111-1111-111111111111/content";
+        String alreadyVariantUrl =
+                "/media/assets/11111111-1111-1111-1111-111111111111/variants/w300";
+        String malformedUrl =
+                "/media/assets/11111111-1111-1111-1111-111111111111/content/extra";
+
+        String markdown =
+                "![Legacy](" + legacyUrl + ")\n\n"
+                + "![External](" + externalUrl + ")\n\n"
+                + "![Variant](" + alreadyVariantUrl + ")\n\n"
+                + "![Malformed](" + malformedUrl + ")";
+
+        RenderedWikiContent result =
+                renderer.render(markdown);
+
+        assertThat(result.html())
+                .contains("src=\"" + legacyUrl + "\"")
+                .contains("src=\"" + externalUrl + "\"")
+                .contains("src=\"" + alreadyVariantUrl + "\"")
+                .contains("src=\"" + malformedUrl + "\"")
+                .doesNotContain("data-fallback-url")
+                .doesNotContain("onerror");
+    }
 }
+

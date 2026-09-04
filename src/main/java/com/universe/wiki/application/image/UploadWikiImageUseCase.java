@@ -1,13 +1,17 @@
 package com.universe.wiki.application.image;
 
+import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.ports.WikiImageRepositoryPort;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -27,7 +31,10 @@ import java.util.UUID;
 @Service
 public class UploadWikiImageUseCase {
 
+	private static final Logger log = LoggerFactory.getLogger(UploadWikiImageUseCase.class);
+
 	private static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
+
 
 	private static final Set<String> SUPPORTED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
 
@@ -98,6 +105,9 @@ public class UploadWikiImageUseCase {
 
 			if (existingAssetOpt.isPresent()) {
 				WikiImageAsset existing = existingAssetOpt.get();
+				if (existing.mediaAssetId() != null) {
+					tryGenerateWikiImageVariant(existing.mediaAssetId());
+				}
 				return new WikiImageUploadResult(existing.url(), existing.publicId());
 			}
 
@@ -112,21 +122,23 @@ public class UploadWikiImageUseCase {
 			}
 
 			UUID mediaAssetId = mediaResponse.assetId();
-			String mediaDeliveryUrl = "/media/assets/" + mediaAssetId + "/content";
+			String mediaDeliveryUrl = MediaDeliveryUrlSupport.contentUrl(mediaAssetId);
 
 			WikiImageAsset newAsset = new WikiImageAsset(UUID.randomUUID(), contentHash, mediaDeliveryUrl, null,
 					mediaAssetId, contentType, actualSizeBytes, clockPort.now());
 
 			try {
 				imageRepositoryPort.save(newAsset);
-			} catch (Exception persistEx) {
+			} catch (RuntimeException persistEx) {
 				try {
 					mediaContract.delete(mediaAssetId);
-				} catch (Exception compEx) {
+				} catch (RuntimeException compEx) {
 					persistEx.addSuppressed(compEx);
 				}
 				throw persistEx;
 			}
+
+			tryGenerateWikiImageVariant(mediaAssetId);
 
 			return new WikiImageUploadResult(mediaDeliveryUrl, null);
 
@@ -139,6 +151,28 @@ public class UploadWikiImageUseCase {
 			}
 		}
 	}
+
+	private void tryGenerateWikiImageVariant(UUID mediaAssetId) {
+		if (mediaAssetId == null) {
+			return;
+		}
+		try {
+			mediaContract.generateImageVariant(
+					new GenerateImageVariantRequestDTO(
+							mediaAssetId,
+							WikiImageVariantPolicy.TARGET_WIDTH
+					)
+			);
+		} catch (RuntimeException ex) {
+			log.warn(
+					"Không thể tạo biến thể ảnh Wiki w1400 cho Media Asset [{}]: {}. Giữ nguyên ảnh gốc.",
+					mediaAssetId,
+					ex.getMessage(),
+					ex
+			);
+		}
+	}
+
 
 	public WikiImageUploadResult execute(String originalFilename, String contentType, InputStream content,
 			long declaredSizeBytes) {

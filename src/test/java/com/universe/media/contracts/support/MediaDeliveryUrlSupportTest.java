@@ -29,4 +29,43 @@ class MediaDeliveryUrlSupportTest {
         assertThat(MediaDeliveryUrlSupport.variantUrl(null, 300))
                 .isNull();
     }
+
+    @Test
+    @DisplayName("parseContentAssetId parses exact canonical content URL to UUID")
+    void shouldParseCanonicalContentUrl() {
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-111111111111/content"))
+                .contains(ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("parseContentAssetId returns empty for null, blank, whitespace-mutated, or noncanonical URLs")
+    void shouldReturnEmptyForNonCanonicalUrls() {
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId(null))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId(""))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("   "))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId(" /media/assets/11111111-1111-1111-1111-111111111111/content"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-111111111111/content "))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-111111111111/variants/w300"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-111111111111/variants/w1400"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("https://res.cloudinary.com/demo/image/upload/v1/sample.jpg"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("https://example.com/media/assets/11111111-1111-1111-1111-111111111111/content"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-111111111111/content/extra"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets//content"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/not-a-valid-uuid-format-here/content"))
+                .isEmpty();
+        assertThat(MediaDeliveryUrlSupport.parseContentAssetId("/media/assets/11111111-1111-1111-1111-11111111111A/content"))
+                .isEmpty();
+    }
 }
+

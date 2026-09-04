@@ -1,5 +1,6 @@
 package com.universe.wiki.application.image;
 
+import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -28,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,8 +61,8 @@ class UploadWikiImageUseCaseTest {
     }
 
     @Test
-    @DisplayName("Upload ảnh Wiki hợp lệ gọi MediaContract.uploadAsset và lưu WikiImageAsset media-backed")
-    void shouldUploadValidWikiImageThroughMediaContract() {
+    @DisplayName("Upload ảnh Wiki hợp lệ gọi upload -> save -> generate w1400 theo đúng thứ tự")
+    void shouldUploadValidWikiImageThroughMediaContractAndGenerateVariant() {
         byte[] content = "valid-image-bytes".getBytes(StandardCharsets.UTF_8);
         UUID createdAssetId = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
@@ -101,11 +104,49 @@ class UploadWikiImageUseCaseTest {
         assertThat(savedAsset.sizeBytes()).isEqualTo((long) content.length);
         assertThat(savedAsset.createdAt()).isEqualTo(FIXED_NOW);
 
+        ArgumentCaptor<GenerateImageVariantRequestDTO> variantCaptor =
+                ArgumentCaptor.forClass(GenerateImageVariantRequestDTO.class);
+        verify(mediaContract).generateImageVariant(variantCaptor.capture());
+        assertThat(variantCaptor.getValue().mediaAssetId()).isEqualTo(createdAssetId);
+        assertThat(variantCaptor.getValue().targetWidth()).isEqualTo(1400);
+
+        InOrder inOrder = inOrder(mediaContract, imageRepositoryPort);
+        inOrder.verify(mediaContract).uploadAsset(any(UploadMediaAssetRequestDTO.class));
+        inOrder.verify(imageRepositoryPort).save(any(WikiImageAsset.class));
+        inOrder.verify(mediaContract).generateImageVariant(any(GenerateImageVariantRequestDTO.class));
+
         verify(mediaContract, never()).uploadVersion(any());
     }
 
     @Test
-    @DisplayName("Tái sử dụng bản ghi legacy khi content hash khớp và không gọi MediaContract")
+    @DisplayName("Variant generation thất bại (RuntimeException) không làm hỏng upload và giữ nguyên ảnh gốc")
+    void shouldNotFailUploadWhenVariantGenerationThrowsRuntimeException() {
+        byte[] content = "valid-image-bytes".getBytes(StandardCharsets.UTF_8);
+        UUID createdAssetId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+        when(clockPort.now()).thenReturn(FIXED_NOW);
+        when(imageRepositoryPort.findByContentHash(any())).thenReturn(Optional.empty());
+        when(mediaContract.uploadAsset(any(UploadMediaAssetRequestDTO.class)))
+                .thenReturn(new UploadMediaAssetResponseDTO(createdAssetId));
+        doThrow(new RuntimeException("ImageIO processor error for webp"))
+                .when(mediaContract).generateImageVariant(any(GenerateImageVariantRequestDTO.class));
+
+        WikiImageUploadResult result = useCase.execute(
+                new ByteArrayInputStream(content),
+                content.length,
+                "image/webp",
+                "test.webp"
+        );
+
+        assertThat(result.url()).isEqualTo("/media/assets/" + createdAssetId + "/content");
+        assertThat(result.publicId()).isNull();
+
+        verify(imageRepositoryPort).save(any(WikiImageAsset.class));
+        verify(mediaContract, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("Tái sử dụng bản ghi legacy khi content hash khớp và không gọi MediaContract upload hay variant")
     void shouldReuseLegacyImageOnContentHashMatchWithoutCallingMedia() {
         byte[] content = "legacy-image-content".getBytes(StandardCharsets.UTF_8);
         String expectedHash = calculateSha256(content);
@@ -135,12 +176,13 @@ class UploadWikiImageUseCaseTest {
 
         verify(mediaContract, never()).uploadAsset(any());
         verify(mediaContract, never()).uploadVersion(any());
+        verify(mediaContract, never()).generateImageVariant(any());
         verify(imageRepositoryPort, never()).save(any());
     }
 
     @Test
-    @DisplayName("Tái sử dụng bản ghi Media-backed khi content hash khớp và không gọi MediaContract")
-    void shouldReuseMediaBackedImageOnContentHashMatchWithoutCallingMedia() {
+    @DisplayName("Dedup hit Media-backed: best-effort tạo variant w1400 (backfill) mà không upload mới")
+    void shouldReuseMediaBackedImageAndEnsureVariantWithoutNewUpload() {
         byte[] content = "media-backed-content".getBytes(StandardCharsets.UTF_8);
         String expectedHash = calculateSha256(content);
         UUID existingAssetId = UUID.fromString("22222222-2222-2222-2222-222222222222");
@@ -172,7 +214,53 @@ class UploadWikiImageUseCaseTest {
         verify(mediaContract, never()).uploadAsset(any());
         verify(mediaContract, never()).uploadVersion(any());
         verify(imageRepositoryPort, never()).save(any());
+
+        ArgumentCaptor<GenerateImageVariantRequestDTO> variantCaptor =
+                ArgumentCaptor.forClass(GenerateImageVariantRequestDTO.class);
+        verify(mediaContract).generateImageVariant(variantCaptor.capture());
+        assertThat(variantCaptor.getValue().mediaAssetId()).isEqualTo(existingAssetId);
+        assertThat(variantCaptor.getValue().targetWidth()).isEqualTo(WikiImageVariantPolicy.TARGET_WIDTH);
     }
+
+    @Test
+    @DisplayName("Dedup hit Media-backed: variant generation thất bại (RuntimeException) vẫn trả về ảnh hiện có thành công")
+    void shouldReturnExistingImageOnDedupHitWhenVariantGenerationThrowsRuntimeException() {
+        byte[] content = "media-backed-content".getBytes(StandardCharsets.UTF_8);
+        String expectedHash = calculateSha256(content);
+        UUID existingAssetId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+
+        WikiImageAsset mediaAsset = new WikiImageAsset(
+                UUID.randomUUID(),
+                expectedHash,
+                "/media/assets/" + existingAssetId + "/content",
+                null,
+                existingAssetId,
+                "image/png",
+                content.length,
+                Instant.parse("2026-08-15T00:00:00Z")
+        );
+
+        when(imageRepositoryPort.findByContentHash(expectedHash))
+                .thenReturn(Optional.of(mediaAsset));
+        doThrow(new RuntimeException("Variant generation worker timeout"))
+                .when(mediaContract).generateImageVariant(any(GenerateImageVariantRequestDTO.class));
+
+        WikiImageUploadResult result = useCase.execute(
+                new ByteArrayInputStream(content),
+                content.length,
+                "image/png",
+                "photo.png"
+        );
+
+        assertThat(result.url()).isEqualTo("/media/assets/" + existingAssetId + "/content");
+        assertThat(result.publicId()).isNull();
+
+        verify(mediaContract, never()).uploadAsset(any());
+        verify(mediaContract, never()).uploadVersion(any());
+        verify(mediaContract, never()).delete(any());
+        verify(imageRepositoryPort, never()).save(any());
+    }
+
 
     @Test
     @DisplayName("Không lưu bản ghi Wiki khi Media upload thất bại")
@@ -219,6 +307,7 @@ class UploadWikiImageUseCaseTest {
                 .hasMessage("DB connection dropped");
 
         verify(mediaContract).delete(createdAssetId);
+        verify(mediaContract, never()).generateImageVariant(any());
     }
 
     @Test
