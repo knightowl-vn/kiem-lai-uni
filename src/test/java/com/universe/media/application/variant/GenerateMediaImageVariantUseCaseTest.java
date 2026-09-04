@@ -13,6 +13,7 @@ import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaImageVariant;
 import com.universe.media.domain.MediaType;
@@ -766,5 +767,61 @@ class GenerateMediaImageVariantUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Storage provider mismatch");
+    }
+
+    @Test
+    @DisplayName("rejects ARCHIVED asset with IllegalStateException and performs no processing, storage, or persistence")
+    void shouldRejectArchivedAsset() {
+        MediaAsset archivedAsset = MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ARCHIVED,
+                1,
+                NOW,
+                NOW
+        );
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(archivedAsset));
+
+        GenerateMediaImageVariantCommand command = GenerateMediaImageVariantCommand.of(ASSET_ID, ImageVariantSpec.of(300));
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ARCHIVED")
+                .hasMessageContaining("only permitted while the asset is ACTIVE");
+
+        verify(mediaAssetVersionRepositoryPort, never()).findByAssetIdAndVersionNumber(any(), any(Integer.class));
+        verify(binaryStoragePort, never()).open(any());
+        verify(imageProcessorPort, never()).process(any(), any(), any());
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(mediaImageVariantRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("rejects DELETED asset with IllegalStateException and performs no processing, storage, or persistence")
+    void shouldRejectDeletedAsset() {
+        MediaAsset deletedAsset = MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.DELETED,
+                1,
+                NOW,
+                NOW
+        );
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
+
+        GenerateMediaImageVariantCommand command = GenerateMediaImageVariantCommand.of(ASSET_ID, ImageVariantSpec.of(300));
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("DELETED")
+                .hasMessageContaining("only permitted while the asset is ACTIVE");
+
+        verify(mediaAssetVersionRepositoryPort, never()).findByAssetIdAndVersionNumber(any(), any(Integer.class));
+        verify(binaryStoragePort, never()).open(any());
+        verify(imageProcessorPort, never()).process(any(), any(), any());
+        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+        verify(mediaImageVariantRepositoryPort, never()).save(any());
     }
 }

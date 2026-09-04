@@ -12,6 +12,7 @@ import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaImageVariant;
 import com.universe.media.domain.MediaType;
@@ -38,7 +39,7 @@ import java.util.UUID;
  * <p>
  * Core Flow:
  * <ul>
- *     <li>Validates existence and compatibility of source {@link MediaAsset} (must be {@link MediaType#IMAGE}).</li>
+ *     <li>Validates existence, ACTIVE status, and compatibility of source {@link MediaAsset} (must be {@link MediaType#IMAGE}).</li>
  *     <li>Resolves targeted {@link MediaAssetVersion}.</li>
  *     <li>Checks idempotency: returns existing variant if {@code (versionId, variantKey)} already exists.</li>
  *     <li>Opens source binary via {@link BinaryStoragePort} and processes via {@link ImageProcessorPort}.</li>
@@ -102,6 +103,14 @@ public class GenerateMediaImageVariantUseCase {
         // 1. Resolve source asset
         MediaAsset asset = mediaAssetRepositoryPort.findById(assetId)
                 .orElseThrow(() -> new MediaAssetNotFoundException(assetId));
+
+        if (asset.getStatus() != MediaAssetStatus.ACTIVE) {
+            throw new IllegalStateException(
+                    "Cannot generate image variant for media asset " + assetId
+                            + " with status: " + asset.getStatus()
+                            + ". Variant generation is only permitted while the asset is ACTIVE."
+            );
+        }
 
         if (asset.getMediaType() != MediaType.IMAGE) {
             throw new IllegalArgumentException(
