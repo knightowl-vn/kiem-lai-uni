@@ -7,6 +7,8 @@ import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageLocation;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -102,6 +104,70 @@ public class MediaImageVariantPersistenceAdapter implements MediaImageVariantRep
                 storageLocation.providerId().value(),
                 storageLocation.key().value()
         );
+    }
+
+    @Override
+    public List<MediaImageVariant> findAllByVersionId(
+            UUID versionId
+    ) {
+        Objects.requireNonNull(
+                versionId,
+                "Version ID cannot be null."
+        );
+
+        return repository.findByVersionId(versionId.toString())
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<MediaImageVariant> findAllByVersionIds(
+            Collection<UUID> versionIds
+    ) {
+        Objects.requireNonNull(
+                versionIds,
+                "Version IDs cannot be null."
+        );
+
+        if (versionIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> stringIds = versionIds.stream().map(UUID::toString).toList();
+        return repository.findByVersionIdIn(stringIds)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public void deleteByVersionId(
+            UUID versionId
+    ) {
+        Objects.requireNonNull(
+                versionId,
+                "Version ID cannot be null."
+        );
+
+        repository.deleteByVersionId(versionId.toString());
+    }
+
+    @Override
+    public void deleteByVersionIds(
+            Collection<UUID> versionIds
+    ) {
+        Objects.requireNonNull(
+                versionIds,
+                "Version IDs cannot be null."
+        );
+
+        if (versionIds.isEmpty()) {
+            return;
+        }
+
+        List<String> stringIds = versionIds.stream().map(UUID::toString).toList();
+        repository.deleteByVersionIdIn(stringIds);
     }
 
     private MediaImageVariant toDomain(

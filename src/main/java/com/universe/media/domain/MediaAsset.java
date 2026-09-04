@@ -323,6 +323,24 @@ public final class MediaAsset {
         return status == MediaAssetStatus.DELETED;
     }
 
+    /**
+     * Checks if this media asset is eligible for physical purge.
+     * An asset is eligible if and only if its status is DELETED and its updatedAt
+     * (deletion timestamp) is on or before the specified cutoff timestamp.
+     *
+     * @param cutoff The cutoff timestamp (now minus retention duration)
+     * @return true if eligible for purge, false otherwise
+     */
+    public boolean isPurgeEligible(
+            Instant cutoff
+    ) {
+        Objects.requireNonNull(
+                cutoff,
+                "Cutoff timestamp cannot be null."
+        );
+        return isDeleted() && !updatedAt.isAfter(cutoff);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

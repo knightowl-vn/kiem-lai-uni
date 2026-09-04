@@ -21,4 +21,12 @@ public interface SpringDataMediaAssetVersionJpaRepository
     List<MediaAssetVersionJpaEntity> findByContentHash(
             String contentHash
     );
+
+    List<MediaAssetVersionJpaEntity> findByAssetId(
+            String assetId
+    );
+
+    void deleteByAssetId(
+            String assetId
+    );
 }

@@ -5,8 +5,11 @@ import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -66,6 +69,38 @@ public class MediaAssetPersistenceAdapter implements MediaAssetRepositoryPort {
 
         MediaAssetJpaEntity savedEntity = repository.save(entity);
         return toDomain(savedEntity);
+    }
+
+    @Override
+    public void deleteById(
+            UUID id
+    ) {
+        Objects.requireNonNull(
+                id,
+                "Media asset ID cannot be null."
+        );
+
+        repository.deleteById(id.toString());
+    }
+
+    @Override
+    public List<MediaAsset> findExpiredDeleted(
+            Instant cutoff,
+            int limit
+    ) {
+        Objects.requireNonNull(
+                cutoff,
+                "Cutoff timestamp cannot be null."
+        );
+
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Query limit must be greater than zero: " + limit);
+        }
+
+        return repository.findExpiredDeleted(cutoff, PageRequest.of(0, limit))
+                .stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     private MediaAsset toDomain(

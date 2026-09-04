@@ -26,4 +26,12 @@ public interface MediaAssetVersionRepositoryPort {
     List<MediaAssetVersion> findByContentHash(
             ContentHash contentHash
     );
+
+    List<MediaAssetVersion> findAllByAssetId(
+            UUID assetId
+    );
+
+    void deleteByAssetId(
+            UUID assetId
+    );
 }

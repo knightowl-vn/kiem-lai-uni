@@ -486,4 +486,84 @@ class MediaAssetTest {
             assertThat(asset.getUpdatedAt()).isEqualTo(T2);
         }
     }
+
+    @Nested
+    @DisplayName("Purge Eligibility")
+    class PurgeEligibilityTests {
+
+        @Test
+        @DisplayName("isPurgeEligible returns true for DELETED asset when updatedAt is on or before cutoff")
+        void shouldBeEligibleWhenDeletedAndExpired() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1
+            );
+            asset.markDeleted(T2);
+
+            // Cutoff is after deletion timestamp
+            assertThat(asset.isPurgeEligible(T3)).isTrue();
+            // Cutoff is exact deletion timestamp
+            assertThat(asset.isPurgeEligible(T2)).isTrue();
+        }
+
+        @Test
+        @DisplayName("isPurgeEligible returns false for DELETED asset when updatedAt is after cutoff (within grace period)")
+        void shouldNotBeEligibleWhenDeletedWithinGracePeriod() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1
+            );
+            asset.markDeleted(T3);
+
+            // Cutoff is before deletion timestamp
+            assertThat(asset.isPurgeEligible(T2)).isFalse();
+        }
+
+        @Test
+        @DisplayName("isPurgeEligible returns false for ACTIVE asset regardless of cutoff")
+        void shouldNotBeEligibleWhenActive() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1
+            );
+
+            assertThat(asset.isPurgeEligible(T3)).isFalse();
+        }
+
+        @Test
+        @DisplayName("isPurgeEligible returns false for ARCHIVED asset regardless of cutoff")
+        void shouldNotBeEligibleWhenArchived() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1
+            );
+            asset.archive(T2);
+
+            assertThat(asset.isPurgeEligible(T3)).isFalse();
+        }
+
+        @Test
+        @DisplayName("isPurgeEligible rejects null cutoff")
+        void shouldRejectNullCutoff() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1
+            );
+            asset.markDeleted(T2);
+
+            assertThatThrownBy(() -> asset.isPurgeEligible(null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("Cutoff timestamp cannot be null");
+        }
+    }
 }

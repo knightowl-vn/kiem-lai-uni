@@ -2,6 +2,8 @@ package com.universe.media.application.ports;
 
 import com.universe.media.domain.MediaAsset;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,5 +15,14 @@ public interface MediaAssetRepositoryPort {
 
     MediaAsset save(
             MediaAsset asset
+    );
+
+    void deleteById(
+            UUID id
+    );
+
+    List<MediaAsset> findExpiredDeleted(
+            Instant cutoff,
+            int limit
     );
 }

@@ -95,6 +95,33 @@ public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRep
                 .toList();
     }
 
+    @Override
+    public List<MediaAssetVersion> findAllByAssetId(
+            UUID assetId
+    ) {
+        Objects.requireNonNull(
+                assetId,
+                "Media asset ID cannot be null."
+        );
+
+        return repository.findByAssetId(assetId.toString())
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public void deleteByAssetId(
+            UUID assetId
+    ) {
+        Objects.requireNonNull(
+                assetId,
+                "Media asset ID cannot be null."
+        );
+
+        repository.deleteByAssetId(assetId.toString());
+    }
+
     private MediaAssetVersion toDomain(
             MediaAssetVersionJpaEntity entity
     ) {
