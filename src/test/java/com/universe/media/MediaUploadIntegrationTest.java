@@ -64,6 +64,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
+import com.universe.media.infrastructure.image.JavaImageProcessorAdapter;
+import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter;
+
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -74,6 +78,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({
         MediaAssetPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
+        MediaImageVariantPersistenceAdapter.class,
+        JavaImageProcessorAdapter.class,
         RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         GetMediaAssetDetailUseCase.class,
@@ -83,6 +89,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         DeleteMediaAssetUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
+        GenerateMediaImageVariantUseCase.class,
         LocalFilesystemStorageAdapter.class,
         MediaFacade.class,
         MediaUploadIntegrationTest.TestConfig.class
@@ -124,6 +131,7 @@ class MediaUploadIntegrationTest {
     @AfterEach
     void cleanUpDatabase() {
         for (UUID assetId : createdAssetIds) {
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id IN (SELECT id FROM media_asset_versions WHERE asset_id = ?)", assetId.toString());
             jdbcTemplate.update("DELETE FROM media_asset_versions WHERE asset_id = ?", assetId.toString());
             jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
         }

@@ -96,7 +96,8 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
-                                "/media/assets/*/content"
+                                "/media/assets/*/content",
+                                "/media/assets/*/variants/*"
                         )
                         .permitAll()
 

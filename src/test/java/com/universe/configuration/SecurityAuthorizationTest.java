@@ -78,6 +78,8 @@ import com.universe.media.entry.delivery.MediaDeliveryController;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.asset.GetMediaAssetContentQuery;
 import com.universe.media.application.asset.GetMediaAssetContentResult;
+import com.universe.media.application.variant.GetMediaImageVariantContentQuery;
+import com.universe.media.application.variant.GetMediaImageVariantContentUseCase;
 
 @WebMvcTest(controllers = {
         ReaderNovelPageController.class,
@@ -183,6 +185,9 @@ class SecurityAuthorizationTest {
     @MockBean
     private GetMediaAssetContentUseCase getMediaAssetContentUseCase;
 
+    @MockBean
+    private GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -211,6 +216,26 @@ class SecurityAuthorizationTest {
                 .thenReturn(result);
 
         mockMvc.perform(get("/media/assets/" + assetId + "/content"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh (anonymous) có thể truy cập GET /media/assets/{assetId}/variants/{variantKey}")
+    void shouldAllowAnonymousAccessToMediaImageVariantEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        byte[] payload = new byte[]{4, 5, 6};
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                new java.io.ByteArrayInputStream(payload),
+                payload.length,
+                "image/webp",
+                "dummyhash"
+        );
+
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(assetId, "w300")))
+                .thenReturn(result);
+
+        mockMvc.perform(get("/media/assets/" + assetId + "/variants/w300"))
                 .andExpect(status().isOk());
     }
 

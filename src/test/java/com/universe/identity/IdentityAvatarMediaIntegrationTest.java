@@ -101,6 +101,9 @@ import static org.mockito.Mockito.mock;
         UploadMediaAssetVersionUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
+        com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
+        com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
+        com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,
         MediaFacade.class,
         IdentityAvatarMediaIntegrationTest.TestConfig.class
 })
@@ -202,6 +205,7 @@ class IdentityAvatarMediaIntegrationTest {
     @BeforeEach
     void setUp() {
         jdbcTemplate.update("DELETE FROM identity_users");
+        jdbcTemplate.update("DELETE FROM media_image_variants");
         jdbcTemplate.update("DELETE FROM media_asset_versions");
         jdbcTemplate.update("DELETE FROM media_assets");
     }
