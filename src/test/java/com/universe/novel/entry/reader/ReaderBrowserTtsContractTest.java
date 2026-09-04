@@ -9,8 +9,38 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("Novel Reader Browser TTS Engine & Text Parser Contract Tests")
+@DisplayName("Novel Reader Browser TTS Engine, Controller & Player Contract Tests")
 class ReaderBrowserTtsContractTest {
+
+    @Test
+    @DisplayName("Novel chapter reading page (chapter.html) includes narration player bar, controls, follow mode toggle, and script tags")
+    void chapterReadingPageIncludesNarrationPlayerContract() throws Exception {
+        String chapterPage = read("src/main/resources/templates/novel/chapter.html");
+
+        // 1. Narration Player Section & Controls
+        assertThat(chapterPage).contains("id=\"novelNarrationPlayer\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationPlayPauseBtn\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationPrevBtn\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationNextBtn\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationProgress\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationProgressCurrent\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationProgressTotal\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationVoiceSelect\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationRateSelect\"");
+        assertThat(chapterPage).contains("id=\"novelNarrationStatusText\"");
+
+        // 2. Narration Follow Mode Toggle in Reading Settings Popover
+        assertThat(chapterPage).contains("id=\"novelNarrationFollowToggle\"");
+        assertThat(chapterPage).contains("role=\"switch\"");
+        assertThat(chapterPage).contains("aria-checked=\"true\"");
+        assertThat(chapterPage).contains("Theo dõi giọng đọc");
+
+        // 3. Narration JavaScript Inclusions
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/narration-text-parser.js}\"");
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/browser-tts-engine.js}\"");
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/narration-controller.js}\"");
+        assertThat(chapterPage).contains("defer");
+    }
 
     @Test
     @DisplayName("narration-text-parser.js defines expected extraction, filtering, nested block duplicate prevention, and fallback splitting")
@@ -103,6 +133,97 @@ class ReaderBrowserTtsContractTest {
         assertThat(js).contains("nextChunk");
         assertThat(js).contains("previousChunk");
         assertThat(js).contains("destroy");
+    }
+
+    @Test
+    @DisplayName("narration-controller.js coordinates parser, engine, follow mode highlights, scrolling, and settings toggle")
+    void narrationControllerScriptContract() throws Exception {
+        String js = read("src/main/resources/static/js/novel/narration-controller.js");
+
+        // 1. Module Export / UMD Contract
+        assertThat(js).contains("NarrationController");
+        assertThat(js).contains("KiemLai.NarrationController");
+        assertThat(js).contains("HIGHLIGHT_CLASS");
+        assertThat(js).contains("novel-narration-highlight");
+        assertThat(js).contains("module.exports");
+
+        // 2. DOM Selectors & Initialization
+        assertThat(js).contains("DEFAULT_SELECTORS");
+        assertThat(js).contains("#novelNarrationPlayer");
+        assertThat(js).contains(".novel-reader-chapter-body");
+        assertThat(js).contains("#novelNarrationPlayPauseBtn");
+        assertThat(js).contains("#novelNarrationPrevBtn");
+        assertThat(js).contains("#novelNarrationNextBtn");
+        assertThat(js).contains("#novelNarrationVoiceSelect");
+        assertThat(js).contains("#novelNarrationRateSelect");
+        assertThat(js).contains("#novelNarrationFollowToggle");
+
+        // 3. Engine Orchestration & Callbacks
+        assertThat(js).contains("onStateChange");
+        assertThat(js).contains("onChunkStart");
+        assertThat(js).contains("onChapterEnd");
+        assertThat(js).contains("onVoicesChanged");
+        assertThat(js).contains("parseChapterBody");
+        assertThat(js).contains("loadChunks");
+
+        // 4. Follow Mode Highlights & Smooth Viewport Visibility
+        assertThat(js).contains("setFollowMode");
+        assertThat(js).contains("_highlightChunk");
+        assertThat(js).contains("_clearHighlight");
+        assertThat(js).contains("_isElementComfortablyVisible");
+        assertThat(js).contains("_scrollElementIntoView");
+        assertThat(js).contains("this.followMode");
+        assertThat(js).contains("this.activeHighlightedElement === chunk.element");
+        assertThat(js).contains("comfortableHeight");
+
+        // 5. Paused/Idle Navigation Synchronization & Immediate UI Update
+        assertThat(js).contains("_syncNavigationAndProgress");
+        assertThat(js).contains("seekToChunk");
+
+        // 6. Chapter Completion Semantics & Replay
+        assertThat(js).contains("isCompleted");
+        assertThat(js).contains("Phát lại từ đầu");
+        assertThat(js).contains("Đã đọc xong chương.");
+
+        // 7. Unsupported State & Voice Grouping
+        assertThat(js).contains("_renderUnsupportedState");
+        assertThat(js).contains("is-unsupported");
+        assertThat(js).contains("Giọng đọc Tiếng Việt");
+        assertThat(js).contains("Giọng đọc khác");
+
+        // 8. Cleanup & Lifecycle Teardown
+        assertThat(js).contains("beforeunload");
+        assertThat(js).contains("pagehide");
+        assertThat(js).contains("destroy()");
+    }
+
+    @Test
+    @DisplayName("reader.css defines responsive styles for narration player, toggle switch, and layout-stable active content highlight")
+    void narrationPlayerCssStylesContract() throws Exception {
+        String css = read("src/main/resources/static/css/novel/reader.css");
+
+        // 1. Player Container
+        assertThat(css).contains(".novel-narration-player");
+        assertThat(css).contains(".novel-narration-player.is-unsupported");
+        assertThat(css).contains(".novel-narration-controls");
+
+        // 2. Buttons & Controls
+        assertThat(css).contains(".novel-narration-btn--play");
+        assertThat(css).contains(".novel-narration-btn--nav");
+        assertThat(css).contains(".novel-narration-progress");
+        assertThat(css).contains(".novel-narration-select--voice");
+        assertThat(css).contains(".novel-narration-select--rate");
+        assertThat(css).contains(".novel-narration-status");
+
+        // 3. Follow Mode Switch & Layout-Stable Highlight
+        assertThat(css).contains(".novel-reading-toggle-wrapper");
+        assertThat(css).contains(".novel-reading-toggle-checkbox");
+        assertThat(css).contains(".novel-reading-toggle-switch");
+        assertThat(css).contains(".novel-reader-chapter-body .novel-narration-highlight");
+        assertThat(css).contains("box-shadow: inset 3px 0 0 var(--reader-primary)");
+
+        // 4. Mobile Responsive Rules
+        assertThat(css).contains("@media (max-width: 640px)");
     }
 
     private String read(String relativePath) throws Exception {
