@@ -191,25 +191,6 @@
                     </div>
                 </div>
 
-                <div class="novel-reading-popover-section">
-                    <span id="novelReadingFollowLabel"
-                          class="novel-reading-popover-label">Giọng đọc</span>
-                    <div class="novel-reading-toggle-wrapper">
-                        <label class="novel-reading-toggle-label"
-                               for="novelNarrationFollowToggle">
-                            <input type="checkbox"
-                                   id="novelNarrationFollowToggle"
-                                   class="novel-reading-toggle-checkbox"
-                                   role="switch"
-                                   aria-checked="true"
-                                   checked>
-                            <span class="novel-reading-toggle-switch"
-                                  aria-hidden="true"></span>
-                            <span class="novel-reading-toggle-text">Theo dõi giọng đọc</span>
-                        </label>
-                    </div>
-                </div>
-
             </div>
 
         </div>
@@ -238,140 +219,6 @@
         </h1>
 
     </header>
-
-
-    <!-- =====================================================
-         NARRATION PLAYER BAR (BROWSER TTS)
-         ===================================================== -->
-    <section class="novel-narration-player"
-             id="novelNarrationPlayer"
-             aria-label="Trình phát giọng đọc">
-
-        <div class="novel-narration-controls">
-
-            <!-- Prev Sentence -->
-            <button type="button"
-                    class="novel-narration-btn novel-narration-btn--nav"
-                    id="novelNarrationPrevBtn"
-                    aria-label="Câu trước đó"
-                    title="Câu trước đó">
-                <svg xmlns="http://www.w3.org/2000/svg"
-                     viewBox="0 0 24 24"
-                     width="18"
-                     height="18"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
-                     aria-hidden="true">
-                    <polygon points="19 20 9 12 19 4 19 20"></polygon>
-                    <line x1="5" y1="19" x2="5" y2="5"></line>
-                </svg>
-            </button>
-
-            <!-- Play / Pause -->
-            <button type="button"
-                    class="novel-narration-btn novel-narration-btn--play"
-                    id="novelNarrationPlayPauseBtn"
-                    aria-label="Phát giọng đọc"
-                    title="Phát giọng đọc">
-                <svg class="novel-narration-icon--play"
-                     xmlns="http://www.w3.org/2000/svg"
-                     viewBox="0 0 24 24"
-                     width="20"
-                     height="20"
-                     fill="currentColor"
-                     aria-hidden="true">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                </svg>
-                <svg class="novel-narration-icon--pause"
-                     xmlns="http://www.w3.org/2000/svg"
-                     viewBox="0 0 24 24"
-                     width="20"
-                     height="20"
-                     fill="currentColor"
-                     aria-hidden="true"
-                     style="display: none;">
-                    <rect x="6" y="4" width="4" height="16"></rect>
-                    <rect x="14" y="4" width="4" height="16"></rect>
-                </svg>
-            </button>
-
-            <!-- Next Sentence -->
-            <button type="button"
-                    class="novel-narration-btn novel-narration-btn--nav"
-                    id="novelNarrationNextBtn"
-                    aria-label="Câu tiếp theo"
-                    title="Câu tiếp theo">
-                <svg xmlns="http://www.w3.org/2000/svg"
-                     viewBox="0 0 24 24"
-                     width="18"
-                     height="18"
-                     fill="none"
-                     stroke="currentColor"
-                     stroke-width="2"
-                     stroke-linecap="round"
-                     stroke-linejoin="round"
-                     aria-hidden="true">
-                    <polygon points="5 4 15 12 5 20 5 4"></polygon>
-                    <line x1="19" y1="5" x2="19" y2="19"></line>
-                </svg>
-            </button>
-
-            <!-- Sentence Progress Counter -->
-            <div class="novel-narration-progress"
-                 id="novelNarrationProgress"
-                 aria-label="Tiến độ câu">
-                <span class="novel-narration-progress-label">Câu</span>
-                <span class="novel-narration-progress-current"
-                      id="novelNarrationProgressCurrent">0</span>
-                <span class="novel-narration-progress-sep"
-                      aria-hidden="true">/</span>
-                <span class="novel-narration-progress-total"
-                      id="novelNarrationProgressTotal">0</span>
-            </div>
-
-            <!-- Voice Selector -->
-            <div class="novel-narration-select-group novel-narration-select-group--voice">
-                <label for="novelNarrationVoiceSelect"
-                       class="visually-hidden">Chọn giọng đọc</label>
-                <select id="novelNarrationVoiceSelect"
-                        class="novel-narration-select novel-narration-select--voice"
-                        aria-label="Chọn giọng đọc">
-                    <option value="">Đang tải danh sách giọng đọc...</option>
-                </select>
-            </div>
-
-            <!-- Rate Selector -->
-            <div class="novel-narration-select-group novel-narration-select-group--rate">
-                <label for="novelNarrationRateSelect"
-                       class="visually-hidden">Tốc độ đọc</label>
-                <select id="novelNarrationRateSelect"
-                        class="novel-narration-select novel-narration-select--rate"
-                        aria-label="Tốc độ đọc">
-                    <option value="0.75">0.75x</option>
-                    <option value="1.0"
-                            selected>1.0x</option>
-                    <option value="1.25">1.25x</option>
-                    <option value="1.5">1.5x</option>
-                    <option value="1.75">1.75x</option>
-                    <option value="2.0">2.0x</option>
-                </select>
-            </div>
-
-        </div>
-
-        <!-- Live Status / Announcement -->
-        <div class="novel-narration-status"
-             id="novelNarrationStatusText"
-             role="status"
-             aria-live="polite">
-            Sẵn sàng phát giọng đọc
-        </div>
-
-    </section>
-
 
 
     <!-- =====================================================
@@ -478,6 +325,247 @@
          id="novelReadingHistoryTracker"
          th:attr="data-chapter-id=${chapter.id},data-history-url=@{/novel/chapters/{id}/history(id=${chapter.id})},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
          hidden></div>
+
+
+    <!-- =====================================================
+         NARRATION PLAYER DOCK (BROWSER TTS - FIXED BOTTOM)
+         ===================================================== -->
+    <section class="novel-narration-player"
+             id="novelNarrationPlayer"
+             aria-label="Trình phát giọng đọc">
+
+        <!-- Chunk Progress Bar (Interactive Seek Slider) -->
+        <div class="novel-narration-progress-bar"
+             id="novelNarrationProgressBar"
+             role="slider"
+             aria-label="Tiến độ đoạn đọc"
+             aria-valuemin="0"
+             aria-valuemax="100"
+             aria-valuenow="0"
+             tabindex="0">
+            <div class="novel-narration-progress-track">
+                <div class="novel-narration-progress-fill"
+                     id="novelNarrationProgressFill"
+                     style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div class="novel-narration-dock">
+
+            <!-- Lead Action / Dock Collapse Toggle Button -->
+            <div class="novel-narration-dock-lead">
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--lead"
+                        id="novelNarrationCollapseToggle"
+                        aria-expanded="true"
+                        aria-controls="novelNarrationPlayer"
+                        aria-label="Thu gọn thanh giọng đọc"
+                        title="Thu gọn thanh giọng đọc">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="18"
+                         height="18"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+                        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="novel-narration-controls">
+
+                <!-- Prev Sentence -->
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--nav"
+                        id="novelNarrationPrevBtn"
+                        aria-label="Câu trước đó"
+                        title="Câu trước đó">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="16"
+                         height="16"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <polygon points="19 20 9 12 19 4 19 20"></polygon>
+                        <line x1="5" y1="19" x2="5" y2="5"></line>
+                    </svg>
+                </button>
+
+                <!-- Play / Pause -->
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--play"
+                        id="novelNarrationPlayPauseBtn"
+                        aria-label="Phát giọng đọc"
+                        title="Phát giọng đọc">
+                    <svg class="novel-narration-icon--play"
+                         xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="18"
+                         height="18"
+                         fill="currentColor"
+                         aria-hidden="true">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <svg class="novel-narration-icon--pause"
+                         xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="18"
+                         height="18"
+                         fill="currentColor"
+                         aria-hidden="true"
+                         style="display: none;">
+                        <rect x="6" y="4" width="4" height="16"></rect>
+                        <rect x="14" y="4" width="4" height="16"></rect>
+                    </svg>
+                </button>
+
+                <!-- Next Sentence -->
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--nav"
+                        id="novelNarrationNextBtn"
+                        aria-label="Câu tiếp theo"
+                        title="Câu tiếp theo">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="16"
+                         height="16"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                        <line x1="19" y1="5" x2="19" y2="19"></line>
+                    </svg>
+                </button>
+
+                <!-- Live Status / Announcement (Screen Readers) -->
+                <div class="novel-narration-status"
+                     id="novelNarrationStatusText"
+                     role="status"
+                     aria-live="polite">
+                    Sẵn sàng phát giọng đọc
+                </div>
+
+            </div>
+
+            <!-- Narration Settings Trigger Button -->
+            <div class="novel-narration-dock-actions">
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--settings"
+                        id="novelNarrationSettingsTrigger"
+                        aria-expanded="false"
+                        aria-haspopup="dialog"
+                        aria-controls="novelNarrationSettingsPanel"
+                        aria-label="Cài đặt giọng đọc"
+                        title="Cài đặt giọng đọc">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="18"
+                         height="18"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+            </div>
+
+        </div>
+
+        <!-- Narration Settings Popover / Panel -->
+        <div class="novel-narration-settings-panel"
+             id="novelNarrationSettingsPanel"
+             role="dialog"
+             aria-label="Cài đặt giọng đọc"
+             hidden>
+
+            <div class="novel-narration-settings-header">
+                <span class="novel-narration-settings-title">Cài đặt giọng đọc</span>
+                <button type="button"
+                        class="novel-narration-settings-close"
+                        id="novelNarrationSettingsCloseBtn"
+                        aria-label="Đóng cài đặt">
+                    <span aria-hidden="true">✕</span>
+                </button>
+            </div>
+
+            <!-- Voice Selector -->
+            <div class="novel-narration-setting-row">
+                <label for="novelNarrationVoiceSelect"
+                       class="novel-narration-setting-label">Giọng đọc</label>
+                <select id="novelNarrationVoiceSelect"
+                        class="novel-narration-select novel-narration-select--voice"
+                        aria-label="Chọn giọng đọc">
+                    <option value="">Đang tải danh sách giọng đọc...</option>
+                </select>
+            </div>
+
+            <!-- Rate Selector -->
+            <div class="novel-narration-setting-row">
+                <label for="novelNarrationRateSelect"
+                       class="novel-narration-setting-label">Tốc độ đọc</label>
+                <select id="novelNarrationRateSelect"
+                        class="novel-narration-select novel-narration-select--rate"
+                        aria-label="Tốc độ đọc">
+                    <option value="0.75">0.75x</option>
+                    <option value="1.0"
+                            selected>1.0x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="1.75">1.75x</option>
+                    <option value="2.0">2.0x</option>
+                </select>
+            </div>
+
+            <!-- Follow Mode Toggle -->
+            <div class="novel-narration-setting-row">
+                <label class="novel-reading-toggle-label"
+                       for="novelNarrationFollowToggle">
+                    <input type="checkbox"
+                           id="novelNarrationFollowToggle"
+                           class="novel-reading-toggle-checkbox"
+                           role="switch"
+                           aria-checked="true"
+                           checked>
+                    <span class="novel-reading-toggle-switch"
+                          aria-hidden="true"></span>
+                    <span class="novel-reading-toggle-text">Theo dõi giọng đọc</span>
+                </label>
+            </div>
+
+            <!-- Auto-Next Toggle -->
+            <div class="novel-narration-setting-row">
+                <label class="novel-reading-toggle-label"
+                       for="novelNarrationAutoNextToggle">
+                    <input type="checkbox"
+                           id="novelNarrationAutoNextToggle"
+                           class="novel-reading-toggle-checkbox"
+                           role="switch"
+                           aria-checked="false">
+                    <span class="novel-reading-toggle-switch"
+                          aria-hidden="true"></span>
+                    <span class="novel-reading-toggle-text">Tự động sang chương</span>
+                </label>
+            </div>
+
+        </div>
+
+    </section>
 
 </main>
 

@@ -30,6 +30,7 @@
         0 12px 36px rgba(38, 32, 26, 0.06);
 
     --reader-content-width: 1180px;
+    --reader-chapter-width: 820px;
 }
 
 html[data-theme="dark"],
@@ -835,9 +836,9 @@ textarea {
    ========================================================= */
 
 .novel-chapter-reading {
-    width: min(calc(100% - 40px), 820px);
+    width: min(calc(100% - 40px), var(--reader-chapter-width, 820px));
     margin: 0 auto;
-    padding: 44px 0 90px;
+    padding: 44px 0 calc(90px + env(safe-area-inset-bottom, 0px));
 }
 
 .novel-chapter-utility-row {
@@ -980,6 +981,19 @@ textarea {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+}
+
+.novel-reading-popover-section--stacked {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.novel-reading-toggles-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
 }
 
 .novel-reading-popover-label {
@@ -1660,39 +1674,145 @@ body.has-toc-open {
 }
 
 /* =========================================================
-   NOVEL READER NARRATION PLAYER (BROWSER TTS)
+   NOVEL READER NARRATION PLAYER (BROWSER TTS - FIXED BOTTOM)
    ========================================================= */
 
 .novel-narration-player {
-    margin: 20px 0 24px 0;
-    padding: 16px 20px;
+    --narration-dock-action-size: 32px;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1040;
+    margin: 0;
+    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
     background: var(--reader-surface);
-    border: 1px solid var(--reader-border);
-    border-radius: var(--reader-radius-md);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-    transition: all 0.2s ease;
+    border-top: 1px solid var(--reader-border);
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    border-radius: 0;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .novel-narration-player.is-unsupported {
     opacity: 0.75;
 }
 
-.novel-narration-controls {
-    display: flex;
-    flex-wrap: wrap;
+/* Collapsed Floating Headphone Dock State */
+.novel-narration-player.is-collapsed {
+    left: 16px;
+    right: auto;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: none;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+.novel-narration-player.is-collapsed .novel-narration-progress-bar,
+.novel-narration-player.is-collapsed .novel-narration-controls,
+.novel-narration-player.is-collapsed .novel-narration-dock-actions,
+.novel-narration-player.is-collapsed .novel-narration-settings-panel {
+    display: none !important;
+}
+
+.novel-narration-player.is-collapsed .novel-narration-dock {
+    display: block;
+    width: auto;
+    max-width: none;
+    margin: 0;
+    gap: 0;
+}
+
+.novel-narration-player.is-collapsed .novel-narration-dock-lead {
+    display: block;
+    width: auto;
+    min-width: 0;
+}
+
+.novel-narration-player.is-collapsed .novel-narration-btn--lead {
+    width: 38px;
+    height: 38px;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border: 1px solid var(--reader-primary);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
+.novel-narration-player.is-collapsed .novel-narration-btn--lead:hover:not(:disabled) {
+    background: var(--reader-primary-hover);
+    border-color: var(--reader-primary-hover);
+    color: #ffffff;
+}
+
+/* Horizontal Narration Progress Bar (Chunk-Based Seek - Aligned to Chapter Width) */
+.novel-narration-progress-bar {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(calc(100% - 40px), var(--reader-chapter-width, 820px));
+    height: 3px;
+    cursor: pointer;
+    background: transparent;
+    transition: height 0.15s ease;
+    z-index: 2;
+}
+
+.novel-narration-progress-bar:hover,
+.novel-narration-progress-bar:focus-visible {
+    height: 6px;
+    outline: none;
+}
+
+.novel-narration-progress-track {
+    width: 100%;
+    height: 100%;
+    background: var(--reader-border);
+    position: relative;
+    overflow: hidden;
+    border-radius: 2px;
+}
+
+.novel-narration-progress-fill {
+    height: 100%;
+    background: var(--reader-primary);
+    width: 0%;
+    transition: width 0.15s ease-out;
+    border-radius: 2px;
+}
+
+/* Accepted Five-Equal-Slot Narration Dock */
+.novel-narration-dock {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     align-items: center;
-    justify-content: flex-start;
-    gap: 12px;
+    justify-items: center;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+}
+
+.novel-narration-dock-lead,
+.novel-narration-controls,
+.novel-narration-dock-actions {
+    display: contents;
 }
 
 .novel-narration-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: none;
+    border: 1px solid var(--reader-border);
     cursor: pointer;
     transition: all 0.2s ease;
     user-select: none;
+    flex-shrink: 0;
 }
 
 .novel-narration-btn:disabled,
@@ -1702,24 +1822,28 @@ body.has-toc-open {
     pointer-events: none;
 }
 
-.novel-narration-btn--play {
-    width: 44px;
-    height: 44px;
+/* Headphone Action (Lead) - Visible Primary Filled */
+.novel-narration-btn--lead {
+    width: var(--narration-dock-action-size, 32px);
+    height: var(--narration-dock-action-size, 32px);
     border-radius: 50%;
     background: var(--reader-primary);
     color: #ffffff;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    border: 1px solid var(--reader-primary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
-.novel-narration-btn--play:hover:not(:disabled) {
+.novel-narration-btn--lead:hover:not(:disabled) {
     background: var(--reader-primary-hover);
-    transform: scale(1.05);
+    border-color: var(--reader-primary-hover);
+    color: #ffffff;
 }
 
+/* Previous / Next Actions - Neutral Surface */
 .novel-narration-btn--nav {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--reader-radius-sm);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     background: var(--reader-surface-soft);
     color: var(--reader-text);
     border: 1px solid var(--reader-border);
@@ -1731,36 +1855,136 @@ body.has-toc-open {
     border-color: var(--reader-primary);
 }
 
-.novel-narration-progress {
+/* Play / Pause Action - Prominent Primary Filled */
+.novel-narration-btn--play {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--reader-primary);
+    color: #ffffff;
+    border: 1px solid var(--reader-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+}
+
+.novel-narration-btn--play:hover:not(:disabled) {
+    background: var(--reader-primary-hover);
+    border-color: var(--reader-primary-hover);
+    color: #ffffff;
+    transform: scale(1.05);
+}
+
+.novel-narration-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Settings Action - Neutral Surface Default, Primary When Open */
+.novel-narration-btn--settings {
+    width: var(--narration-dock-action-size, 32px);
+    height: var(--narration-dock-action-size, 32px);
+    border-radius: 50%;
+    background: var(--reader-surface-soft);
+    color: var(--reader-text-secondary);
+    border: 1px solid var(--reader-border);
+}
+
+.novel-narration-btn--settings:hover {
+    background: var(--reader-primary-light);
+    color: var(--reader-primary);
+    border-color: var(--reader-primary);
+}
+
+.novel-narration-btn--settings[aria-expanded="true"] {
+    background: var(--reader-primary);
+    color: #ffffff;
+    border-color: var(--reader-primary);
+}
+
+/* Narration Settings Popover / Panel */
+.novel-narration-settings-panel {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 16px;
+    width: 290px;
+    max-width: calc(100vw - 32px);
+    padding: 14px 16px;
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius-md);
+    background: var(--reader-surface);
+    box-shadow: 0 10px 30px var(--reader-shadow), 0 2px 8px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 1050;
+}
+
+.novel-narration-settings-panel[hidden] {
+    display: none !important;
+}
+
+.novel-narration-settings-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--reader-border);
+}
+
+.novel-narration-settings-title {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--reader-text);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.novel-narration-settings-close {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 6px 14px;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--reader-text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.novel-narration-settings-close:hover {
     background: var(--reader-surface-soft);
-    border: 1px solid var(--reader-border);
-    border-radius: var(--reader-radius-sm);
-    font-size: 13px;
-    font-weight: 600;
     color: var(--reader-text);
 }
 
-.novel-narration-progress-label {
+.novel-narration-setting-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.novel-narration-setting-label {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    font-weight: 700;
     color: var(--reader-text-secondary);
-    font-weight: 500;
-}
-
-.novel-narration-progress-sep {
-    color: var(--reader-text-muted);
-}
-
-.novel-narration-select-group {
-    display: inline-flex;
-    align-items: center;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 .novel-narration-select {
-    padding: 8px 12px;
-    font-size: 13px;
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 12.5px;
     font-family: inherit;
     border-radius: var(--reader-radius-sm);
     background: var(--reader-surface);
@@ -1782,41 +2006,52 @@ body.has-toc-open {
 }
 
 .novel-narration-select--voice {
-    max-width: 240px;
+    width: 100%;
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
 }
 
 .novel-narration-select--rate {
-    width: 80px;
-}
-
-.novel-narration-status {
-    margin-top: 10px;
-    font-size: 12px;
-    color: var(--reader-text-muted);
-    min-height: 18px;
-    display: flex;
-    align-items: center;
+    width: 100%;
 }
 
 @media (max-width: 640px) {
     .novel-narration-player {
-        padding: 12px 14px;
+        --narration-dock-action-size: 30px;
+        padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
     }
 
-    .novel-narration-controls {
-        gap: 8px;
+    .novel-narration-dock {
+        max-width: 380px;
     }
 
-    .novel-narration-select--voice {
-        max-width: 100%;
-        flex: 1 1 100%;
+    .novel-narration-btn--nav {
+        width: 30px;
+        height: 30px;
     }
 
-    .novel-narration-select-group--voice {
-        width: 100%;
+    .novel-narration-btn--play {
+        width: 38px;
+        height: 38px;
+    }
+
+    .novel-narration-player.is-collapsed {
+        left: 12px;
+        bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        padding: 0;
+    }
+
+    .novel-narration-settings-panel {
+        position: fixed;
+        bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+        right: 10px;
+        left: 10px;
+        width: auto;
+        max-width: none;
+        border-radius: var(--reader-radius-md);
+        padding: 14px;
+        box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.16);
     }
 }
 
@@ -1828,6 +2063,10 @@ body.has-toc-open {
     display: flex;
     align-items: center;
     margin-top: 4px;
+}
+
+.novel-reading-toggle-wrapper + .novel-reading-toggle-wrapper {
+    margin-top: 10px;
 }
 
 .novel-reading-toggle-label {

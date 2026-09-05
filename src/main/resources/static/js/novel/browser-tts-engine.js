@@ -62,6 +62,20 @@
     }
 
     /**
+     * Checks if a voice has a Vietnamese language tag.
+     *
+     * @param {SpeechSynthesisVoice} voice
+     * @returns {boolean}
+     */
+    function isVietnameseVoice(voice) {
+        if (!voice || !voice.lang) {
+            return false;
+        }
+        const lang = voice.lang.toLowerCase();
+        return lang.startsWith('vi') || lang.includes('vi-vn') || lang.includes('vi_vn');
+    }
+
+    /**
      * Browser TTS Engine implementation.
      */
     class BrowserTtsEngine {
@@ -137,6 +151,9 @@
                 if (Array.isArray(voices) && voices.length > 0) {
                     this.availableVoices = voices;
                     this._autoSelectDefaultVoice();
+                    if (this.state === EngineState.ERROR && this.selectedVoice) {
+                        this._transitionState(this.chunks.length > 0 ? EngineState.IDLE : EngineState.STOPPED);
+                    }
                 }
             } catch (error) {
                 console.warn('[BrowserTtsEngine] Failed to retrieve system voices:', error);
@@ -145,10 +162,11 @@
 
         /**
          * Automatically selects a Vietnamese voice if none is currently selected.
+         * Never falls back to foreign non-Vietnamese voices.
          * @private
          */
         _autoSelectDefaultVoice() {
-            if (this.selectedVoice && this.availableVoices.some(v => v.voiceURI === this.selectedVoice.voiceURI)) {
+            if (this.selectedVoice && isVietnameseVoice(this.selectedVoice) && this.availableVoices.some(v => v.voiceURI === this.selectedVoice.voiceURI)) {
                 return;
             }
 
@@ -156,8 +174,7 @@
             if (viVoices.length > 0) {
                 this.selectedVoice = viVoices[0];
             } else {
-                const defaultVoice = this.availableVoices.find(v => v.default);
-                this.selectedVoice = defaultVoice || this.availableVoices[0] || null;
+                this.selectedVoice = null;
             }
         }
 
@@ -233,47 +250,26 @@
         }
 
         /**
-         * Returns available Vietnamese voices.
+         * Returns available Vietnamese voices only.
          * @returns {Array<SpeechSynthesisVoice>}
          */
         getVietnameseVoices() {
             const all = this.getVoices();
-            return all.filter(voice => {
-                if (!voice || !voice.lang) {
-                    return false;
-                }
-                const lang = voice.lang.toLowerCase();
-                return lang.startsWith('vi') || lang.includes('vi-vn') || lang.includes('vi_vn');
-            });
+            return all.filter(voice => isVietnameseVoice(voice));
         }
 
         /**
-         * Returns voices sorted with Vietnamese voices first, followed by default voices, then others.
+         * Returns available Vietnamese voices.
+         * Only exposes Vietnamese voices for the novel reader experience.
          * @returns {Array<SpeechSynthesisVoice>}
          */
         getSortedVoices() {
-            const all = this.getVoices();
-            const viVoices = [];
-            const defaultVoices = [];
-            const otherVoices = [];
-
-            for (let i = 0; i < all.length; i++) {
-                const voice = all[i];
-                const lang = (voice.lang || '').toLowerCase();
-                if (lang.startsWith('vi') || lang.includes('vi-vn') || lang.includes('vi_vn')) {
-                    viVoices.push(voice);
-                } else if (voice.default) {
-                    defaultVoices.push(voice);
-                } else {
-                    otherVoices.push(voice);
-                }
-            }
-
-            return viVoices.concat(defaultVoices).concat(otherVoices);
+            return this.getVietnameseVoices();
         }
 
         /**
          * Selects a voice by SpeechSynthesisVoice object, voiceURI, or name.
+         * Only accepts Vietnamese voices.
          * @param {SpeechSynthesisVoice|string} voiceOrIdentifier
          */
         setVoice(voiceOrIdentifier) {
@@ -283,16 +279,23 @@
             }
 
             if (typeof voiceOrIdentifier === 'object' && voiceOrIdentifier.voiceURI) {
-                this.selectedVoice = voiceOrIdentifier;
+                if (isVietnameseVoice(voiceOrIdentifier)) {
+                    this.selectedVoice = voiceOrIdentifier;
+                } else {
+                    this.selectedVoice = null;
+                }
                 return;
             }
 
             if (typeof voiceOrIdentifier === 'string') {
-                const found = this.availableVoices.find(v =>
+                const viVoices = this.getVietnameseVoices();
+                const found = viVoices.find(v =>
                     v.voiceURI === voiceOrIdentifier || v.name === voiceOrIdentifier
                 );
                 if (found) {
                     this.selectedVoice = found;
+                } else {
+                    this.selectedVoice = null;
                 }
             }
         }
@@ -354,6 +357,11 @@
             }
 
             if (this.chunks.length === 0) {
+                return;
+            }
+
+            if (!this.selectedVoice && this.getVietnameseVoices().length === 0) {
+                this._handleError(new Error('Thiết bị chưa có giọng đọc Tiếng Việt.'));
                 return;
             }
 
@@ -485,12 +493,18 @@
             const utterance = new SpeechSynthesisUtterance(textToSpeak);
             this.currentUtterance = utterance;
 
-            if (this.selectedVoice) {
+            if (this.selectedVoice && isVietnameseVoice(this.selectedVoice)) {
                 utterance.voice = this.selectedVoice;
-            } else if (this.availableVoices.length > 0) {
+                utterance.lang = this.selectedVoice.lang || 'vi-VN';
+            } else {
                 this._autoSelectDefaultVoice();
-                if (this.selectedVoice) {
+                if (this.selectedVoice && isVietnameseVoice(this.selectedVoice)) {
                     utterance.voice = this.selectedVoice;
+                    utterance.lang = this.selectedVoice.lang || 'vi-VN';
+                } else {
+                    utterance.lang = 'vi-VN';
+                    this._handleError(new Error('Thiết bị chưa có giọng đọc Tiếng Việt.'));
+                    return;
                 }
             }
 

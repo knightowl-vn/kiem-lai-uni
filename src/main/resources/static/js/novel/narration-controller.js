@@ -28,6 +28,20 @@
     'use strict';
 
     /**
+     * Checks if a voice has a Vietnamese language tag.
+     *
+     * @param {SpeechSynthesisVoice} voice
+     * @returns {boolean}
+     */
+    function isVietnameseVoice(voice) {
+        if (!voice || !voice.lang) {
+            return false;
+        }
+        const lang = voice.lang.toLowerCase();
+        return lang.startsWith('vi') || lang.includes('vi-vn') || lang.includes('vi_vn');
+    }
+
+    /**
      * Default element selector configuration.
      */
     const DEFAULT_SELECTORS = {
@@ -38,18 +52,34 @@
         pauseIcon: '.novel-narration-icon--pause',
         prevBtn: '#novelNarrationPrevBtn',
         nextBtn: '#novelNarrationNextBtn',
+        progressBar: '#novelNarrationProgressBar',
+        progressFill: '#novelNarrationProgressFill',
         voiceSelect: '#novelNarrationVoiceSelect',
         rateSelect: '#novelNarrationRateSelect',
         progressCurrent: '#novelNarrationProgressCurrent',
         progressTotal: '#novelNarrationProgressTotal',
         statusText: '#novelNarrationStatusText',
-        followToggle: '#novelNarrationFollowToggle'
+        followToggle: '#novelNarrationFollowToggle',
+        autoNextToggle: '#novelNarrationAutoNextToggle',
+        collapseToggle: '#novelNarrationCollapseToggle',
+        settingsTrigger: '#novelNarrationSettingsTrigger',
+        settingsPanel: '#novelNarrationSettingsPanel',
+        settingsCloseBtn: '#novelNarrationSettingsCloseBtn',
+        nextChapterLink: '.novel-chapter-nav-btn--next, a[rel="next"]'
     };
 
     /**
      * Active highlight CSS class applied to narrated DOM elements.
      */
     const HIGHLIGHT_CLASS = 'novel-narration-highlight';
+
+    /**
+     * Storage keys for Narration preferences and resume state.
+     */
+    const STORAGE_KEYS = {
+        preferences: 'kiemlai:narration:preferences:v1',
+        resume: 'kiemlai:narration:resume:v1'
+    };
 
     /**
      * Narration Controller managing player UI and TTS engine orchestration.
@@ -60,10 +90,15 @@
          * @param {Object} [config.selectors] - Custom DOM selector overrides
          * @param {Object} [config.engine] - Custom engine instance (defaults to BrowserTtsEngine)
          * @param {Object} [config.parser] - Custom parser instance (defaults to NarrationTextParser)
+         * @param {string} [config.chapterId] - Explicit chapter ID
+         * @param {Object} [config.storageKeys] - Custom storage key overrides
          * @param {boolean} [config.followMode=true] - Initial follow mode state
+         * @param {boolean} [config.autoNext=false] - Initial auto-next state
          */
         constructor(config = {}) {
+            this.config = config;
             this.selectors = Object.assign({}, DEFAULT_SELECTORS, config.selectors);
+            this.storageKeys = Object.assign({}, STORAGE_KEYS, config.storageKeys);
             this.parser = config.parser || (typeof window !== 'undefined' ? (window.NarrationTextParser || (window.KiemLai && window.KiemLai.NarrationTextParser)) : null);
 
             this.dom = {
@@ -74,28 +109,55 @@
                 pauseIcon: null,
                 prevBtn: null,
                 nextBtn: null,
+                progressBar: null,
+                progressFill: null,
                 voiceSelect: null,
                 rateSelect: null,
                 progressCurrent: null,
                 progressTotal: null,
                 statusText: null,
-                followToggle: null
+                followToggle: null,
+                autoNextToggle: null,
+                collapseToggle: null,
+                settingsTrigger: null,
+                settingsPanel: null,
+                settingsCloseBtn: null
             };
 
             this.chunks = [];
+            this.chapterId = config.chapterId || null;
             this.initialized = false;
             this.isCompleted = false;
+            this.isUnloaded = false;
+            this.hasMeaningfulResume = false;
+            this.isAutoplayContinuation = false;
             this.followMode = typeof config.followMode === 'boolean' ? config.followMode : true;
+            this.autoNext = typeof config.autoNext === 'boolean' ? config.autoNext : false;
             this.activeHighlightedElement = null;
+            this.savedVoicePreference = null;
+            this.isNavigatingToNext = false;
+            this._autoNextTimeoutId = null;
+            this._transitionAbortController = null;
+            this._transitionSequenceId = 0;
 
             // Bound handlers for cleanup
             this._boundOnPlayPause = this._handlePlayPause.bind(this);
             this._boundOnPrev = this._handlePrev.bind(this);
             this._boundOnNext = this._handleNext.bind(this);
+            this._boundOnProgressBarClick = this._handleProgressBarClick.bind(this);
+            this._boundOnProgressBarKeydown = this._handleProgressBarKeydown.bind(this);
             this._boundOnVoiceChange = this._handleVoiceChange.bind(this);
             this._boundOnRateChange = this._handleRateChange.bind(this);
             this._boundOnFollowChange = this._handleFollowChange.bind(this);
+            this._boundOnAutoNextChange = this._handleAutoNextChange.bind(this);
+            this._boundOnCollapseToggle = this._handleCollapseToggleClick.bind(this);
+            this._boundOnSettingsTriggerClick = this._handleSettingsTriggerClick.bind(this);
+            this._boundOnSettingsCloseClick = this._handleSettingsCloseClick.bind(this);
+            this._boundOnDocumentClick = this._handleDocumentClick.bind(this);
+            this._boundOnDocumentKeydown = this._handleDocumentKeydown.bind(this);
+            this._boundOnPopState = this._handlePopState.bind(this);
             this._boundOnUnload = this._handleUnload.bind(this);
+            this._boundOnStorage = this._handleStorageEvent.bind(this);
 
             // Engine callbacks
             const engineOptions = {
@@ -137,16 +199,37 @@
                 return false;
             }
 
+            // Resolve chapter identity from DOM if not passed in config
+            if (!this.chapterId) {
+                this.chapterId = (this.dom.body && this.dom.body.getAttribute('data-chapter-id')) ||
+                                 (this.dom.player && this.dom.player.getAttribute('data-chapter-id')) ||
+                                 null;
+            }
+
+            this._initStorageAndPreferences();
             this.isCompleted = false;
+            this.isUnloaded = false;
+            this.hasMeaningfulResume = false;
+            this.isNavigatingToNext = false;
             this._parseAndLoadChunks();
             this._populateVoiceDropdown(this.engine.getSortedVoices ? this.engine.getSortedVoices() : this.engine.getVoices());
             this._bindEventListeners();
-            this._updateProgressDisplay(0, this.chunks.length);
-            this._updateNavButtons();
+
+            const hasAutoplayIntent = this._checkAndConsumeAutoplayIntent();
+            if (hasAutoplayIntent) {
+                this._attemptAutoplayContinuation();
+            } else {
+                this._restoreResumePosition();
+            }
 
             if (this.dom.followToggle) {
                 this.dom.followToggle.checked = this.followMode;
                 this.dom.followToggle.setAttribute('aria-checked', String(this.followMode));
+            }
+
+            if (this.dom.autoNextToggle) {
+                this.dom.autoNextToggle.checked = this.autoNext;
+                this.dom.autoNextToggle.setAttribute('aria-checked', String(this.autoNext));
             }
 
             this.initialized = true;
@@ -162,6 +245,7 @@
             this.dom.player = document.querySelector(sel.player);
             this.dom.body = document.querySelector(sel.body);
             this.dom.followToggle = document.querySelector(sel.followToggle);
+            this.dom.autoNextToggle = document.querySelector(sel.autoNextToggle);
 
             if (!this.dom.player) {
                 return;
@@ -172,11 +256,32 @@
             this.dom.pauseIcon = this.dom.player.querySelector(sel.pauseIcon);
             this.dom.prevBtn = this.dom.player.querySelector(sel.prevBtn);
             this.dom.nextBtn = this.dom.player.querySelector(sel.nextBtn);
+            this.dom.progressBar = this.dom.player.querySelector(sel.progressBar);
+            this.dom.progressFill = this.dom.player.querySelector(sel.progressFill);
             this.dom.voiceSelect = this.dom.player.querySelector(sel.voiceSelect);
             this.dom.rateSelect = this.dom.player.querySelector(sel.rateSelect);
             this.dom.progressCurrent = this.dom.player.querySelector(sel.progressCurrent);
             this.dom.progressTotal = this.dom.player.querySelector(sel.progressTotal);
             this.dom.statusText = this.dom.player.querySelector(sel.statusText);
+            this.dom.collapseToggle = this.dom.player.querySelector(sel.collapseToggle);
+            this.dom.settingsTrigger = this.dom.player.querySelector(sel.settingsTrigger);
+            this.dom.settingsPanel = this.dom.player.querySelector(sel.settingsPanel) || document.querySelector(sel.settingsPanel);
+
+            if (this.dom.settingsPanel) {
+                this.dom.settingsCloseBtn = this.dom.settingsPanel.querySelector(sel.settingsCloseBtn);
+                if (!this.dom.voiceSelect) {
+                    this.dom.voiceSelect = this.dom.settingsPanel.querySelector(sel.voiceSelect);
+                }
+                if (!this.dom.rateSelect) {
+                    this.dom.rateSelect = this.dom.settingsPanel.querySelector(sel.rateSelect);
+                }
+                if (!this.dom.followToggle) {
+                    this.dom.followToggle = this.dom.settingsPanel.querySelector(sel.followToggle);
+                }
+                if (!this.dom.autoNextToggle) {
+                    this.dom.autoNextToggle = this.dom.settingsPanel.querySelector(sel.autoNextToggle);
+                }
+            }
         }
 
         /**
@@ -197,6 +302,9 @@
             if (this.dom.nextBtn) {
                 this.dom.nextBtn.disabled = true;
             }
+            if (this.dom.collapseToggle) {
+                this.dom.collapseToggle.disabled = true;
+            }
             if (this.dom.voiceSelect) {
                 this.dom.voiceSelect.disabled = true;
                 this.dom.voiceSelect.innerHTML = '<option value="">Không hỗ trợ giọng đọc</option>';
@@ -207,7 +315,187 @@
             if (this.dom.followToggle) {
                 this.dom.followToggle.disabled = true;
             }
+            if (this.dom.autoNextToggle) {
+                this.dom.autoNextToggle.disabled = true;
+            }
+            if (this.dom.settingsTrigger) {
+                this.dom.settingsTrigger.disabled = true;
+            }
             this._setStatusMessage('Trình duyệt không hỗ trợ Web Speech API.');
+        }
+
+        /**
+         * Checks if the narration dock is currently collapsed.
+         * @returns {boolean}
+         */
+        isCollapsed() {
+            return Boolean(this.dom.player && this.dom.player.classList.contains('is-collapsed'));
+        }
+
+        /**
+         * Collapses the narration dock into a compact floating headphone button.
+         * Does not interrupt or pause active playback.
+         */
+        collapseDock() {
+            if (this.isSettingsOpen()) {
+                this.closeSettings();
+            }
+            if (this.dom.player) {
+                this.dom.player.classList.add('is-collapsed');
+            }
+            if (this.dom.collapseToggle) {
+                this.dom.collapseToggle.setAttribute('aria-expanded', 'false');
+                this.dom.collapseToggle.setAttribute('aria-label', 'Mở rộng thanh giọng đọc');
+                this.dom.collapseToggle.title = 'Mở rộng thanh giọng đọc';
+            }
+        }
+
+        /**
+         * Expands the narration dock to show full controls.
+         */
+        expandDock() {
+            if (this.dom.player) {
+                this.dom.player.classList.remove('is-collapsed');
+            }
+            if (this.dom.collapseToggle) {
+                this.dom.collapseToggle.setAttribute('aria-expanded', 'true');
+                this.dom.collapseToggle.setAttribute('aria-label', 'Thu gọn thanh giọng đọc');
+                this.dom.collapseToggle.title = 'Thu gọn thanh giọng đọc';
+            }
+        }
+
+        /**
+         * Toggles between collapsed and expanded narration dock states.
+         */
+        toggleDock() {
+            if (this.isCollapsed()) {
+                this.expandDock();
+            } else {
+                this.collapseDock();
+            }
+        }
+
+        /**
+         * Handles collapse/expand toggle button click.
+         * @param {MouseEvent} [event]
+         * @private
+         */
+        _handleCollapseToggleClick(event) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            this.toggleDock();
+        }
+
+        /**
+         * Checks if the narration settings popover is currently open.
+         * @returns {boolean}
+         */
+        isSettingsOpen() {
+            return Boolean(this.dom.settingsPanel && !this.dom.settingsPanel.hidden);
+        }
+
+        /**
+         * Opens the narration settings popover panel.
+         */
+        openSettings() {
+            if (this.dom.settingsPanel) {
+                this.dom.settingsPanel.hidden = false;
+                this.dom.settingsPanel.removeAttribute('hidden');
+            }
+            if (this.dom.settingsTrigger) {
+                this.dom.settingsTrigger.setAttribute('aria-expanded', 'true');
+                this.dom.settingsTrigger.classList.add('is-active');
+            }
+        }
+
+        /**
+         * Closes the narration settings popover panel.
+         */
+        closeSettings() {
+            if (this.dom.settingsPanel) {
+                this.dom.settingsPanel.hidden = true;
+                this.dom.settingsPanel.setAttribute('hidden', '');
+            }
+            if (this.dom.settingsTrigger) {
+                this.dom.settingsTrigger.setAttribute('aria-expanded', 'false');
+                this.dom.settingsTrigger.classList.remove('is-active');
+            }
+
+            // On settings close, synchronize current highlighted block and scroll into comfortable view if needed
+            if (this.followMode && this.engine && this.chunks.length > 0) {
+                const state = this.engine.getState();
+                if (state === 'PLAYING' || state === 'PAUSED') {
+                    const curIndex = this.engine.getCurrentChunkIndex();
+                    const curChunk = this.chunks[curIndex];
+                    if (curChunk && curChunk.element) {
+                        this._highlightChunk(curChunk);
+                        if (!this._isElementComfortablyVisible(curChunk.element)) {
+                            this._scrollElementIntoView(curChunk.element);
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Handles settings trigger button click. Toggles popover without interrupting playback.
+         * @param {MouseEvent} [event]
+         * @private
+         */
+        _handleSettingsTriggerClick(event) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            if (this.isSettingsOpen()) {
+                this.closeSettings();
+            } else {
+                this.openSettings();
+            }
+        }
+
+        /**
+         * Handles settings panel close button click.
+         * @param {MouseEvent} [event]
+         * @private
+         */
+        _handleSettingsCloseClick(event) {
+            if (event && typeof event.stopPropagation === 'function') {
+                event.stopPropagation();
+            }
+            this.closeSettings();
+        }
+
+        /**
+         * Handles outside document click to dismiss settings popover.
+         * @param {MouseEvent} event
+         * @private
+         */
+        _handleDocumentClick(event) {
+            const target = event.target;
+
+            if (this.isSettingsOpen()) {
+                if ((!this.dom.settingsPanel || !this.dom.settingsPanel.contains(target)) &&
+                    (!this.dom.settingsTrigger || !this.dom.settingsTrigger.contains(target))) {
+                    this.closeSettings();
+                }
+            }
+        }
+
+        /**
+         * Handles document keydown for Escape key dismissal.
+         * @param {KeyboardEvent} event
+         * @private
+         */
+        _handleDocumentKeydown(event) {
+            if (event.key === 'Escape') {
+                if (this.isSettingsOpen()) {
+                    this.closeSettings();
+                    if (this.dom.settingsTrigger && typeof this.dom.settingsTrigger.focus === 'function') {
+                        this.dom.settingsTrigger.focus();
+                    }
+                }
+            }
         }
 
         /**
@@ -237,6 +525,217 @@
         }
 
         /**
+         * Initializes and restores global narration preferences from localStorage.
+         * @private
+         */
+        _initStorageAndPreferences() {
+            const prefs = this._loadPreferences();
+            if (prefs) {
+                if (typeof prefs.rate === 'number' && Number.isFinite(prefs.rate)) {
+                    const clampedRate = Math.max(0.5, Math.min(2.0, prefs.rate));
+                    if (this.engine) {
+                        this.engine.setRate(clampedRate);
+                    }
+                    if (this.dom.rateSelect) {
+                        this.dom.rateSelect.value = String(clampedRate);
+                    }
+                }
+                if (typeof prefs.followMode === 'boolean') {
+                    this.followMode = prefs.followMode;
+                    if (this.dom.followToggle) {
+                        this.dom.followToggle.checked = this.followMode;
+                        this.dom.followToggle.setAttribute('aria-checked', String(this.followMode));
+                    }
+                }
+                if (typeof prefs.autoNext === 'boolean') {
+                    this.autoNext = prefs.autoNext;
+                    if (this.dom.autoNextToggle) {
+                        this.dom.autoNextToggle.checked = this.autoNext;
+                        this.dom.autoNextToggle.setAttribute('aria-checked', String(this.autoNext));
+                    }
+                }
+                if (prefs.voice && typeof prefs.voice === 'object') {
+                    this.savedVoicePreference = {
+                        voiceURI: prefs.voice.voiceURI || '',
+                        name: prefs.voice.name || '',
+                        lang: prefs.voice.lang || ''
+                    };
+                }
+            }
+        }
+
+        /**
+         * Detects autoplay continuation intent from URL query parameters.
+         * Consumes/removes the autoplay query parameter via history.replaceState to prevent repeated continuation on reload.
+         * @returns {boolean} True if autoplay continuation was requested
+         * @private
+         */
+        _checkAndConsumeAutoplayIntent() {
+            if (typeof window === 'undefined' || !window.location) {
+                return false;
+            }
+
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const autoplayParam = urlParams.get('autoplay');
+                const hasIntent = autoplayParam === 'true' || autoplayParam === '1';
+
+                if (hasIntent && window.history && typeof window.history.replaceState === 'function') {
+                    urlParams.delete('autoplay');
+                    const newSearch = urlParams.toString();
+                    const cleanUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+                    window.history.replaceState(window.history.state, '', cleanUrl);
+                }
+
+                return hasIntent;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        /**
+         * Attempts narration playback continuation from chunk 0 when autoplay intent is present.
+         * Restores clean ready state and displays graceful notice if speech synthesis is blocked or unsupported.
+         * @private
+         */
+        _attemptAutoplayContinuation() {
+            if (!this.engine || this.chunks.length === 0) {
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            this._updateProgressDisplay(0, this.chunks.length);
+            this._updateNavButtons();
+            this._setStatusMessage('Đang tự động phát giọng đọc...');
+            this.isAutoplayContinuation = true;
+
+            try {
+                this.engine.play(0);
+
+                // If playback didn't actually start after a short delay (e.g. browser blocked un-interacted speech), restore gracefully
+                if (typeof window !== 'undefined') {
+                    window.setTimeout(() => {
+                        if (this.isAutoplayContinuation) {
+                            this.isAutoplayContinuation = false;
+                            if (this.engine) {
+                                try {
+                                    if (typeof this.engine.pause === 'function') {
+                                        this.engine.pause();
+                                    }
+                                    if (typeof this.engine.cancel === 'function') {
+                                        this.engine.cancel();
+                                    }
+                                } catch (ignored) {}
+                            }
+                            this._updateProgressDisplay(0, this.chunks.length);
+                            this._updateNavButtons();
+                            this._setStatusMessage('Đã sang chương mới. Nhấn Phát để tiếp tục.');
+                            if (this.dom.playPauseBtn) {
+                                this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                                this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                                this.dom.playPauseBtn.classList.remove('is-playing');
+                            }
+                        }
+                    }, 1200);
+                }
+            } catch (e) {
+                console.warn('[NarrationController] Autoplay continuation was blocked or failed:', e);
+                this.isAutoplayContinuation = false;
+                if (this.engine) {
+                    try {
+                        if (typeof this.engine.pause === 'function') {
+                            this.engine.pause();
+                        }
+                        if (typeof this.engine.cancel === 'function') {
+                            this.engine.cancel();
+                        }
+                    } catch (ignored) {}
+                }
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                this._setStatusMessage('Đã sang chương mới. Nhấn Phát để tiếp tục.');
+                if (this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                    this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                    this.dom.playPauseBtn.classList.remove('is-playing');
+                }
+            }
+        }
+
+        /**
+         * Attempts to restore saved narration resume position for the current chapter.
+         * Rejects/clears stale resume data if chapterId or totalChunks do not match.
+         * Sets up initial UI state without autoplaying and without forcing page scroll.
+         * @private
+         */
+        _restoreResumePosition() {
+            if (!this.chapterId || this.chunks.length === 0) {
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            const saved = this._loadResumePosition();
+            if (!saved) {
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            // Reject resume from a different chapter
+            if (saved.chapterId !== this.chapterId) {
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            // Stale resume detection: total chunks count changed (e.g. chapter revised)
+            if (typeof saved.totalChunks === 'number' && saved.totalChunks !== this.chunks.length) {
+                console.info('[NarrationController] Resetting stale resume: total chunks mismatch (saved ' + saved.totalChunks + ' vs current ' + this.chunks.length + ').');
+                this._clearSavedResume();
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            // Validate chunk index
+            const rawIndex = Number(saved.chunkIndex);
+            if (!Number.isFinite(rawIndex) || rawIndex <= 0) {
+                // Resume is at beginning or invalid
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+
+            // Clamp index safely
+            const restoredIndex = Math.max(0, Math.min(this.chunks.length - 1, Math.floor(rawIndex)));
+
+            if (this.engine) {
+                this.engine.seekToChunk(restoredIndex);
+            }
+
+            this.hasMeaningfulResume = true;
+
+            const currentNum = restoredIndex + 1;
+            const totalNum = this.chunks.length;
+
+            this._updateProgressDisplay(currentNum, totalNum);
+            this._updateNavButtons();
+
+            // Clear "continue from sentence X / Y" ready status
+            this._setStatusMessage('Sẵn sàng đọc tiếp từ câu ' + currentNum + ' / ' + totalNum + '.');
+
+            if (this.dom.playPauseBtn) {
+                const label = 'Tiếp tục đọc (từ câu ' + currentNum + ')';
+                this.dom.playPauseBtn.setAttribute('aria-label', label);
+                this.dom.playPauseBtn.title = label;
+            }
+
+            // Follow Mode must NOT force an initial page scroll merely from restoring resume!
+        }
+
+        /**
          * Binds DOM event listeners.
          * @private
          */
@@ -250,6 +749,13 @@
             if (this.dom.nextBtn) {
                 this.dom.nextBtn.addEventListener('click', this._boundOnNext);
             }
+            if (this.dom.progressBar) {
+                this.dom.progressBar.addEventListener('click', this._boundOnProgressBarClick);
+                this.dom.progressBar.addEventListener('keydown', this._boundOnProgressBarKeydown);
+            }
+            if (this.dom.collapseToggle) {
+                this.dom.collapseToggle.addEventListener('click', this._boundOnCollapseToggle);
+            }
             if (this.dom.voiceSelect) {
                 this.dom.voiceSelect.addEventListener('change', this._boundOnVoiceChange);
             }
@@ -259,13 +765,83 @@
             if (this.dom.followToggle) {
                 this.dom.followToggle.addEventListener('change', this._boundOnFollowChange);
             }
+            if (this.dom.autoNextToggle) {
+                this.dom.autoNextToggle.addEventListener('change', this._boundOnAutoNextChange);
+            }
+            if (this.dom.settingsTrigger) {
+                this.dom.settingsTrigger.addEventListener('click', this._boundOnSettingsTriggerClick);
+            }
+            if (this.dom.settingsCloseBtn) {
+                this.dom.settingsCloseBtn.addEventListener('click', this._boundOnSettingsCloseClick);
+            }
 
+            document.addEventListener('click', this._boundOnDocumentClick);
+            document.addEventListener('keydown', this._boundOnDocumentKeydown);
+
+            window.addEventListener('popstate', this._boundOnPopState);
             window.addEventListener('beforeunload', this._boundOnUnload);
             window.addEventListener('pagehide', this._boundOnUnload);
+            window.addEventListener('storage', this._boundOnStorage);
         }
 
         /**
-         * Populates the voice selector dropdown with Vietnamese voices grouped first.
+         * Handles browser popstate (back/forward) by reloading historical page state cleanly.
+         * @param {PopStateEvent} event
+         * @private
+         */
+        _handlePopState(event) {
+            if (typeof window !== 'undefined' && window.location) {
+                window.location.reload();
+            }
+        }
+
+        /**
+         * Resolves the best matching Vietnamese voice from available voices based on saved preference and fallbacks.
+         * Only returns Vietnamese voices; never falls back to foreign voices.
+         * @param {Array<SpeechSynthesisVoice>} voices
+         * @returns {SpeechSynthesisVoice|null}
+         * @private
+         */
+        _resolveBestMatchingVoice(voices) {
+            if (!Array.isArray(voices) || voices.length === 0) {
+                return null;
+            }
+
+            const viVoices = voices.filter(isVietnameseVoice);
+            if (viVoices.length === 0) {
+                return null;
+            }
+
+            if (this.savedVoicePreference) {
+                const savedURI = this.savedVoicePreference.voiceURI;
+                const savedName = this.savedVoicePreference.name;
+
+                // 1. Exact match by voiceURI or name within Vietnamese voices
+                const exactMatch = viVoices.find(v =>
+                    (savedURI && v.voiceURI === savedURI) || (savedName && v.name === savedName)
+                );
+                if (exactMatch) {
+                    return exactMatch;
+                }
+            }
+
+            // 2. Active voice in engine if it is a Vietnamese voice
+            if (this.engine && this.engine.selectedVoice && isVietnameseVoice(this.engine.selectedVoice)) {
+                const cur = this.engine.selectedVoice;
+                const curMatch = viVoices.find(v => v.voiceURI === cur.voiceURI || v.name === cur.name);
+                if (curMatch) {
+                    return curMatch;
+                }
+            }
+
+            // 3. System default Vietnamese voice or first available Vietnamese voice
+            return viVoices.find(v => v.default) || viVoices[0] || null;
+        }
+
+        /**
+         * Populates the voice selector dropdown with Vietnamese voices only.
+         * If no Vietnamese voice is available, shows unavailable state and disables playback.
+         * When Vietnamese voices arrive after an initial empty state, restores voice selection, re-enables controls, and updates status cleanly without auto-starting playback.
          * @param {Array<SpeechSynthesisVoice>} voices
          * @private
          */
@@ -274,66 +850,74 @@
                 return;
             }
 
-            if (!Array.isArray(voices) || voices.length === 0) {
-                this.dom.voiceSelect.innerHTML = '<option value="">Không tìm thấy giọng đọc trên thiết bị</option>';
+            const viVoices = (Array.isArray(voices) ? voices : []).filter(isVietnameseVoice);
+
+            if (viVoices.length === 0) {
+                this.dom.voiceSelect.innerHTML = '<option value="">Chưa có giọng đọc Tiếng Việt</option>';
+                this.dom.voiceSelect.disabled = true;
+                if (this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.disabled = true;
+                    this.dom.playPauseBtn.setAttribute('aria-disabled', 'true');
+                }
+                this._setStatusMessage('Thiết bị chưa có giọng đọc Tiếng Việt.');
                 return;
             }
 
-            const viVoices = [];
-            const otherVoices = [];
+            const hadNoVoices = this.dom.voiceSelect.disabled || (this.dom.statusText && this.dom.statusText.textContent === 'Thiết bị chưa có giọng đọc Tiếng Việt.');
 
-            for (let i = 0; i < voices.length; i++) {
-                const voice = voices[i];
-                const lang = (voice.lang || '').toLowerCase();
-                if (lang.startsWith('vi') || lang.includes('vi-vn') || lang.includes('vi_vn')) {
-                    viVoices.push(voice);
-                } else {
-                    otherVoices.push(voice);
-                }
+            this.dom.voiceSelect.disabled = false;
+            if (this.dom.playPauseBtn && this.chunks.length > 0) {
+                this.dom.playPauseBtn.disabled = false;
+                this.dom.playPauseBtn.removeAttribute('aria-disabled');
             }
 
             this.dom.voiceSelect.innerHTML = '';
 
-            // 1. Vietnamese Voices Group
-            if (viVoices.length > 0) {
-                const viGroup = document.createElement('optgroup');
-                viGroup.label = 'Giọng đọc Tiếng Việt';
-
-                for (let i = 0; i < viVoices.length; i++) {
-                    const v = viVoices[i];
-                    const option = document.createElement('option');
-                    option.value = v.voiceURI || v.name;
-                    option.textContent = v.name + (v.default ? ' (Mặc định)' : '');
-                    viGroup.appendChild(option);
-                }
-
-                this.dom.voiceSelect.appendChild(viGroup);
+            for (let i = 0; i < viVoices.length; i++) {
+                const v = viVoices[i];
+                const option = document.createElement('option');
+                option.value = v.voiceURI || v.name;
+                option.textContent = v.name + (v.default ? ' (Mặc định)' : '');
+                this.dom.voiceSelect.appendChild(option);
             }
 
-            // 2. Other System Voices Group
-            if (otherVoices.length > 0) {
-                const otherGroup = document.createElement('optgroup');
-                otherGroup.label = viVoices.length > 0 ? 'Giọng đọc khác' : 'Tất cả giọng đọc';
-
-                for (let i = 0; i < otherVoices.length; i++) {
-                    const v = otherVoices[i];
-                    const option = document.createElement('option');
-                    option.value = v.voiceURI || v.name;
-                    option.textContent = v.name + ' (' + (v.lang || 'N/A') + ')';
-                    otherGroup.appendChild(option);
-                }
-
-                this.dom.voiceSelect.appendChild(otherGroup);
-            }
-
-            // Select active voice in engine
-            const activeVoice = this.engine && this.engine.selectedVoice;
-            if (activeVoice) {
-                this.dom.voiceSelect.value = activeVoice.voiceURI || activeVoice.name;
-            } else if (viVoices.length > 0) {
-                this.dom.voiceSelect.value = viVoices[0].voiceURI || viVoices[0].name;
+            // Select active voice using preference & fallback resolution
+            const matchedVoice = this._resolveBestMatchingVoice(viVoices);
+            if (matchedVoice) {
+                this.dom.voiceSelect.value = matchedVoice.voiceURI || matchedVoice.name;
                 if (this.engine) {
-                    this.engine.setVoice(viVoices[0]);
+                    this.engine.setVoice(matchedVoice);
+                }
+            }
+
+            this._updateNavButtons();
+
+            // When Vietnamese voices arrive after initial empty state, restore ready/resume status if stale
+            if (hadNoVoices) {
+                const engineState = this.engine ? this.engine.getState() : null;
+                if (engineState !== 'PLAYING' && engineState !== 'PAUSED') {
+                    if (this.isCompleted) {
+                        this._setStatusMessage('Đã đọc xong chương.');
+                    } else if (this.engine && this.chunks.length > 0) {
+                        const curIndex = this.engine.getCurrentChunkIndex();
+                        if (curIndex > 0 && this.hasMeaningfulResume) {
+                            const currentNum = curIndex + 1;
+                            const totalNum = this.chunks.length;
+                            this._setStatusMessage('Sẵn sàng đọc tiếp từ câu ' + currentNum + ' / ' + totalNum + '.');
+                            if (this.dom.playPauseBtn) {
+                                const label = 'Tiếp tục đọc (từ câu ' + currentNum + ')';
+                                this.dom.playPauseBtn.setAttribute('aria-label', label);
+                                this.dom.playPauseBtn.title = label;
+                            }
+                        } else {
+                            this._setStatusMessage('Sẵn sàng phát giọng đọc (' + this.chunks.length + ' câu).');
+                            if (this.dom.playPauseBtn) {
+                                const label = 'Phát giọng đọc';
+                                this.dom.playPauseBtn.setAttribute('aria-label', label);
+                                this.dom.playPauseBtn.title = label;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -343,13 +927,18 @@
          * When turned OFF: immediately clears any active highlight without pausing TTS.
          * When turned ON during playback: immediately highlights and scrolls to current chunk.
          * @param {boolean} enabled
+         * @param {boolean} [persist=true]
          */
-        setFollowMode(enabled) {
+        setFollowMode(enabled, persist = true) {
             this.followMode = Boolean(enabled);
 
             if (this.dom.followToggle) {
                 this.dom.followToggle.checked = this.followMode;
                 this.dom.followToggle.setAttribute('aria-checked', String(this.followMode));
+            }
+
+            if (persist) {
+                this._savePreferences();
             }
 
             if (!this.followMode) {
@@ -362,8 +951,8 @@
                     if (curChunk && curChunk.element) {
                         const state = this.engine.getState();
                         if (state === 'PLAYING' || state === 'PAUSED') {
-                            this._highlightChunk(curChunk);
-                            if (!this._isElementComfortablyVisible(curChunk.element)) {
+                            const elementChanged = this._highlightChunk(curChunk);
+                            if (!this.isSettingsOpen() && (elementChanged || !this._isElementComfortablyVisible(curChunk.element))) {
                                 this._scrollElementIntoView(curChunk.element);
                             }
                         }
@@ -378,7 +967,76 @@
          */
         _handleFollowChange() {
             if (this.dom.followToggle) {
-                this.setFollowMode(this.dom.followToggle.checked);
+                this.setFollowMode(this.dom.followToggle.checked, true);
+            }
+        }
+
+        /**
+         * Sets auto-next mode ON or OFF.
+         * If turned OFF while next-chapter navigation is pending, cancels the timer and resets navigation state immediately.
+         * Turning ON does not schedule navigation on its own (only natural chapter completion schedules navigation).
+         * @param {boolean} enabled
+         * @param {boolean} [persist=true]
+         */
+        setAutoNext(enabled, persist = true) {
+            this.autoNext = Boolean(enabled);
+
+            if (!this.autoNext) {
+                if (this.isNavigatingToNext || this._autoNextTimeoutId) {
+                    this._cancelPendingAutoNext();
+                    if (this.isCompleted) {
+                        this._setStatusMessage('Đã đọc xong chương.');
+                    }
+                }
+            }
+
+            if (this.dom.autoNextToggle) {
+                this.dom.autoNextToggle.checked = this.autoNext;
+                this.dom.autoNextToggle.setAttribute('aria-checked', String(this.autoNext));
+            }
+
+            if (persist) {
+                this._savePreferences();
+            }
+        }
+
+        /**
+         * Handles Auto-Next toggle switch change.
+         * @private
+         */
+        _handleAutoNextChange() {
+            if (this.dom.autoNextToggle) {
+                this.setAutoNext(this.dom.autoNextToggle.checked, true);
+            }
+        }
+
+        /**
+         * Resolves the target URL for the next chapter from reader navigation.
+         * Returns the clean chapter URL without modifying query parameters.
+         * @returns {string|null} Full destination URL or null if no next chapter exists
+         * @private
+         */
+        _resolveNextChapterUrl() {
+            if (typeof document === 'undefined') {
+                return null;
+            }
+
+            const nextEl = document.querySelector(this.selectors.nextChapterLink || '.novel-chapter-nav-btn--next, a[rel="next"]');
+            if (!nextEl || nextEl.tagName !== 'A') {
+                return null;
+            }
+
+            const rawHref = nextEl.getAttribute('href');
+            if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript:')) {
+                return null;
+            }
+
+            try {
+                const base = (typeof window !== 'undefined' && window.location) ? window.location.href : 'http://localhost';
+                const resolvedUrl = new URL(rawHref, base);
+                return resolvedUrl.toString();
+            } catch (e) {
+                return rawHref;
             }
         }
 
@@ -430,8 +1088,41 @@
         }
 
         /**
+         * Computes the viewport clearance margins accounting for top navigation and dynamic fixed bottom dock height.
+         * @returns {{windowHeight: number, topMargin: number, bottomMargin: number, comfortableHeight: number}}
+         * @private
+         */
+        _getViewportClearance() {
+            const windowHeight = (typeof window !== 'undefined' && window.innerHeight) || (typeof document !== 'undefined' && document.documentElement && document.documentElement.clientHeight) || 0;
+            const topMargin = 70; // Top navigation bar clearance
+
+            let dockHeight = 0;
+            if (this.dom.player && typeof this.dom.player.getBoundingClientRect === 'function') {
+                const rect = this.dom.player.getBoundingClientRect();
+                dockHeight = rect.height || this.dom.player.offsetHeight || 0;
+            }
+
+            // Fallback dock height if not measured yet (standard dock is ~60px)
+            if (!dockHeight || dockHeight <= 0) {
+                dockHeight = 60;
+            }
+
+            const comfortableGap = 24;
+            const bottomMargin = Math.round(dockHeight + comfortableGap);
+            const comfortableHeight = Math.max(0, windowHeight - topMargin - bottomMargin);
+
+            return {
+                windowHeight: windowHeight,
+                topMargin: topMargin,
+                bottomMargin: bottomMargin,
+                comfortableHeight: comfortableHeight
+            };
+        }
+
+        /**
          * Checks whether an element is comfortably visible within the viewport.
          * Handles both standard elements and tall blocks exceeding viewport height.
+         * Dynamically measures fixed bottom dock height for clearance.
          * @param {HTMLElement} element
          * @returns {boolean}
          * @private
@@ -442,10 +1133,7 @@
             }
 
             const rect = element.getBoundingClientRect();
-            const windowHeight = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0;
-            const topMargin = 70;
-            const bottomMargin = 70;
-            const comfortableHeight = windowHeight - topMargin - bottomMargin;
+            const { windowHeight, topMargin, bottomMargin, comfortableHeight } = this._getViewportClearance();
 
             if (comfortableHeight <= 0) {
                 return true;
@@ -468,6 +1156,7 @@
         /**
          * Smoothly scrolls an element into the comfortable view area.
          * For tall elements, aligns to start; for standard elements, centers smoothly.
+         * Uses dynamic fixed bottom dock height to determine tall-block alignment.
          * @param {HTMLElement} element
          * @private
          */
@@ -480,8 +1169,7 @@
                 let blockAlign = 'center';
                 if (typeof element.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
                     const rect = element.getBoundingClientRect();
-                    const windowHeight = window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0;
-                    const comfortableHeight = windowHeight - 140;
+                    const { comfortableHeight } = this._getViewportClearance();
                     if (comfortableHeight > 0 && rect.height > comfortableHeight) {
                         blockAlign = 'start';
                     }
@@ -499,11 +1187,34 @@
         }
 
         /**
+         * Cancels any scheduled auto-next continuation timer and active transition fetch.
+         * Invalidates any in-flight transitions by incrementing the sequence ID.
+         * @private
+         */
+        _cancelPendingAutoNext() {
+            if (this._autoNextTimeoutId) {
+                clearTimeout(this._autoNextTimeoutId);
+                this._autoNextTimeoutId = null;
+            }
+            if (this._transitionAbortController) {
+                try {
+                    this._transitionAbortController.abort();
+                } catch (ignored) {}
+                this._transitionAbortController = null;
+            }
+            this._transitionSequenceId++;
+            this.isNavigatingToNext = false;
+        }
+
+        /**
          * Handles Play/Pause button click.
          * If natural completion occurred, restarts from chunk 0.
          * @private
          */
         _handlePlayPause() {
+            this._cancelPendingAutoNext();
+            this.isAutoplayContinuation = false;
+
             if (!this.engine || this.chunks.length === 0) {
                 return;
             }
@@ -529,6 +1240,9 @@
          * @private
          */
         _handlePrev() {
+            this._cancelPendingAutoNext();
+            this.isAutoplayContinuation = false;
+
             if (this.engine) {
                 this.isCompleted = false;
                 this.engine.previousChunk();
@@ -541,6 +1255,9 @@
          * @private
          */
         _handleNext() {
+            this._cancelPendingAutoNext();
+            this.isAutoplayContinuation = false;
+
             if (this.engine) {
                 this.isCompleted = false;
                 this.engine.nextChunk();
@@ -549,10 +1266,54 @@
         }
 
         /**
+         * Handles click/tap on horizontal progress bar to seek directly to a chunk.
+         * @param {MouseEvent} event
+         * @private
+         */
+        _handleProgressBarClick(event) {
+            if (!this.dom.progressBar || this.chunks.length === 0) {
+                return;
+            }
+
+            const rect = this.dom.progressBar.getBoundingClientRect();
+            if (rect.width <= 0) {
+                return;
+            }
+
+            const clickX = event.clientX - rect.left;
+            const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+            const targetIndex = Math.min(this.chunks.length - 1, Math.floor(ratio * this.chunks.length));
+
+            this.seekToChunk(targetIndex);
+        }
+
+        /**
+         * Handles keyboard interaction on progress bar (Left/Right arrow keys for chunk seeking).
+         * @param {KeyboardEvent} event
+         * @private
+         */
+        _handleProgressBarKeydown(event) {
+            if (this.chunks.length === 0) {
+                return;
+            }
+
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                this._handlePrev();
+            } else if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                this._handleNext();
+            }
+        }
+
+        /**
          * Navigates to a specific chunk and synchronizes UI immediately.
          * @param {number} index
          */
         seekToChunk(index) {
+            this._cancelPendingAutoNext();
+            this.isAutoplayContinuation = false;
+
             if (this.engine) {
                 this.isCompleted = false;
                 this.engine.seekToChunk(index);
@@ -577,11 +1338,14 @@
             this._updateProgressDisplay(currentNum, totalNum);
             this._updateNavButtons();
 
+            this.hasMeaningfulResume = true;
+            this._saveResumePosition(curIndex);
+
             const state = this.engine.getState();
             if (state !== 'PLAYING') {
                 if (curChunk && curChunk.element && this.followMode) {
                     const elementChanged = this._highlightChunk(curChunk);
-                    if (elementChanged && !this._isElementComfortablyVisible(curChunk.element)) {
+                    if (!this.isSettingsOpen() && elementChanged && !this._isElementComfortablyVisible(curChunk.element)) {
                         this._scrollElementIntoView(curChunk.element);
                     }
                 }
@@ -595,7 +1359,7 @@
         }
 
         /**
-         * Handles Voice selector change.
+         * Handles Voice selector change and persists preference globally.
          * @private
          */
         _handleVoiceChange() {
@@ -604,10 +1368,20 @@
             }
             const voiceVal = this.dom.voiceSelect.value;
             this.engine.setVoice(voiceVal);
+
+            const selected = this.engine.selectedVoice;
+            if (selected) {
+                this.savedVoicePreference = {
+                    voiceURI: selected.voiceURI || '',
+                    name: selected.name || '',
+                    lang: selected.lang || ''
+                };
+                this._savePreferences();
+            }
         }
 
         /**
-         * Handles Rate selector change.
+         * Handles Rate selector change and persists preference globally.
          * @private
          */
         _handleRateChange() {
@@ -617,18 +1391,196 @@
             const rateVal = parseFloat(this.dom.rateSelect.value);
             if (Number.isFinite(rateVal)) {
                 this.engine.setRate(rateVal);
+                this._savePreferences();
             }
         }
 
         /**
          * Handles page unload/hide cleanup.
+         * Saves current resume position at most once before tearing down engine state.
+         * Ensures duplicate lifecycle events (e.g. beforeunload followed by pagehide) are idempotent.
          * @private
          */
         _handleUnload() {
-            this.isCompleted = false;
+            if (this.isUnloaded) {
+                return;
+            }
+            this.isUnloaded = true;
+            this._cancelPendingAutoNext();
+
+            if (!this.isCompleted && this.hasMeaningfulResume && this.engine && this.chunks.length > 0 && this.chapterId) {
+                const currentIndex = this.engine.getCurrentChunkIndex();
+                if (typeof currentIndex === 'number' && currentIndex >= 0) {
+                    this._saveResumePosition(currentIndex);
+                }
+            }
+
             this._clearHighlight();
             if (this.engine) {
                 this.engine.stop();
+            }
+        }
+
+        /**
+         * Handles cross-tab storage synchronization for narration preferences.
+         * @param {StorageEvent} event
+         * @private
+         */
+        _handleStorageEvent(event) {
+            if (!event || !event.key) {
+                return;
+            }
+
+            if (event.key === this.storageKeys.preferences && event.newValue) {
+                try {
+                    const prefs = JSON.parse(event.newValue);
+                    if (prefs && prefs.version === 1) {
+                        if (typeof prefs.rate === 'number' && Number.isFinite(prefs.rate)) {
+                            const clampedRate = Math.max(0.5, Math.min(2.0, prefs.rate));
+                            if (this.engine && this.engine.getState() !== 'PLAYING') {
+                                this.engine.setRate(clampedRate);
+                                if (this.dom.rateSelect) {
+                                    this.dom.rateSelect.value = String(clampedRate);
+                                }
+                            }
+                        }
+                        if (typeof prefs.followMode === 'boolean') {
+                            this.setFollowMode(prefs.followMode, false);
+                        }
+                        if (typeof prefs.autoNext === 'boolean') {
+                            this.setAutoNext(prefs.autoNext, false);
+                        }
+                        if (prefs.voice && typeof prefs.voice === 'object') {
+                            this.savedVoicePreference = {
+                                voiceURI: prefs.voice.voiceURI || '',
+                                name: prefs.voice.name || '',
+                                lang: prefs.voice.lang || ''
+                            };
+                            if (this.engine && this.engine.getState() !== 'PLAYING') {
+                                this._populateVoiceDropdown(this.engine.getSortedVoices ? this.engine.getSortedVoices() : this.engine.getVoices());
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore malformed storage updates
+                }
+            }
+        }
+
+        /**
+         * Loads saved preferences from localStorage.
+         * @returns {Object|null}
+         * @private
+         */
+        _loadPreferences() {
+            try {
+                if (typeof localStorage === 'undefined') {
+                    return null;
+                }
+                const raw = localStorage.getItem(this.storageKeys.preferences);
+                if (!raw) {
+                    return null;
+                }
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && parsed.version === 1) {
+                    return parsed;
+                }
+                return null;
+            } catch (e) {
+                console.warn('[NarrationController] Unable to read narration preferences from localStorage:', e);
+                return null;
+            }
+        }
+
+        /**
+         * Persists current preferences (voice, rate, followMode, autoNext) into localStorage.
+         * @private
+         */
+        _savePreferences() {
+            try {
+                if (typeof localStorage === 'undefined') {
+                    return;
+                }
+                const payload = {
+                    version: 1,
+                    rate: (this.engine && typeof this.engine.rate === 'number') ? this.engine.rate : 1.0,
+                    followMode: Boolean(this.followMode),
+                    autoNext: Boolean(this.autoNext),
+                    voice: this.savedVoicePreference ? {
+                        voiceURI: this.savedVoicePreference.voiceURI || '',
+                        name: this.savedVoicePreference.name || '',
+                        lang: this.savedVoicePreference.lang || ''
+                    } : null
+                };
+                localStorage.setItem(this.storageKeys.preferences, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('[NarrationController] Unable to save narration preferences to localStorage:', e);
+            }
+        }
+
+        /**
+         * Loads saved narration resume position from localStorage.
+         * @returns {Object|null}
+         * @private
+         */
+        _loadResumePosition() {
+            try {
+                if (typeof localStorage === 'undefined') {
+                    return null;
+                }
+                const raw = localStorage.getItem(this.storageKeys.resume);
+                if (!raw) {
+                    return null;
+                }
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && parsed.version === 1) {
+                    return parsed;
+                }
+                return null;
+            } catch (e) {
+                console.warn('[NarrationController] Unable to read narration resume position from localStorage:', e);
+                return null;
+            }
+        }
+
+        /**
+         * Persists latest narration resume position into localStorage.
+         * @param {number} chunkIndex
+         * @private
+         */
+        _saveResumePosition(chunkIndex) {
+            if (!this.chapterId || this.chunks.length === 0 || typeof chunkIndex !== 'number') {
+                return;
+            }
+
+            try {
+                if (typeof localStorage === 'undefined') {
+                    return;
+                }
+                const payload = {
+                    version: 1,
+                    chapterId: String(this.chapterId),
+                    chunkIndex: Math.max(0, Math.min(this.chunks.length - 1, Math.floor(chunkIndex))),
+                    totalChunks: this.chunks.length,
+                    savedAt: Date.now()
+                };
+                localStorage.setItem(this.storageKeys.resume, JSON.stringify(payload));
+            } catch (e) {
+                console.warn('[NarrationController] Unable to save narration resume position to localStorage:', e);
+            }
+        }
+
+        /**
+         * Clears saved resume position from localStorage.
+         * @private
+         */
+        _clearSavedResume() {
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.removeItem(this.storageKeys.resume);
+                }
+            } catch (e) {
+                console.warn('[NarrationController] Unable to clear narration resume position from localStorage:', e);
             }
         }
 
@@ -645,15 +1597,16 @@
                 this.dom.pauseIcon.style.display = isPlaying ? '' : 'none';
             }
 
+            let label = 'Phát giọng đọc';
+            if (isPlaying) {
+                label = 'Tạm dừng giọng đọc';
+            } else if (newState === 'PAUSED') {
+                label = 'Tiếp tục đọc';
+            } else if (this.isCompleted) {
+                label = 'Phát lại từ đầu';
+            }
+
             if (this.dom.playPauseBtn) {
-                let label = 'Phát giọng đọc';
-                if (isPlaying) {
-                    label = 'Tạm dừng giọng đọc';
-                } else if (newState === 'PAUSED') {
-                    label = 'Tiếp tục đọc';
-                } else if (this.isCompleted) {
-                    label = 'Phát lại từ đầu';
-                }
                 this.dom.playPauseBtn.setAttribute('aria-label', label);
                 this.dom.playPauseBtn.title = label;
                 this.dom.playPauseBtn.classList.toggle('is-playing', isPlaying);
@@ -679,12 +1632,15 @@
          * Engine Callback: Chunk start.
          * Highlights chunk element and scrolls it smoothly into comfortable view if followMode is enabled.
          * Avoids redundant scrolling and class toggling when consecutive chunks share the same DOM element.
+         * Persists position into resume storage.
          * @param {number} chunkIndex
          * @param {Object} chunk
          * @private
          */
         _onEngineChunkStart(chunkIndex, chunk) {
             this.isCompleted = false;
+            this.hasMeaningfulResume = true;
+            this.isAutoplayContinuation = false;
             const currentNum = chunkIndex + 1;
             const totalNum = this.chunks.length;
 
@@ -692,9 +1648,11 @@
             this._setStatusMessage('Đang đọc câu ' + currentNum + ' / ' + totalNum);
             this._updateNavButtons();
 
+            this._saveResumePosition(chunkIndex);
+
             if (this.followMode && chunk && chunk.element) {
                 const elementChanged = this._highlightChunk(chunk);
-                if (elementChanged && !this._isElementComfortablyVisible(chunk.element)) {
+                if (!this.isSettingsOpen() && elementChanged && !this._isElementComfortablyVisible(chunk.element)) {
                     this._scrollElementIntoView(chunk.element);
                 }
             }
@@ -712,11 +1670,15 @@
 
         /**
          * Engine Callback: Natural Chapter end.
-         * Clears highlight, displays total/total, and configures replay from start.
+         * Clears highlight and saved resume, displays total/total, and configures replay from start.
+         * When autoNext is enabled, initiates seamless in-page chapter transition.
          * @private
          */
         _onEngineChapterEnd() {
             this.isCompleted = true;
+            this.hasMeaningfulResume = false;
+            this.isAutoplayContinuation = false;
+            this._clearSavedResume();
             this._clearHighlight();
             this._updateProgressDisplay(this.chunks.length, this.chunks.length);
             this._setStatusMessage('Đã đọc xong chương.');
@@ -724,6 +1686,324 @@
             if (this.dom.playPauseBtn) {
                 this.dom.playPauseBtn.setAttribute('aria-label', 'Phát lại từ đầu');
                 this.dom.playPauseBtn.title = 'Phát lại từ đầu';
+            }
+
+            if (this.autoNext && !this.isNavigatingToNext) {
+                const nextUrl = this._resolveNextChapterUrl();
+                if (nextUrl) {
+                    this.isNavigatingToNext = true;
+                    this._setStatusMessage('Đã đọc xong chương. Đang chuyển sang chương tiếp theo...');
+                    if (typeof window !== 'undefined') {
+                        this._autoNextTimeoutId = window.setTimeout(() => {
+                            this._autoNextTimeoutId = null;
+                            if (this.isNavigatingToNext && !this.isUnloaded) {
+                                this._transitionToNextChapter(nextUrl);
+                            }
+                        }, 500);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Performs seamless in-page transition to the next chapter.
+         * Fetches chapter HTML, validates fragments, updates DOM in-place, synchronizes history & events, and resumes narration.
+         * @param {string} nextUrl
+         * @returns {Promise<void>}
+         * @private
+         */
+        async _transitionToNextChapter(nextUrl) {
+            if (!nextUrl || this.isUnloaded) {
+                this.isNavigatingToNext = false;
+                return;
+            }
+
+            if (this._transitionAbortController) {
+                try {
+                    this._transitionAbortController.abort();
+                } catch (ignored) {}
+            }
+
+            const currentSequenceId = ++this._transitionSequenceId;
+            const abortController = new AbortController();
+            this._transitionAbortController = abortController;
+            this.isNavigatingToNext = true;
+
+            try {
+                const response = await fetch(nextUrl, {
+                    signal: abortController.signal,
+                    headers: {
+                        'Accept': 'text/html'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+
+                const htmlText = await response.text();
+
+                if (this.isUnloaded || !this.isNavigatingToNext || currentSequenceId !== this._transitionSequenceId) {
+                    return; // Stale or cancelled transition
+                }
+
+                if (typeof DOMParser === 'undefined') {
+                    throw new Error('DOMParser is not supported.');
+                }
+
+                const parser = new DOMParser();
+                const fetchedDoc = parser.parseFromString(htmlText, 'text/html');
+
+                const validation = this._validateFetchedChapterDocument(fetchedDoc);
+                if (!validation.valid) {
+                    throw new Error('Validation failed: ' + validation.reason);
+                }
+
+                this._applyChapterTransition(fetchedDoc, nextUrl, validation);
+            } catch (error) {
+                if (error && error.name === 'AbortError') {
+                    return; // Intentional abort, no error state
+                }
+
+                if (currentSequenceId !== this._transitionSequenceId || !this.isNavigatingToNext) {
+                    return;
+                }
+
+                console.warn('[NarrationController] Seamless chapter transition failed:', error);
+                this.isNavigatingToNext = false;
+                this._transitionAbortController = null;
+
+                // Remain on Chapter A without partial DOM commits
+                this._setStatusMessage('Không thể tự động tải chương sau. Vui lòng bấm "Chương sau" để tiếp tục.');
+            }
+        }
+
+        /**
+         * Validates that the fetched document contains all required reader DOM fragments and non-empty chapter ID.
+         * @param {Document} doc
+         * @returns {{valid: boolean, reason?: string, newChapterId?: string, bodyEl?: Element, breadcrumbEl?: Element, headerEl?: Element, navTopEl?: Element, navBottomEl?: Element, title?: string}}
+         * @private
+         */
+        _validateFetchedChapterDocument(doc) {
+            if (!doc) {
+                return { valid: false, reason: 'Document is null or undefined' };
+            }
+
+            const title = (doc.title || '').trim();
+            if (!title) {
+                return { valid: false, reason: 'Missing document title' };
+            }
+
+            const bodyEl = doc.querySelector(this.selectors.body || '.novel-reader-chapter-body');
+            if (!bodyEl) {
+                return { valid: false, reason: 'Missing chapter body container' };
+            }
+
+            const newChapterId = (bodyEl.getAttribute('data-chapter-id') || (bodyEl.dataset && bodyEl.dataset.chapterId) || '').trim();
+            if (!newChapterId) {
+                return { valid: false, reason: 'Missing data-chapter-id on chapter body' };
+            }
+
+            const breadcrumbEl = doc.querySelector('.novel-chapter-breadcrumb');
+            if (!breadcrumbEl) {
+                return { valid: false, reason: 'Missing breadcrumb container' };
+            }
+
+            const headerEl = doc.querySelector('.novel-chapter-header');
+            if (!headerEl) {
+                return { valid: false, reason: 'Missing chapter header container' };
+            }
+
+            const navTopEl = doc.querySelector('.novel-chapter-nav--top');
+            if (!navTopEl) {
+                return { valid: false, reason: 'Missing top navigation' };
+            }
+
+            const navBottomEl = doc.querySelector('.novel-chapter-nav--bottom');
+            if (!navBottomEl) {
+                return { valid: false, reason: 'Missing bottom navigation' };
+            }
+
+            return {
+                valid: true,
+                title: title,
+                newChapterId: newChapterId,
+                bodyEl: bodyEl,
+                breadcrumbEl: breadcrumbEl,
+                headerEl: headerEl,
+                navTopEl: navTopEl,
+                navBottomEl: navBottomEl
+            };
+        }
+
+        /**
+         * Commits fetched chapter data to current DOM in-place and starts narration for the new chapter.
+         * @param {Document} fetchedDoc
+         * @param {string} nextUrl
+         * @param {Object} validation
+         * @private
+         */
+        _applyChapterTransition(fetchedDoc, nextUrl, validation) {
+            const newChapterId = validation.newChapterId;
+
+            // 1. Chapter Prose Body (keep stable DOM node)
+            if (this.dom.body) {
+                this.dom.body.innerHTML = validation.bodyEl.innerHTML;
+                this.dom.body.setAttribute('data-chapter-id', newChapterId);
+            }
+            if (this.dom.player) {
+                this.dom.player.setAttribute('data-chapter-id', newChapterId);
+            }
+
+            // 2. Breadcrumb
+            const curBreadcrumb = document.querySelector('.novel-chapter-breadcrumb');
+            if (curBreadcrumb && validation.breadcrumbEl) {
+                curBreadcrumb.innerHTML = validation.breadcrumbEl.innerHTML;
+            }
+
+            // 3. Chapter Header
+            const curHeader = document.querySelector('.novel-chapter-header');
+            if (curHeader && validation.headerEl) {
+                curHeader.innerHTML = validation.headerEl.innerHTML;
+            }
+
+            // 4. Top & Bottom Navigation
+            const curNavTop = document.querySelector('.novel-chapter-nav--top');
+            if (curNavTop && validation.navTopEl) {
+                curNavTop.innerHTML = validation.navTopEl.innerHTML;
+            }
+
+            const curNavBottom = document.querySelector('.novel-chapter-nav--bottom');
+            if (curNavBottom && validation.navBottomEl) {
+                curNavBottom.innerHTML = validation.navBottomEl.innerHTML;
+            }
+
+            // 5. Bookmark Button (preserve stable node, update attributes & label)
+            const curBookmarkBtn = document.getElementById('novelChapterBookmarkBtn');
+            const fetchedBookmarkBtn = fetchedDoc.getElementById('novelChapterBookmarkBtn');
+            if (curBookmarkBtn && fetchedBookmarkBtn) {
+                curBookmarkBtn.setAttribute('data-chapter-id', fetchedBookmarkBtn.getAttribute('data-chapter-id') || newChapterId);
+                curBookmarkBtn.setAttribute('data-bookmark-url', fetchedBookmarkBtn.getAttribute('data-bookmark-url') || '');
+                const isBookmarked = fetchedBookmarkBtn.getAttribute('data-bookmarked') === 'true';
+                curBookmarkBtn.setAttribute('data-bookmarked', String(isBookmarked));
+                if (fetchedBookmarkBtn.getAttribute('data-csrf-token')) {
+                    curBookmarkBtn.setAttribute('data-csrf-token', fetchedBookmarkBtn.getAttribute('data-csrf-token'));
+                }
+                if (fetchedBookmarkBtn.getAttribute('data-csrf-header')) {
+                    curBookmarkBtn.setAttribute('data-csrf-header', fetchedBookmarkBtn.getAttribute('data-csrf-header'));
+                }
+                curBookmarkBtn.classList.toggle('is-bookmarked', isBookmarked);
+
+                const curText = curBookmarkBtn.querySelector('.novel-bookmark-btn-text');
+                const fetchedText = fetchedBookmarkBtn.querySelector('.novel-bookmark-btn-text');
+                if (curText && fetchedText) {
+                    curText.textContent = fetchedText.textContent;
+                }
+                curBookmarkBtn.disabled = false;
+            }
+
+            // 6. Reading Trackers (Progress & History)
+            const curProgressTracker = document.getElementById('novelReadingProgressTracker');
+            const fetchedProgressTracker = fetchedDoc.getElementById('novelReadingProgressTracker');
+            if (curProgressTracker && fetchedProgressTracker) {
+                curProgressTracker.setAttribute('data-chapter-id', fetchedProgressTracker.getAttribute('data-chapter-id') || newChapterId);
+                if (fetchedProgressTracker.getAttribute('data-csrf-token')) {
+                    curProgressTracker.setAttribute('data-csrf-token', fetchedProgressTracker.getAttribute('data-csrf-token'));
+                }
+                if (fetchedProgressTracker.getAttribute('data-csrf-header')) {
+                    curProgressTracker.setAttribute('data-csrf-header', fetchedProgressTracker.getAttribute('data-csrf-header'));
+                }
+            } else if (curProgressTracker) {
+                curProgressTracker.setAttribute('data-chapter-id', newChapterId);
+            }
+
+            const curHistoryTracker = document.getElementById('novelReadingHistoryTracker');
+            const fetchedHistoryTracker = fetchedDoc.getElementById('novelReadingHistoryTracker');
+            if (curHistoryTracker && fetchedHistoryTracker) {
+                curHistoryTracker.setAttribute('data-chapter-id', fetchedHistoryTracker.getAttribute('data-chapter-id') || newChapterId);
+                curHistoryTracker.setAttribute('data-history-url', fetchedHistoryTracker.getAttribute('data-history-url') || ('/novel/chapters/' + encodeURIComponent(newChapterId) + '/history'));
+                if (fetchedHistoryTracker.getAttribute('data-csrf-token')) {
+                    curHistoryTracker.setAttribute('data-csrf-token', fetchedHistoryTracker.getAttribute('data-csrf-token'));
+                }
+                if (fetchedHistoryTracker.getAttribute('data-csrf-header')) {
+                    curHistoryTracker.setAttribute('data-csrf-header', fetchedHistoryTracker.getAttribute('data-csrf-header'));
+                }
+            } else if (curHistoryTracker) {
+                curHistoryTracker.setAttribute('data-chapter-id', newChapterId);
+                curHistoryTracker.setAttribute('data-history-url', '/novel/chapters/' + encodeURIComponent(newChapterId) + '/history');
+            }
+
+            // 7. TOC Drawer Active Chapter
+            const curTocList = document.querySelector('#novelTocDrawer .novel-toc-list');
+            const fetchedTocList = fetchedDoc.querySelector('#novelTocDrawer .novel-toc-list');
+            if (curTocList && fetchedTocList) {
+                curTocList.innerHTML = fetchedTocList.innerHTML;
+            }
+
+            // 8. Document Title & Browser History
+            document.title = validation.title;
+
+            let chapterSlug = '';
+            try {
+                const parsedUrl = new URL(nextUrl, (typeof window !== 'undefined' && window.location) ? window.location.href : 'http://localhost');
+                const parts = parsedUrl.pathname.split('/').filter(Boolean);
+                chapterSlug = parts[parts.length - 1] || '';
+            } catch (ignored) {}
+
+            if (typeof window !== 'undefined' && window.history && typeof window.history.pushState === 'function') {
+                window.history.pushState({ chapterId: newChapterId, slug: chapterSlug }, '', nextUrl);
+            }
+
+            // 9. Update NarrationController Chapter State before event dispatch
+            this.chapterId = newChapterId;
+            this.isCompleted = false;
+            this.hasMeaningfulResume = false;
+            this.isAutoplayContinuation = false;
+            this.isNavigatingToNext = false;
+            this._transitionAbortController = null;
+            this._clearSavedResume();
+            this._clearHighlight();
+
+            // 10. Dispatch custom chapter-changed event
+            if (typeof document !== 'undefined') {
+                document.dispatchEvent(new CustomEvent('kiemlai:chapter-changed', {
+                    detail: {
+                        chapterId: newChapterId,
+                        slug: chapterSlug,
+                        url: nextUrl
+                    }
+                }));
+            }
+
+            // 11. Parse & Load Chapter B Chunks
+            if (this.parser && typeof this.parser.parseChapterBody === 'function' && this.dom.body) {
+                this.chunks = this.parser.parseChapterBody(this.dom.body);
+            } else {
+                this.chunks = [];
+            }
+
+            if (this.engine) {
+                this.engine.loadChunks(this.chunks, 0);
+            }
+
+            if (this.chunks.length === 0) {
+                this._updateProgressDisplay(0, 0);
+                this._updateNavButtons();
+                this._setStatusMessage('Không tìm thấy nội dung văn bản để đọc.');
+                if (this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.disabled = true;
+                }
+            } else {
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                this._setStatusMessage('Sẵn sàng phát giọng đọc (' + this.chunks.length + ' câu).');
+                if (this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.disabled = false;
+                    this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                }
+                if (this.engine) {
+                    this.engine.play(0);
+                }
             }
         }
 
@@ -733,11 +2013,24 @@
          * @private
          */
         _onEngineError(error) {
+            if (this.isAutoplayContinuation) {
+                this.isAutoplayContinuation = false;
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                this._setStatusMessage('Đã sang chương mới. Nhấn Phát để tiếp tục.');
+                if (this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                    this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                    this.dom.playPauseBtn.classList.remove('is-playing');
+                }
+                return;
+            }
             this._setStatusMessage('Xảy ra lỗi khi phát giọng đọc.');
         }
 
         /**
          * Engine Callback: Voices changed.
+         * Re-evaluates saved voice preference against newly available system voices.
          * @param {Array<SpeechSynthesisVoice>} voices
          * @private
          */
@@ -746,17 +2039,34 @@
         }
 
         /**
-         * Updates sentence progress display in DOM.
+         * Updates sentence progress display and horizontal progress bar in DOM.
          * @param {number} current
          * @param {number} total
          * @private
          */
         _updateProgressDisplay(current, total) {
+            const currentNum = Number(current) || 0;
+            const totalNum = Number(total) || 0;
+
             if (this.dom.progressCurrent) {
-                this.dom.progressCurrent.textContent = String(current);
+                this.dom.progressCurrent.textContent = String(currentNum);
             }
             if (this.dom.progressTotal) {
-                this.dom.progressTotal.textContent = String(total);
+                this.dom.progressTotal.textContent = String(totalNum);
+            }
+
+            if (this.dom.progressBar) {
+                let percent = 0;
+                if (totalNum > 0) {
+                    percent = Math.max(0, Math.min(100, Math.round((currentNum / totalNum) * 100)));
+                }
+
+                this.dom.progressBar.setAttribute('aria-valuenow', String(percent));
+                this.dom.progressBar.setAttribute('aria-valuetext', currentNum + ' trên ' + totalNum + ' câu');
+
+                if (this.dom.progressFill) {
+                    this.dom.progressFill.style.width = percent + '%';
+                }
             }
         }
 
@@ -790,15 +2100,15 @@
 
             const currentIndex = this.engine.getCurrentChunkIndex();
             const total = this.chunks.length;
+            const canPrev = currentIndex > 0;
+            const canNext = !this.isCompleted && (currentIndex < total - 1);
 
             if (this.dom.prevBtn) {
-                const canPrev = currentIndex > 0;
                 this.dom.prevBtn.disabled = !canPrev;
                 this.dom.prevBtn.setAttribute('aria-disabled', String(!canPrev));
             }
 
             if (this.dom.nextBtn) {
-                const canNext = !this.isCompleted && (currentIndex < total - 1);
                 this.dom.nextBtn.disabled = !canNext;
                 this.dom.nextBtn.setAttribute('aria-disabled', String(!canNext));
             }
@@ -808,7 +2118,8 @@
          * Destroys controller and releases engine, highlights, and listeners.
          */
         destroy() {
-            this._clearHighlight();
+            this._handleUnload();
+            this._cancelPendingAutoNext();
 
             if (this.dom.playPauseBtn) {
                 this.dom.playPauseBtn.removeEventListener('click', this._boundOnPlayPause);
@@ -819,6 +2130,13 @@
             if (this.dom.nextBtn) {
                 this.dom.nextBtn.removeEventListener('click', this._boundOnNext);
             }
+            if (this.dom.progressBar) {
+                this.dom.progressBar.removeEventListener('click', this._boundOnProgressBarClick);
+                this.dom.progressBar.removeEventListener('keydown', this._boundOnProgressBarKeydown);
+            }
+            if (this.dom.collapseToggle) {
+                this.dom.collapseToggle.removeEventListener('click', this._boundOnCollapseToggle);
+            }
             if (this.dom.voiceSelect) {
                 this.dom.voiceSelect.removeEventListener('change', this._boundOnVoiceChange);
             }
@@ -828,9 +2146,25 @@
             if (this.dom.followToggle) {
                 this.dom.followToggle.removeEventListener('change', this._boundOnFollowChange);
             }
+            if (this.dom.autoNextToggle) {
+                this.dom.autoNextToggle.removeEventListener('change', this._boundOnAutoNextChange);
+            }
+            if (this.dom.settingsTrigger) {
+                this.dom.settingsTrigger.removeEventListener('click', this._boundOnSettingsTriggerClick);
+            }
+            if (this.dom.settingsCloseBtn) {
+                this.dom.settingsCloseBtn.removeEventListener('click', this._boundOnSettingsCloseClick);
+            }
 
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('click', this._boundOnDocumentClick);
+                document.removeEventListener('keydown', this._boundOnDocumentKeydown);
+            }
+
+            window.removeEventListener('popstate', this._boundOnPopState);
             window.removeEventListener('beforeunload', this._boundOnUnload);
             window.removeEventListener('pagehide', this._boundOnUnload);
+            window.removeEventListener('storage', this._boundOnStorage);
 
             if (this.engine && typeof this.engine.destroy === 'function') {
                 this.engine.destroy();
@@ -838,6 +2172,8 @@
 
             this.chunks = [];
             this.isCompleted = false;
+            this.hasMeaningfulResume = false;
+            this.isAutoplayContinuation = false;
             this.initialized = false;
         }
     }
@@ -866,6 +2202,8 @@
     return {
         NarrationController: NarrationController,
         DEFAULT_SELECTORS: Object.freeze(DEFAULT_SELECTORS),
+        STORAGE_KEYS: Object.freeze(STORAGE_KEYS),
         HIGHLIGHT_CLASS: HIGHLIGHT_CLASS
     };
 });
+
