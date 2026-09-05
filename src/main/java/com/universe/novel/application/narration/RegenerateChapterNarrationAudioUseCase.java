@@ -5,6 +5,7 @@ import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.novel.application.exceptions.ChapterNarrationAudioNotFoundException;
 import com.universe.novel.application.exceptions.ChapterNarrationSegmentInvalidStateException;
 import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
@@ -16,8 +17,9 @@ import com.universe.novel.application.ports.TtsProviderPort;
 import com.universe.novel.domain.narration.ChapterNarrationAudio;
 import com.universe.novel.domain.narration.ChapterNarrationSegment;
 import com.universe.novel.domain.narration.ManagedVoice;
-import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -25,54 +27,51 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Use case orchestrating TTS synthesis, Media binary upload, and persistence of chapter narration audio assignments.
+ * Use case orchestrating safe regeneration of an existing stale ChapterNarrationAudio assignment.
  * <p>
  * <strong>Workflow:</strong>
  * <ol>
  *     <li>Loads {@link ChapterNarrationSegment} and validates that it exists and is in {@code CURRENT} status.</li>
  *     <li>Loads {@link ManagedVoice} and validates that it exists and is in {@code ACTIVE} status.</li>
- *     <li>Checks for an existing {@link ChapterNarrationAudio} assignment:
+ *     <li>Loads existing {@link ChapterNarrationAudio} assignment (rejecting with {@link ChapterNarrationAudioNotFoundException} if missing).</li>
+ *     <li>If the assignment is already compatible with current voice synthesis revision, returns {@link RegenerateNarrationAudioOutcome#ALREADY_CURRENT} without TTS or Media writes.</li>
+ *     <li>If the assignment is stale:
  *         <ul>
- *             <li>If present and its synthesis revision matches the voice, returns {@link NarrationAudioGenerationOutcome#REUSED} without invoking TTS or Media.</li>
- *             <li>If present but its synthesis revision is stale, returns {@link NarrationAudioGenerationOutcome#STALE} without regenerating (regeneration is owned by H.5D).</li>
- *         </ul>
- *     </li>
- *     <li>If no assignment exists:
- *         <ul>
- *             <li>Synthesizes audio via {@link TtsProviderPort}.</li>
- *             <li>Uploads synthesized audio to the Media platform via {@link MediaContract}.</li>
- *             <li>Persists a new {@link ChapterNarrationAudio} assignment.</li>
- *             <li>If persistence fails, compensates by deleting the newly created Media asset.</li>
- *             <li>Returns {@link NarrationAudioGenerationOutcome#GENERATED}.</li>
+ *             <li>Synthesizes replacement audio via {@link TtsProviderPort}.</li>
+ *             <li>Uploads new audio binary to the Media platform via {@link MediaContract}.</li>
+ *             <li>Updates assignment via {@link ChapterNarrationAudio#replaceSuccessfulAudio(UUID, long, Instant)} and persists the same assignment identity.</li>
+ *             <li>If persistence fails, compensates the NEW Media asset and restores in-memory domain state, preserving the OLD Media asset.</li>
+ *             <li>Only after persistence succeeds, retires/deletes the OLD Media asset via {@link MediaContract#delete(UUID)}.</li>
+ *             <li>If old asset cleanup fails, logs the warning without rolling back the new assignment.</li>
+ *             <li>Returns {@link RegenerateNarrationAudioOutcome#REGENERATED}.</li>
  *         </ul>
  *     </li>
  * </ol>
  * <p>
- * <strong>Transaction Boundary:</strong> This service does NOT hold an active database transaction across
- * the HTTP TTS synthesis call or Media binary upload. Database writes occur only after media storage completes.
+ * <strong>Transaction Boundary:</strong> External HTTP TTS synthesis and Media binary upload occur outside
+ * of active database transactions. The assignment switch is a short persistence operation.
  */
 @Service
-public class GenerateChapterNarrationAudioUseCase {
+public class RegenerateChapterNarrationAudioUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(RegenerateChapterNarrationAudioUseCase.class);
 
     private final ChapterNarrationSegmentRepositoryPort segmentRepositoryPort;
     private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
     private final ChapterNarrationAudioRepositoryPort audioRepositoryPort;
     private final TtsProviderPort ttsProviderPort;
     private final MediaContract mediaContract;
-    private final IdGeneratorPort idGeneratorPort;
     private final ClockPort clockPort;
 
-    public GenerateChapterNarrationAudioUseCase(
+    public RegenerateChapterNarrationAudioUseCase(
             ChapterNarrationSegmentRepositoryPort segmentRepositoryPort,
             ManagedVoiceRepositoryPort managedVoiceRepositoryPort,
             ChapterNarrationAudioRepositoryPort audioRepositoryPort,
             TtsProviderPort ttsProviderPort,
             MediaContract mediaContract,
-            IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
     ) {
         this.segmentRepositoryPort = Objects.requireNonNull(segmentRepositoryPort, "segmentRepositoryPort must not be null");
@@ -80,17 +79,16 @@ public class GenerateChapterNarrationAudioUseCase {
         this.audioRepositoryPort = Objects.requireNonNull(audioRepositoryPort, "audioRepositoryPort must not be null");
         this.ttsProviderPort = Objects.requireNonNull(ttsProviderPort, "ttsProviderPort must not be null");
         this.mediaContract = Objects.requireNonNull(mediaContract, "mediaContract must not be null");
-        this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "idGeneratorPort must not be null");
         this.clockPort = Objects.requireNonNull(clockPort, "clockPort must not be null");
     }
 
     /**
-     * Executes the narration audio generation flow for the given command.
+     * Executes the narration audio regeneration flow for the given command.
      *
      * @param command input command containing segmentId and managedVoiceId
-     * @return generation result record
+     * @return regeneration result record
      */
-    public GenerateChapterNarrationAudioResult execute(GenerateChapterNarrationAudioCommand command) {
+    public RegenerateChapterNarrationAudioResult execute(RegenerateChapterNarrationAudioCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("command must not be null");
         }
@@ -98,13 +96,13 @@ public class GenerateChapterNarrationAudioUseCase {
     }
 
     /**
-     * Executes the narration audio generation flow for the given segment ID and managed voice ID.
+     * Executes the narration audio regeneration flow for the given segment ID and managed voice ID.
      *
      * @param segmentId      identity of the chapter narration segment
      * @param managedVoiceId identity of the managed voice
-     * @return generation result record
+     * @return regeneration result record
      */
-    public GenerateChapterNarrationAudioResult execute(UUID segmentId, UUID managedVoiceId) {
+    public RegenerateChapterNarrationAudioResult execute(UUID segmentId, UUID managedVoiceId) {
         if (segmentId == null) {
             throw new IllegalArgumentException("segmentId must not be null");
         }
@@ -132,42 +130,37 @@ public class GenerateChapterNarrationAudioUseCase {
             );
         }
 
-        // 3. Check for existing audio assignment
-        Optional<ChapterNarrationAudio> existingAudioOpt =
-                audioRepositoryPort.findBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId);
+        // 3. Load existing audio assignment
+        ChapterNarrationAudio audio = audioRepositoryPort.findBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId)
+                .orElseThrow(() -> new ChapterNarrationAudioNotFoundException(segmentId, managedVoiceId));
 
-        if (existingAudioOpt.isPresent()) {
-            ChapterNarrationAudio existingAudio = existingAudioOpt.get();
-            if (existingAudio.isCompatibleWith(voice.getSynthesisRevision())) {
-                return new GenerateChapterNarrationAudioResult(
-                        existingAudio.getId(),
-                        segmentId,
-                        managedVoiceId,
-                        existingAudio.getMediaAssetId(),
-                        existingAudio.getGeneratedSynthesisRevision(),
-                        NarrationAudioGenerationOutcome.REUSED
-                );
-            } else {
-                return new GenerateChapterNarrationAudioResult(
-                        existingAudio.getId(),
-                        segmentId,
-                        managedVoiceId,
-                        existingAudio.getMediaAssetId(),
-                        existingAudio.getGeneratedSynthesisRevision(),
-                        NarrationAudioGenerationOutcome.STALE
-                );
-            }
+        // 4. If already compatible, return ALREADY_CURRENT without mutating or calling TTS/Media
+        if (audio.isCompatibleWith(voice.getSynthesisRevision())) {
+            return new RegenerateChapterNarrationAudioResult(
+                    audio.getId(),
+                    segmentId,
+                    managedVoiceId,
+                    audio.getMediaAssetId(),
+                    audio.getMediaAssetId(),
+                    audio.getGeneratedSynthesisRevision(),
+                    RegenerateNarrationAudioOutcome.ALREADY_CURRENT
+            );
         }
 
-        // 4. Generate audio via TTS provider (outside DB transaction)
+        // 5. Stale assignment: capture old state for compensation and cleanup
+        UUID oldMediaAssetId = audio.getMediaAssetId();
+        long previousRevision = audio.getGeneratedSynthesisRevision();
+        Instant previousUpdatedAt = audio.getUpdatedAt();
+
+        // 6. Synthesize replacement audio via TTS provider (outside DB transaction)
         TtsSynthesisResult ttsResult = ttsProviderPort.synthesize(
                 new TtsSynthesisCommand(segment.getText(), voice.getProviderVoiceId())
         );
 
-        // 5. Upload audio to Media Platform (outside DB transaction)
+        // 7. Upload new audio to Media Platform (outside DB transaction)
         String originalFilename = NarrationAudioFilenameResolver.resolveFilename(segmentId, ttsResult.mediaType());
         byte[] audioBytes = ttsResult.audioBytes();
-        UUID mediaAssetId;
+        UUID newMediaAssetId;
 
         try (InputStream inputStream = new ByteArrayInputStream(audioBytes)) {
             UploadMediaAssetRequestDTO uploadRequest = new UploadMediaAssetRequestDTO(
@@ -179,46 +172,49 @@ public class GenerateChapterNarrationAudioUseCase {
                     originalFilename
             );
             UploadMediaAssetResponseDTO uploadResponse = mediaContract.uploadAsset(uploadRequest);
-            mediaAssetId = uploadResponse.assetId();
+            newMediaAssetId = uploadResponse.assetId();
         } catch (IOException e) {
             throw new IllegalStateException("Failed to read audio byte stream for media upload", e);
         }
 
-        // 6. Persist ChapterNarrationAudio assignment with compensation on failure
+        // 8. Apply domain mutation and persist assignment
         Instant now = clockPort.now();
-        UUID assignmentId = idGeneratorPort.generate();
-        ChapterNarrationAudio newAudio = ChapterNarrationAudio.create(
-                assignmentId,
-                segmentId,
-                managedVoiceId,
-                mediaAssetId,
-                voice.getSynthesisRevision(),
-                now
-        );
+        audio.replaceSuccessfulAudio(newMediaAssetId, voice.getSynthesisRevision(), now);
 
         ChapterNarrationAudio savedAudio;
         try {
-            savedAudio = audioRepositoryPort.save(newAudio);
+            savedAudio = audioRepositoryPort.save(audio);
         } catch (RuntimeException persistenceEx) {
+            // Revert in-memory domain state to previous state so heap object remains un-mutated
+            audio.replaceSuccessfulAudio(oldMediaAssetId, previousRevision, previousUpdatedAt);
+
+            // Compensate the newly uploaded media asset
             try {
-                mediaContract.delete(mediaAssetId);
+                mediaContract.delete(newMediaAssetId);
             } catch (RuntimeException compEx) {
                 persistenceEx.addSuppressed(compEx);
             }
             throw persistenceEx;
         }
 
-        return new GenerateChapterNarrationAudioResult(
+        // 9. After successful persistence, retire/delete OLD Media asset
+        try {
+            mediaContract.delete(oldMediaAssetId);
+        } catch (RuntimeException cleanupEx) {
+            log.warn(
+                    "Failed to delete old Media asset [{}] after regenerating audio for segment [{}]: {}",
+                    oldMediaAssetId, segmentId, cleanupEx.getMessage(), cleanupEx
+            );
+        }
+
+        return new RegenerateChapterNarrationAudioResult(
                 savedAudio.getId(),
                 segmentId,
                 managedVoiceId,
-                savedAudio.getMediaAssetId(),
+                oldMediaAssetId,
+                newMediaAssetId,
                 savedAudio.getGeneratedSynthesisRevision(),
-                NarrationAudioGenerationOutcome.GENERATED
+                RegenerateNarrationAudioOutcome.REGENERATED
         );
-    }
-
-    static String resolveAudioFilename(UUID segmentId, String mediaType) {
-        return NarrationAudioFilenameResolver.resolveFilename(segmentId, mediaType);
     }
 }
