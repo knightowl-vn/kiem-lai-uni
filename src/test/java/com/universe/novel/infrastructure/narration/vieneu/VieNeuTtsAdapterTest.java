@@ -7,16 +7,24 @@ import com.universe.novel.application.narration.TtsSynthesisResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.lang.reflect.Field;
 import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -36,8 +44,10 @@ class VieNeuTtsAdapterTest {
 
     @BeforeEach
     void setUp() {
-        restClientBuilder = RestClient.builder();
-        mockServer = MockRestServiceServer.bindTo(restClientBuilder).build();
+        RestClient.Builder realBuilder = RestClient.builder();
+        mockServer = MockRestServiceServer.bindTo(realBuilder).build();
+        restClientBuilder = Mockito.spy(realBuilder);
+        Mockito.doReturn(restClientBuilder).when(restClientBuilder).requestFactory(any(ClientHttpRequestFactory.class));
         adapter = new VieNeuTtsAdapter(BASE_URL, restClientBuilder);
     }
 
@@ -175,8 +185,10 @@ class VieNeuTtsAdapterTest {
     @Test
     @DisplayName("8. Configured base URL is used and normalized without trailing slashes")
     void shouldNormalizeAndUseConfiguredBaseUrl() {
-        RestClient.Builder customBuilder = RestClient.builder();
-        MockRestServiceServer customServer = MockRestServiceServer.bindTo(customBuilder).build();
+        RestClient.Builder realBuilder = RestClient.builder();
+        MockRestServiceServer customServer = MockRestServiceServer.bindTo(realBuilder).build();
+        RestClient.Builder customBuilder = Mockito.spy(realBuilder);
+        Mockito.doReturn(customBuilder).when(customBuilder).requestFactory(any(ClientHttpRequestFactory.class));
         VieNeuTtsAdapter customAdapter = new VieNeuTtsAdapter("http://custom-host:8000///", customBuilder);
 
         customServer.expect(requestTo("http://custom-host:8000/api/voices"))
@@ -187,6 +199,44 @@ class VieNeuTtsAdapterTest {
         assertThat(voices).isEmpty();
 
         customServer.verify();
+    }
+
+    @Test
+    @DisplayName("9. Injected RestClient.Builder receives configured request factory with connect and read timeouts")
+    void shouldApplyConfiguredTimeoutsToInjectedBuilder() throws Exception {
+        RestClient.Builder spyBuilder = Mockito.spy(RestClient.builder());
+        Mockito.doReturn(spyBuilder).when(spyBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        Duration connectTimeout = Duration.ofSeconds(15);
+        Duration readTimeout = Duration.ofSeconds(90);
+
+        new VieNeuTtsAdapter("http://localhost:9000", connectTimeout, readTimeout, spyBuilder);
+
+        ArgumentCaptor<ClientHttpRequestFactory> captor = ArgumentCaptor.forClass(ClientHttpRequestFactory.class);
+        verify(spyBuilder).requestFactory(captor.capture());
+
+        ClientHttpRequestFactory factory = captor.getValue();
+        assertThat(factory).isInstanceOf(SimpleClientHttpRequestFactory.class);
+
+        Field connectField = SimpleClientHttpRequestFactory.class.getDeclaredField("connectTimeout");
+        connectField.setAccessible(true);
+        Object connectVal = connectField.get(factory);
+
+        Field readField = SimpleClientHttpRequestFactory.class.getDeclaredField("readTimeout");
+        readField.setAccessible(true);
+        Object readVal = readField.get(factory);
+
+        if (connectVal instanceof Duration d) {
+            assertThat(d).isEqualTo(connectTimeout);
+        } else if (connectVal instanceof Number n) {
+            assertThat(n.longValue()).isEqualTo(connectTimeout.toMillis());
+        }
+
+        if (readVal instanceof Duration d) {
+            assertThat(d).isEqualTo(readTimeout);
+        } else if (readVal instanceof Number n) {
+            assertThat(n.longValue()).isEqualTo(readTimeout.toMillis());
+        }
     }
 
     @Test

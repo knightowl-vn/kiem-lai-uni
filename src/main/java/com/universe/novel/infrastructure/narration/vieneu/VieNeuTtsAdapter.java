@@ -14,11 +14,13 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -41,11 +43,23 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
     @Autowired
     public VieNeuTtsAdapter(
             @Value("${narration.tts.vieneu.base-url:http://localhost:9000}") String baseUrl,
+            @Value("${narration.tts.vieneu.connect-timeout:10s}") Duration connectTimeout,
+            @Value("${narration.tts.vieneu.read-timeout:120s}") Duration readTimeout,
             @Autowired(required = false) RestClient.Builder restClientBuilder
     ) {
         String normalizedUrl = normalizeBaseUrl(baseUrl);
         RestClient.Builder builder = restClientBuilder != null ? restClientBuilder : RestClient.builder();
+        
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeout != null ? connectTimeout : Duration.ofSeconds(10));
+        requestFactory.setReadTimeout(readTimeout != null ? readTimeout : Duration.ofSeconds(120));
+        builder.requestFactory(requestFactory);
+
         this.restClient = builder.baseUrl(normalizedUrl).build();
+    }
+
+    public VieNeuTtsAdapter(String baseUrl, RestClient.Builder restClientBuilder) {
+        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), restClientBuilder);
     }
 
     @Override
