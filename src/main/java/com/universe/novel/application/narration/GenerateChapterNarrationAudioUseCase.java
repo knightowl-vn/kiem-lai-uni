@@ -18,6 +18,12 @@ import com.universe.novel.domain.narration.ChapterNarrationSegment;
 import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
+import com.universe.novel.application.ports.ChapterNarrationAudioFailureRepositoryPort;
+import com.universe.novel.domain.narration.ChapterNarrationAudioFailure;
+import com.universe.novel.domain.narration.NarrationAudioFailureStage;
+import com.universe.novel.domain.narration.NarrationAudioOperation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
@@ -47,6 +53,8 @@ import java.util.UUID;
  *             <li>Uploads synthesized audio to the Media platform via {@link MediaContract}.</li>
  *             <li>Persists a new {@link ChapterNarrationAudio} assignment.</li>
  *             <li>If persistence fails, compensates by deleting the newly created Media asset.</li>
+ *             <li>Records failure diagnostics on any error stage without masking the primary exception.</li>
+ *             <li>Clears existing failure diagnostics on success.</li>
  *             <li>Returns {@link NarrationAudioGenerationOutcome#GENERATED}.</li>
  *         </ul>
  *     </li>
@@ -58,9 +66,12 @@ import java.util.UUID;
 @Service
 public class GenerateChapterNarrationAudioUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(GenerateChapterNarrationAudioUseCase.class);
+
     private final ChapterNarrationSegmentRepositoryPort segmentRepositoryPort;
     private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
     private final ChapterNarrationAudioRepositoryPort audioRepositoryPort;
+    private final ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort;
     private final TtsProviderPort ttsProviderPort;
     private final MediaContract mediaContract;
     private final IdGeneratorPort idGeneratorPort;
@@ -70,6 +81,7 @@ public class GenerateChapterNarrationAudioUseCase {
             ChapterNarrationSegmentRepositoryPort segmentRepositoryPort,
             ManagedVoiceRepositoryPort managedVoiceRepositoryPort,
             ChapterNarrationAudioRepositoryPort audioRepositoryPort,
+            ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort,
             TtsProviderPort ttsProviderPort,
             MediaContract mediaContract,
             IdGeneratorPort idGeneratorPort,
@@ -78,6 +90,7 @@ public class GenerateChapterNarrationAudioUseCase {
         this.segmentRepositoryPort = Objects.requireNonNull(segmentRepositoryPort, "segmentRepositoryPort must not be null");
         this.managedVoiceRepositoryPort = Objects.requireNonNull(managedVoiceRepositoryPort, "managedVoiceRepositoryPort must not be null");
         this.audioRepositoryPort = Objects.requireNonNull(audioRepositoryPort, "audioRepositoryPort must not be null");
+        this.failureRepositoryPort = Objects.requireNonNull(failureRepositoryPort, "failureRepositoryPort must not be null");
         this.ttsProviderPort = Objects.requireNonNull(ttsProviderPort, "ttsProviderPort must not be null");
         this.mediaContract = Objects.requireNonNull(mediaContract, "mediaContract must not be null");
         this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "idGeneratorPort must not be null");
@@ -159,10 +172,19 @@ public class GenerateChapterNarrationAudioUseCase {
             }
         }
 
+        long attemptedRevision = voice.getSynthesisRevision();
+
         // 4. Generate audio via TTS provider (outside DB transaction)
-        TtsSynthesisResult ttsResult = ttsProviderPort.synthesize(
-                new TtsSynthesisCommand(segment.getText(), voice.getProviderVoiceId())
-        );
+        TtsSynthesisResult ttsResult;
+        try {
+            ttsResult = ttsProviderPort.synthesize(
+                    new TtsSynthesisCommand(segment.getText(), voice.getProviderVoiceId())
+            );
+        } catch (RuntimeException ttsEx) {
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.TTS_SYNTHESIS, attemptedRevision, ttsEx, ttsEx);
+            throw ttsEx;
+        }
 
         // 5. Upload audio to Media Platform (outside DB transaction)
         String originalFilename = NarrationAudioFilenameResolver.resolveFilename(segmentId, ttsResult.mediaType());
@@ -180,8 +202,15 @@ public class GenerateChapterNarrationAudioUseCase {
             );
             UploadMediaAssetResponseDTO uploadResponse = mediaContract.uploadAsset(uploadRequest);
             mediaAssetId = uploadResponse.assetId();
+        } catch (RuntimeException mediaEx) {
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.MEDIA_UPLOAD, attemptedRevision, mediaEx, mediaEx);
+            throw mediaEx;
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to read audio byte stream for media upload", e);
+            IllegalStateException isEx = new IllegalStateException("Failed to read audio byte stream for media upload", e);
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.MEDIA_UPLOAD, attemptedRevision, isEx, isEx);
+            throw isEx;
         }
 
         // 6. Persist ChapterNarrationAudio assignment with compensation on failure
@@ -192,7 +221,7 @@ public class GenerateChapterNarrationAudioUseCase {
                 segmentId,
                 managedVoiceId,
                 mediaAssetId,
-                voice.getSynthesisRevision(),
+                attemptedRevision,
                 now
         );
 
@@ -205,8 +234,13 @@ public class GenerateChapterNarrationAudioUseCase {
             } catch (RuntimeException compEx) {
                 persistenceEx.addSuppressed(compEx);
             }
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.ASSIGNMENT_PERSISTENCE, attemptedRevision, persistenceEx, persistenceEx);
             throw persistenceEx;
         }
+
+        // 7. Clear unresolved failure record upon success
+        clearFailureSafely(segmentId, managedVoiceId);
 
         return new GenerateChapterNarrationAudioResult(
                 savedAudio.getId(),
@@ -220,5 +254,57 @@ public class GenerateChapterNarrationAudioUseCase {
 
     static String resolveAudioFilename(UUID segmentId, String mediaType) {
         return NarrationAudioFilenameResolver.resolveFilename(segmentId, mediaType);
+    }
+
+    private void recordFailureSafely(
+            UUID segmentId,
+            UUID managedVoiceId,
+            NarrationAudioOperation operation,
+            NarrationAudioFailureStage stage,
+            long attemptedRevision,
+            Throwable throwable,
+            Exception primaryException
+    ) {
+        try {
+            Instant now = clockPort.now();
+            String errorType = ChapterNarrationAudioFailure.sanitizeErrorType(throwable);
+
+            Optional<ChapterNarrationAudioFailure> existingOpt =
+                    failureRepositoryPort.findBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId);
+
+            if (existingOpt.isPresent()) {
+                ChapterNarrationAudioFailure existing = existingOpt.get();
+                existing.recordFailure(operation, stage, attemptedRevision, errorType, now);
+                failureRepositoryPort.save(existing);
+            } else {
+                UUID failureId = idGeneratorPort.generate();
+                ChapterNarrationAudioFailure failure = ChapterNarrationAudioFailure.create(
+                        failureId,
+                        segmentId,
+                        managedVoiceId,
+                        operation,
+                        stage,
+                        attemptedRevision,
+                        errorType,
+                        now
+                );
+                failureRepositoryPort.save(failure);
+            }
+        } catch (RuntimeException diagEx) {
+            if (primaryException != null) {
+                primaryException.addSuppressed(diagEx);
+            }
+        }
+    }
+
+    private void clearFailureSafely(UUID segmentId, UUID managedVoiceId) {
+        try {
+            failureRepositoryPort.deleteBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId);
+        } catch (RuntimeException clearEx) {
+            log.warn(
+                    "Failed to clear narration audio failure record for segment [{}] and voice [{}]: {}",
+                    segmentId, managedVoiceId, clearEx.getMessage(), clearEx
+            );
+        }
     }
 }

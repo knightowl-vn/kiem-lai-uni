@@ -10,16 +10,21 @@ import com.universe.novel.application.exceptions.ChapterNarrationSegmentInvalidS
 import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
+import com.universe.novel.application.ports.ChapterNarrationAudioFailureRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationAudioRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
 import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
 import com.universe.novel.application.ports.TtsProviderPort;
 import com.universe.novel.domain.narration.ChapterNarrationAudio;
+import com.universe.novel.domain.narration.ChapterNarrationAudioFailure;
 import com.universe.novel.domain.narration.ChapterNarrationSegment;
 import com.universe.novel.domain.narration.ChapterNarrationSegmentStatus;
 import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.ManagedVoiceStatus;
+import com.universe.novel.domain.narration.NarrationAudioFailureStage;
+import com.universe.novel.domain.narration.NarrationAudioOperation;
 import com.universe.novel.domain.narration.NarrationTextSegment;
+import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,10 +62,16 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     private ChapterNarrationAudioRepositoryPort audioRepositoryPort;
 
     @Mock
+    private ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort;
+
+    @Mock
     private TtsProviderPort ttsProviderPort;
 
     @Mock
     private MediaContract mediaContract;
+
+    @Mock
+    private IdGeneratorPort idGeneratorPort;
 
     @Mock
     private ClockPort clockPort;
@@ -71,6 +82,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     private static final UUID CHAPTER_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID VOICE_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID AUDIO_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
+    private static final UUID FAILURE_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
     private static final UUID OLD_MEDIA_ASSET_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private static final UUID NEW_MEDIA_ASSET_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final Instant INITIAL_TIME = Instant.parse("2026-09-05T12:00:00Z");
@@ -82,8 +94,10 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 segmentRepositoryPort,
                 managedVoiceRepositoryPort,
                 audioRepositoryPort,
+                failureRepositoryPort,
                 ttsProviderPort,
                 mediaContract,
+                idGeneratorPort,
                 clockPort
         );
     }
@@ -212,6 +226,9 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         verify(mediaContract).delete(OLD_MEDIA_ASSET_ID);
         // Ensure new asset was NEVER deleted
         verify(mediaContract, never()).delete(NEW_MEDIA_ASSET_ID);
+
+        // Verify failure cleared on success
+        verify(failureRepositoryPort).deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
     }
 
     @Test
@@ -501,5 +518,183 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("15. Records failure record with REGENERATION operation when TTS synthesis fails during regeneration")
+    void shouldRecordFailureWhenTtsSynthesisFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        RuntimeException ttsEx = new RuntimeException("TTS rate limit exceeded");
+        when(ttsProviderPort.synthesize(any())).thenThrow(ttsEx);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(ttsEx);
+
+        ArgumentCaptor<ChapterNarrationAudioFailure> failureCaptor = ArgumentCaptor.forClass(ChapterNarrationAudioFailure.class);
+        verify(failureRepositoryPort).save(failureCaptor.capture());
+        ChapterNarrationAudioFailure failure = failureCaptor.getValue();
+
+        assertThat(failure.getId()).isEqualTo(FAILURE_ID);
+        assertThat(failure.getSegmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(failure.getManagedVoiceId()).isEqualTo(VOICE_ID);
+        assertThat(failure.getOperation()).isEqualTo(NarrationAudioOperation.REGENERATION);
+        assertThat(failure.getStage()).isEqualTo(NarrationAudioFailureStage.TTS_SYNTHESIS);
+        assertThat(failure.getAttemptedSynthesisRevision()).isEqualTo(2L);
+        assertThat(failure.getFailureCount()).isEqualTo(1);
+        assertThat(failure.getErrorType()).isEqualTo("RuntimeException");
+        assertThat(failure.getErrorMessage()).isEqualTo("Narration TTS synthesis failed.");
+        assertThat(failure.getFirstFailedAt()).isEqualTo(NOW);
+        assertThat(failure.getLastFailedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    @DisplayName("16. Updates failure record when Media upload fails during regeneration")
+    void shouldUpdateFailureWhenMediaUploadFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(3L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        ChapterNarrationAudioFailure existingFailure = ChapterNarrationAudioFailure.create(
+                FAILURE_ID,
+                SEGMENT_ID,
+                VOICE_ID,
+                NarrationAudioOperation.REGENERATION,
+                NarrationAudioFailureStage.TTS_SYNTHESIS,
+                2L,
+                "RuntimeException",
+                Instant.parse("2026-09-05T10:00:00Z")
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(existingFailure));
+        when(clockPort.now()).thenReturn(NOW);
+
+        RuntimeException mediaEx = new RuntimeException("S3 bucket access denied");
+        when(mediaContract.uploadAsset(any())).thenThrow(mediaEx);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(mediaEx);
+
+        verify(failureRepositoryPort).save(existingFailure);
+        assertThat(existingFailure.getFailureCount()).isEqualTo(2);
+        assertThat(existingFailure.getOperation()).isEqualTo(NarrationAudioOperation.REGENERATION);
+        assertThat(existingFailure.getStage()).isEqualTo(NarrationAudioFailureStage.MEDIA_UPLOAD);
+        assertThat(existingFailure.getAttemptedSynthesisRevision()).isEqualTo(3L);
+        assertThat(existingFailure.getErrorMessage()).isEqualTo("Narration audio media upload failed.");
+    }
+
+    @Test
+    @DisplayName("17. Records failure when assignment persistence fails during regeneration and compensates new media")
+    void shouldRecordFailureWhenPersistenceFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+
+        RuntimeException dbEx = new RuntimeException("Lock wait timeout");
+        when(audioRepositoryPort.save(any())).thenThrow(dbEx);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(dbEx);
+
+        // Compensated new media asset
+        verify(mediaContract).delete(NEW_MEDIA_ASSET_ID);
+
+        // Saved failure diagnostic
+        ArgumentCaptor<ChapterNarrationAudioFailure> failureCaptor = ArgumentCaptor.forClass(ChapterNarrationAudioFailure.class);
+        verify(failureRepositoryPort).save(failureCaptor.capture());
+        ChapterNarrationAudioFailure failure = failureCaptor.getValue();
+        assertThat(failure.getStage()).isEqualTo(NarrationAudioFailureStage.ASSIGNMENT_PERSISTENCE);
+        assertThat(failure.getOperation()).isEqualTo(NarrationAudioOperation.REGENERATION);
+        assertThat(failure.getErrorMessage()).isEqualTo("Narration audio assignment persistence failed.");
+    }
+
+    @Test
+    @DisplayName("18. Successful regeneration completes even when clearing failure diagnostics throws an exception")
+    void shouldCompleteRegenerationWhenClearingFailureThrowsException() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Deleting failure diagnostic throws
+        doThrow(new RuntimeException("Failure repo DB unreachable during cleanup"))
+                .when(failureRepositoryPort).deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.assignmentId()).isEqualTo(AUDIO_ID);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        assertThat(result.previousMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+
+        // NEW Media asset is NOT deleted
+        verify(mediaContract, never()).delete(NEW_MEDIA_ASSET_ID);
+        // OLD Media asset is deleted
+        verify(mediaContract).delete(OLD_MEDIA_ASSET_ID);
+    }
+
+    @Test
+    @DisplayName("19. Clock failure during regeneration diagnostic recording does not mask primary TTS exception and is attached as suppressed")
+    void shouldNotMaskPrimaryTtsExceptionWhenClockFailsDuringRegenerationDiagnosticRecording() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+
+        RuntimeException ttsEx = new RuntimeException("TTS synthesis error during regeneration");
+        when(ttsProviderPort.synthesize(any())).thenThrow(ttsEx);
+
+        RuntimeException clockEx = new RuntimeException("System time synchronization failed");
+        when(clockPort.now()).thenThrow(clockEx);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(ttsEx)
+                .hasSuppressedException(clockEx);
     }
 }
