@@ -72,6 +72,11 @@ public class ManagedVoicePersistenceAdapter implements ManagedVoiceRepositoryPor
     }
 
     @Override
+    public int findMaxDisplayOrder() {
+        return repository.findMaxDisplayOrder();
+    }
+
+    @Override
     public ManagedVoice save(ManagedVoice managedVoice) {
         if (managedVoice == null) {
             throw new IllegalArgumentException("ManagedVoice must not be null");

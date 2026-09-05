@@ -126,12 +126,10 @@ public class ManagedVoice {
      */
     public void updateMetadata(
             String displayName,
-            int displayOrder,
             Instant now
     ) {
         Objects.requireNonNull(now, "Thời gian cập nhật không được để trống.");
         this.displayName = validateDisplayName(displayName);
-        this.displayOrder = validateDisplayOrder(displayOrder);
         this.updatedAt = now;
     }
 

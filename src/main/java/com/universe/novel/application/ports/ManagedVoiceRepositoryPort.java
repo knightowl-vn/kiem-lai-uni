@@ -23,5 +23,7 @@ public interface ManagedVoiceRepositoryPort {
 
     boolean existsByVoiceKey(String voiceKey);
 
+    int findMaxDisplayOrder();
+
     ManagedVoice save(ManagedVoice managedVoice);
 }

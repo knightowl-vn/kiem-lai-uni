@@ -246,4 +246,11 @@ class ManagedVoicePersistenceAdapterTest {
         assertThat(adapter.findAll()).hasSize(1);
         assertThat(adapter.findAllActive()).hasSize(1);
     }
+
+    @Test
+    @DisplayName("Find max display order delegates to repository")
+    void shouldFindMaxDisplayOrder() {
+        when(repository.findMaxDisplayOrder()).thenReturn(7);
+        assertThat(adapter.findMaxDisplayOrder()).isEqualTo(7);
+    }
 }

@@ -50,12 +50,14 @@ public class CreateManagedVoiceUseCase {
             });
         }
 
+        int nextDisplayOrder = repository.findMaxDisplayOrder() + 1;
+
         ManagedVoice voice = ManagedVoice.create(
                 id,
                 command.voiceKey(),
                 command.displayName(),
                 command.providerVoiceId(),
-                command.displayOrder(),
+                nextDisplayOrder,
                 command.defaultVoice(),
                 now
         );

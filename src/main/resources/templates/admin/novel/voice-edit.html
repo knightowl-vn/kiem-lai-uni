@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chỉnh sửa giọng đọc | Kiếm Lai Universe</title>
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+</head>
+
+<body>
+	<div class="admin-layout">
+
+		<div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+		<main class="admin-main">
+
+			<div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+			<section class="dashboard-content">
+
+				<div class="novel-admin-create-heading">
+					<div>
+						<a th:href="@{/admin/novel/narration/voices}" class="novel-admin-back-link">
+							← Quay lại danh sách
+						</a>
+						<span class="novel-admin-eyebrow">NOVEL MODULE</span>
+						<h2>Chỉnh sửa giọng đọc</h2>
+						<p>Cập nhật tên hiển thị hoặc thay đổi liên kết Provider Voice ID.</p>
+					</div>
+				</div>
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+					Thao tác thành công.
+				</div>
+
+				<div th:if="${errorMessage != null}"
+					class="novel-admin-form-error" th:text="${errorMessage}">
+					Có lỗi xảy ra.
+				</div>
+
+				<div th:if="${providerWarning != null}"
+					class="novel-admin-warning-message" th:text="${providerWarning}">
+					Cảnh báo kết nối TTS Provider.
+				</div>
+
+				<!-- VOICE OVERVIEW PANEL -->
+				<section class="novel-admin-form-panel" style="margin-bottom: 24px;">
+					<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+						<div>
+							<h3 style="margin: 0 0 6px;" th:text="${voice.displayName}">Anh Khôi</h3>
+							<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+								<code th:text="${voice.voiceKey}" style="font-size: 13px; font-weight: 700;">kiemlai-male-north-01</code>
+								<span class="novel-admin-status-badge"
+									th:classappend="${voice.status == 'ACTIVE'} ? ' is-active' : ' is-disabled'"
+									th:text="${voice.status}">ACTIVE</span>
+								<span th:if="${voice.defaultVoice}" class="novel-admin-badge-default">Mặc định</span>
+								<span style="font-size: 12px; color: var(--text-secondary);"
+									th:text="|Revision: v${voice.synthesisRevision}|">Revision: v1</span>
+							</div>
+						</div>
+
+						<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+							<!-- Kích hoạt -->
+							<form th:if="${voice.status == 'DISABLED'}" method="post"
+								th:action="@{/admin/novel/narration/voices/{id}/activate(id=${voice.id})}">
+								<button type="submit" class="novel-admin-secondary-button" style="color: var(--success);">
+									✓ Kích hoạt
+								</button>
+							</form>
+
+							<!-- Vô hiệu hóa -->
+							<form th:if="${voice.status == 'ACTIVE' and !voice.defaultVoice}" method="post"
+								th:action="@{/admin/novel/narration/voices/{id}/disable(id=${voice.id})}"
+								data-novel-confirm="Vô hiệu hóa giọng đọc này?">
+								<button type="submit" class="novel-admin-secondary-button" style="color: var(--warning);">
+									⊘ Vô hiệu hóa
+								</button>
+							</form>
+
+							<!-- Đặt làm mặc định -->
+							<form th:if="${voice.status == 'ACTIVE' and !voice.defaultVoice}" method="post"
+								th:action="@{/admin/novel/narration/voices/{id}/default(id=${voice.id})}"
+								data-novel-confirm="Đặt giọng đọc này làm mặc định cho toàn hệ thống?">
+								<button type="submit" class="novel-admin-secondary-button">
+									★ Đặt mặc định
+								</button>
+							</form>
+						</div>
+					</div>
+				</section>
+
+				<!-- SECTION 1: METADATA FORM -->
+				<section class="novel-admin-form-panel" style="margin-bottom: 24px;">
+					<h3 style="margin-top: 0; margin-bottom: 16px;">1. Thông tin hiển thị</h3>
+
+					<form method="post" th:action="@{/admin/novel/narration/voices/{id}/metadata(id=${voice.id})}"
+						th:object="${metadataForm}" class="novel-admin-form">
+
+						<div class="novel-admin-form-grid">
+							<!-- DISPLAY NAME -->
+							<div class="novel-admin-form-group">
+								<label for="editDisplayName">Tên hiển thị <span class="novel-admin-required">*</span></label>
+								<input id="editDisplayName" type="text" th:field="*{displayName}"
+									placeholder="Ví dụ: Anh Khôi" required autocomplete="off">
+								<small>Tên giọng đọc hiển thị cho độc giả trong giao diện.</small>
+							</div>
+						</div>
+
+						<div class="novel-admin-form-actions">
+							<button type="submit" class="novel-admin-primary-button">Lưu thông tin</button>
+						</div>
+					</form>
+				</section>
+
+				<!-- SECTION 2: PROVIDER MAPPING FORM -->
+				<section class="novel-admin-form-panel">
+					<h3 style="margin-top: 0; margin-bottom: 8px;">2. Liên kết Provider</h3>
+					<p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+						Hiện đang liên kết với Provider Voice ID: <code th:text="${voice.providerVoiceId}">vi-VN-1</code>
+						(Synthesis Revision: <strong th:text="|v${voice.synthesisRevision}|">v1</strong>).
+					</p>
+
+					<div class="novel-admin-create-note" style="border-left-color: var(--warning);">
+						<strong>Lưu ý quan trọng</strong>
+						<p>Khi thay đổi Provider Voice ID sang một giá trị khác, hệ thống sẽ tự động tăng <strong>Synthesis Revision</strong> (hiện tại: v<span th:text="${voice.synthesisRevision}">1</span>). Các phân đoạn âm thanh cũ sẽ được phân biệt để tránh phát âm thanh không khớp giọng đọc mới. Nếu giữ nguyên Provider Voice ID, revision sẽ không thay đổi.</p>
+					</div>
+
+					<form method="post" th:action="@{/admin/novel/narration/voices/{id}/provider(id=${voice.id})}"
+						th:object="${providerForm}" class="novel-admin-form">
+
+						<div class="novel-admin-form-grid">
+							<!-- PROVIDER VOICE ID SELECT -->
+							<div class="novel-admin-form-group" th:if="${providerVoices != null and !#lists.isEmpty(providerVoices)}">
+								<label for="editProviderVoiceSelect">Chọn Provider Voice mới <span class="novel-admin-required">*</span></label>
+								<select id="editProviderVoiceSelect" th:field="*{providerVoiceId}" required>
+									<option th:if="${!isCurrentProviderVoiceDiscovered}"
+										th:value="${voice.providerVoiceId}"
+										th:text="|${voice.providerVoiceId} (Hiện tại - Không có trong danh sách Provider)|">vi-VN-1 (Hiện tại - Không có trong danh sách Provider)</option>
+									<option th:each="pv : ${providerVoices}" th:value="${pv.voiceId}"
+										th:text="|${pv.label} (${pv.voiceId})|"
+										th:selected="${pv.voiceId == voice.providerVoiceId}">vi-VN-1</option>
+								</select>
+								<small>Chọn voice ID từ TTS Provider.</small>
+							</div>
+
+							<!-- PROVIDER VOICE ID MANUAL INPUT -->
+							<div class="novel-admin-form-group" th:if="${providerVoices == null or #lists.isEmpty(providerVoices)}">
+								<label for="editProviderVoiceInput">Provider Voice ID mới <span class="novel-admin-required">*</span></label>
+								<input id="editProviderVoiceInput" type="text" th:field="*{providerVoiceId}"
+									placeholder="Ví dụ: vi-VN-1" required autocomplete="off">
+								<small>Nhập mã giọng đọc provider.</small>
+							</div>
+						</div>
+
+						<div class="novel-admin-form-actions">
+							<button type="submit" class="novel-admin-primary-button">Cập nhật Provider Mapping</button>
+						</div>
+					</form>
+				</section>
+
+			</section>
+		</main>
+	</div>
+
+	<script th:src="@{/js/novel/admin-list-menus.js}"></script>
+</body>
+</html>

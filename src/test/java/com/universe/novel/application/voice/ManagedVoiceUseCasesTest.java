@@ -70,9 +70,10 @@ class ManagedVoiceUseCasesTest {
     }
 
     @Test
-    @DisplayName("Create managed voice successfully")
-    void shouldCreateManagedVoiceSuccessfully() {
+    @DisplayName("Create first managed voice receives displayOrder 1 automatically")
+    void shouldAssignDisplayOrder1ForFirstVoice() {
         when(repository.existsByVoiceKey("kiemlai-male-north-01")).thenReturn(false);
+        when(repository.findMaxDisplayOrder()).thenReturn(0);
         when(idGenerator.generate()).thenReturn(VOICE_ID_1);
         when(clock.now()).thenReturn(T0);
         when(repository.save(any(ManagedVoice.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -81,7 +82,6 @@ class ManagedVoiceUseCasesTest {
                 "kiemlai-male-north-01",
                 "Anh Khôi",
                 "minh-duc",
-                1,
                 false
         );
 
@@ -100,6 +100,27 @@ class ManagedVoiceUseCasesTest {
     }
 
     @Test
+    @DisplayName("Create next managed voice receives max + 1 displayOrder automatically")
+    void shouldAssignMaxPlusOneDisplayOrderForNextVoice() {
+        when(repository.existsByVoiceKey("kiemlai-female-north-01")).thenReturn(false);
+        when(repository.findMaxDisplayOrder()).thenReturn(5);
+        when(idGenerator.generate()).thenReturn(VOICE_ID_2);
+        when(clock.now()).thenReturn(T0);
+        when(repository.save(any(ManagedVoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        CreateManagedVoiceCommand command = new CreateManagedVoiceCommand(
+                "kiemlai-female-north-01",
+                "Mai Anh",
+                "mai-anh",
+                false
+        );
+
+        ManagedVoiceDTO result = createUseCase.execute(command);
+
+        assertThat(result.displayOrder()).isEqualTo(6);
+    }
+
+    @Test
     @DisplayName("Reject duplicate voiceKey on creation")
     void shouldRejectDuplicateVoiceKey() {
         when(repository.existsByVoiceKey("kiemlai-male-north-01")).thenReturn(true);
@@ -108,7 +129,6 @@ class ManagedVoiceUseCasesTest {
                 "kiemlai-male-north-01",
                 "Anh Khôi",
                 "minh-duc",
-                1,
                 false
         );
 
@@ -134,6 +154,7 @@ class ManagedVoiceUseCasesTest {
 
         when(repository.existsByVoiceKey("kiemlai-female-north-01")).thenReturn(false);
         when(repository.findDefaultVoice()).thenReturn(Optional.of(existingDefault));
+        when(repository.findMaxDisplayOrder()).thenReturn(1);
         when(idGenerator.generate()).thenReturn(VOICE_ID_2);
         when(clock.now()).thenReturn(T1);
         when(repository.save(any(ManagedVoice.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -142,7 +163,6 @@ class ManagedVoiceUseCasesTest {
                 "kiemlai-female-north-01",
                 "Mai Anh",
                 "mai-anh",
-                2,
                 true
         );
 
@@ -150,13 +170,14 @@ class ManagedVoiceUseCasesTest {
 
         assertThat(result.id()).isEqualTo(VOICE_ID_2);
         assertThat(result.defaultVoice()).isTrue();
+        assertThat(result.displayOrder()).isEqualTo(2);
         assertThat(existingDefault.isDefaultVoice()).isFalse();
 
         verify(repository).save(existingDefault);
     }
 
     @Test
-    @DisplayName("Update display metadata")
+    @DisplayName("Update display metadata without altering displayOrder")
     void shouldUpdateDisplayMetadata() {
         ManagedVoice voice = ManagedVoice.create(
                 VOICE_ID_1,
@@ -174,14 +195,13 @@ class ManagedVoiceUseCasesTest {
 
         UpdateManagedVoiceMetadataCommand command = new UpdateManagedVoiceMetadataCommand(
                 VOICE_ID_1,
-                "Anh Khôi (Truyền Cảm)",
-                3
+                "Anh Khôi (Truyền Cảm)"
         );
 
         ManagedVoiceDTO result = updateMetadataUseCase.execute(command);
 
         assertThat(result.displayName()).isEqualTo("Anh Khôi (Truyền Cảm)");
-        assertThat(result.displayOrder()).isEqualTo(3);
+        assertThat(result.displayOrder()).isEqualTo(1);
         assertThat(result.synthesisRevision()).isEqualTo(1L);
     }
 

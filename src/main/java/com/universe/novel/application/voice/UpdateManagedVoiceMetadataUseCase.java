@@ -37,7 +37,7 @@ public class UpdateManagedVoiceMetadataUseCase {
                 .orElseThrow(() -> new ManagedVoiceNotFoundException(voiceId));
 
         Instant now = clock.now();
-        voice.updateMetadata(command.displayName(), command.displayOrder(), now);
+        voice.updateMetadata(command.displayName(), now);
 
         ManagedVoice saved = repository.save(voice);
         return ManagedVoiceDTOMapper.toDTO(saved);

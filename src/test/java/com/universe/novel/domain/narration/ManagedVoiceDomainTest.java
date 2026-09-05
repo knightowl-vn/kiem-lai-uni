@@ -117,9 +117,9 @@ class ManagedVoiceDomainTest {
                 T0
         );
 
-        voice.updateMetadata("Anh Khôi - Giọng Kể Truyện", 5, T1);
+        voice.updateMetadata("Anh Khôi - Giọng Kể Truyện", T1);
         assertThat(voice.getDisplayName()).isEqualTo("Anh Khôi - Giọng Kể Truyện");
-        assertThat(voice.getDisplayOrder()).isEqualTo(5);
+        assertThat(voice.getDisplayOrder()).isEqualTo(1);
         assertThat(voice.getSynthesisRevision()).isEqualTo(1L);
         assertThat(voice.getUpdatedAt()).isEqualTo(T1);
 
