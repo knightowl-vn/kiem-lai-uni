@@ -3,6 +3,7 @@ package com.universe.novel.application.narration;
 import com.universe.novel.application.ports.ChapterNarrationBlockExtractorPort;
 import com.universe.novel.domain.narration.NarrationTextSegment;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.text.Normalizer;
@@ -46,6 +47,7 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
     /**
      * Creates a segmenter with recommended default sizing thresholds.
      */
+    @Autowired
     public AdaptiveNarrationTextSegmenter(ChapterNarrationBlockExtractorPort blockExtractor) {
         this(
                 blockExtractor,
