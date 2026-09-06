@@ -46,6 +46,7 @@ class ReaderBrowserTtsContractTest {
         // 3. Narration JavaScript Inclusions
         assertThat(chapterPage).contains("th:src=\"@{/js/novel/narration-text-parser.js}\"");
         assertThat(chapterPage).contains("th:src=\"@{/js/novel/browser-tts-engine.js}\"");
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/managed-audio-engine.js}\"");
         assertThat(chapterPage).contains("th:src=\"@{/js/novel/narration-controller.js}\"");
         assertThat(chapterPage).contains("defer");
     }

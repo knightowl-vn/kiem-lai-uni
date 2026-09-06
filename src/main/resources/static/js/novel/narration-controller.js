@@ -136,6 +136,8 @@
             this.activeHighlightedElement = null;
             this.savedVoicePreference = null;
             this.isNavigatingToNext = false;
+            this._hasUserExplicitlySelectedVoice = false;
+            this._managedCatalogResolved = false;
             this._autoNextTimeoutId = null;
             this._transitionAbortController = null;
             this._transitionSequenceId = 0;
@@ -160,23 +162,48 @@
             this._boundOnStorage = this._handleStorageEvent.bind(this);
 
             // Engine callbacks
-            const engineOptions = {
-                onStateChange: this._onEngineStateChange.bind(this),
-                onChunkStart: this._onEngineChunkStart.bind(this),
-                onChunkEnd: this._onEngineChunkEnd.bind(this),
-                onChapterEnd: this._onEngineChapterEnd.bind(this),
-                onError: this._onEngineError.bind(this),
-                onVoicesChanged: this._onEngineVoicesChanged.bind(this)
+            const deviceEngineOptions = {
+                onStateChange: (newState, prevState) => this._onEngineStateChange(newState, prevState, 'device'),
+                onChunkStart: (chunkIndex, chunk) => this._onEngineChunkStart(chunkIndex, chunk, 'device'),
+                onChunkEnd: (chunkIndex, chunk) => this._onEngineChunkEnd(chunkIndex, chunk, 'device'),
+                onChapterEnd: () => this._onEngineChapterEnd('device'),
+                onError: (error) => this._onEngineError(error, 'device'),
+                onVoicesChanged: (voices) => this._onEngineVoicesChanged(voices)
             };
 
-            if (config.engine) {
-                this.engine = config.engine;
+            const managedEngineOptions = {
+                onStateChange: (newState, prevState) => this._onEngineStateChange(newState, prevState, 'managed'),
+                onSegmentStart: (segIndex, seg) => this._onEngineChunkStart(segIndex, seg, 'managed'),
+                onSegmentEnd: (segIndex, seg) => this._onEngineChunkEnd(segIndex, seg, 'managed'),
+                onChapterEnd: () => this._onEngineChapterEnd('managed'),
+                onError: (error) => this._onEngineError(error, 'managed'),
+                onManifestLoaded: (manifest) => this._onManifestLoaded(manifest)
+            };
+
+            if (config.deviceEngine) {
+                this.deviceEngine = config.deviceEngine;
+            } else if (config.engine && config.engineType !== 'managed') {
+                this.deviceEngine = config.engine;
             } else {
-                const EngineClass = typeof window !== 'undefined'
+                const DeviceEngineClass = typeof window !== 'undefined'
                     ? (window.BrowserTtsEngine ? window.BrowserTtsEngine.BrowserTtsEngine || window.BrowserTtsEngine : (window.KiemLai && window.KiemLai.BrowserTtsEngine ? window.KiemLai.BrowserTtsEngine.BrowserTtsEngine || window.KiemLai.BrowserTtsEngine : null))
                     : null;
-                this.engine = EngineClass ? new EngineClass(engineOptions) : null;
+                this.deviceEngine = DeviceEngineClass ? new DeviceEngineClass(deviceEngineOptions) : null;
             }
+
+            if (config.managedEngine) {
+                this.managedEngine = config.managedEngine;
+            } else if (config.engine && config.engineType === 'managed') {
+                this.managedEngine = config.engine;
+            } else {
+                const ManagedEngineClass = typeof window !== 'undefined'
+                    ? (window.ManagedAudioEngine ? window.ManagedAudioEngine.ManagedAudioEngine || window.ManagedAudioEngine : (window.KiemLai && window.KiemLai.ManagedAudioEngine ? window.KiemLai.ManagedAudioEngine.ManagedAudioEngine || window.KiemLai.ManagedAudioEngine : null))
+                    : null;
+                this.managedEngine = ManagedEngineClass ? new ManagedEngineClass(managedEngineOptions) : null;
+            }
+
+            this.activeEngineType = 'device';
+            this.engine = this.deviceEngine || this.managedEngine;
         }
 
         /**
@@ -194,7 +221,10 @@
                 return false;
             }
 
-            if (!this.engine || !this.engine.isSupported()) {
+            const deviceSupported = this.deviceEngine && this.deviceEngine.isSupported();
+            const managedSupported = this.managedEngine && this.managedEngine.isSupported();
+
+            if (!deviceSupported && !managedSupported) {
                 this._renderUnsupportedState();
                 return false;
             }
@@ -211,8 +241,19 @@
             this.isUnloaded = false;
             this.hasMeaningfulResume = false;
             this.isNavigatingToNext = false;
+            this._hasUserExplicitlySelectedVoice = false;
+            this._managedCatalogResolved = false;
             this._parseAndLoadChunks();
-            this._populateVoiceDropdown(this.engine.getSortedVoices ? this.engine.getSortedVoices() : this.engine.getVoices());
+
+            // Populate voice dropdown with available device voices immediately
+            const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
+                ? this.deviceEngine.getSortedVoices()
+                : (this.deviceEngine ? this.deviceEngine.getVoices() : []);
+            this._populateVoiceDropdown(deviceVoices, []);
+
+            // Asynchronously fetch initial managed narration manifest
+            this._loadInitialManagedVoices();
+
             this._bindEventListeners();
 
             const hasAutoplayIntent = this._checkAndConsumeAutoplayIntent();
@@ -555,11 +596,19 @@
                     }
                 }
                 if (prefs.voice && typeof prefs.voice === 'object') {
-                    this.savedVoicePreference = {
-                        voiceURI: prefs.voice.voiceURI || '',
-                        name: prefs.voice.name || '',
-                        lang: prefs.voice.lang || ''
-                    };
+                    if (prefs.voice.type === 'managed' || (prefs.voice.voiceKey && !prefs.voice.voiceURI)) {
+                        this.savedVoicePreference = {
+                            type: 'managed',
+                            voiceKey: prefs.voice.voiceKey || ''
+                        };
+                    } else {
+                        this.savedVoicePreference = {
+                            type: 'device',
+                            voiceURI: prefs.voice.voiceURI || '',
+                            name: prefs.voice.name || '',
+                            lang: prefs.voice.lang || ''
+                        };
+                    }
                 }
             }
         }
@@ -839,20 +888,116 @@
         }
 
         /**
-         * Populates the voice selector dropdown with Vietnamese voices only.
-         * If no Vietnamese voice is available, shows unavailable state and disables playback.
-         * When Vietnamese voices arrive after an initial empty state, restores voice selection, re-enables controls, and updates status cleanly without auto-starting playback.
-         * @param {Array<SpeechSynthesisVoice>} voices
+         * Loads initial managed narration manifest for available voices discovery and auto-selection.
+         * Always uses default manifest endpoint (without voiceKey) for initial catalog discovery.
+         * Re-checks user intent and playback state after every await to avoid overriding user interaction.
          * @private
          */
-        _populateVoiceDropdown(voices) {
+        async _loadInitialManagedVoices() {
+            if (!this.managedEngine || !this.chapterId) {
+                return;
+            }
+
+            try {
+                // 1. Always discover catalog from default manifest (without voiceKey)
+                const defaultManifest = await this.managedEngine.loadManifest(this.chapterId);
+                this._managedCatalogResolved = true;
+                const availableVoices = (defaultManifest && Array.isArray(defaultManifest.availableVoices))
+                    ? defaultManifest.availableVoices
+                    : [];
+
+                const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
+                    ? this.deviceEngine.getSortedVoices()
+                    : (this.deviceEngine ? this.deviceEngine.getVoices() : []);
+
+                const isInterrupted = () => {
+                    const engineState = this.engine ? this.engine.getState() : null;
+                    const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';
+                    const userExplicitlySelected = Boolean(this._hasUserExplicitlySelectedVoice);
+                    return isPlaybackActive || userExplicitlySelected;
+                };
+
+                // 2. Check if user already started playback or explicitly changed voice while default manifest was loading
+                if (isInterrupted()) {
+                    // Populate options in dropdown without stopping or switching active engine
+                    this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
+                    return;
+                }
+
+                // 3. Restore and validate saved managed preference only after catalog discovery
+                if (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey) {
+                    const targetKey = this.savedVoicePreference.voiceKey;
+                    const voiceExists = availableVoices.some(v => v.voiceKey === targetKey);
+
+                    if (voiceExists) {
+                        const defaultSelectedKey = defaultManifest.selectedVoice ? defaultManifest.selectedVoice.voiceKey : null;
+                        if (targetKey !== defaultSelectedKey) {
+                            try {
+                                await this.managedEngine.loadManifest(this.chapterId, targetKey);
+                            } catch (keyedErr) {
+                                console.warn('[NarrationController] Failed to load manifest for saved voiceKey:', targetKey, keyedErr);
+                            }
+                        }
+                    } else {
+                        // Stale saved managed voice: catalog has arrived and confirms absence
+                        this.savedVoicePreference = null;
+                        this._savePreferences();
+                    }
+                }
+
+                // 4. Re-check user intent after the keyed manifest await before any final automatic activation
+                if (isInterrupted()) {
+                    this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
+                    return;
+                }
+
+                // 5. Populate dropdown and activate active/default voice
+                this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: false });
+            } catch (e) {
+                console.warn('[NarrationController] Initial managed manifest load skipped or failed:', e);
+            }
+        }
+
+        /**
+         * Engine Callback: Manifest loaded by ManagedAudioEngine.
+         * @param {Object} manifest
+         * @private
+         */
+        _onManifestLoaded(manifest) {
+            if (this.activeEngineType === 'managed' && manifest && Array.isArray(manifest.segments)) {
+                this.chunks = manifest.segments;
+            }
+        }
+
+        /**
+         * Populates the voice selector dropdown with categorized optgroups:
+         * 1. "Giọng Kiếm Lai" (Managed voices)
+         * 2. "Thiết bị" (Device voices)
+         * If no voices exist in either category, shows clean unavailable state and disables playback.
+         * @param {Array<SpeechSynthesisVoice>} [deviceVoices]
+         * @param {Array<Object>} [managedVoices]
+         * @param {Object} [options]
+         * @param {boolean} [options.skipActivation=false]
+         * @private
+         */
+        _populateVoiceDropdown(deviceVoices, managedVoices, options = {}) {
             if (!this.dom.voiceSelect) {
                 return;
             }
 
-            const viVoices = (Array.isArray(voices) ? voices : []).filter(isVietnameseVoice);
+            const skipActivation = Boolean(options && options.skipActivation);
+            const currentSelectedValue = this.dom.voiceSelect.value;
 
-            if (viVoices.length === 0) {
+            const viVoices = (Array.isArray(deviceVoices)
+                ? deviceVoices
+                : (this.deviceEngine && this.deviceEngine.getSortedVoices ? this.deviceEngine.getSortedVoices() : (this.deviceEngine ? this.deviceEngine.getVoices() : []))
+            ).filter(isVietnameseVoice);
+
+            const mVoices = Array.isArray(managedVoices)
+                ? managedVoices
+                : (this.managedEngine ? this.managedEngine.getVoices() : []);
+
+            if (viVoices.length === 0 && mVoices.length === 0) {
                 this.dom.voiceSelect.innerHTML = '<option value="">Chưa có giọng đọc Tiếng Việt</option>';
                 this.dom.voiceSelect.disabled = true;
                 if (this.dom.playPauseBtn) {
@@ -873,26 +1018,56 @@
 
             this.dom.voiceSelect.innerHTML = '';
 
-            for (let i = 0; i < viVoices.length; i++) {
-                const v = viVoices[i];
-                const option = document.createElement('option');
-                option.value = v.voiceURI || v.name;
-                option.textContent = v.name + (v.default ? ' (Mặc định)' : '');
-                this.dom.voiceSelect.appendChild(option);
+            // Group 1: Giọng Kiếm Lai (Managed Voices)
+            if (mVoices.length > 0) {
+                const managedGroup = document.createElement('optgroup');
+                managedGroup.label = 'Giọng Kiếm Lai';
+                for (let i = 0; i < mVoices.length; i++) {
+                    const mv = mVoices[i];
+                    const option = document.createElement('option');
+                    option.value = 'managed:' + mv.voiceKey;
+                    option.textContent = mv.displayName + (mv.defaultVoice ? ' (Mặc định)' : '');
+                    managedGroup.appendChild(option);
+                }
+                this.dom.voiceSelect.appendChild(managedGroup);
+            }
+
+            // Group 2: Thiết bị (Device Voices)
+            if (viVoices.length > 0) {
+                const deviceGroup = document.createElement('optgroup');
+                deviceGroup.label = 'Thiết bị';
+                for (let i = 0; i < viVoices.length; i++) {
+                    const dv = viVoices[i];
+                    const option = document.createElement('option');
+                    option.value = 'device:' + (dv.voiceURI || dv.name);
+                    option.textContent = dv.name + (dv.default ? ' (Mặc định)' : '');
+                    deviceGroup.appendChild(option);
+                }
+                this.dom.voiceSelect.appendChild(deviceGroup);
+            }
+
+            if (skipActivation) {
+                // Preserve current selection if it still exists in the dropdown
+                let preserved = false;
+                if (currentSelectedValue) {
+                    for (let i = 0; i < this.dom.voiceSelect.options.length; i++) {
+                        if (this.dom.voiceSelect.options[i].value === currentSelectedValue) {
+                            this.dom.voiceSelect.selectedIndex = i;
+                            preserved = true;
+                            break;
+                        }
+                    }
+                }
+                this._updateNavButtons();
+                return;
             }
 
             // Select active voice using preference & fallback resolution
-            const matchedVoice = this._resolveBestMatchingVoice(viVoices);
-            if (matchedVoice) {
-                this.dom.voiceSelect.value = matchedVoice.voiceURI || matchedVoice.name;
-                if (this.engine) {
-                    this.engine.setVoice(matchedVoice);
-                }
-            }
+            this._selectActiveVoiceInDropdown(viVoices, mVoices);
 
             this._updateNavButtons();
 
-            // When Vietnamese voices arrive after initial empty state, restore ready/resume status if stale
+            // When voices arrive after initial empty state, restore ready/resume status if stale
             if (hadNoVoices) {
                 const engineState = this.engine ? this.engine.getState() : null;
                 if (engineState !== 'PLAYING' && engineState !== 'PAUSED') {
@@ -919,6 +1094,103 @@
                         }
                     }
                 }
+            }
+        }
+
+        /**
+         * Resolves and selects the active option in voice dropdown based on saved preferences or fallbacks.
+         * Does not invalidate pending managed preference before catalog resolution is complete.
+         * @param {Array<SpeechSynthesisVoice>} viVoices
+         * @param {Array<Object>} mVoices
+         * @private
+         */
+        _selectActiveVoiceInDropdown(viVoices, mVoices) {
+            // 1. If saved preference exists
+            if (this.savedVoicePreference) {
+                if (this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey) {
+                    const targetKey = this.savedVoicePreference.voiceKey;
+                    const found = mVoices.find(v => v.voiceKey === targetKey);
+                    if (found) {
+                        this.dom.voiceSelect.value = 'managed:' + found.voiceKey;
+                        this._activateEngine('managed', found.voiceKey);
+                        return;
+                    } else if (this._managedCatalogResolved) {
+                        // Stale saved managed voice -> ONLY clear preference after catalog resolution confirms absence!
+                        this.savedVoicePreference = null;
+                        this._savePreferences();
+                    }
+                } else if (this.savedVoicePreference.type === 'device') {
+                    const matchedDevice = this._resolveBestMatchingVoice(viVoices);
+                    if (matchedDevice) {
+                        this.dom.voiceSelect.value = 'device:' + (matchedDevice.voiceURI || matchedDevice.name);
+                        this._activateEngine('device', matchedDevice);
+                        return;
+                    }
+                }
+            }
+
+            // 2. Default resolution: prefer default managed voice if available, otherwise device voice
+            if (mVoices.length > 0) {
+                const defManaged = mVoices.find(v => v.defaultVoice) || mVoices[0];
+                this.dom.voiceSelect.value = 'managed:' + defManaged.voiceKey;
+                this._activateEngine('managed', defManaged.voiceKey);
+            } else if (viVoices.length > 0) {
+                const matchedDevice = this._resolveBestMatchingVoice(viVoices);
+                if (matchedDevice) {
+                    this.dom.voiceSelect.value = 'device:' + (matchedDevice.voiceURI || matchedDevice.name);
+                    this._activateEngine('device', matchedDevice);
+                }
+            }
+        }
+
+        /**
+         * Activates either 'managed' or 'device' engine cleanly, stopping the previous engine.
+         * @param {string} type - 'managed' | 'device'
+         * @param {any} [identifier]
+         * @private
+         */
+        _activateEngine(type, identifier) {
+            if (type === 'managed' && this.managedEngine) {
+                if (this.deviceEngine) {
+                    this.deviceEngine.stop();
+                }
+                if (this.managedEngine) {
+                    this.managedEngine.stop();
+                }
+                this._clearHighlight();
+
+                this.activeEngineType = 'managed';
+                this.activeEngine = this.managedEngine;
+                this.engine = this.managedEngine;
+
+                if (typeof identifier === 'string') {
+                    this.managedEngine.loadManifest(this.chapterId, identifier).then(manifest => {
+                        this.chunks = this.managedEngine.getSegments();
+                        this._syncNavigationAndProgress();
+                    }).catch(err => {
+                        console.warn('[NarrationController] Error activating managed voice manifest:', err);
+                    });
+                } else {
+                    this.chunks = this.managedEngine.getSegments();
+                    this._syncNavigationAndProgress();
+                }
+            } else if (this.deviceEngine) {
+                if (this.managedEngine) {
+                    this.managedEngine.stop();
+                }
+                if (this.deviceEngine) {
+                    this.deviceEngine.stop();
+                }
+                this._clearHighlight();
+
+                this.activeEngineType = 'device';
+                this.activeEngine = this.deviceEngine;
+                this.engine = this.deviceEngine;
+
+                if (identifier) {
+                    this.deviceEngine.setVoice(identifier);
+                }
+                this._parseAndLoadChunks();
             }
         }
 
@@ -1360,37 +1632,100 @@
 
         /**
          * Handles Voice selector change and persists preference globally.
+         * Stops active playback before switching voice or manifest.
          * @private
          */
-        _handleVoiceChange() {
-            if (!this.engine || !this.dom.voiceSelect) {
+        async _handleVoiceChange() {
+            this._hasUserExplicitlySelectedVoice = true;
+            if (!this.dom.voiceSelect) {
                 return;
             }
             const voiceVal = this.dom.voiceSelect.value;
-            this.engine.setVoice(voiceVal);
+            if (!voiceVal) {
+                return;
+            }
 
-            const selected = this.engine.selectedVoice;
-            if (selected) {
+            // Always stop any active playback (both device and managed) when changing voice
+            if (this.deviceEngine) {
+                this.deviceEngine.stop();
+            }
+            if (this.managedEngine) {
+                this.managedEngine.stop();
+            }
+            this._clearHighlight();
+
+            if (voiceVal.startsWith('managed:')) {
+                const voiceKey = voiceVal.substring('managed:'.length);
+
+                this.activeEngineType = 'managed';
+                this.activeEngine = this.managedEngine;
+                this.engine = this.managedEngine;
+
                 this.savedVoicePreference = {
-                    voiceURI: selected.voiceURI || '',
-                    name: selected.name || '',
-                    lang: selected.lang || ''
+                    type: 'managed',
+                    voiceKey: voiceKey
                 };
                 this._savePreferences();
+
+                if (this.managedEngine && this.chapterId) {
+                    try {
+                        const manifest = await this.managedEngine.loadManifest(this.chapterId, voiceKey);
+                        this.chunks = this.managedEngine.getSegments();
+                        this._updateProgressDisplay(0, this.chunks.length);
+                        this._updateNavButtons();
+                        this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');
+                    } catch (e) {
+                        this._setStatusMessage('Không thể tải giọng đọc Kiếm Lai. Vui lòng chọn giọng khác.');
+                    }
+                }
+            } else {
+                let voiceIdentifier = voiceVal;
+                if (voiceVal.startsWith('device:')) {
+                    voiceIdentifier = voiceVal.substring('device:'.length);
+                }
+
+                this.activeEngineType = 'device';
+                this.activeEngine = this.deviceEngine;
+                this.engine = this.deviceEngine;
+
+                if (this.deviceEngine) {
+                    this.deviceEngine.setVoice(voiceIdentifier);
+                    const selected = this.deviceEngine.selectedVoice;
+                    if (selected) {
+                        this.savedVoicePreference = {
+                            type: 'device',
+                            voiceURI: selected.voiceURI || '',
+                            name: selected.name || '',
+                            lang: selected.lang || ''
+                        };
+                        this._savePreferences();
+                    }
+                }
+
+                this._parseAndLoadChunks();
             }
         }
 
         /**
          * Handles Rate selector change and persists preference globally.
+         * Adjusts playback rate on active engines without re-requesting audio.
          * @private
          */
         _handleRateChange() {
-            if (!this.engine || !this.dom.rateSelect) {
+            if (!this.dom.rateSelect) {
                 return;
             }
             const rateVal = parseFloat(this.dom.rateSelect.value);
             if (Number.isFinite(rateVal)) {
-                this.engine.setRate(rateVal);
+                if (this.deviceEngine && typeof this.deviceEngine.setRate === 'function') {
+                    this.deviceEngine.setRate(rateVal);
+                }
+                if (this.managedEngine && typeof this.managedEngine.setRate === 'function') {
+                    this.managedEngine.setRate(rateVal);
+                }
+                if (this.engine && typeof this.engine.setRate === 'function') {
+                    this.engine.setRate(rateVal);
+                }
                 this._savePreferences();
             }
         }
@@ -1416,7 +1751,13 @@
             }
 
             this._clearHighlight();
-            if (this.engine) {
+            if (this.deviceEngine) {
+                this.deviceEngine.stop();
+            }
+            if (this.managedEngine) {
+                this.managedEngine.stop();
+            }
+            if (this.engine && this.engine !== this.deviceEngine && this.engine !== this.managedEngine) {
                 this.engine.stop();
             }
         }
@@ -1451,13 +1792,25 @@
                             this.setAutoNext(prefs.autoNext, false);
                         }
                         if (prefs.voice && typeof prefs.voice === 'object') {
-                            this.savedVoicePreference = {
-                                voiceURI: prefs.voice.voiceURI || '',
-                                name: prefs.voice.name || '',
-                                lang: prefs.voice.lang || ''
-                            };
+                            if (prefs.voice.type === 'managed' || (prefs.voice.voiceKey && !prefs.voice.voiceURI)) {
+                                this.savedVoicePreference = {
+                                    type: 'managed',
+                                    voiceKey: prefs.voice.voiceKey || ''
+                                };
+                            } else {
+                                this.savedVoicePreference = {
+                                    type: 'device',
+                                    voiceURI: prefs.voice.voiceURI || '',
+                                    name: prefs.voice.name || '',
+                                    lang: prefs.voice.lang || ''
+                                };
+                            }
                             if (this.engine && this.engine.getState() !== 'PLAYING') {
-                                this._populateVoiceDropdown(this.engine.getSortedVoices ? this.engine.getSortedVoices() : this.engine.getVoices());
+                                const deviceVoices = this.deviceEngine && this.deviceEngine.getSortedVoices
+                                    ? this.deviceEngine.getSortedVoices()
+                                    : (this.deviceEngine ? this.deviceEngine.getVoices() : []);
+                                const managedVoices = this.managedEngine ? this.managedEngine.getVoices() : [];
+                                this._populateVoiceDropdown(deviceVoices, managedVoices);
                             }
                         }
                     }
@@ -1506,11 +1859,19 @@
                     rate: (this.engine && typeof this.engine.rate === 'number') ? this.engine.rate : 1.0,
                     followMode: Boolean(this.followMode),
                     autoNext: Boolean(this.autoNext),
-                    voice: this.savedVoicePreference ? {
-                        voiceURI: this.savedVoicePreference.voiceURI || '',
-                        name: this.savedVoicePreference.name || '',
-                        lang: this.savedVoicePreference.lang || ''
-                    } : null
+                    voice: this.savedVoicePreference ? (
+                        this.savedVoicePreference.type === 'managed'
+                            ? {
+                                type: 'managed',
+                                voiceKey: this.savedVoicePreference.voiceKey || ''
+                            }
+                            : {
+                                type: 'device',
+                                voiceURI: this.savedVoicePreference.voiceURI || '',
+                                name: this.savedVoicePreference.name || '',
+                                lang: this.savedVoicePreference.lang || ''
+                            }
+                    ) : null
                 };
                 localStorage.setItem(this.storageKeys.preferences, JSON.stringify(payload));
             } catch (e) {
@@ -1587,9 +1948,15 @@
         /**
          * Engine Callback: State transition.
          * @param {string} newState
+         * @param {string} [prevState]
+         * @param {string} [engineType]
          * @private
          */
-        _onEngineStateChange(newState) {
+        _onEngineStateChange(newState, prevState, engineType) {
+            if (engineType && engineType !== this.activeEngineType) {
+                return;
+            }
+
             const isPlaying = newState === 'PLAYING';
 
             if (this.dom.playIcon && this.dom.pauseIcon) {
@@ -1635,9 +2002,14 @@
          * Persists position into resume storage.
          * @param {number} chunkIndex
          * @param {Object} chunk
+         * @param {string} [engineType]
          * @private
          */
-        _onEngineChunkStart(chunkIndex, chunk) {
+        _onEngineChunkStart(chunkIndex, chunk, engineType) {
+            if (engineType && engineType !== this.activeEngineType) {
+                return;
+            }
+
             this.isCompleted = false;
             this.hasMeaningfulResume = true;
             this.isAutoplayContinuation = false;
@@ -1662,9 +2034,10 @@
          * Engine Callback: Chunk end.
          * @param {number} chunkIndex
          * @param {Object} chunk
+         * @param {string} [engineType]
          * @private
          */
-        _onEngineChunkEnd(chunkIndex, chunk) {
+        _onEngineChunkEnd(chunkIndex, chunk, engineType) {
             // Intentionally passive; next chunk will trigger _onEngineChunkStart
         }
 
@@ -1672,9 +2045,14 @@
          * Engine Callback: Natural Chapter end.
          * Clears highlight and saved resume, displays total/total, and configures replay from start.
          * When autoNext is enabled, initiates seamless in-page chapter transition.
+         * @param {string} [engineType]
          * @private
          */
-        _onEngineChapterEnd() {
+        _onEngineChapterEnd(engineType) {
+            if (engineType && engineType !== this.activeEngineType) {
+                return;
+            }
+
             this.isCompleted = true;
             this.hasMeaningfulResume = false;
             this.isAutoplayContinuation = false;
@@ -1976,33 +2354,62 @@
             }
 
             // 11. Parse & Load Chapter B Chunks
-            if (this.parser && typeof this.parser.parseChapterBody === 'function' && this.dom.body) {
-                this.chunks = this.parser.parseChapterBody(this.dom.body);
+            if (this.activeEngineType === 'managed' && this.managedEngine) {
+                const voiceKey = (this.savedVoicePreference && this.savedVoicePreference.type === 'managed') ? this.savedVoicePreference.voiceKey : null;
+                this.managedEngine.loadManifest(newChapterId, voiceKey).then(manifest => {
+                    this.chunks = this.managedEngine.getSegments();
+                    if (this.chunks.length === 0) {
+                        this._updateProgressDisplay(0, 0);
+                        this._updateNavButtons();
+                        this._setStatusMessage('Không tìm thấy nội dung âm thanh để đọc.');
+                        if (this.dom.playPauseBtn) {
+                            this.dom.playPauseBtn.disabled = true;
+                        }
+                    } else {
+                        this._updateProgressDisplay(0, this.chunks.length);
+                        this._updateNavButtons();
+                        this._setStatusMessage('Sẵn sàng phát giọng đọc (' + this.chunks.length + ' đoạn).');
+                        if (this.dom.playPauseBtn) {
+                            this.dom.playPauseBtn.disabled = false;
+                            this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                        }
+                        if (this.managedEngine) {
+                            this.managedEngine.play(0);
+                        }
+                    }
+                }).catch(err => {
+                    console.warn('[NarrationController] Error loading next chapter manifest:', err);
+                    this._setStatusMessage('Không thể tự động tải giọng đọc cho chương mới.');
+                });
             } else {
-                this.chunks = [];
-            }
-
-            if (this.engine) {
-                this.engine.loadChunks(this.chunks, 0);
-            }
-
-            if (this.chunks.length === 0) {
-                this._updateProgressDisplay(0, 0);
-                this._updateNavButtons();
-                this._setStatusMessage('Không tìm thấy nội dung văn bản để đọc.');
-                if (this.dom.playPauseBtn) {
-                    this.dom.playPauseBtn.disabled = true;
+                if (this.parser && typeof this.parser.parseChapterBody === 'function' && this.dom.body) {
+                    this.chunks = this.parser.parseChapterBody(this.dom.body);
+                } else {
+                    this.chunks = [];
                 }
-            } else {
-                this._updateProgressDisplay(0, this.chunks.length);
-                this._updateNavButtons();
-                this._setStatusMessage('Sẵn sàng phát giọng đọc (' + this.chunks.length + ' câu).');
-                if (this.dom.playPauseBtn) {
-                    this.dom.playPauseBtn.disabled = false;
-                    this.dom.playPauseBtn.removeAttribute('aria-disabled');
+
+                if (this.deviceEngine) {
+                    this.deviceEngine.loadChunks(this.chunks, 0);
                 }
-                if (this.engine) {
-                    this.engine.play(0);
+
+                if (this.chunks.length === 0) {
+                    this._updateProgressDisplay(0, 0);
+                    this._updateNavButtons();
+                    this._setStatusMessage('Không tìm thấy nội dung văn bản để đọc.');
+                    if (this.dom.playPauseBtn) {
+                        this.dom.playPauseBtn.disabled = true;
+                    }
+                } else {
+                    this._updateProgressDisplay(0, this.chunks.length);
+                    this._updateNavButtons();
+                    this._setStatusMessage('Sẵn sàng phát giọng đọc (' + this.chunks.length + ' câu).');
+                    if (this.dom.playPauseBtn) {
+                        this.dom.playPauseBtn.disabled = false;
+                        this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                    }
+                    if (this.deviceEngine) {
+                        this.deviceEngine.play(0);
+                    }
                 }
             }
         }
@@ -2010,9 +2417,14 @@
         /**
          * Engine Callback: Error.
          * @param {any} error
+         * @param {string} [engineType]
          * @private
          */
-        _onEngineError(error) {
+        _onEngineError(error, engineType) {
+            if (engineType && engineType !== this.activeEngineType) {
+                return;
+            }
+
             if (this.isAutoplayContinuation) {
                 this.isAutoplayContinuation = false;
                 this._updateProgressDisplay(0, this.chunks.length);
@@ -2025,17 +2437,27 @@
                 }
                 return;
             }
-            this._setStatusMessage('Xảy ra lỗi khi phát giọng đọc.');
+
+            if (engineType === 'managed') {
+                this._setStatusMessage('Không thể phát âm thanh giọng đọc Kiếm Lai. Vui lòng thử lại hoặc chọn Giọng thiết bị.');
+            } else {
+                this._setStatusMessage('Xảy ra lỗi khi phát giọng đọc.');
+            }
         }
 
         /**
          * Engine Callback: Voices changed.
          * Re-evaluates saved voice preference against newly available system voices.
+         * Skips automatic activation if narration is playing/paused or user explicitly picked a voice.
          * @param {Array<SpeechSynthesisVoice>} voices
          * @private
          */
         _onEngineVoicesChanged(voices) {
-            this._populateVoiceDropdown(voices);
+            const mVoices = this.managedEngine ? this.managedEngine.getVoices() : [];
+            const engineState = this.engine ? this.engine.getState() : null;
+            const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';
+            const skipActivation = isPlaybackActive || Boolean(this._hasUserExplicitlySelectedVoice);
+            this._populateVoiceDropdown(voices, mVoices, { skipActivation });
         }
 
         /**
@@ -2071,18 +2493,18 @@
         }
 
         /**
-         * Updates status live region text.
-         * @param {string} message
+         * Updates accessibility live region status message.
+         * @param {string} msg
          * @private
          */
-        _setStatusMessage(message) {
-            if (this.dom.statusText) {
-                this.dom.statusText.textContent = message;
+        _setStatusMessage(msg) {
+            if (this.dom.statusText && typeof msg === 'string') {
+                this.dom.statusText.textContent = msg;
             }
         }
 
         /**
-         * Updates previous/next sentence buttons disabled states.
+         * Updates disabled state of Prev/Next sentence buttons based on current chunk index.
          * @private
          */
         _updateNavButtons() {
@@ -2166,7 +2588,13 @@
             window.removeEventListener('pagehide', this._boundOnUnload);
             window.removeEventListener('storage', this._boundOnStorage);
 
-            if (this.engine && typeof this.engine.destroy === 'function') {
+            if (this.deviceEngine && typeof this.deviceEngine.destroy === 'function') {
+                this.deviceEngine.destroy();
+            }
+            if (this.managedEngine && typeof this.managedEngine.destroy === 'function') {
+                this.managedEngine.destroy();
+            }
+            if (this.engine && this.engine !== this.deviceEngine && this.engine !== this.managedEngine && typeof this.engine.destroy === 'function') {
                 this.engine.destroy();
             }
 
@@ -2174,6 +2602,8 @@
             this.isCompleted = false;
             this.hasMeaningfulResume = false;
             this.isAutoplayContinuation = false;
+            this._hasUserExplicitlySelectedVoice = false;
+            this._managedCatalogResolved = false;
             this.initialized = false;
         }
     }
