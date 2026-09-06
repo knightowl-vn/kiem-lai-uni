@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý giọng đọc Chapter | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+</head>
+
+<body>
+<div class="admin-layout">
+
+    <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+    <main class="admin-main">
+
+        <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+        <section class="dashboard-content">
+
+            <div th:if="${successMessage != null}"
+                 class="novel-admin-success-message"
+                 th:text="${successMessage}">
+                Thao tác thành công.
+            </div>
+
+            <div th:if="${errorMessage != null}"
+                 class="novel-admin-form-error"
+                 th:text="${errorMessage}">
+                Không thể thực hiện thao tác.
+            </div>
+
+            <div class="novel-admin-create-heading">
+                <div>
+                    <a th:href="@{/admin/novel/chapters/{id}(id=${chapter.id})}"
+                       class="novel-admin-back-link">
+                        ← Quay lại chi tiết chương
+                    </a>
+                    <span class="novel-admin-eyebrow">NOVEL MODULE</span>
+                    <h2>Quản lý giọng đọc & Thuyết minh</h2>
+                    <p>
+                        Trạng thái thuyết minh cho chương <strong th:text="${chapter.chapterNumber + ': ' + chapter.title}">1: Khởi Đầu</strong>
+                        (Tập: <strong th:text="${volume.title}">Quyển Một</strong>)
+                    </p>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- STATS SUMMARY                              -->
+            <!-- ========================================== -->
+            <div class="novel-admin-stats-row" style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">TỔNG PHÂN ĐOẠN</span>
+                    <strong style="font-size: 20px; font-weight: 700;" th:text="${totalSegments}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">ĐÃ SẴN SÀNG (READY)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--success, #2e7d32);" th:text="${readyCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CẦN CẬP NHẬT (OUTDATED)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--warning, #ed6c02);" th:text="${outdatedCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CHƯA CÓ AUDIO (MISSING)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--text-secondary, #64748b);" th:text="${missingCount}">0</strong>
+                </div>
+                <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
+                    <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">LỖI PHÁT SINH (FAILED)</span>
+                    <strong style="font-size: 20px; font-weight: 700; color: var(--danger, #d32f2f);" th:text="${failedCount}">0</strong>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- MANAGED VOICE SELECTOR                     -->
+            <!-- ========================================== -->
+            <section class="novel-admin-filter-panel" style="margin-bottom: 24px;">
+                <form method="get" th:action="@{/admin/novel/chapters/{id}/narration(id=${chapter.id})}"
+                      class="novel-admin-filter-form" style="grid-template-columns: minmax(280px, 2fr) auto;">
+
+                    <div class="novel-admin-field">
+                        <label for="novelAdminNarrationVoiceSelect">Chọn giọng đọc thuyết minh</label>
+                        <select id="novelAdminNarrationVoiceSelect" name="voiceId" onchange="this.form.submit()">
+                            <option th:if="${#lists.isEmpty(voices)}" value="">-- Không có giọng đọc nào --</option>
+                            <option th:each="voice : ${voices}"
+                                    th:value="${voice.id}"
+                                    th:selected="${selectedVoice != null and voice.id == selectedVoice.id}"
+                                    th:text="|${voice.displayName} (${voice.voiceKey}) - ${voice.status} - v${voice.synthesisRevision}${voice.defaultVoice ? ' [Mặc định]' : ''}|">
+                                Minh Đức (kiemlai-male-01) - ACTIVE - v1 [Mặc định]
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="novel-admin-filter-actions">
+                        <button type="submit" class="novel-admin-secondary-button">Xem</button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- ========================================== -->
+            <!-- EMPTY STATE: NO VOICES IN SYSTEM           -->
+            <!-- ========================================== -->
+            <div th:if="${selectedVoice == null}" class="novel-admin-empty-state">
+                <div class="novel-admin-empty-state-icon">🎙</div>
+                <h3>Chưa có giọng đọc nào trong hệ thống</h3>
+                <p>Hệ thống chưa có giọng đọc nào để cấu hình thuyết minh cho phân đoạn.</p>
+                <a th:href="@{/admin/novel/narration/voices}" class="novel-admin-primary-button" style="margin-top: 12px;">
+                    + Quản lý giọng đọc
+                </a>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- SELECTED VOICE INFO & SEGMENTS TABLE       -->
+            <!-- ========================================== -->
+            <div th:if="${selectedVoice != null}">
+
+                <!-- Selected Voice Details Card -->
+                <div class="novel-admin-detail-panel" style="margin-bottom: 24px; padding: 18px 20px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                        <div>
+                            <span class="novel-admin-eyebrow">GIỌNG ĐỌC ĐANG CHỌN</span>
+                            <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+                                <h3 style="margin: 0; font-size: 18px; font-weight: 700;" th:text="${selectedVoice.displayName}">Minh Đức</h3>
+                                <code th:text="${selectedVoice.voiceKey}" style="font-size: 12px;">kiemlai-male-01</code>
+                                <span class="novel-admin-status-badge"
+                                      th:classappend="${selectedVoice.status == 'ACTIVE'} ? ' is-active' : ' is-disabled'"
+                                      th:text="${selectedVoice.status}">ACTIVE</span>
+                                <span th:if="${selectedVoice.defaultVoice}" class="novel-admin-badge-default">Mặc định</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary);">
+                            <div>
+                                <span>Synthesis Revision: </span>
+                                <strong th:text="|v${selectedVoice.synthesisRevision}|">v1</strong>
+                            </div>
+                        </div>
+                    </div>
+                    <div th:if="${selectedVoice.status != 'ACTIVE'}"
+                         style="margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(237, 108, 2, 0.08); border: 1px solid rgba(237, 108, 2, 0.25); font-size: 13px; color: var(--warning, #ed6c02);">
+                        ⚠️ Giọng đọc này đang ở trạng thái <strong>DISABLED</strong>. Các thao tác tạo và tái tạo audio tạm thời bị vô hiệu hóa.
+                    </div>
+                </div>
+
+                <!-- Segments Table -->
+                <section class="novel-admin-table-panel">
+                    <div class="novel-admin-detail-section-heading" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+                        <span class="novel-admin-detail-section-eyebrow">DANH SÁCH PHÂN ĐOẠN CURRENT</span>
+                        <h3>Các phân đoạn văn bản của chương</h3>
+                    </div>
+
+                    <div th:if="${#lists.isEmpty(segments)}" class="novel-admin-empty-state">
+                        <div class="novel-admin-empty-state-icon">📄</div>
+                        <h3>Chưa có phân đoạn thuyết minh</h3>
+                        <p>Chương này hiện chưa có phân đoạn văn bản ở trạng thái CURRENT.</p>
+                    </div>
+
+                    <div th:unless="${#lists.isEmpty(segments)}" class="novel-admin-table-container">
+                        <table class="novel-admin-table">
+                            <thead>
+                            <tr>
+                                <th style="width: 70px;">Thứ tự</th>
+                                <th>Nội dung phân đoạn</th>
+                                <th style="width: 90px;">Số ký tự</th>
+                                <th style="width: 120px;">Trạng thái Audio</th>
+                                <th style="width: 150px;">Revision</th>
+                                <th style="min-width: 240px;">Chẩn đoán lỗi</th>
+                                <th style="width: 140px;">Thao tác</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr th:each="segment : ${segments}">
+                                <td class="novel-admin-order-cell">
+                                    <span class="novel-admin-order-badge" th:text="|#${segment.segmentIndex}|">#0</span>
+                                </td>
+
+                                <td>
+                                    <p style="margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-primary);"
+                                       th:text="${segment.text}">
+                                        Trần Bình An cất bước ra đi.
+                                    </p>
+                                </td>
+
+                                <td style="color: var(--text-secondary); font-size: 12px;" th:text="${segment.characterCount}">
+                                    28
+                                </td>
+
+                                <td>
+                                    <span th:if="${segment.isReady()}"
+                                          class="novel-admin-status-badge is-active">READY</span>
+                                    <span th:if="${segment.isOutdated()}"
+                                          class="novel-admin-status-badge is-draft">OUTDATED</span>
+                                    <span th:if="${segment.isMissing()}"
+                                          class="novel-admin-status-badge is-disabled">MISSING</span>
+                                    <span th:if="${segment.isFailed()}"
+                                          class="novel-admin-status-badge is-archived">FAILED</span>
+                                </td>
+
+                                <td>
+                                    <div th:if="${segment.generatedSynthesisRevision != null}">
+                                        <strong th:text="|v${segment.generatedSynthesisRevision}|">v1</strong>
+                                        <span style="font-size: 11px; color: var(--text-secondary);"
+                                              th:text="| / v${segment.currentVoiceSynthesisRevision}|"> / v1</span>
+                                    </div>
+                                    <div th:unless="${segment.generatedSynthesisRevision != null}">
+                                        <span class="novel-admin-muted">—</span>
+                                        <span style="font-size: 11px; color: var(--text-secondary);"
+                                              th:text="| (Hiện tại: v${segment.currentVoiceSynthesisRevision})|"> (Hiện tại: v1)</span>
+                                    </div>
+                                </td>
+
+                                <td>
+                                    <div th:if="${segment.hasFailureDiagnostics()}"
+                                         style="padding: 8px 10px; border-radius: 8px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); font-size: 11px;">
+                                        <div style="font-weight: 700; color: var(--danger, #d32f2f); margin-bottom: 2px;">
+                                             <span th:text="${segment.failureDiagnostics.operation}">INITIAL_GENERATION</span>
+                                             <span> • </span>
+                                             <span th:text="${segment.failureDiagnostics.stage}">TTS_SYNTHESIS</span>
+                                             <span th:if="${segment.failureDiagnostics.failureCount > 1}"
+                                                   th:text="| (x${segment.failureDiagnostics.failureCount})|"> (x2)</span>
+                                        </div>
+                                        <div style="color: var(--text-primary); margin-bottom: 2px;"
+                                             th:text="${segment.failureDiagnostics.errorMessage}">
+                                            Narration TTS synthesis failed.
+                                        </div>
+                                        <div style="color: var(--text-secondary); font-size: 10px;"
+                                             th:if="${segment.failureDiagnostics.lastFailedAt != null}"
+                                             th:text="${#temporals.format(segment.failureDiagnostics.lastFailedAt, 'dd/MM/yyyy HH:mm:ss')}">
+                                            19/08/2026 18:00:00
+                                        </div>
+                                    </div>
+                                    <span th:unless="${segment.hasFailureDiagnostics()}" class="novel-admin-muted">—</span>
+                                </td>
+
+                                <td>
+                                    <!-- When Selected Voice is ACTIVE -->
+                                    <div th:if="${selectedVoice.status == 'ACTIVE'}">
+                                        <!-- MISSING: Generate -->
+                                        <form th:if="${segment.isMissing()}"
+                                              method="post"
+                                              th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
+                                            <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
+                                            <button type="submit" class="novel-admin-primary-button" style="padding: 4px 10px; font-size: 12px;">
+                                                Tạo Audio
+                                            </button>
+                                        </form>
+
+                                        <!-- FAILED: Retry / Generate -->
+                                        <form th:if="${segment.isFailed()}"
+                                              method="post"
+                                              th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
+                                            <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
+                                            <button type="submit" class="novel-admin-secondary-button" style="padding: 4px 10px; font-size: 12px; border-color: var(--danger, #d32f2f); color: var(--danger, #d32f2f);">
+                                                Thử lại
+                                            </button>
+                                        </form>
+
+                                        <!-- OUTDATED: Regenerate -->
+                                        <form th:if="${segment.isOutdated()}"
+                                              method="post"
+                                              th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/regenerate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
+                                            <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
+                                            <button type="submit" class="novel-admin-secondary-button" style="padding: 4px 10px; font-size: 12px;">
+                                                Tái tạo Audio
+                                            </button>
+                                        </form>
+
+                                        <!-- READY: No destructive action -->
+                                        <span th:if="${segment.isReady()}"
+                                              class="novel-admin-muted"
+                                              style="font-size: 12px; color: var(--success, #2e7d32); font-weight: 500;">
+                                            ✓ Sẵn sàng
+                                        </span>
+                                    </div>
+
+                                    <!-- When Selected Voice is DISABLED -->
+                                    <div th:if="${selectedVoice.status != 'ACTIVE'}">
+                                        <span class="novel-admin-muted" style="font-size: 11px;">Giọng đọc bị tắt</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+        </section>
+    </main>
+</div>
+
+</body>
+</html>

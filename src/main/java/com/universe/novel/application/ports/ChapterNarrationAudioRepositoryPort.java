@@ -2,6 +2,7 @@ package com.universe.novel.application.ports;
 
 import com.universe.novel.domain.narration.ChapterNarrationAudio;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +36,15 @@ public interface ChapterNarrationAudioRepositoryPort {
      * @return list of audio assignments for the segment
      */
     List<ChapterNarrationAudio> findBySegmentId(UUID segmentId);
+
+    /**
+     * Batch-finds audio assignments for the specified segment IDs and managed voice ID.
+     *
+     * @param segmentIds     the collection of segment IDs
+     * @param managedVoiceId the managed voice ID
+     * @return list of matching audio assignments
+     */
+    List<ChapterNarrationAudio> findBySegmentIdInAndManagedVoiceId(Collection<UUID> segmentIds, UUID managedVoiceId);
 
     /**
      * Saves a single narration audio assignment.

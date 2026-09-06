@@ -7,6 +7,7 @@ import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,6 +48,24 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
             return List.of();
         }
         return repository.findBySegmentId(segmentId.toString())
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<ChapterNarrationAudio> findBySegmentIdInAndManagedVoiceId(Collection<UUID> segmentIds, UUID managedVoiceId) {
+        if (segmentIds == null || segmentIds.isEmpty() || managedVoiceId == null) {
+            return List.of();
+        }
+        List<String> segmentIdStrings = segmentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (segmentIdStrings.isEmpty()) {
+            return List.of();
+        }
+        return repository.findBySegmentIdInAndManagedVoiceId(segmentIdStrings, managedVoiceId.toString())
                 .stream()
                 .map(this::toDomain)
                 .toList();

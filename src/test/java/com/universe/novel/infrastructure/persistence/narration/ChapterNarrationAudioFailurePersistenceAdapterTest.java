@@ -12,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -81,6 +82,42 @@ class ChapterNarrationAudioFailurePersistenceAdapterTest {
     void shouldReturnEmptyWhenNullParameters() {
         assertThat(adapter.findBySegmentIdAndManagedVoiceId(null, VOICE_ID)).isEmpty();
         assertThat(adapter.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should find failure records by batch segmentIds and managedVoiceId")
+    void shouldFindBySegmentIdInAndManagedVoiceId() {
+        ChapterNarrationAudioFailureJpaEntity entity = new ChapterNarrationAudioFailureJpaEntity(
+                ID.toString(),
+                SEGMENT_ID.toString(),
+                VOICE_ID.toString(),
+                NarrationAudioOperation.INITIAL_GENERATION,
+                NarrationAudioFailureStage.TTS_SYNTHESIS,
+                1L,
+                1,
+                "ConnectException",
+                "Narration TTS synthesis failed.",
+                NOW,
+                NOW
+        );
+
+        when(repository.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID.toString()), VOICE_ID.toString()))
+                .thenReturn(List.of(entity));
+
+        List<ChapterNarrationAudioFailure> result = adapter.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), VOICE_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(ID);
+        assertThat(result.get(0).getSegmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(result.get(0).getManagedVoiceId()).isEqualTo(VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("Should return empty list when batch find receives empty or null arguments")
+    void shouldReturnEmptyWhenBatchFindReceivesEmptyOrNullArgs() {
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(null, VOICE_ID)).isEmpty();
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(List.of(), VOICE_ID)).isEmpty();
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), null)).isEmpty();
     }
 
     @Test

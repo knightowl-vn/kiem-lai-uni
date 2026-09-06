@@ -105,6 +105,32 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     }
 
     @Test
+    @DisplayName("Should find audio assignments by batch segmentIds and managedVoiceId")
+    void shouldFindBySegmentIdInAndManagedVoiceId() {
+        ChapterNarrationAudioJpaEntity entity1 = new ChapterNarrationAudioJpaEntity(
+                ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
+                1L, NOW, NOW
+        );
+        when(repository.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID.toString()), VOICE_ID.toString()))
+                .thenReturn(List.of(entity1));
+
+        List<ChapterNarrationAudio> result = adapter.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), VOICE_ID);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(ID);
+        assertThat(result.get(0).getSegmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(result.get(0).getManagedVoiceId()).isEqualTo(VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("Should return empty list when batch find receives empty or null arguments")
+    void shouldReturnEmptyWhenBatchFindReceivesEmptyOrNullArgs() {
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(null, VOICE_ID)).isEmpty();
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(List.of(), VOICE_ID)).isEmpty();
+        assertThat(adapter.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("Should save audio assignment and map to domain")
     void shouldSaveAndMapToDomain() {
         ChapterNarrationAudio domain = ChapterNarrationAudio.create(

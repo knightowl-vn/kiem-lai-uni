@@ -5,6 +5,8 @@ import com.universe.novel.domain.narration.ChapterNarrationAudioFailure;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +30,24 @@ public class ChapterNarrationAudioFailurePersistenceAdapter implements ChapterNa
         }
         return repository.findBySegmentIdAndManagedVoiceId(segmentId.toString(), managedVoiceId.toString())
                 .map(this::toDomain);
+    }
+
+    @Override
+    public List<ChapterNarrationAudioFailure> findBySegmentIdInAndManagedVoiceId(Collection<UUID> segmentIds, UUID managedVoiceId) {
+        if (segmentIds == null || segmentIds.isEmpty() || managedVoiceId == null) {
+            return List.of();
+        }
+        List<String> segmentIdStrings = segmentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (segmentIdStrings.isEmpty()) {
+            return List.of();
+        }
+        return repository.findBySegmentIdInAndManagedVoiceId(segmentIdStrings, managedVoiceId.toString())
+                .stream()
+                .map(this::toDomain)
+                .toList();
     }
 
     @Override

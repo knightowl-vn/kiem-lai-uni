@@ -17,6 +17,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -158,6 +159,13 @@ class ChapterNarrationAudioJpaPersistenceIntegrationTest {
         assertThat(a.getGeneratedSynthesisRevision()).isEqualTo(1L);
         assertThat(a.isCompatibleWith(1L)).isTrue();
         assertThat(a.isCompatibleWith(2L)).isFalse();
+
+        List<ChapterNarrationAudio> batchLoaded = repositoryPort.findBySegmentIdInAndManagedVoiceId(
+                List.of(SEGMENT_1_ID, SEGMENT_2_ID),
+                VOICE_1_ID
+        );
+        assertThat(batchLoaded).hasSize(1);
+        assertThat(batchLoaded.get(0).getId()).isEqualTo(audioId);
     }
 
     @Test

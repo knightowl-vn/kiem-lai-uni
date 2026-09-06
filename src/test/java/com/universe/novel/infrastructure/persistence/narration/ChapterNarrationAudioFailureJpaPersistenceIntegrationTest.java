@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -146,6 +147,13 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
         assertThat(f.getFailureCount()).isEqualTo(1);
         assertThat(f.getErrorType()).isEqualTo("ConnectException");
         assertThat(f.getErrorMessage()).isEqualTo("Narration TTS synthesis failed.");
+
+        List<ChapterNarrationAudioFailure> batchLoaded = repositoryPort.findBySegmentIdInAndManagedVoiceId(
+                List.of(SEGMENT_ID, UUID.randomUUID()),
+                VOICE_ID
+        );
+        assertThat(batchLoaded).hasSize(1);
+        assertThat(batchLoaded.get(0).getId()).isEqualTo(failureId);
 
         // Delete failure record
         repositoryPort.deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);

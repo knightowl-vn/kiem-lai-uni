@@ -12,4 +12,8 @@ public class ChapterNarrationSegmentNotFoundException extends BaseApplicationExc
     public ChapterNarrationSegmentNotFoundException(UUID segmentId) {
         super(DEFAULT_ERROR_CODE, "Không tìm thấy phân đoạn thuyết minh: " + segmentId);
     }
+
+    public ChapterNarrationSegmentNotFoundException(UUID segmentId, UUID chapterId) {
+        super(DEFAULT_ERROR_CODE, "Phân đoạn " + segmentId + " không thuộc chương " + chapterId);
+    }
 }
