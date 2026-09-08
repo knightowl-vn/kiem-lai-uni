@@ -178,19 +178,19 @@ class ChapterNarrationAudioFailurePersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("Should delete failure record by segmentId and managedVoiceId")
-    void shouldDeleteBySegmentIdAndManagedVoiceId() {
-        adapter.deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+    @DisplayName("Should delete failure record superseded by successful revision")
+    void shouldDeleteSupersededBySuccessfulRevision() {
+        adapter.deleteSupersededBySuccessfulRevision(SEGMENT_ID, VOICE_ID, 2L);
 
-        verify(repository).deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID.toString(), VOICE_ID.toString());
+        verify(repository).deleteSupersededBySuccessfulRevision(SEGMENT_ID.toString(), VOICE_ID.toString(), 2L);
     }
 
     @Test
     @DisplayName("Should safely ignore delete when segmentId or managedVoiceId is null")
     void shouldIgnoreDeleteWhenNull() {
-        adapter.deleteBySegmentIdAndManagedVoiceId(null, VOICE_ID);
-        adapter.deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, null);
+        adapter.deleteSupersededBySuccessfulRevision(null, VOICE_ID, 2L);
+        adapter.deleteSupersededBySuccessfulRevision(SEGMENT_ID, null, 2L);
 
-        verify(repository, never()).deleteBySegmentIdAndManagedVoiceId(any(), any());
+        verify(repository, never()).deleteSupersededBySuccessfulRevision(any(), any(), org.mockito.ArgumentMatchers.anyLong());
     }
 }

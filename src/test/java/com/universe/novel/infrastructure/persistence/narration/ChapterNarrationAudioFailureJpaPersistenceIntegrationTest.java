@@ -117,8 +117,8 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should save, retrieve, and delete failure record")
-    void shouldSaveRetrieveAndDeleteFailureRecord() {
+    @DisplayName("Should save, retrieve, and delete failure record conditionally by successful revision")
+    void shouldSaveRetrieveAndDeleteFailureRecordConditionally() {
         UUID failureId = UUID.randomUUID();
         Instant now = Instant.now();
 
@@ -126,9 +126,9 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
                 failureId,
                 SEGMENT_ID,
                 VOICE_ID,
-                NarrationAudioOperation.INITIAL_GENERATION,
+                NarrationAudioOperation.REGENERATION,
                 NarrationAudioFailureStage.TTS_SYNTHESIS,
-                1L,
+                2L,
                 "ConnectException",
                 now
         );
@@ -141,9 +141,9 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
         assertThat(f.getId()).isEqualTo(failureId);
         assertThat(f.getSegmentId()).isEqualTo(SEGMENT_ID);
         assertThat(f.getManagedVoiceId()).isEqualTo(VOICE_ID);
-        assertThat(f.getOperation()).isEqualTo(NarrationAudioOperation.INITIAL_GENERATION);
+        assertThat(f.getOperation()).isEqualTo(NarrationAudioOperation.REGENERATION);
         assertThat(f.getStage()).isEqualTo(NarrationAudioFailureStage.TTS_SYNTHESIS);
-        assertThat(f.getAttemptedSynthesisRevision()).isEqualTo(1L);
+        assertThat(f.getAttemptedSynthesisRevision()).isEqualTo(2L);
         assertThat(f.getFailureCount()).isEqualTo(1);
         assertThat(f.getErrorType()).isEqualTo("ConnectException");
         assertThat(f.getErrorMessage()).isEqualTo("Narration TTS synthesis failed.");
@@ -155,10 +155,14 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
         assertThat(batchLoaded).hasSize(1);
         assertThat(batchLoaded.get(0).getId()).isEqualTo(failureId);
 
-        // Delete failure record
-        repositoryPort.deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+        // 1. Attempt delete with older successful revision (1L < 2L) -> failure record must remain
+        repositoryPort.deleteSupersededBySuccessfulRevision(SEGMENT_ID, VOICE_ID, 1L);
         entityManager.clear();
+        assertThat(repositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID)).isPresent();
 
+        // 2. Attempt delete with matching successful revision (2L <= 2L) -> failure record is deleted
+        repositoryPort.deleteSupersededBySuccessfulRevision(SEGMENT_ID, VOICE_ID, 2L);
+        entityManager.clear();
         assertThat(repositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID)).isEmpty();
     }
 

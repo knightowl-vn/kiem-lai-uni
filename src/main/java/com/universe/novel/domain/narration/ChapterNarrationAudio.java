@@ -25,6 +25,7 @@ public class ChapterNarrationAudio {
     private final UUID managedVoiceId;
     private UUID mediaAssetId;
     private long generatedSynthesisRevision;
+    private final Long version;
     private final Instant createdAt;
     private Instant updatedAt;
 
@@ -34,6 +35,7 @@ public class ChapterNarrationAudio {
             UUID managedVoiceId,
             UUID mediaAssetId,
             long generatedSynthesisRevision,
+            Long version,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -42,6 +44,7 @@ public class ChapterNarrationAudio {
         this.managedVoiceId = Objects.requireNonNull(managedVoiceId, "ID giọng đọc không được để trống.");
         this.mediaAssetId = Objects.requireNonNull(mediaAssetId, "ID media asset không được để trống.");
         this.generatedSynthesisRevision = validateSynthesisRevision(generatedSynthesisRevision);
+        this.version = version;
         this.createdAt = Objects.requireNonNull(createdAt, "Thời gian tạo không được để trống.");
         this.updatedAt = Objects.requireNonNull(updatedAt, "Thời gian cập nhật không được để trống.");
 
@@ -68,6 +71,7 @@ public class ChapterNarrationAudio {
                 managedVoiceId,
                 mediaAssetId,
                 generatedSynthesisRevision,
+                null,
                 now,
                 now
         );
@@ -82,6 +86,7 @@ public class ChapterNarrationAudio {
             UUID managedVoiceId,
             UUID mediaAssetId,
             long generatedSynthesisRevision,
+            Long version,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -91,6 +96,7 @@ public class ChapterNarrationAudio {
                 managedVoiceId,
                 mediaAssetId,
                 generatedSynthesisRevision,
+                version,
                 createdAt,
                 updatedAt
         );
@@ -175,6 +181,10 @@ public class ChapterNarrationAudio {
         return generatedSynthesisRevision;
     }
 
+    public Long getVersion() {
+        return version;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -204,6 +214,7 @@ public class ChapterNarrationAudio {
                 ", managedVoiceId=" + managedVoiceId +
                 ", mediaAssetId=" + mediaAssetId +
                 ", generatedSynthesisRevision=" + generatedSynthesisRevision +
+                ", version=" + version +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';

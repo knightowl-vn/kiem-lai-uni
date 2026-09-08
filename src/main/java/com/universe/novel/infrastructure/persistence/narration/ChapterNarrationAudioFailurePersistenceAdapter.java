@@ -63,11 +63,11 @@ public class ChapterNarrationAudioFailurePersistenceAdapter implements ChapterNa
 
     @Override
     @Transactional
-    public void deleteBySegmentIdAndManagedVoiceId(UUID segmentId, UUID managedVoiceId) {
+    public void deleteSupersededBySuccessfulRevision(UUID segmentId, UUID managedVoiceId, long successfulRevision) {
         if (segmentId == null || managedVoiceId == null) {
             return;
         }
-        repository.deleteBySegmentIdAndManagedVoiceId(segmentId.toString(), managedVoiceId.toString());
+        repository.deleteSupersededBySuccessfulRevision(segmentId.toString(), managedVoiceId.toString(), successfulRevision);
     }
 
     private ChapterNarrationAudioFailureJpaEntity toEntity(ChapterNarrationAudioFailure domain) {

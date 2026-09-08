@@ -19,14 +19,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Read use case that dynamically derives the health of narration audio for a segment and managed voice pair.
+ * Read use case that dynamically derives the health of narration audio for a segment and managed voice pair (MS-04.9H.8C2).
  * <p>
- * <strong>Health Status Derivation Rules:</strong>
+ * <strong>Locked Health Status Derivation Rules:</strong>
  * <ul>
- *     <li>{@link ChapterNarrationAudioHealthStatus#READY}: Assignment exists and its revision matches current voice synthesis revision (compatible assignment wins as READY even if stale diagnostics exist).</li>
- *     <li>{@link ChapterNarrationAudioHealthStatus#OUTDATED}: Assignment exists but its revision does not match current voice synthesis revision.</li>
- *     <li>{@link ChapterNarrationAudioHealthStatus#FAILED}: No assignment exists and an unresolved generation failure was recorded.</li>
- *     <li>{@link ChapterNarrationAudioHealthStatus#MISSING}: No assignment exists and no failure was recorded.</li>
+ *     <li>{@link ChapterNarrationAudioHealthStatus#READY}: Audio exists and its generated synthesis revision matches current voice revision (A == R). Compatible assignment supersedes any failure diagnostic.</li>
+ *     <li>{@link ChapterNarrationAudioHealthStatus#OUTDATED}: Audio exists but its generated synthesis revision differs from current voice revision (A != R). Failure diagnostic is relevant only if regeneration failed for current voice revision (F == R).</li>
+ *     <li>{@link ChapterNarrationAudioHealthStatus#FAILED}: No audio exists and a failure exists with F == R.</li>
+ *     <li>{@link ChapterNarrationAudioHealthStatus#MISSING}: No audio exists and no failure relevant to R; older/non-current failures are suppressed.</li>
  * </ul>
  * <p>
  * Requires the chapter narration segment to exist and be in {@code CURRENT} status.
@@ -95,30 +95,31 @@ public class GetChapterNarrationAudioHealthUseCase {
         Optional<ChapterNarrationAudioFailure> failureOpt =
                 failureRepositoryPort.findBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId);
 
-        NarrationAudioFailureDiagnosticsDTO failureDto = failureOpt.map(f -> new NarrationAudioFailureDiagnosticsDTO(
-                f.getOperation(),
-                f.getStage(),
-                f.getAttemptedSynthesisRevision(),
-                f.getFailureCount(),
-                f.getErrorType(),
-                f.getErrorMessage(),
-                f.getFirstFailedAt(),
-                f.getLastFailedAt()
-        )).orElse(null);
-
         long currentVoiceRevision = voice.getSynthesisRevision();
+
+        // 4. Resolve health status and relevant failure diagnostic via central resolver
+        ChapterNarrationAudioHealthResolution resolution =
+                ChapterNarrationAudioHealthResolver.resolveFromOptionals(audioOpt, failureOpt, currentVoiceRevision);
+
+        NarrationAudioFailureDiagnosticsDTO failureDto = resolution.relevantFailure() != null
+                ? new NarrationAudioFailureDiagnosticsDTO(
+                        resolution.relevantFailure().getOperation(),
+                        resolution.relevantFailure().getStage(),
+                        resolution.relevantFailure().getAttemptedSynthesisRevision(),
+                        resolution.relevantFailure().getFailureCount(),
+                        resolution.relevantFailure().getErrorType(),
+                        resolution.relevantFailure().getErrorMessage(),
+                        resolution.relevantFailure().getFirstFailedAt(),
+                        resolution.relevantFailure().getLastFailedAt()
+                )
+                : null;
 
         if (audioOpt.isPresent()) {
             ChapterNarrationAudio audio = audioOpt.get();
-            boolean compatible = audio.isCompatibleWith(currentVoiceRevision);
-            ChapterNarrationAudioHealthStatus status = compatible
-                    ? ChapterNarrationAudioHealthStatus.READY
-                    : ChapterNarrationAudioHealthStatus.OUTDATED;
-
             return new GetChapterNarrationAudioHealthResult(
                     segmentId,
                     managedVoiceId,
-                    status,
+                    resolution.status(),
                     audio.getId(),
                     audio.getMediaAssetId(),
                     audio.getGeneratedSynthesisRevision(),
@@ -127,14 +128,10 @@ public class GetChapterNarrationAudioHealthUseCase {
             );
         }
 
-        ChapterNarrationAudioHealthStatus status = failureOpt.isPresent()
-                ? ChapterNarrationAudioHealthStatus.FAILED
-                : ChapterNarrationAudioHealthStatus.MISSING;
-
         return new GetChapterNarrationAudioHealthResult(
                 segmentId,
                 managedVoiceId,
-                status,
+                resolution.status(),
                 null,
                 null,
                 null,

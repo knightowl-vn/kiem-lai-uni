@@ -166,6 +166,34 @@ class ChapterNarrationAudioJpaPersistenceIntegrationTest {
         );
         assertThat(batchLoaded).hasSize(1);
         assertThat(batchLoaded.get(0).getId()).isEqualTo(audioId);
+
+        List<ChapterNarrationAudio> allVoicesBatchLoaded = repositoryPort.findBySegmentIdIn(
+                List.of(SEGMENT_1_ID, SEGMENT_2_ID)
+        );
+        assertThat(allVoicesBatchLoaded).hasSize(1);
+        assertThat(allVoicesBatchLoaded.get(0).getId()).isEqualTo(audioId);
+    }
+
+    @Test
+    @DisplayName("Should find audio assignments across all voices for multiple segment IDs")
+    void shouldFindAudioAssignmentsAcrossAllVoices() {
+        Instant now = Instant.now();
+        UUID audio1 = UUID.randomUUID();
+        UUID audio2 = UUID.randomUUID();
+        UUID audio3 = UUID.randomUUID();
+
+        // Save audio 1 for segment 1 voice 1
+        repositoryPort.save(ChapterNarrationAudio.create(audio1, SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, now));
+        // Save audio 2 for segment 1 voice 2
+        repositoryPort.save(ChapterNarrationAudio.create(audio2, SEGMENT_1_ID, VOICE_2_ID, MEDIA_ASSET_ID, 2L, now));
+        // Save audio 3 for segment 2 voice 1
+        repositoryPort.save(ChapterNarrationAudio.create(audio3, SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, now));
+
+        List<ChapterNarrationAudio> results = repositoryPort.findBySegmentIdIn(List.of(SEGMENT_1_ID, SEGMENT_2_ID));
+        assertThat(results).hasSize(3);
+
+        List<UUID> resultIds = results.stream().map(ChapterNarrationAudio::getId).toList();
+        assertThat(resultIds).containsExactlyInAnyOrder(audio1, audio2, audio3);
     }
 
     @Test
@@ -208,5 +236,65 @@ class ChapterNarrationAudioJpaPersistenceIntegrationTest {
         // Verify audio assignment is removed via MySQL ON DELETE CASCADE
         assertThat(repositoryPort.findById(audioId)).isEmpty();
         assertThat(repositoryPort.findBySegmentId(SEGMENT_1_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should propagate initial version on save and increment on update")
+    void shouldPropagateVersionOnSaveAndIncrementOnUpdate() {
+        UUID audioId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                audioId, SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, now
+        );
+        assertThat(audio.getVersion()).isNull();
+
+        ChapterNarrationAudio saved = repositoryPort.save(audio);
+        assertThat(saved.getVersion()).isEqualTo(0L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        // Update audio assignment
+        saved.replaceSuccessfulAudio(UUID.randomUUID(), 2L, now.plusSeconds(60));
+        ChapterNarrationAudio updated = repositoryPort.save(saved);
+        assertThat(updated.getVersion()).isEqualTo(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<ChapterNarrationAudio> reloaded = repositoryPort.findById(audioId);
+        assertThat(reloaded).isPresent();
+        assertThat(reloaded.get().getVersion()).isEqualTo(1L);
+        assertThat(reloaded.get().getGeneratedSynthesisRevision()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("Should fail with optimistic locking exception when updating stale version")
+    void shouldFailWithOptimisticLockingExceptionWhenUpdatingStaleVersion() {
+        UUID audioId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                audioId, SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, now
+        );
+        ChapterNarrationAudio saved = repositoryPort.save(audio);
+        assertThat(saved.getVersion()).isEqualTo(0L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        // Simulate concurrent update: bump version in database directly to 1
+        jdbcTemplate.update(
+                "UPDATE novel_chapter_narration_audio SET version = 1 WHERE id = ?",
+                audioId.toString()
+        );
+
+        // Try to save entity holding stale version 0L
+        saved.replaceSuccessfulAudio(UUID.randomUUID(), 2L, now.plusSeconds(10));
+        assertThatThrownBy(() -> {
+            repositoryPort.save(saved);
+            entityManager.flush();
+        }).isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
     }
 }

@@ -6,6 +6,7 @@ import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.GetPublicChapterNarrationManifestQuery;
 import com.universe.novel.application.narration.GetPublicChapterNarrationManifestUseCase;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationManifestDTO;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,8 +38,10 @@ public class PublicNovelChapterNarrationManifestController {
     @GetMapping("/manifest")
     public ResponseEntity<PublicChapterNarrationManifestDTO> getManifest(
             @PathVariable UUID chapterId,
-            @RequestParam(name = "voiceKey", required = false) String voiceKey
+            @RequestParam(name = "voiceKey", required = false) String voiceKey,
+            HttpServletResponse response
     ) {
+        disableCaching(response);
         PublicChapterNarrationManifestDTO manifest = getManifestUseCase.execute(
                 new GetPublicChapterNarrationManifestQuery(chapterId, voiceKey)
         );
@@ -46,17 +49,28 @@ public class PublicNovelChapterNarrationManifestController {
     }
 
     @ExceptionHandler(ChapterNotFoundException.class)
-    public ResponseEntity<Void> handleChapterNotFound() {
+    public ResponseEntity<Void> handleChapterNotFound(HttpServletResponse response) {
+        disableCaching(response);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     @ExceptionHandler(ManagedVoiceNotFoundException.class)
-    public ResponseEntity<Void> handleVoiceNotFound() {
+    public ResponseEntity<Void> handleVoiceNotFound(HttpServletResponse response) {
+        disableCaching(response);
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
     @ExceptionHandler(ManagedVoiceInvalidStateException.class)
-    public ResponseEntity<Void> handleVoiceInvalidState() {
+    public ResponseEntity<Void> handleVoiceInvalidState(HttpServletResponse response) {
+        disableCaching(response);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+    }
+
+    private void disableCaching(HttpServletResponse response) {
+        if (response != null) {
+            response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            response.setHeader("Pragma", "no-cache");
+            response.setDateHeader("Expires", 0);
+        }
     }
 }

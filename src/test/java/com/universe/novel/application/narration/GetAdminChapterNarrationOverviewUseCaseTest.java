@@ -466,4 +466,355 @@ class GetAdminChapterNarrationOverviewUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    @DisplayName("11. Admin diagnostics and counters adhere to locked health rules across all 4 health states")
+    void shouldAdhereToLockedHealthRulesForAdminDiagnosticsAndCounters() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+
+        // Selected voice is at synthesisRevision = 3
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 3L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Seg 0: READY + ghost failure rev 2");
+        ChapterNarrationSegment seg1 = createSegment(SEGMENT_2_ID, 1, "Seg 1: OUTDATED rev 1 + current failure rev 3");
+        ChapterNarrationSegment seg2 = createSegment(SEGMENT_3_ID, 2, "Seg 2: OUTDATED rev 1 + old failure rev 2");
+        ChapterNarrationSegment seg3 = createSegment(SEGMENT_4_ID, 3, "Seg 3: No audio + old failure rev 2");
+
+        // seg0: audio at rev 3 == voice rev 3 -> READY
+        ChapterNarrationAudio audio0 = ChapterNarrationAudio.create(
+                UUID.randomUUID(), SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 3L, NOW
+        );
+        ChapterNarrationAudioFailure ghostFailure0 = ChapterNarrationAudioFailure.create(
+                UUID.randomUUID(), SEGMENT_1_ID, VOICE_1_ID,
+                NarrationAudioOperation.REGENERATION, NarrationAudioFailureStage.MEDIA_UPLOAD,
+                2L, "GhostFailure", NOW
+        );
+
+        // seg1: audio at rev 1 != voice rev 3 -> OUTDATED, failure at rev 3 == voice rev 3 -> relevant
+        ChapterNarrationAudio audio1 = ChapterNarrationAudio.create(
+                UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_2_ID, 1L, NOW
+        );
+        ChapterNarrationAudioFailure currentFailure1 = ChapterNarrationAudioFailure.create(
+                UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID,
+                NarrationAudioOperation.REGENERATION, NarrationAudioFailureStage.TTS_SYNTHESIS,
+                3L, "CurrentFailure", NOW
+        );
+
+        // seg2: audio at rev 1 != voice rev 3 -> OUTDATED, failure at rev 2 != voice rev 3 -> suppressed
+        ChapterNarrationAudio audio2 = ChapterNarrationAudio.create(
+                UUID.randomUUID(), SEGMENT_3_ID, VOICE_1_ID, MEDIA_ASSET_2_ID, 1L, NOW
+        );
+        ChapterNarrationAudioFailure oldFailure2 = ChapterNarrationAudioFailure.create(
+                UUID.randomUUID(), SEGMENT_3_ID, VOICE_1_ID,
+                NarrationAudioOperation.REGENERATION, NarrationAudioFailureStage.TTS_SYNTHESIS,
+                2L, "OldFailure", NOW
+        );
+
+        // seg3: no audio, failure at rev 2 != voice rev 3 -> MISSING, suppressed
+        ChapterNarrationAudioFailure oldFailure3 = ChapterNarrationAudioFailure.create(
+                UUID.randomUUID(), SEGMENT_4_ID, VOICE_1_ID,
+                NarrationAudioOperation.INITIAL_GENERATION, NarrationAudioFailureStage.TTS_SYNTHESIS,
+                2L, "OldInitialFailure", NOW
+        );
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0, seg1, seg2, seg3));
+
+        List<UUID> segmentIds = List.of(SEGMENT_1_ID, SEGMENT_2_ID, SEGMENT_3_ID, SEGMENT_4_ID);
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(segmentIds, VOICE_1_ID))
+                .thenReturn(List.of(audio0, audio1, audio2));
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(segmentIds, VOICE_1_ID))
+                .thenReturn(List.of(ghostFailure0, currentFailure1, oldFailure2, oldFailure3));
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        // Verify counters
+        assertThat(result.totalSegments()).isEqualTo(4);
+        assertThat(result.readyCount()).isEqualTo(1);
+        assertThat(result.outdatedCount()).isEqualTo(2);
+        assertThat(result.missingCount()).isEqualTo(1);
+        assertThat(result.failedCount()).isEqualTo(0);
+
+        List<AdminChapterNarrationSegmentViewDTO> views = result.segments();
+
+        // Seg 0: READY + ghost failure -> diagnostics suppressed (null)
+        assertThat(views.get(0).healthStatus()).isEqualTo(ChapterNarrationAudioHealthStatus.READY);
+        assertThat(views.get(0).hasFailureDiagnostics()).isFalse();
+        assertThat(views.get(0).failureDiagnostics()).isNull();
+
+        // Seg 1: OUTDATED + current failure -> diagnostics present
+        assertThat(views.get(1).healthStatus()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(views.get(1).hasFailureDiagnostics()).isTrue();
+        assertThat(views.get(1).failureDiagnostics().errorType()).isEqualTo("CurrentFailure");
+        assertThat(views.get(1).failureDiagnostics().attemptedSynthesisRevision()).isEqualTo(3L);
+
+        // Seg 2: OUTDATED + old failure -> diagnostics suppressed (null)
+        assertThat(views.get(2).healthStatus()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(views.get(2).hasFailureDiagnostics()).isFalse();
+        assertThat(views.get(2).failureDiagnostics()).isNull();
+
+        // Seg 3: No audio + old failure -> MISSING + diagnostics suppressed (null)
+        assertThat(views.get(3).healthStatus()).isEqualTo(ChapterNarrationAudioHealthStatus.MISSING);
+        assertThat(views.get(3).hasFailureDiagnostics()).isFalse();
+        assertThat(views.get(3).failureDiagnostics()).isNull();
+    }
+
+    @Test
+    @DisplayName("12. Admin overview read use case performs no save or delete writes to any repository")
+    void shouldNeverPerformWritesOrDeletesDuringAdminOverview() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 2L);
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+
+        useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        verify(failureRepositoryPort, never()).save(any());
+        verify(failureRepositoryPort, never()).deleteSupersededBySuccessfulRevision(any(), any(), org.mockito.ArgumentMatchers.anyLong());
+        verify(segmentRepositoryPort, never()).save(any());
+        verify(segmentRepositoryPort, never()).saveAll(any());
+        verify(audioRepositoryPort, never()).save(any());
+        verify(audioRepositoryPort, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("13. All CURRENT segments READY -> readyCount correct, generationRequired = 0, no warning")
+    void shouldReportAllCurrentReadyWithZeroGenerationRequiredAndNoWarning() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+        ChapterNarrationSegment seg1 = createSegment(SEGMENT_2_ID, 1, "Đoạn 1");
+
+        ChapterNarrationAudio audio0 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+        ChapterNarrationAudio audio1 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_2_ID, 1L, NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0, seg1));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(Collections.emptyList());
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID, SEGMENT_2_ID), VOICE_1_ID))
+                .thenReturn(List.of(audio0, audio1));
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID, SEGMENT_2_ID), VOICE_1_ID))
+                .thenReturn(Collections.emptyList());
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.currentSegmentCount()).isEqualTo(2);
+        assertThat(result.totalSegments()).isEqualTo(2);
+        assertThat(result.readyCount()).isEqualTo(2);
+        assertThat(result.outdatedCount()).isEqualTo(0);
+        assertThat(result.missingCount()).isEqualTo(0);
+        assertThat(result.failedCount()).isEqualTo(0);
+        assertThat(result.currentGenerationRequiredCount()).isEqualTo(0);
+        assertThat(result.retiredSegmentCount()).isEqualTo(0);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(0);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(0);
+        assertThat(result.contentChangeWarning()).isFalse();
+
+        verify(audioRepositoryPort, never()).findBySegmentIdIn(any());
+    }
+
+    @Test
+    @DisplayName("14. Retired segments without audio -> retiredSegmentCount > 0, obsolete counts = 0, warning = false")
+    void shouldReportRetiredSegmentsWithoutAudioWithWarningFalse() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+        ChapterNarrationSegment retSeg1 = createSegment(SEGMENT_2_ID, 0, "Đoạn cũ 1");
+        retSeg1.retire(NOW);
+        ChapterNarrationSegment retSeg2 = createSegment(SEGMENT_3_ID, 1, "Đoạn cũ 2");
+        retSeg2.retire(NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(List.of(retSeg1, retSeg2));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(audioRepositoryPort.findBySegmentIdIn(List.of(SEGMENT_2_ID, SEGMENT_3_ID)))
+                .thenReturn(Collections.emptyList());
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.retiredSegmentCount()).isEqualTo(2);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(0);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(0);
+        assertThat(result.contentChangeWarning()).isFalse();
+    }
+
+    @Test
+    @DisplayName("15. Retired segment with one audio assignment -> obsoleteRetiredSegmentCount = 1, obsoleteRetiredAudioCount = 1, warning = true")
+    void shouldReportRetiredSegmentWithOneAudioAssignmentAndWarningTrue() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+        ChapterNarrationSegment retSeg = createSegment(SEGMENT_2_ID, 0, "Đoạn cũ");
+        retSeg.retire(NOW);
+
+        ChapterNarrationAudio oldAudio = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(List.of(retSeg));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(audioRepositoryPort.findBySegmentIdIn(List.of(SEGMENT_2_ID)))
+                .thenReturn(List.of(oldAudio));
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.retiredSegmentCount()).isEqualTo(1);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(1);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(1);
+        assertThat(result.contentChangeWarning()).isTrue();
+    }
+
+    @Test
+    @DisplayName("16. One retired segment with multiple managed-voice audio assignments -> obsoleteRetiredSegmentCount = 1, obsoleteRetiredAudioCount > 1")
+    void shouldReportOneRetiredSegmentWithMultipleManagedVoiceAudios() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice1 = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+        ChapterNarrationSegment retSeg = createSegment(SEGMENT_2_ID, 0, "Đoạn cũ");
+        retSeg.retire(NOW);
+
+        ChapterNarrationAudio oldAudioVoice1 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+        ChapterNarrationAudio oldAudioVoice2 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_2_ID, MEDIA_ASSET_2_ID, 1L, NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice1));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(List.of(retSeg));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(audioRepositoryPort.findBySegmentIdIn(List.of(SEGMENT_2_ID)))
+                .thenReturn(List.of(oldAudioVoice1, oldAudioVoice2));
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.retiredSegmentCount()).isEqualTo(1);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(1);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(2);
+        assertThat(result.contentChangeWarning()).isTrue();
+    }
+
+    @Test
+    @DisplayName("17. Multiple retired segments with audio -> distinct retired segment count correct and total audio count correct")
+    void shouldReportMultipleRetiredSegmentsWithAudioAndDistinctCounts() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_1_ID, 0, "Đoạn 0");
+        ChapterNarrationSegment retSeg1 = createSegment(SEGMENT_2_ID, 0, "Đoạn cũ 1");
+        retSeg1.retire(NOW);
+        ChapterNarrationSegment retSeg2 = createSegment(SEGMENT_3_ID, 1, "Đoạn cũ 2");
+        retSeg2.retire(NOW);
+        ChapterNarrationSegment retSeg3 = createSegment(SEGMENT_4_ID, 2, "Đoạn cũ 3 (không có audio)");
+        retSeg3.retire(NOW);
+
+        ChapterNarrationAudio audio1 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+        ChapterNarrationAudio audio2 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_2_ID, MEDIA_ASSET_2_ID, 1L, NOW);
+        ChapterNarrationAudio audio3 = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_3_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(List.of(retSeg1, retSeg2, retSeg3));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(audioRepositoryPort.findBySegmentIdIn(List.of(SEGMENT_2_ID, SEGMENT_3_ID, SEGMENT_4_ID)))
+                .thenReturn(List.of(audio1, audio2, audio3));
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.retiredSegmentCount()).isEqualTo(3);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(2);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(3);
+        assertThat(result.contentChangeWarning()).isTrue();
+    }
+
+    @Test
+    @DisplayName("18. CURRENT segment audio must NOT be counted as obsolete retired audio")
+    void shouldNotCountCurrentSegmentAudioAsObsoleteRetiredAudio() {
+        ChapterDTO chapter = createChapterDTO();
+        VolumeDTO volume = createVolumeDTO();
+        ManagedVoice voice = createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 1L);
+
+        ChapterNarrationSegment curSeg = createSegment(SEGMENT_1_ID, 0, "Đoạn hiện tại");
+        ChapterNarrationSegment retSeg = createSegment(SEGMENT_2_ID, 0, "Đoạn đã retire không có audio");
+        retSeg.retire(NOW);
+
+        ChapterNarrationAudio curAudio = ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_1_ID, 1L, NOW);
+
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(chapter);
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(volume);
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(voice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(curSeg));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                .thenReturn(List.of(retSeg));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(List.of(curAudio));
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_1_ID), VOICE_1_ID))
+                .thenReturn(Collections.emptyList());
+        when(audioRepositoryPort.findBySegmentIdIn(List.of(SEGMENT_2_ID)))
+                .thenReturn(Collections.emptyList());
+
+        GetAdminChapterNarrationOverviewResult result = useCase.execute(CHAPTER_ID, VOICE_1_ID);
+
+        assertThat(result.currentSegmentCount()).isEqualTo(1);
+        assertThat(result.readyCount()).isEqualTo(1);
+        assertThat(result.currentGenerationRequiredCount()).isEqualTo(0);
+        assertThat(result.retiredSegmentCount()).isEqualTo(1);
+        assertThat(result.obsoleteRetiredSegmentCount()).isEqualTo(0);
+        assertThat(result.obsoleteRetiredAudioCount()).isEqualTo(0);
+        assertThat(result.contentChangeWarning()).isFalse();
+    }
 }

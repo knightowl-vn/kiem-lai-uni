@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,11 +42,11 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("Should find audio assignment by ID")
+    @DisplayName("Should find audio assignment by ID and map version")
     void shouldFindById() {
         ChapterNarrationAudioJpaEntity entity = new ChapterNarrationAudioJpaEntity(
                 ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
-                1L, NOW, NOW
+                1L, 3L, NOW, NOW
         );
         when(repository.findById(ID.toString())).thenReturn(Optional.of(entity));
 
@@ -57,6 +58,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThat(result.get().getManagedVoiceId()).isEqualTo(VOICE_ID);
         assertThat(result.get().getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(result.get().getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(result.get().getVersion()).isEqualTo(3L);
     }
 
     @Test
@@ -70,7 +72,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     void shouldFindBySegmentIdAndManagedVoiceId() {
         ChapterNarrationAudioJpaEntity entity = new ChapterNarrationAudioJpaEntity(
                 ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
-                2L, NOW, NOW
+                2L, 0L, NOW, NOW
         );
         when(repository.findBySegmentIdAndManagedVoiceId(SEGMENT_ID.toString(), VOICE_ID.toString()))
                 .thenReturn(Optional.of(entity));
@@ -80,6 +82,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThat(result).isPresent();
         assertThat(result.get().getId()).isEqualTo(ID);
         assertThat(result.get().getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(result.get().getVersion()).isEqualTo(0L);
     }
 
     @Test
@@ -94,7 +97,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     void shouldFindBySegmentId() {
         ChapterNarrationAudioJpaEntity entity1 = new ChapterNarrationAudioJpaEntity(
                 ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
-                1L, NOW, NOW
+                1L, 0L, NOW, NOW
         );
         when(repository.findBySegmentId(SEGMENT_ID.toString())).thenReturn(List.of(entity1));
 
@@ -102,6 +105,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(ID);
+        assertThat(result.get(0).getVersion()).isEqualTo(0L);
     }
 
     @Test
@@ -109,7 +113,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     void shouldFindBySegmentIdInAndManagedVoiceId() {
         ChapterNarrationAudioJpaEntity entity1 = new ChapterNarrationAudioJpaEntity(
                 ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
-                1L, NOW, NOW
+                1L, 1L, NOW, NOW
         );
         when(repository.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID.toString()), VOICE_ID.toString()))
                 .thenReturn(List.of(entity1));
@@ -120,6 +124,7 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThat(result.get(0).getId()).isEqualTo(ID);
         assertThat(result.get(0).getSegmentId()).isEqualTo(SEGMENT_ID);
         assertThat(result.get(0).getManagedVoiceId()).isEqualTo(VOICE_ID);
+        assertThat(result.get(0).getVersion()).isEqualTo(1L);
     }
 
     @Test
@@ -131,15 +136,42 @@ class ChapterNarrationAudioPersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("Should save audio assignment and map to domain")
+    @DisplayName("Should find audio assignments across all voices by batch segmentIds")
+    void shouldFindBySegmentIdIn() {
+        ChapterNarrationAudioJpaEntity entity1 = new ChapterNarrationAudioJpaEntity(
+                ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
+                1L, 1L, NOW, NOW
+        );
+        when(repository.findBySegmentIdIn(List.of(SEGMENT_ID.toString())))
+                .thenReturn(List.of(entity1));
+
+        List<ChapterNarrationAudio> result = adapter.findBySegmentIdIn(List.of(SEGMENT_ID));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(ID);
+        assertThat(result.get(0).getSegmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(result.get(0).getManagedVoiceId()).isEqualTo(VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("Should return empty list when findBySegmentIdIn receives empty or null arguments")
+    void shouldReturnEmptyWhenFindBySegmentIdInReceivesEmptyOrNullArgs() {
+        assertThat(adapter.findBySegmentIdIn(null)).isEmpty();
+        assertThat(adapter.findBySegmentIdIn(List.of())).isEmpty();
+        assertThat(adapter.findBySegmentIdIn(Collections.singletonList(null))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should save new audio assignment and map null version to entity")
     void shouldSaveAndMapToDomain() {
         ChapterNarrationAudio domain = ChapterNarrationAudio.create(
                 ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
         );
+        assertThat(domain.getVersion()).isNull();
 
         ChapterNarrationAudioJpaEntity savedEntity = new ChapterNarrationAudioJpaEntity(
                 ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
-                1L, NOW, NOW
+                1L, 0L, NOW, NOW
         );
         when(repository.saveAndFlush(any(ChapterNarrationAudioJpaEntity.class))).thenReturn(savedEntity);
 
@@ -154,8 +186,34 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThat(captured.getManagedVoiceId()).isEqualTo(VOICE_ID.toString());
         assertThat(captured.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID.toString());
         assertThat(captured.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(captured.getVersion()).isNull();
 
         assertThat(saved.getId()).isEqualTo(ID);
+        assertThat(saved.getVersion()).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("Should save existing rehydrated audio assignment and preserve version on entity")
+    void shouldSaveExistingAudioAssignmentPreservingVersion() {
+        ChapterNarrationAudio domain = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 2L, NOW, NOW
+        );
+        assertThat(domain.getVersion()).isEqualTo(2L);
+
+        ChapterNarrationAudioJpaEntity savedEntity = new ChapterNarrationAudioJpaEntity(
+                ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
+                1L, 3L, NOW, NOW
+        );
+        when(repository.saveAndFlush(any(ChapterNarrationAudioJpaEntity.class))).thenReturn(savedEntity);
+
+        ChapterNarrationAudio saved = adapter.save(domain);
+
+        ArgumentCaptor<ChapterNarrationAudioJpaEntity> captor = ArgumentCaptor.forClass(ChapterNarrationAudioJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+
+        ChapterNarrationAudioJpaEntity captured = captor.getValue();
+        assertThat(captured.getVersion()).isEqualTo(2L);
+        assertThat(saved.getVersion()).isEqualTo(3L);
     }
 
     @Test
@@ -199,4 +257,39 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThatThrownBy(() -> adapter.save(domain))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
+
+    @Test
+    @DisplayName("Should delete audio assignment by ID")
+    void shouldDeleteById() {
+        adapter.deleteById(ID);
+
+        verify(repository).deleteById(ID.toString());
+        verify(repository).flush();
+    }
+
+    @Test
+    @DisplayName("Should safely handle deleteById when ID is null")
+    void shouldHandleDeleteByIdNull() {
+        adapter.deleteById(null);
+
+        verify(repository, org.mockito.Mockito.never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("Should check if media asset is referenced excluding given audio ID")
+    void shouldCheckExistsOtherReferenceToMediaAsset() {
+        when(repository.existsByMediaAssetIdAndIdNot(MEDIA_ASSET_ID.toString(), ID.toString())).thenReturn(true);
+
+        boolean exists = adapter.existsOtherReferenceToMediaAsset(MEDIA_ASSET_ID, ID);
+
+        assertThat(exists).isTrue();
+        verify(repository).existsByMediaAssetIdAndIdNot(MEDIA_ASSET_ID.toString(), ID.toString());
+    }
+
+    @Test
+    @DisplayName("Should return false when mediaAssetId is null in existsOtherReferenceToMediaAsset")
+    void shouldReturnFalseWhenMediaAssetIdNull() {
+        assertThat(adapter.existsOtherReferenceToMediaAsset(null, ID)).isFalse();
+    }
 }
+

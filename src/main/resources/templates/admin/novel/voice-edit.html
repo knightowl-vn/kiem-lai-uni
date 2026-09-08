@@ -59,6 +59,14 @@
 								<span th:if="${voice.defaultVoice}" class="novel-admin-badge-default">Mặc định</span>
 								<span style="font-size: 12px; color: var(--text-secondary);"
 									th:text="|Revision: v${voice.synthesisRevision}|">Revision: v1</span>
+								<span class="novel-admin-order-badge" style="font-size: 11px;"
+									th:text="|Thứ tự: ${voice.displayOrder}|">Thứ tự: 1</span>
+							</div>
+							<div style="margin-top: 6px; font-size: 12px; color: var(--text-secondary); display: flex; gap: 12px; flex-wrap: wrap;">
+								<span th:if="${voice.createdAt != null}"
+									th:text="|Ngày tạo: ${#temporals.format(voice.createdAt, 'dd/MM/yyyy HH:mm')}|">Ngày tạo: 19/08/2026 18:00</span>
+								<span th:if="${voice.updatedAt != null}"
+									th:text="|Cập nhật lần cuối: ${#temporals.format(voice.updatedAt, 'dd/MM/yyyy HH:mm')}|">Cập nhật lần cuối: 19/08/2026 18:00</span>
 							</div>
 						</div>
 

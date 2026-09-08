@@ -6,8 +6,12 @@ import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFound
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.AdminGenerateChapterNarrationAudioUseCase;
+import com.universe.novel.application.narration.AdminNarrationDispatchResult;
+import com.universe.novel.application.narration.AdminNarrationGenerationDispatcher;
 import com.universe.novel.application.narration.AdminRegenerateChapterNarrationAudioUseCase;
 import com.universe.novel.application.narration.GenerateChapterNarrationAudioResult;
+import com.universe.novel.application.narration.GetAdminChapterNarrationOverviewResult;
+import com.universe.novel.application.narration.GetAdminChapterNarrationOverviewUseCase;
 import com.universe.novel.application.narration.RegenerateChapterNarrationAudioResult;
 import com.universe.shared.exceptions.BaseApplicationException;
 import org.slf4j.Logger;
@@ -23,29 +27,115 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Controller handling Admin POST actions for chapter narration audio generation and regeneration (MS-04.9H.6B, MS-04.9H.6B1).
+ * Controller handling Admin POST actions for chapter narration audio generation, regeneration,
+ * and whole-chapter asynchronous generation dispatch (MS-04.9H.6B, MS-04.9H.6B1, MS-04.9H.7D4B).
  */
 @Controller
-@RequestMapping("/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}")
+@RequestMapping("/admin/novel/chapters/{chapterId}/narration")
 public class AdminNovelChapterNarrationCommandController {
 
     private static final Logger log = LoggerFactory.getLogger(AdminNovelChapterNarrationCommandController.class);
 
     private final AdminGenerateChapterNarrationAudioUseCase generateUseCase;
     private final AdminRegenerateChapterNarrationAudioUseCase regenerateUseCase;
+    private final AdminNarrationGenerationDispatcher dispatcher;
+    private final GetAdminChapterNarrationOverviewUseCase overviewUseCase;
 
     public AdminNovelChapterNarrationCommandController(
             AdminGenerateChapterNarrationAudioUseCase generateUseCase,
-            AdminRegenerateChapterNarrationAudioUseCase regenerateUseCase
+            AdminRegenerateChapterNarrationAudioUseCase regenerateUseCase,
+            AdminNarrationGenerationDispatcher dispatcher,
+            GetAdminChapterNarrationOverviewUseCase overviewUseCase
     ) {
         this.generateUseCase = Objects.requireNonNull(generateUseCase, "generateUseCase must not be null");
         this.regenerateUseCase = Objects.requireNonNull(regenerateUseCase, "regenerateUseCase must not be null");
+        this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
+        this.overviewUseCase = Objects.requireNonNull(overviewUseCase, "overviewUseCase must not be null");
+    }
+
+    /**
+     * POST /admin/novel/chapters/{chapterId}/narration/generate-all
+     */
+    @PostMapping("/generate-all")
+    public String generateAllAudio(
+            @PathVariable UUID chapterId,
+            @RequestParam(name = "managedVoiceId", required = false) UUID managedVoiceId,
+            RedirectAttributes redirectAttributes
+    ) {
+        if (managedVoiceId == null) {
+            redirectAttributes.addFlashAttribute(
+                    "errorMessage",
+                    "Vui lòng chọn một giọng đọc hợp lệ để tạo audio."
+            );
+            return buildRedirectUrl(chapterId, null);
+        }
+
+        try {
+            // 1. Validate chapter & voice through existing overview/read path
+            GetAdminChapterNarrationOverviewResult overview = overviewUseCase.execute(chapterId, managedVoiceId);
+
+            // 2. Require Chapter PUBLISHED
+            if (!"PUBLISHED".equalsIgnoreCase(overview.chapter().status())) {
+                redirectAttributes.addFlashAttribute(
+                        "errorMessage",
+                        "Chỉ có thể tạo giọng đọc cho chương đã xuất bản (PUBLISHED)."
+                );
+                return buildRedirectUrl(chapterId, managedVoiceId);
+            }
+
+            // 3. Require selected Managed Voice ACTIVE
+            if (overview.selectedVoice() == null || !"ACTIVE".equalsIgnoreCase(overview.selectedVoice().status())) {
+                redirectAttributes.addFlashAttribute(
+                        "errorMessage",
+                        "Giọng đọc đang ở trạng thái không thể tạo audio."
+                );
+                return buildRedirectUrl(chapterId, managedVoiceId);
+            }
+
+            // 4. Delegate only to AdminNarrationGenerationDispatcher
+            AdminNarrationDispatchResult dispatchResult = dispatcher.dispatch(chapterId, managedVoiceId);
+
+            switch (dispatchResult.status()) {
+                case STARTED -> redirectAttributes.addFlashAttribute(
+                        "successMessage",
+                        dispatchResult.message()
+                );
+                case ALREADY_RUNNING -> redirectAttributes.addFlashAttribute(
+                        "infoMessage",
+                        dispatchResult.message()
+                );
+                case REJECTED, FAILED -> redirectAttributes.addFlashAttribute(
+                        "errorMessage",
+                        dispatchResult.message()
+                );
+            }
+
+        } catch (ManagedVoiceNotFoundException ex) {
+            redirectAttributes.addFlashAttribute(
+                    "errorMessage",
+                    "Không tìm thấy giọng đọc được chỉ định."
+            );
+        } catch (ManagedVoiceInvalidStateException ex) {
+            redirectAttributes.addFlashAttribute(
+                    "errorMessage",
+                    "Giọng đọc đang ở trạng thái không thể tạo audio."
+            );
+        } catch (BaseApplicationException ex) {
+            log.error("Operational failure dispatching whole-chapter narration generation for chapter {}, voice {}",
+                    chapterId, managedVoiceId, ex);
+            redirectAttributes.addFlashAttribute(
+                    "errorMessage",
+                    "Không thể khởi chạy tiến trình tạo giọng đọc do lỗi hệ thống."
+            );
+        }
+
+        return buildRedirectUrl(chapterId, managedVoiceId);
     }
 
     /**
      * POST /admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate
      */
-    @PostMapping("/generate")
+    @PostMapping("/segments/{segmentId}/generate")
     public String generateAudio(
             @PathVariable UUID chapterId,
             @PathVariable UUID segmentId,
@@ -111,7 +201,7 @@ public class AdminNovelChapterNarrationCommandController {
     /**
      * POST /admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/regenerate
      */
-    @PostMapping("/regenerate")
+    @PostMapping("/segments/{segmentId}/regenerate")
     public String regenerateAudio(
             @PathVariable UUID chapterId,
             @PathVariable UUID segmentId,

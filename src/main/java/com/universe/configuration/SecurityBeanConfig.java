@@ -103,6 +103,12 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/novel/chapters/*/narration/segments/*/prepare"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 "/novel/bookmarks",
                                 "/novel/bookmarks/**",
                                 "/novel/history",

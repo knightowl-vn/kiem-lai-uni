@@ -128,63 +128,42 @@ public class GetAdminChapterNarrationOverviewUseCase {
                 ChapterNarrationAudio audio = audioBySegmentId.get(segment.getId());
                 ChapterNarrationAudioFailure failure = failureBySegmentId.get(segment.getId());
 
-                NarrationAudioFailureDiagnosticsDTO failureDto = failure != null ? new NarrationAudioFailureDiagnosticsDTO(
-                        failure.getOperation(),
-                        failure.getStage(),
-                        failure.getAttemptedSynthesisRevision(),
-                        failure.getFailureCount(),
-                        failure.getErrorType(),
-                        failure.getErrorMessage(),
-                        failure.getFirstFailedAt(),
-                        failure.getLastFailedAt()
-                ) : null;
+                ChapterNarrationAudioHealthResolution resolution =
+                        ChapterNarrationAudioHealthResolver.resolve(audio, failure, currentVoiceRevision);
 
-                ChapterNarrationAudioHealthStatus healthStatus;
-
-                if (audio != null) {
-                    boolean compatible = audio.isCompatibleWith(currentVoiceRevision);
-                    if (compatible) {
-                        healthStatus = ChapterNarrationAudioHealthStatus.READY;
-                        readyCount++;
-                    } else {
-                        healthStatus = ChapterNarrationAudioHealthStatus.OUTDATED;
-                        outdatedCount++;
-                    }
-
-                    segmentViews.add(new AdminChapterNarrationSegmentViewDTO(
-                            segment.getId(),
-                            segment.getSegmentIndex(),
-                            segment.getText(),
-                            segment.getCharacterCount(),
-                            healthStatus,
-                            audio.getId(),
-                            audio.getMediaAssetId(),
-                            audio.getGeneratedSynthesisRevision(),
-                            currentVoiceRevision,
-                            failureDto
-                    ));
-                } else {
-                    if (failure != null) {
-                        healthStatus = ChapterNarrationAudioHealthStatus.FAILED;
-                        failedCount++;
-                    } else {
-                        healthStatus = ChapterNarrationAudioHealthStatus.MISSING;
-                        missingCount++;
-                    }
-
-                    segmentViews.add(new AdminChapterNarrationSegmentViewDTO(
-                            segment.getId(),
-                            segment.getSegmentIndex(),
-                            segment.getText(),
-                            segment.getCharacterCount(),
-                            healthStatus,
-                            null,
-                            null,
-                            null,
-                            currentVoiceRevision,
-                            failureDto
-                    ));
+                ChapterNarrationAudioHealthStatus healthStatus = resolution.status();
+                switch (healthStatus) {
+                    case READY -> readyCount++;
+                    case OUTDATED -> outdatedCount++;
+                    case FAILED -> failedCount++;
+                    case MISSING -> missingCount++;
                 }
+
+                NarrationAudioFailureDiagnosticsDTO failureDto = resolution.relevantFailure() != null
+                        ? new NarrationAudioFailureDiagnosticsDTO(
+                                resolution.relevantFailure().getOperation(),
+                                resolution.relevantFailure().getStage(),
+                                resolution.relevantFailure().getAttemptedSynthesisRevision(),
+                                resolution.relevantFailure().getFailureCount(),
+                                resolution.relevantFailure().getErrorType(),
+                                resolution.relevantFailure().getErrorMessage(),
+                                resolution.relevantFailure().getFirstFailedAt(),
+                                resolution.relevantFailure().getLastFailedAt()
+                        )
+                        : null;
+
+                segmentViews.add(new AdminChapterNarrationSegmentViewDTO(
+                        segment.getId(),
+                        segment.getSegmentIndex(),
+                        segment.getText(),
+                        segment.getCharacterCount(),
+                        healthStatus,
+                        audio != null ? audio.getId() : null,
+                        audio != null ? audio.getMediaAssetId() : null,
+                        audio != null ? audio.getGeneratedSynthesisRevision() : null,
+                        currentVoiceRevision,
+                        failureDto
+                ));
             }
         } else {
             // No managed voice exists: zero per-voice health counters, no invented health
@@ -204,6 +183,37 @@ public class GetAdminChapterNarrationOverviewUseCase {
                     .toList();
         }
 
+        // 6. Load RETIRED narration segments and calculate obsolete retired audio diagnostics
+        List<ChapterNarrationSegment> retiredSegments = segmentRepositoryPort.findByChapterIdAndStatus(
+                chapterId,
+                ChapterNarrationSegmentStatus.RETIRED
+        );
+
+        int retiredSegmentCount = retiredSegments.size();
+        int obsoleteRetiredSegmentCount = 0;
+        int obsoleteRetiredAudioCount = 0;
+        boolean contentChangeWarning = false;
+
+        if (!retiredSegments.isEmpty()) {
+            List<UUID> retiredSegmentIds = retiredSegments.stream()
+                    .map(ChapterNarrationSegment::getId)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            if (!retiredSegmentIds.isEmpty()) {
+                List<ChapterNarrationAudio> retiredAudios = audioRepositoryPort.findBySegmentIdIn(retiredSegmentIds);
+                obsoleteRetiredAudioCount = retiredAudios.size();
+                obsoleteRetiredSegmentCount = (int) retiredAudios.stream()
+                        .map(ChapterNarrationAudio::getSegmentId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .count();
+                contentChangeWarning = obsoleteRetiredAudioCount > 0;
+            }
+        }
+
+        int currentGenerationRequiredCount = outdatedCount + missingCount + failedCount;
+
         return new GetAdminChapterNarrationOverviewResult(
                 chapter,
                 volume,
@@ -214,7 +224,12 @@ public class GetAdminChapterNarrationOverviewUseCase {
                 readyCount,
                 outdatedCount,
                 missingCount,
-                failedCount
+                failedCount,
+                currentGenerationRequiredCount,
+                retiredSegmentCount,
+                obsoleteRetiredSegmentCount,
+                obsoleteRetiredAudioCount,
+                contentChangeWarning
         );
     }
 

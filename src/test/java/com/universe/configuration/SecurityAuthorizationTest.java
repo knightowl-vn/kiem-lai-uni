@@ -92,7 +92,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         AdminNovelVolumePageController.class,
         AdminNovelProfilePageController.class,
         AdminNovelProfileCommandController.class,
-        MediaDeliveryController.class
+        MediaDeliveryController.class,
+        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -187,6 +188,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
+
+    @MockBean
+    private com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -486,5 +490,63 @@ class SecurityAuthorizationTest {
 
         mockMvc.perform(get("/novel/api/wiki/lookup").param("q", "kiem-lai"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh có thể truy cập POST /api/novel/chapters/{chapterId}/narration/segments/{segmentId}/prepare với CSRF")
+    void shouldAllowAnonymousAccessToNarrationPrepareEndpoint() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        UUID segmentId = UUID.randomUUID();
+        String voiceKey = "kiemlai-male-01";
+
+        com.universe.novel.application.narration.PrepareReaderNarrationSegmentResult immediateResult =
+                new com.universe.novel.application.narration.PrepareReaderNarrationSegmentResult(
+                        chapterId,
+                        segmentId,
+                        0,
+                        UUID.randomUUID(),
+                        com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus.READY,
+                        com.universe.novel.application.narration.ReaderNarrationPreparationAction.PLAY_NOW,
+                        com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus.READY,
+                        com.universe.novel.application.narration.PrepareReaderNarrationSegmentOutcome.PLAYABLE_CACHED,
+                        UUID.randomUUID(),
+                        false,
+                        false
+                );
+        com.universe.novel.application.narration.PrepareReaderNarrationPlaybackResult internalResult =
+                new com.universe.novel.application.narration.PrepareReaderNarrationPlaybackResult(
+                        immediateResult,
+                        com.universe.novel.application.narration.ReaderNarrationContinuationDispatchStatus.SCHEDULED
+                );
+        com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult publicResult =
+                new com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult(
+                        internalResult,
+                        voiceKey
+                );
+
+        when(preparePublicPlaybackUseCase.execute(any(com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand.class)))
+                .thenReturn(publicResult);
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/segments/" + segmentId + "/prepare")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập POST /playback alias không hợp lệ")
+    void shouldRedirectAnonymousWhenAccessingInvalidPlaybackAlias() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        UUID segmentId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/segments/" + segmentId + "/playback")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"kiemlai-male-01\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
     }
 }

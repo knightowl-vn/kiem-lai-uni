@@ -200,8 +200,8 @@ class GetChapterNarrationAudioHealthUseCaseTest {
     }
 
     @Test
-    @DisplayName("4. Derives READY (compatible wins) even if stale failure record exists")
-    void shouldDeriveReadyWhenCompatibleEvenWithStaleFailureRecord() {
+    @DisplayName("4. Derives READY and suppresses ghost/stale failure record when audio is compatible")
+    void shouldDeriveReadyAndSuppressGhostFailureWhenAudioCompatible() {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
@@ -224,8 +224,7 @@ class GetChapterNarrationAudioHealthUseCaseTest {
 
         assertThat(result.status()).isEqualTo(ChapterNarrationAudioHealthStatus.READY);
         assertThat(result.assignmentId()).isEqualTo(AUDIO_ID);
-        assertThat(result.lastFailure()).isNotNull();
-        assertThat(result.lastFailure().attemptedSynthesisRevision()).isEqualTo(1L);
+        assertThat(result.lastFailure()).isNull();
     }
 
     @Test
@@ -367,5 +366,84 @@ class GetChapterNarrationAudioHealthUseCaseTest {
 
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("12. Derives OUTDATED and suppresses failure diagnostic when failure belongs to older revision")
+    void shouldDeriveOutdatedAndSuppressOldFailureDiagnostic() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createVoice(3L, ManagedVoiceStatus.ACTIVE);
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
+        );
+        ChapterNarrationAudioFailure oldFailure = createFailure(
+                NarrationAudioOperation.REGENERATION,
+                NarrationAudioFailureStage.TTS_SYNTHESIS,
+                2L // older than current voice revision 3
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(oldFailure));
+
+        GetChapterNarrationAudioHealthResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(result.lastFailure()).isNull();
+    }
+
+    @Test
+    @DisplayName("13. Derives MISSING and suppresses failure diagnostic when no audio exists and failure is from an older revision")
+    void shouldDeriveMissingAndSuppressOldFailureWhenNoAudio() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
+        ChapterNarrationAudioFailure oldFailure = createFailure(
+                NarrationAudioOperation.INITIAL_GENERATION,
+                NarrationAudioFailureStage.TTS_SYNTHESIS,
+                1L // older than current voice revision 2
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(oldFailure));
+
+        GetChapterNarrationAudioHealthResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.status()).isEqualTo(ChapterNarrationAudioHealthStatus.MISSING);
+        assertThat(result.lastFailure()).isNull();
+    }
+
+    @Test
+    @DisplayName("14. Read use case performs no save or delete writes to failure repository")
+    void shouldNeverPerformWritesOrDeletesDuringHealthQuery() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+        );
+        ChapterNarrationAudioFailure ghostFailure = createFailure(
+                NarrationAudioOperation.REGENERATION,
+                NarrationAudioFailureStage.MEDIA_UPLOAD,
+                1L
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(ghostFailure));
+
+        useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        org.mockito.Mockito.verify(failureRepositoryPort, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(failureRepositoryPort, org.mockito.Mockito.never())
+                .deleteSupersededBySuccessfulRevision(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
     }
 }

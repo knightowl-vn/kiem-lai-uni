@@ -12,6 +12,15 @@ import com.universe.novel.application.narration.GenerateChapterNarrationAudioRes
 import com.universe.novel.application.narration.NarrationAudioGenerationOutcome;
 import com.universe.novel.application.narration.RegenerateChapterNarrationAudioResult;
 import com.universe.novel.application.narration.RegenerateNarrationAudioOutcome;
+import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.narration.AdminNarrationDispatchResult;
+import com.universe.novel.application.narration.AdminNarrationGenerationDispatcher;
+import com.universe.novel.application.narration.AdminNarrationOperationState;
+import com.universe.novel.application.narration.GetAdminChapterNarrationOverviewResult;
+import com.universe.novel.application.narration.GetAdminChapterNarrationOverviewUseCase;
+import com.universe.novel.application.voice.dto.ManagedVoiceDTO;
+import com.universe.novel.contracts.dto.ChapterDTO;
+import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.shared.exceptions.BaseApplicationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +30,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -45,11 +56,19 @@ class AdminNovelChapterNarrationCommandControllerTest {
     @Mock
     private AdminRegenerateChapterNarrationAudioUseCase regenerateUseCase;
 
+    @Mock
+    private AdminNarrationGenerationDispatcher dispatcher;
+
+    @Mock
+    private GetAdminChapterNarrationOverviewUseCase overviewUseCase;
+
     private AdminNovelChapterNarrationCommandController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new AdminNovelChapterNarrationCommandController(generateUseCase, regenerateUseCase);
+        controller = new AdminNovelChapterNarrationCommandController(
+                generateUseCase, regenerateUseCase, dispatcher, overviewUseCase
+        );
     }
 
     @Test
@@ -289,4 +308,228 @@ class AdminNovelChapterNarrationCommandControllerTest {
                 .isEqualTo("Vui lòng chọn một giọng đọc hợp lệ để tái tạo audio.");
         verify(regenerateUseCase, never()).execute(CHAPTER_ID, SEGMENT_ID, null);
     }
+
+    private GetAdminChapterNarrationOverviewResult createOverview(String chapterStatus, String voiceStatus) {
+        ChapterDTO chapter = new ChapterDTO(
+                CHAPTER_ID,
+                UUID.randomUUID(),
+                1,
+                "Chương Một",
+                "chuong-mot",
+                "Tóm tắt",
+                "Nội dung",
+                chapterStatus,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                null,
+                Instant.now(),
+                Instant.now(),
+                Instant.now(),
+                null,
+                1L,
+                1L
+        );
+        VolumeDTO volume = new VolumeDTO(
+                UUID.randomUUID(),
+                "Quyển Một",
+                "quyen-mot",
+                "Tóm tắt",
+                1,
+                "PUBLISHED",
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                null,
+                null,
+                Instant.now(),
+                Instant.now(),
+                Instant.now(),
+                null,
+                1L
+        );
+        ManagedVoiceDTO voice = new ManagedVoiceDTO(
+                VOICE_ID,
+                "kiemlai-male-01",
+                "Minh Đức",
+                "minh-duc",
+                voiceStatus,
+                1,
+                true,
+                1L,
+                Instant.now(),
+                Instant.now()
+        );
+
+        return new GetAdminChapterNarrationOverviewResult(
+                chapter,
+                volume,
+                List.of(voice),
+                voice,
+                List.of(),
+                1,
+                0,
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                false
+        );
+    }
+
+    @Test
+    @DisplayName("16. Valid PUBLISHED chapter + ACTIVE voice dispatches async generation, sets success flash on STARTED, and redirects to ?voiceId=")
+    void shouldDispatchWholeChapterGenerationWhenPublishedAndVoiceActive() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("PUBLISHED", "ACTIVE");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        AdminNarrationOperationState runningState = AdminNarrationOperationState.running(CHAPTER_ID, VOICE_ID, Instant.now());
+        AdminNarrationDispatchResult dispatchResult = AdminNarrationDispatchResult.started(runningState);
+        when(dispatcher.dispatch(CHAPTER_ID, VOICE_ID)).thenReturn(dispatchResult);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                .isEqualTo(dispatchResult.message());
+        verify(overviewUseCase).execute(CHAPTER_ID, VOICE_ID);
+        verify(dispatcher).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("17. Non-PUBLISHED chapter is rejected before dispatch and never enters dispatcher")
+    void shouldRejectGenerateAllWhenChapterNotPublished() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("DRAFT", "ACTIVE");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Chỉ có thể tạo giọng đọc cho chương đã xuất bản (PUBLISHED).");
+        verify(overviewUseCase).execute(CHAPTER_ID, VOICE_ID);
+        verify(dispatcher, never()).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("18. Inactive voice is rejected before dispatch and never enters dispatcher")
+    void shouldRejectGenerateAllWhenVoiceInactive() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("PUBLISHED", "DISABLED");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Giọng đọc đang ở trạng thái không thể tạo audio.");
+        verify(overviewUseCase).execute(CHAPTER_ID, VOICE_ID);
+        verify(dispatcher, never()).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("19. Non-existent voice is caught from overview and never enters dispatcher")
+    void shouldRejectGenerateAllWhenVoiceNotFound() {
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID))
+                .thenThrow(new ManagedVoiceNotFoundException(VOICE_ID));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không tìm thấy giọng đọc được chỉ định.");
+        verify(dispatcher, never()).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("20. Non-existent chapter is caught from overview and never enters dispatcher")
+    void shouldRejectGenerateAllWhenChapterNotFound() {
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID))
+                .thenThrow(new ChapterNotFoundException(CHAPTER_ID));
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không thể khởi chạy tiến trình tạo giọng đọc do lỗi hệ thống.");
+        verify(dispatcher, never()).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("21. Null voiceId parameter on generateAll returns error flash without calling overview or dispatcher")
+    void shouldRejectNullVoiceIdOnGenerateAll() {
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, null, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Vui lòng chọn một giọng đọc hợp lệ để tạo audio.");
+        verify(overviewUseCase, never()).execute(CHAPTER_ID, null);
+        verify(dispatcher, never()).dispatch(CHAPTER_ID, null);
+    }
+
+    @Test
+    @DisplayName("22. ALREADY_RUNNING dispatch result sets info flash message")
+    void shouldHandleAlreadyRunningDispatchResult() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("PUBLISHED", "ACTIVE");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        AdminNarrationOperationState runningState = AdminNarrationOperationState.running(CHAPTER_ID, VOICE_ID, Instant.now());
+        AdminNarrationDispatchResult dispatchResult = AdminNarrationDispatchResult.alreadyRunning(runningState);
+        when(dispatcher.dispatch(CHAPTER_ID, VOICE_ID)).thenReturn(dispatchResult);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("infoMessage"))
+                .isEqualTo(dispatchResult.message());
+    }
+
+    @Test
+    @DisplayName("23. REJECTED dispatch result sets error flash message")
+    void shouldHandleRejectedDispatchResult() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("PUBLISHED", "ACTIVE");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        AdminNarrationOperationState failedState = AdminNarrationOperationState.failed(
+                CHAPTER_ID, VOICE_ID, Instant.now(), Instant.now(), "Hàng đợi đầy"
+        );
+        AdminNarrationDispatchResult dispatchResult = AdminNarrationDispatchResult.rejected(failedState);
+        when(dispatcher.dispatch(CHAPTER_ID, VOICE_ID)).thenReturn(dispatchResult);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo(dispatchResult.message());
+    }
+
+    @Test
+    @DisplayName("24. FAILED dispatch result sets error flash message")
+    void shouldHandleFailedDispatchResult() {
+        GetAdminChapterNarrationOverviewResult overview = createOverview("PUBLISHED", "ACTIVE");
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(overview);
+
+        AdminNarrationOperationState failedState = AdminNarrationOperationState.failed(
+                CHAPTER_ID, VOICE_ID, Instant.now(), Instant.now(), "Không thể khởi chạy"
+        );
+        AdminNarrationDispatchResult dispatchResult = AdminNarrationDispatchResult.failed(failedState, "Không thể khởi chạy");
+        when(dispatcher.dispatch(CHAPTER_ID, VOICE_ID)).thenReturn(dispatchResult);
+
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+        String view = controller.generateAllAudio(CHAPTER_ID, VOICE_ID, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Không thể khởi chạy");
+    }
 }
+

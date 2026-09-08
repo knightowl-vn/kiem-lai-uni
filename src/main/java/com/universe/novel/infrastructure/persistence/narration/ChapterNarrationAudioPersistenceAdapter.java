@@ -71,6 +71,24 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
                 .toList();
     }
 
+    @Override
+    public List<ChapterNarrationAudio> findBySegmentIdIn(Collection<UUID> segmentIds) {
+        if (segmentIds == null || segmentIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> segmentIdStrings = segmentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (segmentIdStrings.isEmpty()) {
+            return List.of();
+        }
+        return repository.findBySegmentIdIn(segmentIdStrings)
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
     private static final String UQ_SEGMENT_VOICE = "uq_novel_chapter_narration_audio_segment_voice";
 
     @Override
@@ -114,6 +132,26 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
         }
     }
 
+    @Override
+    public void deleteById(UUID id) {
+        if (id == null) {
+            return;
+        }
+        repository.deleteById(id.toString());
+        repository.flush();
+    }
+
+    @Override
+    public boolean existsOtherReferenceToMediaAsset(UUID mediaAssetId, UUID excludingAudioAssignmentId) {
+        if (mediaAssetId == null) {
+            return false;
+        }
+        if (excludingAudioAssignmentId == null) {
+            return repository.existsByMediaAssetId(mediaAssetId.toString());
+        }
+        return repository.existsByMediaAssetIdAndIdNot(mediaAssetId.toString(), excludingAudioAssignmentId.toString());
+    }
+
     private boolean isConstraintViolation(DataIntegrityViolationException ex, String targetConstraint) {
         String target = targetConstraint.toLowerCase();
         Throwable current = ex;
@@ -140,6 +178,7 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
                 domain.getManagedVoiceId().toString(),
                 domain.getMediaAssetId().toString(),
                 domain.getGeneratedSynthesisRevision(),
+                domain.getVersion(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt()
         );
@@ -152,6 +191,7 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
                 UUID.fromString(entity.getManagedVoiceId()),
                 UUID.fromString(entity.getMediaAssetId()),
                 entity.getGeneratedSynthesisRevision(),
+                entity.getVersion(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );

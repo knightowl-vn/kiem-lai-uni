@@ -26,6 +26,11 @@
     <link rel="stylesheet"
           th:href="@{/css/novel/reader.css}">
 
+    <meta name="_csrf"
+          th:content="${_csrf.token}">
+    <meta name="_csrf_header"
+          th:content="${_csrf.headerName}">
+
     <link rel="stylesheet"
           th:href="@{/css/novel/reader-wiki-lookup.css}">
 </head>
@@ -332,6 +337,7 @@
          ===================================================== -->
     <section class="novel-narration-player"
              id="novelNarrationPlayer"
+             th:attr="data-chapter-id=${chapter.id},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
              aria-label="Trình phát giọng đọc">
 
         <!-- Chunk Progress Bar (Interactive Seek Slider) -->
@@ -400,6 +406,26 @@
                     </svg>
                 </button>
 
+                <!-- Rewind 5 Seconds (Managed Audio only) -->
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--seek"
+                        id="novelNarrationRewindBtn"
+                        aria-label="Lùi 5 giây"
+                        title="Lùi 5 giây">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="16"
+                         height="16"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"></path>
+                    </svg>
+                </button>
+
                 <!-- Play / Pause -->
                 <button type="button"
                         class="novel-narration-btn novel-narration-btn--play"
@@ -425,6 +451,26 @@
                          style="display: none;">
                         <rect x="6" y="4" width="4" height="16"></rect>
                         <rect x="14" y="4" width="4" height="16"></rect>
+                    </svg>
+                </button>
+
+                <!-- Forward 5 Seconds (Managed Audio only) -->
+                <button type="button"
+                        class="novel-narration-btn novel-narration-btn--seek"
+                        id="novelNarrationForwardBtn"
+                        aria-label="Tua nhanh 5 giây"
+                        title="Tua nhanh 5 giây">
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         viewBox="0 0 24 24"
+                         width="16"
+                         height="16"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <path d="M13 17l5-5-5-5M6 17l5-5-5-5"></path>
                     </svg>
                 </button>
 
@@ -560,6 +606,21 @@
                     <span class="novel-reading-toggle-switch"
                           aria-hidden="true"></span>
                     <span class="novel-reading-toggle-text">Tự động sang chương</span>
+                </label>
+            </div>
+
+            <!-- Device Fallback Toggle (MS-04.9H.7D8) -->
+            <div class="novel-narration-setting-row">
+                <label class="novel-reading-toggle-label"
+                       for="novelNarrationFallbackToggle">
+                    <input type="checkbox"
+                           id="novelNarrationFallbackToggle"
+                           class="novel-reading-toggle-checkbox"
+                           role="switch"
+                           aria-checked="false">
+                    <span class="novel-reading-toggle-switch"
+                          aria-hidden="true"></span>
+                    <span class="novel-reading-toggle-text">Tự dùng Giọng thiết bị khi Giọng Kiếm Lai không khả dụng</span>
                 </label>
             </div>
 

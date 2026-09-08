@@ -47,6 +47,14 @@ public interface ChapterNarrationAudioRepositoryPort {
     List<ChapterNarrationAudio> findBySegmentIdInAndManagedVoiceId(Collection<UUID> segmentIds, UUID managedVoiceId);
 
     /**
+     * Batch-finds all audio assignments for the specified segment IDs across all voices.
+     *
+     * @param segmentIds the collection of segment IDs
+     * @return list of matching audio assignments
+     */
+    List<ChapterNarrationAudio> findBySegmentIdIn(Collection<UUID> segmentIds);
+
+    /**
      * Saves a single narration audio assignment.
      *
      * @param audio the narration audio assignment to save
@@ -61,4 +69,21 @@ public interface ChapterNarrationAudioRepositoryPort {
      * @return the saved audio assignments
      */
     List<ChapterNarrationAudio> saveAll(List<ChapterNarrationAudio> audios);
+
+    /**
+     * Deletes a narration audio assignment by its unique identity.
+     *
+     * @param id the assignment identity
+     */
+    void deleteById(UUID id);
+
+    /**
+     * Checks if the given mediaAssetId is referenced by any ChapterNarrationAudio assignment
+     * other than the specified excludingAudioAssignmentId.
+     *
+     * @param mediaAssetId               the media asset identity to check
+     * @param excludingAudioAssignmentId the audio assignment ID to exclude from the search (may be null)
+     * @return true if another reference exists, false otherwise
+     */
+    boolean existsOtherReferenceToMediaAsset(UUID mediaAssetId, UUID excludingAudioAssignmentId);
 }

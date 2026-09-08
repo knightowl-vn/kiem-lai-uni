@@ -147,29 +147,23 @@ public class GetPublicChapterNarrationManifestUseCase {
 
             for (ChapterNarrationSegment segment : currentSegments) {
                 ChapterNarrationAudio audio = audioBySegmentId.get(segment.getId());
+                ChapterNarrationAudioFailure failure = failureBySegmentId.get(segment.getId());
 
-                if (audio != null) {
-                    boolean compatible = audio.isCompatibleWith(currentVoiceRevision);
-                    String healthStatus = compatible ? "READY" : "OUTDATED";
-                    String audioUrl = MediaDeliveryUrlSupport.contentUrl(audio.getMediaAssetId());
-                    segmentDTOs.add(new PublicNarrationSegmentDTO(
-                            segment.getId(),
-                            segment.getSegmentIndex(),
-                            healthStatus,
-                            true,
-                            audioUrl
-                    ));
-                } else {
-                    ChapterNarrationAudioFailure failure = failureBySegmentId.get(segment.getId());
-                    String healthStatus = (failure != null) ? "FAILED" : "MISSING";
-                    segmentDTOs.add(new PublicNarrationSegmentDTO(
-                            segment.getId(),
-                            segment.getSegmentIndex(),
-                            healthStatus,
-                            false,
-                            null
-                    ));
-                }
+                ChapterNarrationAudioHealthResolution resolution =
+                        ChapterNarrationAudioHealthResolver.resolve(audio, failure, currentVoiceRevision);
+
+                boolean isPlayable = resolution.isPlayable();
+                String audioUrl = (audio != null && isPlayable)
+                        ? MediaDeliveryUrlSupport.contentUrl(audio.getMediaAssetId())
+                        : null;
+
+                segmentDTOs.add(new PublicNarrationSegmentDTO(
+                        segment.getId(),
+                        segment.getSegmentIndex(),
+                        resolution.status().name(),
+                        isPlayable,
+                        audioUrl
+                ));
             }
         } else {
             segmentDTOs = Collections.emptyList();

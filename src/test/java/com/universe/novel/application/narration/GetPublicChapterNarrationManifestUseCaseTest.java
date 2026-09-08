@@ -483,4 +483,59 @@ class GetPublicChapterNarrationManifestUseCaseTest {
                 .doesNotContain("s3://")
                 .doesNotContain("blob");
     }
+
+    @Test
+    @DisplayName("17. OUTDATED status remains playable even when current-revision regeneration failure exists")
+    void shouldRemainPlayableOnOutdatedEvenWithCurrentRevisionFailure() {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+        when(managedVoiceRepositoryPort.findAllActive())
+                .thenReturn(List.of(secondaryVoice)); // secondaryVoice has synthesisRevision = 2
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(segment0));
+
+        // Audio at rev 1 (stale compared to secondaryVoice rev 2)
+        ChapterNarrationAudio oldAudio = ChapterNarrationAudio.create(
+                UUID.randomUUID(), SEGMENT_0_ID, VOICE_2_ID, MEDIA_ASSET_1_ID, 1L, Instant.now()
+        );
+        // Current regeneration failure for rev 2
+        ChapterNarrationAudioFailure currentFailure = ChapterNarrationAudioFailure.create(
+                UUID.randomUUID(), SEGMENT_0_ID, VOICE_2_ID,
+                NarrationAudioOperation.REGENERATION,
+                NarrationAudioFailureStage.TTS_SYNTHESIS,
+                2L, "TIMEOUT", Instant.now()
+        );
+
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_2_ID))
+                .thenReturn(List.of(oldAudio));
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_2_ID))
+                .thenReturn(List.of(currentFailure));
+
+        PublicChapterNarrationManifestDTO result = useCase.execute(CHAPTER_ID, null);
+
+        PublicNarrationSegmentDTO segmentDTO = result.segments().get(0);
+        assertThat(segmentDTO.healthStatus()).isEqualTo("OUTDATED");
+        assertThat(segmentDTO.playable()).isTrue();
+        assertThat(segmentDTO.audioUrl()).isEqualTo("/media/assets/" + MEDIA_ASSET_1_ID + "/content");
+    }
+
+    @Test
+    @DisplayName("18. Public manifest read use case performs no save or delete writes to failure repository")
+    void shouldNeverPerformWritesOrDeletesDuringPublicManifestQuery() {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+        when(managedVoiceRepositoryPort.findAllActive())
+                .thenReturn(List.of(defaultVoice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(segment0));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_1_ID))
+                .thenReturn(List.of());
+
+        useCase.execute(CHAPTER_ID, null);
+
+        verify(failureRepositoryPort, never()).save(any());
+        verify(failureRepositoryPort, never()).deleteSupersededBySuccessfulRevision(any(), any(), org.mockito.ArgumentMatchers.anyLong());
+    }
 }

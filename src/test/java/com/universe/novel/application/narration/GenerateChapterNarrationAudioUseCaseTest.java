@@ -5,6 +5,7 @@ import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.novel.application.exceptions.ChapterNarrationAudioAlreadyExistsException;
 import com.universe.novel.application.exceptions.ChapterNarrationSegmentInvalidStateException;
 import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
@@ -22,6 +23,7 @@ import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.ManagedVoiceStatus;
 import com.universe.novel.domain.narration.NarrationAudioFailureStage;
 import com.universe.novel.domain.narration.NarrationAudioOperation;
+import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import com.universe.novel.domain.narration.NarrationTextSegment;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -42,7 +45,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -70,6 +75,9 @@ class GenerateChapterNarrationAudioUseCaseTest {
     private MediaContract mediaContract;
 
     @Mock
+    private RequestNarrationMediaCleanupUseCase cleanupRequestUseCase;
+
+    @Mock
     private IdGeneratorPort idGeneratorPort;
 
     @Mock
@@ -94,6 +102,7 @@ class GenerateChapterNarrationAudioUseCaseTest {
                 failureRepositoryPort,
                 ttsProviderPort,
                 mediaContract,
+                cleanupRequestUseCase,
                 idGeneratorPort,
                 clockPort
         );
@@ -149,6 +158,7 @@ class GenerateChapterNarrationAudioUseCaseTest {
 
         verifyNoInteractions(ttsProviderPort);
         verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
     }
 
@@ -177,6 +187,7 @@ class GenerateChapterNarrationAudioUseCaseTest {
 
         verifyNoInteractions(ttsProviderPort);
         verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
     }
 
@@ -240,8 +251,9 @@ class GenerateChapterNarrationAudioUseCaseTest {
         assertThat(capturedAudio.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(capturedAudio.getGeneratedSynthesisRevision()).isEqualTo(1L);
 
-        // Verify failure cleared on success
-        verify(failureRepositoryPort).deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+        // Verify failure cleared on success with generated revision
+        verify(failureRepositoryPort).deleteSupersededBySuccessfulRevision(SEGMENT_ID, VOICE_ID, 1L);
+        verifyNoInteractions(cleanupRequestUseCase);
     }
 
     @Test
@@ -405,6 +417,7 @@ class GenerateChapterNarrationAudioUseCaseTest {
                 .isSameAs(ttsException);
 
         verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
     }
 
@@ -431,11 +444,12 @@ class GenerateChapterNarrationAudioUseCaseTest {
 
         verify(audioRepositoryPort, never()).save(any());
         verify(mediaContract, never()).delete(any());
+        verifyNoInteractions(cleanupRequestUseCase);
     }
 
     @Test
-    @DisplayName("10. Compensates media asset deletion when audio database persistence fails")
-    void shouldCompensateMediaAssetWhenAudioPersistenceFails() {
+    @DisplayName("10. Requests durable cleanup when audio database persistence fails (non-duplicate)")
+    void shouldRequestDurableCleanupWhenAudioPersistenceFails() {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createActiveVoice(1L);
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -453,16 +467,55 @@ class GenerateChapterNarrationAudioUseCaseTest {
 
         RuntimeException dbException = new RuntimeException("Database connection timed out");
         when(audioRepositoryPort.save(any())).thenThrow(dbException);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
 
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
                 .isSameAs(dbException);
 
-        verify(mediaContract).delete(MEDIA_ASSET_ID);
+        // Verify InOrder: upload -> save attempt -> cleanup request
+        InOrder inOrder = inOrder(mediaContract, audioRepositoryPort, cleanupRequestUseCase);
+        inOrder.verify(mediaContract).uploadAsset(any(UploadMediaAssetRequestDTO.class));
+        inOrder.verify(audioRepositoryPort).save(any(ChapterNarrationAudio.class));
+        inOrder.verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+
+        // Generate must never directly call mediaContract.delete
+        verify(mediaContract, never()).delete(any());
     }
 
     @Test
-    @DisplayName("11. Preserves primary persistence exception and attaches suppressed exception when media compensation fails")
-    void shouldAttachSuppressedExceptionWhenMediaCompensationFails() {
+    @DisplayName("10b. Non-duplicate persistence failure with cleanup ENQUEUED_FOR_RETRY propagates original persistence exception")
+    void shouldPropagatePersistenceExceptionWhenCleanupEnqueuedForRetry() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
+
+        RuntimeException dbException = new RuntimeException("DB disk error");
+        when(audioRepositoryPort.save(any())).thenThrow(dbException);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.ENQUEUED_FOR_RETRY));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(dbException);
+
+        verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("11. Preserves primary persistence exception and attaches suppressed exception when cleanup request fails completely")
+    void shouldAttachSuppressedExceptionWhenCleanupRequestFailsCompletely() {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createActiveVoice(1L);
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -479,16 +532,17 @@ class GenerateChapterNarrationAudioUseCaseTest {
         when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
 
         RuntimeException dbException = new RuntimeException("Database deadlock");
-        RuntimeException compException = new RuntimeException("Media service unreachable during cleanup");
+        RuntimeException cleanupException = new RuntimeException("Cleanup infrastructure completely unavailable");
 
         when(audioRepositoryPort.save(any())).thenThrow(dbException);
-        doThrow(compException).when(mediaContract).delete(MEDIA_ASSET_ID);
+        doThrow(cleanupException).when(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
 
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
                 .isSameAs(dbException)
-                .hasSuppressedException(compException);
+                .hasSuppressedException(cleanupException);
 
-        verify(mediaContract).delete(MEDIA_ASSET_ID);
+        verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
     }
 
     @Test
@@ -638,7 +692,7 @@ class GenerateChapterNarrationAudioUseCaseTest {
 
         // Deleting failure diagnostic throws
         doThrow(new RuntimeException("Failure repo DB unreachable during cleanup"))
-                .when(failureRepositoryPort).deleteBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+                .when(failureRepositoryPort).deleteSupersededBySuccessfulRevision(SEGMENT_ID, VOICE_ID, 1L);
 
         GenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
 
@@ -646,7 +700,8 @@ class GenerateChapterNarrationAudioUseCaseTest {
         assertThat(result.assignmentId()).isEqualTo(AUDIO_ID);
         assertThat(result.mediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
 
-        // Media asset was NOT deleted
+        // Cleanup request was NOT invoked for successful generation
+        verifyNoInteractions(cleanupRequestUseCase);
         verify(mediaContract, never()).delete(any());
     }
 
@@ -670,5 +725,220 @@ class GenerateChapterNarrationAudioUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
                 .isSameAs(ttsEx)
                 .hasSuppressedException(clockEx);
+    }
+
+    @Test
+    @DisplayName("18. Duplicate race: Redundant uploaded media is requested for cleanup, compatible winner is reloaded, outcome is REUSED, and diagnostics not recorded")
+    void shouldHandleDuplicateRaceWhenCompatibleWinnerExists() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        UUID winnerAudioId = UUID.fromString("90000000-0000-0000-0000-000000000001");
+        UUID winnerMediaId = UUID.fromString("90000000-0000-0000-0000-000000000002");
+        ChapterNarrationAudio winningAudio = ChapterNarrationAudio.create(
+                winnerAudioId, SEGMENT_ID, VOICE_ID, winnerMediaId, 1L, NOW
+        );
+
+        // First check in useCase: empty
+        // Second check in catch block after duplicate exception: winningAudio
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winningAudio));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
+
+        // Save fails with ChapterNarrationAudioAlreadyExistsException
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        GenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        // 1. Redundant media requested for cleanup exactly once
+        verify(cleanupRequestUseCase, times(1)).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        // 2. Winner media NOT requested for cleanup
+        verify(cleanupRequestUseCase, never()).execute(winnerMediaId, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+
+        // 3. Outcome is REUSED with winning audio identity
+        assertThat(result.outcome()).isEqualTo(NarrationAudioGenerationOutcome.REUSED);
+        assertThat(result.assignmentId()).isEqualTo(winnerAudioId);
+        assertThat(result.mediaAssetId()).isEqualTo(winnerMediaId);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(1L);
+
+        // 4. Failure diagnostic NOT recorded and NOT deleted on benign loser path
+        verify(failureRepositoryPort, never()).save(any());
+        verify(failureRepositoryPort, never()).deleteSupersededBySuccessfulRevision(any(), any(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("18b. Duplicate race with compatible winner + cleanup TOTAL FAILURE propagates cleanup exception and suppresses duplicate exception")
+    void shouldPropagateCleanupExceptionWhenCleanupFailsCompletelyOnDuplicateRaceWithCompatibleWinner() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        UUID winnerAudioId = UUID.fromString("90000000-0000-0000-0000-000000000001");
+        UUID winnerMediaId = UUID.fromString("90000000-0000-0000-0000-000000000002");
+        ChapterNarrationAudio winningAudio = ChapterNarrationAudio.create(
+                winnerAudioId, SEGMENT_ID, VOICE_ID, winnerMediaId, 1L, NOW
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winningAudio));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
+
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+
+        RuntimeException cleanupFailureEx = new RuntimeException("Cleanup completely failed on both enqueue and delete");
+        doThrow(cleanupFailureEx).when(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(cleanupFailureEx)
+                .hasSuppressedException(duplicateEx);
+
+        // No misleading ASSIGNMENT_PERSISTENCE diagnostic recorded for winning audio
+        verify(failureRepositoryPort, never()).save(any());
+        verify(mediaContract, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("19. Duplicate race with no compatible winner: Redundant media requested for cleanup and duplicate error propagates with diagnostics")
+    void shouldPropagateDuplicateErrorWhenNoCompatibleWinnerExists() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L); // target revision is 2
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        UUID staleWinnerAudioId = UUID.fromString("90000000-0000-0000-0000-000000000003");
+        UUID staleWinnerMediaId = UUID.fromString("90000000-0000-0000-0000-000000000004");
+        ChapterNarrationAudio staleAudio = ChapterNarrationAudio.create(
+                staleWinnerAudioId, SEGMENT_ID, VOICE_ID, staleWinnerMediaId, 1L, NOW // revision 1 != 2
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(staleAudio));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
+
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(duplicateEx);
+
+        // Redundant media requested for cleanup
+        verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+        // Diagnostics recorded
+        verify(failureRepositoryPort).findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("20. Duplicate race with winner reload failure + cleanup success propagates duplicate exception, suppresses lookup exception, and records diagnostic")
+    void shouldPropagateDuplicateExceptionAndSuppressLookupExceptionWhenWinnerReloadThrowsAfterSuccessfulCleanup() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+
+        RuntimeException winnerLookupEx = new RuntimeException("DB error during winner reload query");
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenThrow(winnerLookupEx);
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID).thenReturn(FAILURE_ID);
+
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(duplicateEx)
+                .hasSuppressedException(winnerLookupEx);
+
+        // Loser cleanup requested exactly once
+        verify(cleanupRequestUseCase, times(1)).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+
+        // Diagnostic recorded with original persistence error
+        verify(failureRepositoryPort).findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("21. Duplicate race with winner reload failure + cleanup TOTAL FAILURE propagates duplicate exception, suppresses both cleanup and lookup exceptions, and records diagnostic")
+    void shouldPropagateDuplicateExceptionAndSuppressBothCleanupAndLookupExceptionsWhenBothFail() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L);
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+
+        RuntimeException winnerLookupEx = new RuntimeException("DB error during winner reload query");
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenThrow(winnerLookupEx);
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID).thenReturn(FAILURE_ID);
+
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+
+        RuntimeException cleanupFailureEx = new RuntimeException("Cleanup completely failed");
+        doThrow(cleanupFailureEx).when(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(duplicateEx)
+                .hasSuppressedException(winnerLookupEx)
+                .hasSuppressedException(cleanupFailureEx);
+
+        // Loser cleanup requested exactly once
+        verify(cleanupRequestUseCase, times(1)).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+
+        // Diagnostic recorded with original persistence error
+        verify(failureRepositoryPort).findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
     }
 }

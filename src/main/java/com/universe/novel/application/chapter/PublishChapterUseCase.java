@@ -4,6 +4,7 @@ import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotPublishedException;
+import com.universe.novel.application.narration.SynchronizePublishedChapterNarrationUseCase;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
@@ -35,11 +36,15 @@ public class PublishChapterUseCase {
     private final ChapterRevisionRecorder
             chapterRevisionRecorder;
 
+    private final SynchronizePublishedChapterNarrationUseCase
+            synchronizePublishedChapterNarrationUseCase;
+
     public PublishChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             VolumeRepositoryPort volumeRepositoryPort,
             ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder
+            ChapterRevisionRecorder chapterRevisionRecorder,
+            SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
@@ -52,6 +57,9 @@ public class PublishChapterUseCase {
 
         this.chapterRevisionRecorder =
                 chapterRevisionRecorder;
+
+        this.synchronizePublishedChapterNarrationUseCase =
+                synchronizePublishedChapterNarrationUseCase;
     }
 
     @Transactional
@@ -126,6 +134,10 @@ public class PublishChapterUseCase {
                 ChapterRevisionChangeType.PUBLISH,
                 command.actorId(),
                 null
+        );
+
+        synchronizePublishedChapterNarrationUseCase.execute(
+                chapterId
         );
 
         return ChapterDTOMapper.toDTO(

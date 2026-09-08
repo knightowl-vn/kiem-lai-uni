@@ -32,7 +32,12 @@ public interface ChapterNarrationAudioFailureRepositoryPort {
     ChapterNarrationAudioFailure save(ChapterNarrationAudioFailure failure);
 
     /**
-     * Deletes the failure record for a segment and managed voice pair upon successful audio generation/regeneration.
+     * Deletes the failure record for a segment and managed voice pair if its attempted synthesis revision
+     * is less than or equal to the successful synthesis revision.
+     *
+     * @param segmentId          the segment ID
+     * @param managedVoiceId     the managed voice ID
+     * @param successfulRevision the revision that succeeded
      */
-    void deleteBySegmentIdAndManagedVoiceId(UUID segmentId, UUID managedVoiceId);
+    void deleteSupersededBySuccessfulRevision(UUID segmentId, UUID managedVoiceId, long successfulRevision);
 }

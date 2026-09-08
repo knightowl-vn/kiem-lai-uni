@@ -30,8 +30,8 @@ class ChapterNarrationAudioFlywayRuntimeVerificationTest {
     }
 
     @Test
-    @DisplayName("V40 Migration: Clean database migration up to V40")
-    void shouldMigrateCleanDatabaseUpToV40() {
+    @DisplayName("V42 Migration: Clean database migration up to V42 and schema verification")
+    void shouldMigrateCleanDatabaseUpToV42() {
         String dbName = "kiemlai_narration_audio_schema_test";
         resetDatabase(dbName);
         DataSource ds = createDataSource(dbName);
@@ -42,19 +42,36 @@ class ChapterNarrationAudioFlywayRuntimeVerificationTest {
                 .load();
 
         int applied = flyway.migrate().migrationsExecuted;
-        assertThat(applied).isGreaterThanOrEqualTo(40);
+        assertThat(applied).isGreaterThanOrEqualTo(42);
 
         MigrationInfo current = flyway.info().current();
         assertThat(current).isNotNull();
-        assertThat(Integer.parseInt(current.getVersion().getVersion())).isGreaterThanOrEqualTo(40);
+        assertThat(Integer.parseInt(current.getVersion().getVersion())).isGreaterThanOrEqualTo(42);
 
-        MigrationInfo v40 = Arrays.stream(flyway.info().applied())
-                .filter(m -> "40".equals(m.getVersion().getVersion()))
+        MigrationInfo v42 = Arrays.stream(flyway.info().applied())
+                .filter(m -> "42".equals(m.getVersion().getVersion()))
                 .findFirst()
                 .orElse(null);
 
-        assertThat(v40).isNotNull();
-        assertThat(v40.getDescription()).isEqualTo("create novel chapter narration audio");
+        assertThat(v42).isNotNull();
+        assertThat(v42.getDescription()).isEqualTo("add version to novel chapter narration audio");
+
+        JdbcTemplate jdbc = new JdbcTemplate(ds);
+        java.util.List<String> columns = jdbc.queryForList(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = ? AND table_name = 'novel_chapter_narration_audio'",
+                String.class,
+                dbName
+        );
+        assertThat(columns).contains(
+                "id",
+                "segment_id",
+                "managed_voice_id",
+                "media_asset_id",
+                "generated_synthesis_revision",
+                "version",
+                "created_at",
+                "updated_at"
+        );
     }
 
     @Test

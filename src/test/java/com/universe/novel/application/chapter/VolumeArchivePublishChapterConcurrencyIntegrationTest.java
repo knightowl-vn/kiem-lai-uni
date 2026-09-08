@@ -12,7 +12,13 @@ import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
 import com.universe.novel.domain.VolumeStatus;
 import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
+import com.universe.novel.application.narration.AdaptiveNarrationTextSegmenter;
+import com.universe.novel.application.narration.ReconcileChapterNarrationSegmentsUseCase;
+import com.universe.novel.application.narration.SynchronizePublishedChapterNarrationUseCase;
+import com.universe.novel.infrastructure.markdown.CommonMarkChapterNarrationBlockExtractor;
 import com.universe.novel.infrastructure.persistence.chapter.ChapterPersistenceAdapter;
+import com.universe.novel.infrastructure.persistence.narration.ChapterNarrationManifestPersistenceAdapter;
+import com.universe.novel.infrastructure.persistence.narration.ChapterNarrationSegmentPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.revision.ChapterRevisionPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.volume.VolumePersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
@@ -59,9 +65,22 @@ import com.universe.test.TestDatabaseSupport;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @TestPropertySource(properties = { "spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=true" })
-@Import({ VolumePersistenceAdapter.class, ChapterPersistenceAdapter.class, ChapterRevisionPersistenceAdapter.class,
-		ChapterRevisionRecorder.class, UuidGeneratorAdapter.class, ArchiveVolumeUseCase.class,
-		PublishChapterUseCase.class, VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class })
+@Import({
+		VolumePersistenceAdapter.class,
+		ChapterPersistenceAdapter.class,
+		ChapterRevisionPersistenceAdapter.class,
+		ChapterRevisionRecorder.class,
+		UuidGeneratorAdapter.class,
+		ArchiveVolumeUseCase.class,
+		ChapterNarrationSegmentPersistenceAdapter.class,
+		ChapterNarrationManifestPersistenceAdapter.class,
+		CommonMarkChapterNarrationBlockExtractor.class,
+		AdaptiveNarrationTextSegmenter.class,
+		ReconcileChapterNarrationSegmentsUseCase.class,
+		SynchronizePublishedChapterNarrationUseCase.class,
+		PublishChapterUseCase.class,
+		VolumeArchivePublishChapterConcurrencyIntegrationTest.TestConfig.class
+})
 class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 
 	@DynamicPropertySource
@@ -344,8 +363,18 @@ class VolumeArchivePublishChapterConcurrencyIntegrationTest {
 	private void cleanupTestRows() {
 
 		/*
-		 * Revision trước vì FK chapter_id, sau đó Chapter, sau đó Volume.
+		 * Manifest, Segment, Revision trước vì FK chapter_id, sau đó Chapter, sau đó Volume.
 		 */
+		jdbcTemplate.update("""
+				DELETE FROM novel_chapter_narration_manifests
+				WHERE chapter_id = ?
+				""", CHAPTER_ID.toString());
+
+		jdbcTemplate.update("""
+				DELETE FROM novel_chapter_narration_segments
+				WHERE chapter_id = ?
+				""", CHAPTER_ID.toString());
+
 		jdbcTemplate.update("""
 				DELETE FROM novel_chapter_revisions
 				WHERE chapter_id = ?

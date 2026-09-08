@@ -19,9 +19,13 @@ public interface SpringDataChapterNarrationAudioFailureJpaRepository
     List<ChapterNarrationAudioFailureJpaEntity> findBySegmentIdInAndManagedVoiceId(Collection<String> segmentIds, String managedVoiceId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("DELETE FROM ChapterNarrationAudioFailureJpaEntity f WHERE f.segmentId = :segmentId AND f.managedVoiceId = :managedVoiceId")
-    int deleteBySegmentIdAndManagedVoiceId(
+    @Query("DELETE FROM ChapterNarrationAudioFailureJpaEntity f " +
+           "WHERE f.segmentId = :segmentId " +
+           "  AND f.managedVoiceId = :managedVoiceId " +
+           "  AND f.attemptedSynthesisRevision <= :successfulRevision")
+    int deleteSupersededBySuccessfulRevision(
             @Param("segmentId") String segmentId,
-            @Param("managedVoiceId") String managedVoiceId
+            @Param("managedVoiceId") String managedVoiceId,
+            @Param("successfulRevision") long successfulRevision
     );
 }

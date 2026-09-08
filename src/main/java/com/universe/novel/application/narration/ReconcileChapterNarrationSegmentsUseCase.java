@@ -4,7 +4,9 @@ import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.ChapterStatus;
 import com.universe.novel.domain.narration.ChapterNarrationSegment;
+import com.universe.novel.domain.narration.NarrationManifestHasher;
 import com.universe.novel.domain.narration.NarrationTextSegment;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
@@ -22,25 +24,27 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Use case that reconciles chapter narration text segments against the current chapter Markdown content.
+ * Use case that reconciles chapter narration text segments against the published chapter Markdown content.
  * <p>
  * Reconciles desired speakable text segments with existing persisted segment rows in a deterministic,
  * one-to-one fashion within a single database transaction:
  * <ol>
- *     <li>Loads chapter content via {@link ChapterRepositoryPort} (throwing {@link ChapterNotFoundException} if not found).</li>
+ *     <li>Loads chapter via {@link ChapterRepositoryPort} (throwing {@link ChapterNotFoundException} if not found).</li>
+ *     <li>Verifies that the chapter is in {@link ChapterStatus#PUBLISHED} status (throwing {@link IllegalStateException} otherwise).</li>
  *     <li>Runs {@link NarrationTextSegmenter} to derive the current speakable segments manifest.</li>
+ *     <li>Computes canonical manifest hash via {@link NarrationManifestHasher}.</li>
  *     <li>Loads existing persisted segments for the chapter and sorts them deterministically by (segmentIndex ASC, createdAt ASC, id ASC).</li>
- *     <li>For each desired segment, attempts one-to-one matching:
+ *     <li>For each desired segment in ordered sequence (0..N-1), attempts one-to-one matching:
  *         <ul>
- *             <li>First: unmatched {@code CURRENT} segment with exact position + exact {@code contentHash} + {@code text}.</li>
- *             <li>Second: unmatched {@code CURRENT} segment with exact {@code contentHash} + {@code text}.</li>
- *             <li>Third: unmatched {@code RETIRED} segment with exact {@code contentHash} + {@code text} (restores to CURRENT).</li>
- *             <li>Fourth: creates a new {@code CURRENT} segment identity.</li>
+ *             <li>First: unmatched {@code CURRENT} segment with exact position + exact {@code contentHash} + {@code text} ({@link ChapterNarrationSegmentReconciliationDisposition#REUSED_UNCHANGED}).</li>
+ *             <li>Second: unmatched {@code CURRENT} segment with exact {@code contentHash} + {@code text} (repositions to index, {@link ChapterNarrationSegmentReconciliationDisposition#REUSED_REPOSITIONED}).</li>
+ *             <li>Third: unmatched {@code RETIRED} segment with exact {@code contentHash} + {@code text} (restores to CURRENT at index, {@link ChapterNarrationSegmentReconciliationDisposition#RESTORED}).</li>
+ *             <li>Fourth: creates a new {@code CURRENT} segment identity ({@link ChapterNarrationSegmentReconciliationDisposition#CREATED}).</li>
  *         </ul>
  *     </li>
  *     <li>Any previously {@code CURRENT} segment that was not matched to any desired segment is transitioned to {@code RETIRED}.</li>
  *     <li>Only segments that were actually created, repositioned, restored, or retired are persisted via {@link ChapterNarrationSegmentRepositoryPort}.</li>
- *     <li>Returns a passive {@link ReconcileChapterNarrationSegmentsResult} containing summary counts.</li>
+ *     <li>Returns an immutable {@link ReconcileChapterNarrationSegmentsResult} containing content version, manifest hash, ordered CURRENT manifest items, and retired segment IDs.</li>
  * </ol>
  */
 @Service
@@ -90,7 +94,17 @@ public class ReconcileChapterNarrationSegmentsUseCase {
         Chapter chapter = chapterRepositoryPort.findById(chapterId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
+        if (chapter.getStatus() != ChapterStatus.PUBLISHED) {
+            throw new IllegalStateException(
+                    "Chỉ có thể đồng bộ hóa narration segments cho chương đã xuất bản (PUBLISHED). Trạng thái hiện tại: "
+                            + chapter.getStatus()
+            );
+        }
+
+        long sourceContentVersion = chapter.getContentVersion();
         List<NarrationTextSegment> desiredSegments = narrationTextSegmenter.segment(chapter.getContent());
+        String manifestHash = NarrationManifestHasher.computeManifestHash(desiredSegments);
+
         List<ChapterNarrationSegment> existingSegments = segmentRepositoryPort.findByChapterId(chapterId);
 
         // Deterministic sorting independent of repository iteration order
@@ -100,11 +114,7 @@ public class ReconcileChapterNarrationSegmentsUseCase {
         Instant now = clockPort.now();
         Set<UUID> claimedSegmentIds = new HashSet<>();
         List<ChapterNarrationSegment> toSave = new ArrayList<>();
-
-        int reusedCurrentCount = 0;
-        int restoredCount = 0;
-        int createdCount = 0;
-        int retiredCount = 0;
+        List<ChapterNarrationSegmentReconciliationItem> currentItems = new ArrayList<>();
 
         for (NarrationTextSegment desired : desiredSegments) {
             int desiredIndex = desired.index();
@@ -141,11 +151,15 @@ public class ReconcileChapterNarrationSegmentsUseCase {
 
             if (matchedCurrent != null) {
                 claimedSegmentIds.add(matchedCurrent.getId());
+                ChapterNarrationSegmentReconciliationDisposition disposition;
                 if (matchedCurrent.getSegmentIndex() != desiredIndex) {
                     matchedCurrent.reposition(desiredIndex, now);
                     toSave.add(matchedCurrent);
+                    disposition = ChapterNarrationSegmentReconciliationDisposition.REUSED_REPOSITIONED;
+                } else {
+                    disposition = ChapterNarrationSegmentReconciliationDisposition.REUSED_UNCHANGED;
                 }
-                reusedCurrentCount++;
+                currentItems.add(new ChapterNarrationSegmentReconciliationItem(matchedCurrent.getId(), desiredIndex, disposition));
                 continue;
             }
 
@@ -164,8 +178,12 @@ public class ReconcileChapterNarrationSegmentsUseCase {
             if (matchedRetired != null) {
                 claimedSegmentIds.add(matchedRetired.getId());
                 matchedRetired.restore(desiredIndex, now);
-                restoredCount++;
                 toSave.add(matchedRetired);
+                currentItems.add(new ChapterNarrationSegmentReconciliationItem(
+                        matchedRetired.getId(),
+                        desiredIndex,
+                        ChapterNarrationSegmentReconciliationDisposition.RESTORED
+                ));
                 continue;
             }
 
@@ -180,15 +198,20 @@ public class ReconcileChapterNarrationSegmentsUseCase {
                     now
             );
             claimedSegmentIds.add(newId);
-            createdCount++;
             toSave.add(newSegment);
+            currentItems.add(new ChapterNarrationSegmentReconciliationItem(
+                    newId,
+                    desiredIndex,
+                    ChapterNarrationSegmentReconciliationDisposition.CREATED
+            ));
         }
 
         // 4. Retire any previously CURRENT segment that was not matched
+        List<UUID> retiredSegmentIds = new ArrayList<>();
         for (ChapterNarrationSegment candidate : sortedExisting) {
             if (!claimedSegmentIds.contains(candidate.getId()) && candidate.isCurrent()) {
                 candidate.retire(now);
-                retiredCount++;
+                retiredSegmentIds.add(candidate.getId());
                 toSave.add(candidate);
             }
         }
@@ -199,11 +222,10 @@ public class ReconcileChapterNarrationSegmentsUseCase {
         }
 
         return new ReconcileChapterNarrationSegmentsResult(
-                desiredSegments.size(),
-                reusedCurrentCount,
-                restoredCount,
-                createdCount,
-                retiredCount
+                sourceContentVersion,
+                manifestHash,
+                currentItems,
+                retiredSegmentIds
         );
     }
 }

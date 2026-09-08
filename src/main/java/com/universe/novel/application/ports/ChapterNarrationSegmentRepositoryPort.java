@@ -18,6 +18,11 @@ public interface ChapterNarrationSegmentRepositoryPort {
     Optional<ChapterNarrationSegment> findById(UUID id);
 
     /**
+     * Finds a single narration segment by ID with a pessimistic write lock.
+     */
+    Optional<ChapterNarrationSegment> findByIdForUpdate(UUID id);
+
+    /**
      * Finds all narration segments (both CURRENT and RETIRED) for a chapter, ordered by segmentIndex ASC.
      */
     List<ChapterNarrationSegment> findByChapterId(UUID chapterId);

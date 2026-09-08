@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 
 import java.time.Instant;
 
@@ -70,6 +71,13 @@ public class ChapterNarrationAudioJpaEntity {
     )
     private long generatedSynthesisRevision;
 
+    @Version
+    @Column(
+            name = "version",
+            nullable = false
+    )
+    private Long version;
+
     @Column(
             name = "created_at",
             nullable = false
@@ -91,6 +99,7 @@ public class ChapterNarrationAudioJpaEntity {
             String managedVoiceId,
             String mediaAssetId,
             long generatedSynthesisRevision,
+            Long version,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -99,8 +108,21 @@ public class ChapterNarrationAudioJpaEntity {
         this.managedVoiceId = managedVoiceId;
         this.mediaAssetId = mediaAssetId;
         this.generatedSynthesisRevision = generatedSynthesisRevision;
+        this.version = version;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+    }
+
+    public ChapterNarrationAudioJpaEntity(
+            String id,
+            String segmentId,
+            String managedVoiceId,
+            String mediaAssetId,
+            long generatedSynthesisRevision,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(id, segmentId, managedVoiceId, mediaAssetId, generatedSynthesisRevision, null, createdAt, updatedAt);
     }
 
     public String getId() {
@@ -141,6 +163,14 @@ public class ChapterNarrationAudioJpaEntity {
 
     public void setGeneratedSynthesisRevision(long generatedSynthesisRevision) {
         this.generatedSynthesisRevision = generatedSynthesisRevision;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 
     public Instant getCreatedAt() {

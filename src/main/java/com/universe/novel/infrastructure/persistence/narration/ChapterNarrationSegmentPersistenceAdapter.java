@@ -31,6 +31,14 @@ public class ChapterNarrationSegmentPersistenceAdapter implements ChapterNarrati
     }
 
     @Override
+    public Optional<ChapterNarrationSegment> findByIdForUpdate(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
+        return repository.findByIdForUpdate(id.toString()).map(this::toDomain);
+    }
+
+    @Override
     public List<ChapterNarrationSegment> findByChapterId(UUID chapterId) {
         if (chapterId == null) {
             return List.of();

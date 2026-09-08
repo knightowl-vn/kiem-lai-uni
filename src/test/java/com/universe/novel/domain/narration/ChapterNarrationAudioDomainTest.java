@@ -19,7 +19,7 @@ class ChapterNarrationAudioDomainTest {
     private static final Instant NOW = Instant.parse("2026-09-05T12:00:00Z");
 
     @Test
-    @DisplayName("Should successfully create a valid ChapterNarrationAudio assignment")
+    @DisplayName("Should successfully create a valid ChapterNarrationAudio assignment with null version")
     void shouldCreateValidAssignment() {
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
                 ID,
@@ -35,6 +35,7 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getManagedVoiceId()).isEqualTo(VOICE_ID);
         assertThat(audio.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(audio.getVersion()).isNull();
         assertThat(audio.getCreatedAt()).isEqualTo(NOW);
         assertThat(audio.getUpdatedAt()).isEqualTo(NOW);
     }
@@ -73,10 +74,11 @@ class ChapterNarrationAudioDomainTest {
     }
 
     @Test
-    @DisplayName("Should successfully rehydrate audio assignment preserving timestamps")
+    @DisplayName("Should successfully rehydrate audio assignment preserving timestamps and version")
     void shouldRehydratePreservingState() {
         Instant createdAt = NOW.minusSeconds(100);
         Instant updatedAt = NOW;
+        Long version = 5L;
 
         ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
                 ID,
@@ -84,6 +86,7 @@ class ChapterNarrationAudioDomainTest {
                 VOICE_ID,
                 MEDIA_ASSET_ID,
                 3L,
+                version,
                 createdAt,
                 updatedAt
         );
@@ -93,6 +96,7 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getManagedVoiceId()).isEqualTo(VOICE_ID);
         assertThat(audio.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(3L);
+        assertThat(audio.getVersion()).isEqualTo(version);
         assertThat(audio.getCreatedAt()).isEqualTo(createdAt);
         assertThat(audio.getUpdatedAt()).isEqualTo(updatedAt);
     }
@@ -104,7 +108,7 @@ class ChapterNarrationAudioDomainTest {
         Instant updatedAt = NOW.minusSeconds(10);
 
         assertThatThrownBy(() -> ChapterNarrationAudio.rehydrate(
-                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, createdAt, updatedAt
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 0L, createdAt, updatedAt
         )).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Thời gian cập nhật không được trước thời gian tạo");
     }
@@ -229,5 +233,21 @@ class ChapterNarrationAudioDomainTest {
         assertThatThrownBy(() -> audio.replaceSuccessfulAudio(newAssetId, 2L, NOW.minusSeconds(10)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Thời gian thay thế không được trước thời gian tạo");
+    }
+
+    @Test
+    @DisplayName("Should not mutate version during audio replacement")
+    void shouldNotMutateVersionDuringAudioReplacement() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 7L, NOW, NOW
+        );
+        assertThat(audio.getVersion()).isEqualTo(7L);
+
+        UUID replacementMediaAssetId = UUID.randomUUID();
+        audio.replaceSuccessfulAudio(replacementMediaAssetId, 2L, NOW.plusSeconds(30));
+
+        assertThat(audio.getMediaAssetId()).isEqualTo(replacementMediaAssetId);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(audio.getVersion()).isEqualTo(7L); // Version remains unchanged in memory
     }
 }

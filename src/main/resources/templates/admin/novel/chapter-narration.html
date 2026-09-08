@@ -6,6 +6,15 @@
     <title>Quản lý giọng đọc Chapter | Kiếm Lai Universe</title>
     <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
     <link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+    <style>
+        @keyframes novelAdminSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .novel-admin-spin {
+            animation: novelAdminSpin 1s linear infinite;
+        }
+    </style>
 </head>
 
 <body>
@@ -25,10 +34,24 @@
                 Thao tác thành công.
             </div>
 
+            <div th:if="${infoMessage != null}"
+                 class="novel-admin-info-message"
+                 style="margin-bottom: 18px; padding: 13px 16px; border: 1px solid rgba(93, 77, 168, 0.25); border-radius: 11px; background: rgba(93, 77, 168, 0.08); color: var(--primary); font-size: 12px; font-weight: 700;"
+                 th:text="${infoMessage}">
+                Thông tin tiến trình.
+            </div>
+
             <div th:if="${errorMessage != null}"
                  class="novel-admin-form-error"
                  th:text="${errorMessage}">
                 Không thể thực hiện thao tác.
+            </div>
+
+            <!-- Content Change Warning (Separate from OUTDATED) -->
+            <div th:if="${contentChangeWarning}" id="novelAdminContentChangeWarning"
+                 style="margin-bottom: 20px; padding: 14px 18px; border-radius: 12px; background: rgba(237, 108, 2, 0.08); border: 1px solid rgba(237, 108, 2, 0.25); color: var(--warning, #ed6c02); font-size: 13px;">
+                <strong>⚠️ Cảnh báo thay đổi nội dung:</strong>
+                <span>Có <strong th:text="${obsoleteRetiredAudioCount}">0</strong> file audio thuộc các phân đoạn văn bản cũ (RETIRED) đã bị sửa đổi hoặc xóa.</span>
             </div>
 
             <div class="novel-admin-create-heading">
@@ -52,23 +75,58 @@
             <div class="novel-admin-stats-row" style="display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap;">
                 <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
                     <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">TỔNG PHÂN ĐOẠN</span>
-                    <strong style="font-size: 20px; font-weight: 700;" th:text="${totalSegments}">0</strong>
+                    <strong id="novelAdminStatTotalSegments" style="font-size: 20px; font-weight: 700;" th:text="${totalSegments}">0</strong>
                 </div>
                 <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
                     <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">ĐÃ SẴN SÀNG (READY)</span>
-                    <strong style="font-size: 20px; font-weight: 700; color: var(--success, #2e7d32);" th:text="${readyCount}">0</strong>
+                    <strong id="novelAdminStatReadyCount" style="font-size: 20px; font-weight: 700; color: var(--success, #2e7d32);" th:text="${readyCount}">0</strong>
                 </div>
                 <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
                     <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CẦN CẬP NHẬT (OUTDATED)</span>
-                    <strong style="font-size: 20px; font-weight: 700; color: var(--warning, #ed6c02);" th:text="${outdatedCount}">0</strong>
+                    <strong id="novelAdminStatOutdatedCount" style="font-size: 20px; font-weight: 700; color: var(--warning, #ed6c02);" th:text="${outdatedCount}">0</strong>
                 </div>
                 <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
                     <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">CHƯA CÓ AUDIO (MISSING)</span>
-                    <strong style="font-size: 20px; font-weight: 700; color: var(--text-secondary, #64748b);" th:text="${missingCount}">0</strong>
+                    <strong id="novelAdminStatMissingCount" style="font-size: 20px; font-weight: 700; color: var(--text-secondary, #64748b);" th:text="${missingCount}">0</strong>
                 </div>
                 <div class="novel-admin-stat-card" style="padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); min-width: 140px;">
                     <span class="novel-admin-detail-meta-label" style="display: block; font-size: 11px; color: var(--text-secondary);">LỖI PHÁT SINH (FAILED)</span>
-                    <strong style="font-size: 20px; font-weight: 700; color: var(--danger, #d32f2f);" th:text="${failedCount}">0</strong>
+                    <strong id="novelAdminStatFailedCount" style="font-size: 20px; font-weight: 700; color: var(--danger, #d32f2f);" th:text="${failedCount}">0</strong>
+                </div>
+            </div>
+
+            <!-- ========================================== -->
+            <!-- OPERATION PROGRESS PANEL (WHEN RUNNING)    -->
+            <!-- ========================================== -->
+            <div id="novelAdminOperationProgressPanel"
+                 th:if="${isOperationRunning}"
+                 style="margin-bottom: 24px; padding: 18px 20px; border-radius: 12px; background: rgba(93, 77, 168, 0.06); border: 1px solid rgba(93, 77, 168, 0.3);">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="novel-admin-spin" style="display: inline-block; width: 16px; height: 16px; border: 2px solid var(--primary); border-top-color: transparent; border-radius: 50%;"></span>
+                        <strong id="novelAdminOperationStatusText" style="color: var(--primary); font-size: 14px;">
+                            Đang tạo / cập nhật giọng đọc...
+                        </strong>
+                    </div>
+                    <div style="font-size: 13px; color: var(--text-secondary);">
+                        <span>Tiến trình: </span>
+                        <strong id="novelAdminProgressRatio" style="color: var(--text-primary);"
+                                th:text="|${readyCount}/${currentSegmentCount}|">0/0</strong>
+                        <span> phân đoạn sẵn sàng (</span>
+                        <strong id="novelAdminProgressPercent" style="color: var(--primary);"
+                                th:text="${currentSegmentCount > 0 ? (readyCount * 100 / currentSegmentCount) : 0} + '%'">0%</strong>
+                        <span>)</span>
+                    </div>
+                </div>
+                <div style="width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+                    <div id="novelAdminProgressBar"
+                         style="height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s ease;"
+                         th:styleappend="'width: ' + (${currentSegmentCount > 0 ? (readyCount * 100 / currentSegmentCount) : 0}) + '%;'">
+                    </div>
+                </div>
+                <div id="novelAdminOperationMessage" style="font-size: 12px; color: var(--text-secondary);"
+                     th:text="${operationState != null ? operationState.message : ''}">
+                    Đang xử lý tạo giọng đọc cho chương...
                 </div>
             </div>
 
@@ -92,8 +150,14 @@
                         </select>
                     </div>
 
-                    <div class="novel-admin-filter-actions">
+                    <div class="novel-admin-filter-actions" style="display: flex; gap: 8px; align-items: flex-end;">
                         <button type="submit" class="novel-admin-secondary-button">Xem</button>
+                        <a th:href="@{/admin/novel/narration/voices}"
+                           class="novel-admin-secondary-button"
+                           style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                            <span>🎙 Quản lý danh mục giọng đọc</span>
+                            <span aria-hidden="true">→</span>
+                        </a>
                     </div>
                 </form>
             </section>
@@ -117,7 +181,7 @@
 
                 <!-- Selected Voice Details Card -->
                 <div class="novel-admin-detail-panel" style="margin-bottom: 24px; padding: 18px 20px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
                         <div>
                             <span class="novel-admin-eyebrow">GIỌNG ĐỌC ĐANG CHỌN</span>
                             <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
@@ -128,17 +192,58 @@
                                       th:text="${selectedVoice.status}">ACTIVE</span>
                                 <span th:if="${selectedVoice.defaultVoice}" class="novel-admin-badge-default">Mặc định</span>
                             </div>
-                        </div>
-                        <div style="display: flex; gap: 20px; font-size: 12px; color: var(--text-secondary);">
-                            <div>
+                            <div style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">
                                 <span>Synthesis Revision: </span>
                                 <strong th:text="|v${selectedVoice.synthesisRevision}|">v1</strong>
+                                <span style="margin-left: 8px; font-size: 11px; color: var(--text-secondary);">
+                                    (Cấu hình giọng đọc TTS. Lệch revision làm phân đoạn thành <strong>OUTDATED</strong>, không đồng nghĩa văn bản chương bị sửa đổi)
+                                </span>
                             </div>
                         </div>
+
+                        <!-- Whole Chapter Generation Action Button -->
+                        <div th:if="${selectedVoice.status == 'ACTIVE' and chapter.status == 'PUBLISHED' and totalSegments > 0}">
+                            <form id="novelAdminGenerateAllForm" method="post"
+                                  th:action="@{/admin/novel/chapters/{chapterId}/narration/generate-all(chapterId=${chapter.id})}">
+                                <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
+
+                                <button th:if="${isOperationRunning}"
+                                        id="novelAdminGenerateAllBtn"
+                                        type="button"
+                                        class="novel-admin-primary-button"
+                                        disabled="disabled"
+                                        style="opacity: 0.7; cursor: not-allowed;">
+                                    ⏳ Đang tạo / cập nhật giọng đọc...
+                                </button>
+
+                                <button th:if="${!isOperationRunning and currentGenerationRequiredCount == 0 and !contentChangeWarning}"
+                                        id="novelAdminGenerateAllBtn"
+                                        type="submit"
+                                        class="novel-admin-secondary-button"
+                                        disabled="disabled"
+                                        title="Tất cả phân đoạn hiện tại đã có audio phiên bản mới nhất"
+                                        style="opacity: 0.7; cursor: default;">
+                                    ✓ Đã tạo đủ giọng đọc
+                                </button>
+
+                                <button th:if="${!isOperationRunning and (currentGenerationRequiredCount > 0 or contentChangeWarning)}"
+                                        id="novelAdminGenerateAllBtn"
+                                        type="submit"
+                                        class="novel-admin-primary-button">
+                                    🎙 Tạo / cập nhật toàn bộ giọng đọc
+                                </button>
+                            </form>
+                        </div>
                     </div>
+
                     <div th:if="${selectedVoice.status != 'ACTIVE'}"
                          style="margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(237, 108, 2, 0.08); border: 1px solid rgba(237, 108, 2, 0.25); font-size: 13px; color: var(--warning, #ed6c02);">
                         ⚠️ Giọng đọc này đang ở trạng thái <strong>DISABLED</strong>. Các thao tác tạo và tái tạo audio tạm thời bị vô hiệu hóa.
+                    </div>
+
+                    <div th:if="${chapter.status != 'PUBLISHED'}"
+                         style="margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(237, 108, 2, 0.08); border: 1px solid rgba(237, 108, 2, 0.25); font-size: 13px; color: var(--warning, #ed6c02);">
+                        ⚠️ Chương đang ở trạng thái <strong th:text="${chapter.status}">DRAFT</strong>. Thao tác tạo giọng đọc toàn bộ chương chỉ hỗ trợ cho chương đã <strong>PUBLISHED</strong>.
                     </div>
                 </div>
 
@@ -240,7 +345,11 @@
                                               method="post"
                                               th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
                                             <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
-                                            <button type="submit" class="novel-admin-primary-button" style="padding: 4px 10px; font-size: 12px;">
+                                            <button type="submit"
+                                                    class="novel-admin-primary-button segment-action-btn"
+                                                    th:disabled="${isOperationRunning}"
+                                                    th:title="${isOperationRunning} ? 'Tiến trình tạo toàn bộ chương đang chạy...' : ''"
+                                                    style="padding: 4px 10px; font-size: 12px;">
                                                 Tạo Audio
                                             </button>
                                         </form>
@@ -250,7 +359,11 @@
                                               method="post"
                                               th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
                                             <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
-                                            <button type="submit" class="novel-admin-secondary-button" style="padding: 4px 10px; font-size: 12px; border-color: var(--danger, #d32f2f); color: var(--danger, #d32f2f);">
+                                            <button type="submit"
+                                                    class="novel-admin-secondary-button segment-action-btn"
+                                                    th:disabled="${isOperationRunning}"
+                                                    th:title="${isOperationRunning} ? 'Tiến trình tạo toàn bộ chương đang chạy...' : ''"
+                                                    style="padding: 4px 10px; font-size: 12px; border-color: var(--danger, #d32f2f); color: var(--danger, #d32f2f);">
                                                 Thử lại
                                             </button>
                                         </form>
@@ -260,7 +373,11 @@
                                               method="post"
                                               th:action="@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/regenerate(chapterId=${chapter.id}, segmentId=${segment.segmentId})}">
                                             <input type="hidden" name="managedVoiceId" th:value="${selectedVoice.id}">
-                                            <button type="submit" class="novel-admin-secondary-button" style="padding: 4px 10px; font-size: 12px;">
+                                            <button type="submit"
+                                                    class="novel-admin-secondary-button segment-action-btn"
+                                                    th:disabled="${isOperationRunning}"
+                                                    th:title="${isOperationRunning} ? 'Tiến trình tạo toàn bộ chương đang chạy...' : ''"
+                                                    style="padding: 4px 10px; font-size: 12px;">
                                                 Tái tạo Audio
                                             </button>
                                         </form>
@@ -289,5 +406,105 @@
     </main>
 </div>
 
+<!-- ========================================== -->
+<!-- PROGRESS POLLING (VANILLA JS)              -->
+<!-- ========================================== -->
+<script th:inline="javascript">
+/*<![CDATA[*/
+(function() {
+    var isRunning = /*[[${isOperationRunning}]]*/ false;
+    var chapterId = /*[[${chapter != null ? chapter.id : null}]]*/ null;
+    var voiceId = /*[[${selectedVoice != null ? selectedVoice.id : null}]]*/ null;
+
+    if (!isRunning || !chapterId || !voiceId) {
+        return;
+    }
+
+    var pollIntervalMs = 2500;
+    var maxPollAttempts = 1200; // safety ceiling (~50 min)
+    var pollCount = 0;
+    var timer = null;
+
+    function pollStatus() {
+        pollCount++;
+        if (pollCount > maxPollAttempts) {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+            return;
+        }
+
+        var url = '/admin/novel/chapters/' + encodeURIComponent(chapterId) + '/narration/status?voiceId=' + encodeURIComponent(voiceId);
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        updateUI(data);
+
+                        if (data.operationStatus === 'SUCCEEDED' || data.operationStatus === 'PARTIAL' || data.operationStatus === 'FAILED') {
+                            if (timer) {
+                                clearInterval(timer);
+                                timer = null;
+                            }
+                            // Reload page once to refresh full segment rows
+                            setTimeout(function() {
+                                window.location.reload();
+                            }, 500);
+                        }
+                    } catch (e) {
+                        // Silent JSON parse error
+                    }
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    function updateUI(data) {
+        if (!data) return;
+
+        // Update stats counters safely
+        var elTotal = document.getElementById('novelAdminStatTotalSegments');
+        if (elTotal) elTotal.textContent = data.currentSegmentCount;
+
+        var elReady = document.getElementById('novelAdminStatReadyCount');
+        if (elReady) elReady.textContent = data.readyCount;
+
+        var elOutdated = document.getElementById('novelAdminStatOutdatedCount');
+        if (elOutdated) elOutdated.textContent = data.outdatedCount;
+
+        var elMissing = document.getElementById('novelAdminStatMissingCount');
+        if (elMissing) elMissing.textContent = data.missingCount;
+
+        var elFailed = document.getElementById('novelAdminStatFailedCount');
+        if (elFailed) elFailed.textContent = data.failedCount;
+
+        // Update progress panel if present
+        var elRatio = document.getElementById('novelAdminProgressRatio');
+        if (elRatio) elRatio.textContent = data.readyCount + '/' + data.currentSegmentCount;
+
+        var pct = data.currentSegmentCount > 0 ? Math.round((data.readyCount * 100) / data.currentSegmentCount) : 0;
+        var elPct = document.getElementById('novelAdminProgressPercent');
+        if (elPct) elPct.textContent = pct + '%';
+
+        var elBar = document.getElementById('novelAdminProgressBar');
+        if (elBar) elBar.style.width = pct + '%';
+
+        var elMsg = document.getElementById('novelAdminOperationMessage');
+        if (elMsg && data.operationMessage) elMsg.textContent = data.operationMessage;
+    }
+
+    timer = setInterval(pollStatus, pollIntervalMs);
+})();
+/*]]>*/
+</script>
+
 </body>
 </html>
+

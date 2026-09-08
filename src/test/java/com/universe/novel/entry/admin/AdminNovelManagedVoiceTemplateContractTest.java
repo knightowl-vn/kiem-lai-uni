@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,8 +83,11 @@ class AdminNovelManagedVoiceTemplateContractTest {
         assertThat(edit).contains("Cập nhật tên hiển thị hoặc thay đổi liên kết Provider Voice ID.");
         assertThat(edit).doesNotContain("thứ tự");
 
-        // Revision indicator & distinct-value semantics copy
+        // Revision indicator & distinct-value semantics copy & displayOrder and timestamps
         assertThat(edit).contains("synthesisRevision");
+        assertThat(edit).contains("displayOrder");
+        assertThat(edit).contains("createdAt");
+        assertThat(edit).contains("updatedAt");
         assertThat(edit).contains("sang một giá trị khác");
         assertThat(edit).contains("providerWarning");
 
@@ -92,6 +96,24 @@ class AdminNovelManagedVoiceTemplateContractTest {
 
         // Confirmation behavior script
         assertThat(edit).contains("admin-list-menus.js");
+    }
+
+    @Test
+    @DisplayName("Các template Managed Voice không chứa thông tin nhạy cảm (secrets, api keys, storage credentials)")
+    void templatesDoNotExposeSecretsOrInternalCredentials() throws Exception {
+        String list = read("src/main/resources/templates/admin/novel/voices.html");
+        String create = read("src/main/resources/templates/admin/novel/voice-create.html");
+        String edit = read("src/main/resources/templates/admin/novel/voice-edit.html");
+        String chapterNarration = read("src/main/resources/templates/admin/novel/chapter-narration.html");
+
+        for (String template : List.of(list, create, edit, chapterNarration)) {
+            assertThat(template).doesNotContain("apiKey");
+            assertThat(template).doesNotContain("apiSecret");
+            assertThat(template).doesNotContain("secretKey");
+            assertThat(template).doesNotContain("credentials");
+            assertThat(template).doesNotContain("storageKey");
+            assertThat(template).doesNotContain("storageProviderId");
+        }
     }
 
     private String read(String relativePath) throws Exception {

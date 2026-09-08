@@ -1787,14 +1787,14 @@ body.has-toc-open {
     border-radius: 2px;
 }
 
-/* Accepted Five-Equal-Slot Narration Dock */
+/* Seven-Slot Centered Narration Dock */
 .novel-narration-dock {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     align-items: center;
     justify-items: center;
     width: 100%;
-    max-width: 400px;
+    max-width: 440px;
     margin: 0 auto;
 }
 
@@ -1840,7 +1840,8 @@ body.has-toc-open {
 }
 
 /* Previous / Next Actions - Neutral Surface */
-.novel-narration-btn--nav {
+.novel-narration-btn--nav,
+.novel-narration-btn--seek {
     width: 32px;
     height: 32px;
     border-radius: 50%;
@@ -1849,7 +1850,8 @@ body.has-toc-open {
     border: 1px solid var(--reader-border);
 }
 
-.novel-narration-btn--nav:hover:not(:disabled) {
+.novel-narration-btn--nav:hover:not(:disabled),
+.novel-narration-btn--seek:hover:not(:disabled) {
     background: var(--reader-primary-light);
     color: var(--reader-primary);
     border-color: var(--reader-primary);
@@ -2026,7 +2028,8 @@ body.has-toc-open {
         max-width: 380px;
     }
 
-    .novel-narration-btn--nav {
+    .novel-narration-btn--nav,
+    .novel-narration-btn--seek {
         width: 30px;
         height: 30px;
     }

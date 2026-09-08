@@ -4,6 +4,7 @@ import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotPublishedException;
+import com.universe.novel.application.narration.SynchronizePublishedChapterNarrationUseCase;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
@@ -20,7 +21,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -81,6 +84,10 @@ class PublishChapterUseCaseTest {
     private ChapterRevisionRecorder
             chapterRevisionRecorder;
 
+    @Mock
+    private SynchronizePublishedChapterNarrationUseCase
+            synchronizePublishedChapterNarrationUseCase;
+
     private PublishChapterUseCase
             useCase;
 
@@ -91,7 +98,8 @@ class PublishChapterUseCaseTest {
                         chapterRepositoryPort,
                         volumeRepositoryPort,
                         clockPort,
-                        chapterRevisionRecorder
+                        chapterRevisionRecorder,
+                        synchronizePublishedChapterNarrationUseCase
                 );
     }
 
@@ -203,20 +211,33 @@ class PublishChapterUseCaseTest {
                 VOLUME_ID
         );
 
-        verify(
+        InOrder inOrder =
+                Mockito.inOrder(
+                        chapterRepositoryPort,
+                        chapterRevisionRecorder,
+                        synchronizePublishedChapterNarrationUseCase
+                );
+
+        inOrder.verify(
                 chapterRepositoryPort
         ).save(
                 chapter,
                 1L
         );
 
-        verify(
+        inOrder.verify(
                 chapterRevisionRecorder
         ).record(
                 chapter,
                 ChapterRevisionChangeType.PUBLISH,
                 ADMIN_ID,
                 null
+        );
+
+        inOrder.verify(
+                synchronizePublishedChapterNarrationUseCase
+        ).execute(
+                CHAPTER_ID
         );
     }
 
@@ -238,6 +259,79 @@ class PublishChapterUseCaseTest {
                 .hasMessage("Database error");
 
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
+        verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName(
+            "Không đồng bộ narration khi ghi revision thất bại lúc publish"
+    )
+    void shouldNotSynchronizeNarrationWhenRevisionRecordingFails() {
+        Chapter chapter = createDraftChapter("Nội dung chương.");
+        Volume volume = createPublishedVolume();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(volumeRepositoryPort.findByIdForUpdate(VOLUME_ID)).thenReturn(Optional.of(volume));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(chapterRepositoryPort.save(chapter, 1L)).thenReturn(chapter);
+        Mockito.doThrow(new RuntimeException("Revision recorder failure"))
+                .when(chapterRevisionRecorder)
+                .record(chapter, ChapterRevisionChangeType.PUBLISH, ADMIN_ID, null);
+
+        assertThatThrownBy(() -> useCase.execute(new PublishChapterCommand(CHAPTER_ID, ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Revision recorder failure");
+
+        verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName(
+            "Ném ngoại lệ khi đồng bộ narration thất bại lúc publish"
+    )
+    void shouldPropagateExceptionWhenNarrationSynchronizationFails() {
+        Chapter chapter = createDraftChapter("Nội dung chương.");
+        Volume volume = createPublishedVolume();
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(volumeRepositoryPort.findByIdForUpdate(VOLUME_ID)).thenReturn(Optional.of(volume));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(chapterRepositoryPort.save(chapter, 1L)).thenReturn(chapter);
+        when(synchronizePublishedChapterNarrationUseCase.execute(CHAPTER_ID))
+                .thenThrow(new RuntimeException("Narration sync failed"));
+
+        assertThatThrownBy(() -> useCase.execute(new PublishChapterCommand(CHAPTER_ID, ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Narration sync failed");
+
+        InOrder inOrder =
+                Mockito.inOrder(
+                        chapterRepositoryPort,
+                        chapterRevisionRecorder,
+                        synchronizePublishedChapterNarrationUseCase
+                );
+
+        inOrder.verify(
+                chapterRepositoryPort
+        ).save(
+                chapter,
+                1L
+        );
+
+        inOrder.verify(
+                chapterRevisionRecorder
+        ).record(
+                chapter,
+                ChapterRevisionChangeType.PUBLISH,
+                ADMIN_ID,
+                null
+        );
+
+        inOrder.verify(
+                synchronizePublishedChapterNarrationUseCase
+        ).execute(
+                CHAPTER_ID
+        );
     }
 
     @Test
