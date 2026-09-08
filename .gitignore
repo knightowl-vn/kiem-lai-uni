@@ -60,3 +60,5 @@ Thumbs.db
 # Local AI agent workspace
 .agents/
 uploads/
+
+docs/
