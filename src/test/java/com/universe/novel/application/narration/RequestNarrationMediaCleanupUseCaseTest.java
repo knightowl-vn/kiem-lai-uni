@@ -249,4 +249,23 @@ class RequestNarrationMediaCleanupUseCaseTest {
         assertThat(result.outcome()).isEqualTo(NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED);
         verify(mediaContract).delete(ASSET_ID);
     }
+
+    @Test
+    @DisplayName("11. Superseded chapter playback reason passes through the existing durable retry path")
+    void shouldPassSupersededChapterPlaybackReasonThroughDurableCleanupPath() {
+        NarrationMediaCleanupReason reason = NarrationMediaCleanupReason.SUPERSEDED_CHAPTER_PLAYBACK_ASSET;
+        NarrationMediaCleanupTask task = createTask(TASK_ID, ASSET_ID, reason);
+        when(enqueueUseCase.execute(ASSET_ID, reason)).thenReturn(task);
+        doThrow(new RuntimeException("Media temporarily unavailable")).when(mediaContract).delete(ASSET_ID);
+
+        RequestNarrationMediaCleanupResult result = useCase.execute(ASSET_ID, reason);
+
+        assertThat(result.mediaAssetId()).isEqualTo(ASSET_ID);
+        assertThat(result.outcome()).isEqualTo(NarrationMediaCleanupOutcome.ENQUEUED_FOR_RETRY);
+        verify(enqueueUseCase).execute(ASSET_ID, reason);
+        ArgumentCaptor<NarrationMediaCleanupTask> captor = ArgumentCaptor.forClass(NarrationMediaCleanupTask.class);
+        verify(repositoryPort).save(captor.capture());
+        assertThat(captor.getValue().getReason()).isEqualTo(reason);
+        assertThat(captor.getValue().getAttemptCount()).isEqualTo(1);
+    }
 }

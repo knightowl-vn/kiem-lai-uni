@@ -16,6 +16,11 @@ public enum NarrationMediaCleanupReason {
     SUPERSEDED_REGENERATION_ASSET,
 
     /**
+     * An old published chapter playback Media asset became obsolete after a successful replacement pointer switch.
+     */
+    SUPERSEDED_CHAPTER_PLAYBACK_ASSET,
+
+    /**
      * Media asset belonged to historical audio on a RETIRED narration segment and became unreferenced after safe assignment removal (MS-04.9H.7C1C1).
      */
     OBSOLETE_RETIRED_SEGMENT_AUDIO
