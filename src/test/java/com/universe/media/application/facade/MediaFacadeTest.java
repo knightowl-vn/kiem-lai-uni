@@ -6,10 +6,16 @@ import com.universe.media.application.asset.ChangeMediaVisibilityCommand;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetCommand;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQuery;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetVersionContentResult;
+import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentQuery;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetCommand;
@@ -23,6 +29,9 @@ import com.universe.media.application.exceptions.MediaAssetVersionNotFoundExcept
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
@@ -42,6 +51,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.io.ByteArrayInputStream;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -94,6 +104,12 @@ class MediaFacadeTest {
     @Mock
     private com.universe.media.application.variant.GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
 
+    @Mock
+    private GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase;
+
+    @Mock
+    private OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
+
     private MediaFacade facade;
 
     @BeforeEach
@@ -106,7 +122,9 @@ class MediaFacadeTest {
                 deleteMediaAssetUseCase,
                 uploadMediaAssetUseCase,
                 uploadMediaAssetVersionUseCase,
-                generateMediaImageVariantUseCase
+                generateMediaImageVariantUseCase,
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                openMediaAssetVersionContentUseCase
         );
     }
 
@@ -195,6 +213,83 @@ class MediaFacadeTest {
         assertThatThrownBy(() -> facade.getAssetDetail(ASSET_ID))
                 .isInstanceOf(MediaAssetVersionNotFoundException.class)
                 .hasMessageContaining(ASSET_ID.toString());
+    }
+
+    @Test
+    @DisplayName("getCurrentVersionSnapshot returns mapped MediaAssetVersionSnapshotDTO when asset is found")
+    void shouldReturnCurrentVersionSnapshotWhenFound() {
+        MediaAssetVersionSnapshotResult appResult = new MediaAssetVersionSnapshotResult(
+                ASSET_ID,
+                2,
+                VALID_HASH,
+                "audio/mpeg",
+                4096L,
+                "chapter.mp3"
+        );
+
+        when(getCurrentMediaAssetVersionSnapshotUseCase.execute(
+                new GetCurrentMediaAssetVersionSnapshotQuery(ASSET_ID)
+        )).thenReturn(appResult);
+
+        Optional<MediaAssetVersionSnapshotDTO> optSnapshot = facade.getCurrentVersionSnapshot(ASSET_ID);
+
+        assertThat(optSnapshot).isPresent();
+        MediaAssetVersionSnapshotDTO snapshot = optSnapshot.get();
+        assertThat(snapshot.assetId()).isEqualTo(ASSET_ID);
+        assertThat(snapshot.versionNumber()).isEqualTo(2);
+        assertThat(snapshot.contentHash()).isEqualTo(VALID_HASH);
+        assertThat(snapshot.mimeType()).isEqualTo("audio/mpeg");
+        assertThat(snapshot.sizeBytes()).isEqualTo(4096L);
+        assertThat(snapshot.originalFilename()).isEqualTo("chapter.mp3");
+    }
+
+    @Test
+    @DisplayName("getCurrentVersionSnapshot returns Optional.empty() when asset is not found")
+    void shouldReturnEmptyWhenSnapshotAssetNotFound() {
+        when(getCurrentMediaAssetVersionSnapshotUseCase.execute(any(GetCurrentMediaAssetVersionSnapshotQuery.class)))
+                .thenThrow(new MediaAssetNotFoundException(ASSET_ID));
+
+        Optional<MediaAssetVersionSnapshotDTO> optSnapshot = facade.getCurrentVersionSnapshot(ASSET_ID);
+
+        assertThat(optSnapshot).isEmpty();
+    }
+
+    @Test
+    @DisplayName("openVersionContent delegates exact reference and returns content DTO")
+    void shouldOpenVersionContent() {
+        ByteArrayInputStream stream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        MediaAssetVersionContentResult appResult = new MediaAssetVersionContentResult(
+                ASSET_ID,
+                2,
+                VALID_HASH,
+                "audio/mpeg",
+                4096L,
+                stream
+        );
+        MediaAssetVersionReferenceDTO reference = new MediaAssetVersionReferenceDTO(
+                ASSET_ID,
+                2,
+                VALID_HASH
+        );
+
+        when(openMediaAssetVersionContentUseCase.execute(any(OpenMediaAssetVersionContentQuery.class)))
+                .thenReturn(appResult);
+
+        MediaAssetVersionContentDTO content = facade.openVersionContent(reference);
+
+        assertThat(content.assetId()).isEqualTo(ASSET_ID);
+        assertThat(content.versionNumber()).isEqualTo(2);
+        assertThat(content.contentHash()).isEqualTo(VALID_HASH);
+        assertThat(content.mimeType()).isEqualTo("audio/mpeg");
+        assertThat(content.sizeBytes()).isEqualTo(4096L);
+        assertThat(content.content()).isSameAs(stream);
+
+        ArgumentCaptor<OpenMediaAssetVersionContentQuery> captor =
+                ArgumentCaptor.forClass(OpenMediaAssetVersionContentQuery.class);
+        verify(openMediaAssetVersionContentUseCase).execute(captor.capture());
+        assertThat(captor.getValue().assetId()).isEqualTo(ASSET_ID);
+        assertThat(captor.getValue().versionNumber()).isEqualTo(2);
+        assertThat(captor.getValue().contentHash()).isEqualTo(VALID_HASH);
     }
 
     @Test

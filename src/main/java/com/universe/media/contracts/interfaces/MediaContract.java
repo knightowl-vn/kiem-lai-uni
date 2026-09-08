@@ -3,6 +3,9 @@ package com.universe.media.contracts.interfaces;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
@@ -64,6 +67,29 @@ public interface MediaContract {
      */
     Optional<MediaAssetDetailDTO> getAssetDetail(
             UUID assetId
+    );
+
+    /**
+     * Retrieves immutable provenance for the current binary version of a non-deleted media asset.
+     *
+     * @param assetId ID of the media asset
+     * @return Optional containing the current version snapshot if present, empty otherwise
+     */
+    Optional<MediaAssetVersionSnapshotDTO> getCurrentVersionSnapshot(
+            UUID assetId
+    );
+
+    /**
+     * Opens the exact immutable binary version identified by asset ID, version number, and content hash.
+     *
+     * <p><strong>Stream Ownership:</strong> The caller owns and must close the returned
+     * {@link java.io.InputStream}.
+     *
+     * @param reference exact immutable version reference
+     * @return content stream and metadata for the referenced version
+     */
+    MediaAssetVersionContentDTO openVersionContent(
+            MediaAssetVersionReferenceDTO reference
     );
 
     /**

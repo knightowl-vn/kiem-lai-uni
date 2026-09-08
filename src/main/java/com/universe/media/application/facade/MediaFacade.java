@@ -6,10 +6,16 @@ import com.universe.media.application.asset.ChangeMediaVisibilityCommand;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetCommand;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQuery;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetVersionContentResult;
+import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentQuery;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetCommand;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetCommand;
@@ -25,6 +31,9 @@ import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
+import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
@@ -60,6 +69,8 @@ public class MediaFacade implements MediaContract {
     private final UploadMediaAssetUseCase uploadMediaAssetUseCase;
     private final UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase;
     private final GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
+    private final GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase;
+    private final OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
@@ -69,7 +80,9 @@ public class MediaFacade implements MediaContract {
             DeleteMediaAssetUseCase deleteMediaAssetUseCase,
             UploadMediaAssetUseCase uploadMediaAssetUseCase,
             UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
-            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase
+            GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
+            GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -102,6 +115,14 @@ public class MediaFacade implements MediaContract {
         this.generateMediaImageVariantUseCase = Objects.requireNonNull(
                 generateMediaImageVariantUseCase,
                 "GenerateMediaImageVariantUseCase cannot be null."
+        );
+        this.getCurrentMediaAssetVersionSnapshotUseCase = Objects.requireNonNull(
+                getCurrentMediaAssetVersionSnapshotUseCase,
+                "GetCurrentMediaAssetVersionSnapshotUseCase cannot be null."
+        );
+        this.openMediaAssetVersionContentUseCase = Objects.requireNonNull(
+                openMediaAssetVersionContentUseCase,
+                "OpenMediaAssetVersionContentUseCase cannot be null."
         );
     }
 
@@ -177,6 +198,47 @@ public class MediaFacade implements MediaContract {
     }
 
     @Override
+    public Optional<MediaAssetVersionSnapshotDTO> getCurrentVersionSnapshot(UUID assetId) {
+        Objects.requireNonNull(
+                assetId,
+                "Asset ID cannot be null."
+        );
+
+        try {
+            MediaAssetVersionSnapshotResult result = getCurrentMediaAssetVersionSnapshotUseCase.execute(
+                    new GetCurrentMediaAssetVersionSnapshotQuery(assetId)
+            );
+            return Optional.of(toMediaAssetVersionSnapshotDTO(result));
+        } catch (MediaAssetNotFoundException e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public MediaAssetVersionContentDTO openVersionContent(MediaAssetVersionReferenceDTO reference) {
+        Objects.requireNonNull(
+                reference,
+                "MediaAssetVersionReferenceDTO cannot be null."
+        );
+
+        MediaAssetVersionContentResult result = openMediaAssetVersionContentUseCase.execute(
+                new OpenMediaAssetVersionContentQuery(
+                        reference.assetId(),
+                        reference.versionNumber(),
+                        reference.contentHash()
+                )
+        );
+        return new MediaAssetVersionContentDTO(
+                result.assetId(),
+                result.versionNumber(),
+                result.contentHash(),
+                result.mimeType(),
+                result.sizeBytes(),
+                result.content()
+        );
+    }
+
+    @Override
     public void changeVisibility(ChangeMediaVisibilityRequestDTO request) {
         Objects.requireNonNull(
                 request,
@@ -247,6 +309,19 @@ public class MediaFacade implements MediaContract {
                 versionItem.sizeBytes(),
                 versionItem.originalFilename(),
                 versionItem.createdAt()
+        );
+    }
+
+    private MediaAssetVersionSnapshotDTO toMediaAssetVersionSnapshotDTO(
+            MediaAssetVersionSnapshotResult result
+    ) {
+        return new MediaAssetVersionSnapshotDTO(
+                result.assetId(),
+                result.versionNumber(),
+                result.contentHash(),
+                result.mimeType(),
+                result.sizeBytes(),
+                result.originalFilename()
         );
     }
 
