@@ -60,6 +60,15 @@ public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
     }
 
     public ChapterNarrationPlaybackBuildSnapshot execute(UUID chapterId, UUID managedVoiceId) {
+        return resolve(chapterId, managedVoiceId, true);
+    }
+
+    /** Read-only metadata inspection also supports draft chapters and disabled voices. */
+    public ChapterNarrationPlaybackBuildSnapshot inspect(UUID chapterId, UUID managedVoiceId) {
+        return resolve(chapterId, managedVoiceId, false);
+    }
+
+    private ChapterNarrationPlaybackBuildSnapshot resolve(UUID chapterId, UUID managedVoiceId, boolean requireBuildEligibility) {
         if (chapterId == null) {
             throw new IllegalArgumentException("chapterId must not be null");
         }
@@ -69,13 +78,13 @@ public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
 
         Chapter chapter = chapterRepositoryPort.findById(chapterId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
-        if (chapter.getStatus() != ChapterStatus.PUBLISHED) {
+        if (requireBuildEligibility && chapter.getStatus() != ChapterStatus.PUBLISHED) {
             throw new IllegalStateException("Chapter must be PUBLISHED before narration playback can be built.");
         }
 
         ManagedVoice voice = managedVoiceRepositoryPort.findById(managedVoiceId)
                 .orElseThrow(() -> new ManagedVoiceNotFoundException(managedVoiceId));
-        if (!voice.isActive()) {
+        if (requireBuildEligibility && !voice.isActive()) {
             throw new ManagedVoiceInvalidStateException("Managed voice must be ACTIVE before narration playback can be built.");
         }
 

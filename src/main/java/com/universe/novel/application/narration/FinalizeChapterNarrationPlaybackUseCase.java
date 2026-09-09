@@ -117,7 +117,8 @@ public class FinalizeChapterNarrationPlaybackUseCase {
                 command.durationMillis(),
                 command.cues().size(),
                 PLAYBACK_CODEC_MIME_TYPE,
-                now
+                now,
+                ChapterNarrationPlaybackSourceFingerprint.compute(snapshot)
         );
         ChapterNarrationPlaybackArtifact persistedArtifact = artifactRepositoryPort.insert(artifact);
 

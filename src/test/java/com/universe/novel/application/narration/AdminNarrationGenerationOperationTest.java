@@ -23,15 +23,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,6 +41,9 @@ class AdminNarrationGenerationOperationTest {
 
     @Mock
     private GenerateChapterNarrationUseCase generateChapterNarrationUseCase;
+
+    @Mock
+    private BuildChapterNarrationPlaybackUseCase buildChapterNarrationPlaybackUseCase;
 
     @Mock
     private TaskExecutor mockTaskExecutor;
@@ -54,7 +58,9 @@ class AdminNarrationGenerationOperationTest {
 
     @BeforeEach
     void setUp() {
-        worker = new AdminNarrationGenerationWorker(generateChapterNarrationUseCase);
+        org.mockito.Mockito.lenient().when(buildChapterNarrationPlaybackUseCase.execute(any()))
+                .thenReturn(new BuildChapterNarrationPlaybackResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        worker = new AdminNarrationGenerationWorker(generateChapterNarrationUseCase, buildChapterNarrationPlaybackUseCase);
         syncDispatcher = new AdminNarrationGenerationDispatcher(new SyncTaskExecutor(), worker);
     }
 
@@ -79,13 +85,16 @@ class AdminNarrationGenerationOperationTest {
         AdminNarrationDispatchResult dispatchResult = syncDispatcher.dispatch(chapterId1, voiceId1);
 
         assertThat(dispatchResult.status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
-        verify(generateChapterNarrationUseCase, times(1)).execute(chapterId1, voiceId1);
+        var order = inOrder(generateChapterNarrationUseCase, buildChapterNarrationPlaybackUseCase);
+        order.verify(generateChapterNarrationUseCase).execute(chapterId1, voiceId1);
+        order.verify(buildChapterNarrationPlaybackUseCase).execute(new BuildChapterNarrationPlaybackCommand(chapterId1, voiceId1));
+        order.verifyNoMoreInteractions();
 
         AdminNarrationOperationState finalState = syncDispatcher.getOperationState(chapterId1, voiceId1);
         assertThat(finalState.status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
         assertThat(finalState.startedAt()).isNotNull();
         assertThat(finalState.completedAt()).isNotNull();
-        assertThat(finalState.message()).contains("Hoàn tất tạo giọng đọc");
+        assertThat(finalState.message()).contains("Hoàn tất tạo / cập nhật audio cả chương");
         assertThat(syncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
     }
 
@@ -123,7 +132,8 @@ class AdminNarrationGenerationOperationTest {
 
             // Allow first task to complete
             allowUseCaseToFinish.countDown();
-            Thread.sleep(100);
+            asyncPool.shutdown();
+            assertThat(asyncPool.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
 
             assertThat(asyncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
             verify(generateChapterNarrationUseCase, times(1)).execute(chapterId1, voiceId1);
@@ -198,6 +208,7 @@ class AdminNarrationGenerationOperationTest {
         assertThat(finalState.message()).isEqualTo(AdminNarrationGenerationWorker.SAFE_FAILURE_MESSAGE);
         assertThat(finalState.message()).doesNotContain("Internal database lock");
         assertThat(finalState.message()).doesNotContain("timeout");
+        verifyNoInteractions(buildChapterNarrationPlaybackUseCase);
     }
 
     @Test
@@ -267,8 +278,8 @@ class AdminNarrationGenerationOperationTest {
     }
 
     @Test
-    @DisplayName("11. Partial outcome maps correctly to PARTIAL status")
-    void partialOutcomeMapsToPartialStatus() {
+    @DisplayName("11. Partial readiness fails the operation without building chapter playback")
+    void partialReadinessFailsWithoutBuildingPlayback() {
         GenerateChapterNarrationResult partialResult = new GenerateChapterNarrationResult(
                 chapterId1,
                 voiceId1,
@@ -287,8 +298,135 @@ class AdminNarrationGenerationOperationTest {
         syncDispatcher.dispatch(chapterId1, voiceId1);
 
         AdminNarrationOperationState finalState = syncDispatcher.getOperationState(chapterId1, voiceId1);
-        assertThat(finalState.status()).isEqualTo(AdminNarrationOperationStatus.PARTIAL);
-        assertThat(finalState.message()).contains("1/2 đoạn thành công");
+        assertThat(finalState.status()).isEqualTo(AdminNarrationOperationStatus.FAILED);
+        assertThat(finalState.message()).isEqualTo(AdminNarrationGenerationWorker.SAFE_FAILURE_MESSAGE);
+        assertThat(syncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
+        verifyNoInteractions(buildChapterNarrationPlaybackUseCase);
+    }
+
+    @Test
+    void legacyAllReadyResultStillBuildsChapterPlayback() {
+        when(generateChapterNarrationUseCase.execute(chapterId1, voiceId1)).thenReturn(allReady(chapterId1, voiceId1));
+
+        syncDispatcher.dispatch(chapterId1, voiceId1);
+
+        var order = inOrder(generateChapterNarrationUseCase, buildChapterNarrationPlaybackUseCase);
+        order.verify(generateChapterNarrationUseCase).execute(chapterId1, voiceId1);
+        order.verify(buildChapterNarrationPlaybackUseCase).execute(new BuildChapterNarrationPlaybackCommand(chapterId1, voiceId1));
+        order.verifyNoMoreInteractions();
+        assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+        assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).message())
+                .contains("đã có: 3, tạo mới: 0, cập nhật: 0");
+    }
+
+    @Test
+    void builderFailureIsSafeAndReleasesKeyForRetry() {
+        when(generateChapterNarrationUseCase.execute(chapterId1, voiceId1)).thenReturn(allReady(chapterId1, voiceId1));
+        BuildChapterNarrationPlaybackCommand command = new BuildChapterNarrationPlaybackCommand(chapterId1, voiceId1);
+        when(buildChapterNarrationPlaybackUseCase.execute(command))
+                .thenThrow(new IllegalStateException("FFmpeg C:/private/audio.wav storage-key Media provider-voice-id"))
+                .thenReturn(new BuildChapterNarrationPlaybackResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+
+        syncDispatcher.dispatch(chapterId1, voiceId1);
+
+        AdminNarrationOperationState failed = syncDispatcher.getOperationState(chapterId1, voiceId1);
+        assertThat(failed.status()).isEqualTo(AdminNarrationOperationStatus.FAILED);
+        assertThat(failed.message()).isEqualTo(AdminNarrationGenerationWorker.SAFE_FAILURE_MESSAGE);
+        assertThat(failed.completedAt()).isNotNull();
+        assertThat(syncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
+
+        assertThat(syncDispatcher.dispatch(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
+        assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+        verify(buildChapterNarrationPlaybackUseCase, times(2)).execute(command);
+    }
+
+    @Test
+    void failedOrRetryRequiredReadinessNeverBuildsPlayback() {
+        for (ChapterNarrationSegmentExecutionResult item : List.of(
+                ChapterNarrationSegmentExecutionResult.failure(UUID.randomUUID(), 0,
+                        ChapterNarrationGenerationAction.GENERATE, "TTS_ERROR", "private provider details"),
+                ChapterNarrationSegmentExecutionResult.success(UUID.randomUUID(), 0,
+                        ChapterNarrationGenerationAction.GENERATE, ChapterNarrationGenerationExecutionOutcome.RETRY_REQUIRED)
+        )) {
+            when(generateChapterNarrationUseCase.execute(chapterId1, voiceId1))
+                    .thenReturn(new GenerateChapterNarrationResult(chapterId1, voiceId1, List.of(item)));
+            assertThat(syncDispatcher.dispatch(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
+            assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.FAILED);
+            assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).message())
+                    .isEqualTo(AdminNarrationGenerationWorker.SAFE_FAILURE_MESSAGE);
+            assertThat(syncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
+        }
+        verifyNoInteractions(buildChapterNarrationPlaybackUseCase);
+    }
+
+    @Test
+    void singleFlightAndRunningStateSpanBuilderWhileOtherKeysComplete() throws InterruptedException {
+        CountDownLatch builderStarted = new CountDownLatch(1);
+        CountDownLatch allowBuilderToFinish = new CountDownLatch(1);
+        CountDownLatch independentTasksFinished = new CountDownLatch(2);
+        ExecutorService asyncPool = Executors.newFixedThreadPool(3);
+        when(generateChapterNarrationUseCase.execute(any(UUID.class), any(UUID.class)))
+                .thenAnswer(invocation -> allReady(invocation.getArgument(0), invocation.getArgument(1)));
+        BuildChapterNarrationPlaybackCommand blockedCommand = new BuildChapterNarrationPlaybackCommand(chapterId1, voiceId1);
+        when(buildChapterNarrationPlaybackUseCase.execute(blockedCommand)).thenAnswer(invocation -> {
+            builderStarted.countDown();
+            assertThat(allowBuilderToFinish.await(5, TimeUnit.SECONDS)).isTrue();
+            return new BuildChapterNarrationPlaybackResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        });
+        AdminNarrationGenerationDispatcher dispatcher = new AdminNarrationGenerationDispatcher(
+                task -> asyncPool.execute(() -> {
+                    task.run();
+                    independentTasksFinished.countDown();
+                }), worker);
+        try {
+            assertThat(dispatcher.dispatch(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
+            assertThat(builderStarted.await(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(dispatcher.isRunning(chapterId1, voiceId1)).isTrue();
+            assertThat(dispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.RUNNING);
+            assertThat(dispatcher.getOperationState(chapterId1, voiceId1).completedAt()).isNull();
+            assertThat(dispatcher.dispatch(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.ALREADY_RUNNING);
+
+            // Same chapter with another voice, and another chapter with the same voice, remain independent.
+            assertThat(dispatcher.dispatch(chapterId1, voiceId2).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
+            assertThat(dispatcher.dispatch(chapterId2, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
+            assertThat(independentTasksFinished.await(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(dispatcher.getOperationState(chapterId1, voiceId2).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+            assertThat(dispatcher.getOperationState(chapterId2, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+            assertThat(dispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.RUNNING);
+
+            allowBuilderToFinish.countDown();
+            asyncPool.shutdown();
+            assertThat(asyncPool.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
+            assertThat(dispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+            assertThat(dispatcher.isRunning(chapterId1, voiceId1)).isFalse();
+            verify(generateChapterNarrationUseCase).execute(chapterId1, voiceId1);
+            verify(buildChapterNarrationPlaybackUseCase).execute(blockedCommand);
+            verify(buildChapterNarrationPlaybackUseCase).execute(new BuildChapterNarrationPlaybackCommand(chapterId1, voiceId2));
+            verify(buildChapterNarrationPlaybackUseCase).execute(new BuildChapterNarrationPlaybackCommand(chapterId2, voiceId1));
+        } finally {
+            allowBuilderToFinish.countDown();
+            asyncPool.shutdownNow();
+        }
+    }
+
+    @Test
+    void alreadyCurrentSucceedsWithSafeNoChangeMessageAndReleasesKey() {
+        when(generateChapterNarrationUseCase.execute(chapterId1, voiceId1)).thenReturn(allReady(chapterId1, voiceId1));
+        when(buildChapterNarrationPlaybackUseCase.execute(any())).thenReturn(new BuildChapterNarrationPlaybackResult(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT));
+        syncDispatcher.dispatch(chapterId1, voiceId1);
+        assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+        assertThat(syncDispatcher.getOperationState(chapterId1, voiceId1).message())
+                .isEqualTo(AdminNarrationGenerationWorker.SAFE_ALREADY_CURRENT_MESSAGE);
+        assertThat(syncDispatcher.isRunning(chapterId1, voiceId1)).isFalse();
+    }
+
+    private GenerateChapterNarrationResult allReady(UUID chapterId, UUID voiceId) {
+        return new GenerateChapterNarrationResult(chapterId, voiceId, List.of(
+                ChapterNarrationSegmentExecutionResult.skippedReady(UUID.randomUUID(), 0),
+                ChapterNarrationSegmentExecutionResult.skippedReady(UUID.randomUUID(), 1),
+                ChapterNarrationSegmentExecutionResult.skippedReady(UUID.randomUUID(), 2)
+        ));
     }
 
     @Test

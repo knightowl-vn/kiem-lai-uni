@@ -83,6 +83,8 @@ class FinalizeChapterNarrationPlaybackTransactionalIntegrationTest {
     private JdbcTemplate jdbcTemplate;
     @Autowired
     private FinalizeChapterNarrationPlaybackUseCase useCase;
+    @Autowired
+    private ChapterNarrationPlaybackArtifactPersistenceAdapter artifactAdapter;
 
     @MockBean
     private ChapterRepositoryPort chapterRepositoryPort;
@@ -168,6 +170,8 @@ class FinalizeChapterNarrationPlaybackTransactionalIntegrationTest {
                 String.class,
                 ARTIFACT_ID.toString()
         )).isEqualTo("audio/mpeg");
+        assertThat(artifactAdapter.findById(ARTIFACT_ID).orElseThrow().getSourceFingerprint())
+                .isEqualTo(com.universe.novel.application.narration.ChapterNarrationPlaybackSourceFingerprint.compute(snapshot));
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT end_millis FROM novel_chapter_narration_playback_cues WHERE artifact_id = ? AND cue_ordinal = 0",
                 Long.class,

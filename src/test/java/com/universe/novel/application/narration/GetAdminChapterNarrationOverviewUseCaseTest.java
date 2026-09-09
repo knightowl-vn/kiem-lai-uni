@@ -76,6 +76,7 @@ class GetAdminChapterNarrationOverviewUseCaseTest {
 
     @Mock
     private ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort;
+    @Mock private InspectChapterNarrationPlaybackUseCase playbackInspector;
 
     private GetAdminChapterNarrationOverviewUseCase useCase;
 
@@ -87,7 +88,8 @@ class GetAdminChapterNarrationOverviewUseCaseTest {
                 managedVoiceRepositoryPort,
                 segmentRepositoryPort,
                 audioRepositoryPort,
-                failureRepositoryPort
+                failureRepositoryPort,
+                playbackInspector
         );
     }
 
@@ -147,6 +149,19 @@ class GetAdminChapterNarrationOverviewUseCaseTest {
                 NOW,
                 NOW
         );
+    }
+
+    @Test
+    void overviewIncludesSelectedVoicePlaybackStateIndependentlyOfSegmentCounts() {
+        when(getChapterDetailUseCase.execute(CHAPTER_ID)).thenReturn(createChapterDTO());
+        when(getVolumeDetailUseCase.execute(VOLUME_ID)).thenReturn(createVolumeDTO());
+        when(managedVoiceRepositoryPort.findAll()).thenReturn(List.of(
+                createVoice(VOICE_1_ID, "voice-1", "Minh Đức", ManagedVoiceStatus.ACTIVE, 1, true, 2L)));
+        for (ChapterNarrationPlaybackState state : ChapterNarrationPlaybackState.values()) {
+            var metadata = new AdminChapterNarrationPlaybackDTO(state, 1000L, 3, NOW);
+            when(playbackInspector.execute(CHAPTER_ID, VOICE_1_ID, 1L, 2L)).thenReturn(metadata);
+            assertThat(useCase.execute(CHAPTER_ID, VOICE_1_ID).chapterPlayback()).isEqualTo(metadata);
+        }
     }
 
     private ChapterNarrationSegment createSegment(UUID id, int index, String text) {

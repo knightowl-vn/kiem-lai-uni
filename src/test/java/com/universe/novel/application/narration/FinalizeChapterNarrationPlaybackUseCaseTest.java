@@ -172,6 +172,7 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
         assertThat(artifact.getSourceContentVersion()).isEqualTo(CONTENT_VERSION);
         assertThat(artifact.getSynthesisRevision()).isEqualTo(SYNTHESIS_REVISION);
         assertThat(artifact.getManifestHash()).isEqualTo(manifestHash);
+        assertThat(artifact.getSourceFingerprint()).isEqualTo(ChapterNarrationPlaybackSourceFingerprint.compute(snapshot));
         assertThat(artifact.getMediaAssetId()).isEqualTo(CANDIDATE_MEDIA_ID);
         assertThat(artifact.getDurationMillis()).isEqualTo(1_234L);
         assertThat(artifact.getCueCount()).isOne();

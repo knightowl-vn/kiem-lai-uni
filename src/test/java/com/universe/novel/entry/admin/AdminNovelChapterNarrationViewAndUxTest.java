@@ -1,6 +1,8 @@
 package com.universe.novel.entry.admin;
 
 import com.universe.novel.application.narration.AdminChapterNarrationSegmentViewDTO;
+import com.universe.novel.application.narration.AdminChapterNarrationPlaybackDTO;
+import com.universe.novel.application.narration.ChapterNarrationPlaybackState;
 import com.universe.novel.application.narration.AdminNarrationOperationState;
 import com.universe.novel.application.narration.AdminNarrationOperationStatus;
 import com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus;
@@ -90,7 +92,6 @@ class AdminNovelChapterNarrationViewAndUxTest {
         );
 
         int totalSegments = readyCount + outdatedCount + missingCount + failedCount;
-        if (totalSegments == 0) totalSegments = 1;
         int currentGenRequired = outdatedCount + missingCount + failedCount;
 
         AdminNarrationOperationState opState = isRunning
@@ -101,6 +102,7 @@ class AdminNovelChapterNarrationViewAndUxTest {
         variables.put("volume", volume);
         variables.put("voices", List.of(voice));
         variables.put("selectedVoice", voice);
+        variables.put("chapterPlayback", AdminChapterNarrationPlaybackDTO.missing());
         variables.put("segments", List.of(missingSegment));
         variables.put("totalSegments", totalSegments);
         variables.put("currentSegmentCount", totalSegments);
@@ -133,18 +135,18 @@ class AdminNovelChapterNarrationViewAndUxTest {
 
         assertThat(html).contains("generate-all");
         assertThat(html).contains("managedVoiceId");
-        assertThat(html).contains("Tạo / cập nhật toàn bộ giọng đọc");
+        assertThat(html).contains("Tạo audio cả chương");
     }
 
     @Test
     @DisplayName("8. RUNNING state disables whole-chapter action and per-segment actions")
     void shouldDisableActionButtonsWhenRunning() {
-        IWebContext context = createWebContext("PUBLISHED", "ACTIVE", true, 1, 0, 1, 0, false, 0);
+        IWebContext context = createWebContext("PUBLISHED", "ACTIVE", true, 3, 0, 0, 0, false, 0);
         String html = templateEngine.process("admin/novel/chapter-narration", context);
 
         assertThat(html).contains("novelAdminOperationProgressPanel");
-        assertThat(html).contains("Đang tạo / cập nhật giọng đọc...");
-        assertThat(html).contains("disabled=\"disabled\"");
+        assertThat(html).contains("Đang tạo / cập nhật audio cả chương...");
+        assertThat(wholeChapterForm(html)).contains("disabled=\"disabled\"");
         assertThat(html).contains("novelAdminProgressBar");
     }
 
@@ -186,13 +188,55 @@ class AdminNovelChapterNarrationViewAndUxTest {
     }
 
     @Test
-    @DisplayName("12. All-ready audio with no content change renders disabled already-ready button")
-    void shouldRenderAlreadyReadyDisabledButtonWhenAllReady() {
-        IWebContext context = createWebContext("PUBLISHED", "ACTIVE", false, 5, 0, 0, 0, false, 0);
+    @DisplayName("12. All-ready legacy audio permits explicit chapter playback backfill or regeneration")
+    void shouldEnableChapterPlaybackBuildWhenAllReady() {
+        IWebContext context = createWebContext("PUBLISHED", "ACTIVE", false, 3, 0, 0, 0, false, 0);
         String html = templateEngine.process("admin/novel/chapter-narration", context);
 
-        assertThat(html).contains("Đã tạo đủ giọng đọc");
-        assertThat(html).contains("disabled=\"disabled\"");
+        assertThat(wholeChapterForm(html))
+                .contains("method=\"post\"", "/narration/generate-all", "name=\"managedVoiceId\"",
+                        VOICE_ID.toString(), "type=\"submit\"", "Tạo audio cả chương")
+                .doesNotContain("disabled", "Đã tạo đủ giọng đọc");
+    }
+
+    private String wholeChapterForm(String html) {
+        int start = html.indexOf("<form id=\"novelAdminGenerateAllForm\"");
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        return html.substring(start, html.indexOf("</form>", start));
+    }
+
+    @Test
+    void currentPlaybackShowsMetadataAndDisablesNormalBuild() {
+        WebContext context = (WebContext) createWebContext("PUBLISHED", "ACTIVE", false, 3, 0, 0, 0, false, 0);
+        context.setVariable("chapterPlayback", new AdminChapterNarrationPlaybackDTO(
+                ChapterNarrationPlaybackState.CURRENT, 123400L, 3, Instant.parse("2026-09-09T01:02:00Z")));
+        String html = templateEngine.process("admin/novel/chapter-narration", context);
+        assertThat(html).contains("AUDIO CẢ CHƯƠNG", "Đã sẵn sàng", "123", "09/09/2026 08:02", "Số mốc lời đọc:");
+        assertThat(wholeChapterForm(html)).contains("disabled=\"disabled\"", "Audio cả chương đã sẵn sàng")
+                .doesNotContain("type=\"submit\"");
+    }
+
+    @Test
+    void stalePlaybackOffersUpdateForContentVoiceAndSourceChanges() {
+        for (ChapterNarrationPlaybackState state : List.of(ChapterNarrationPlaybackState.STALE_CONTENT,
+                ChapterNarrationPlaybackState.STALE_VOICE, ChapterNarrationPlaybackState.STALE_SOURCE)) {
+            WebContext context = (WebContext) createWebContext("PUBLISHED", "ACTIVE", false, 3, 0, 0, 0, false, 0);
+            context.setVariable("chapterPlayback", new AdminChapterNarrationPlaybackDTO(state, 1000L, 3, Instant.EPOCH));
+            String html = templateEngine.process("admin/novel/chapter-narration", context);
+            assertThat(html).contains("Cần cập nhật");
+            assertThat(wholeChapterForm(html)).contains("Cập nhật audio cả chương", "type=\"submit\"")
+                    .doesNotContain("disabled");
+        }
+    }
+
+    @Test
+    void draftAndZeroCurrentSegmentsHaveNoBuildAction() {
+        for (IWebContext context : List.of(
+                createWebContext("DRAFT", "ACTIVE", false, 3, 0, 0, 0, false, 0),
+                createWebContext("PUBLISHED", "ACTIVE", false, 0, 0, 0, 0, false, 0))) {
+            String html = templateEngine.process("admin/novel/chapter-narration", context);
+            assertThat(html).doesNotContain("id=\"novelAdminGenerateAllForm\"");
+        }
     }
 
     @Test

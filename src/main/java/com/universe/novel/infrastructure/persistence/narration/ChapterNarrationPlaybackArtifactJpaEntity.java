@@ -113,6 +113,9 @@ public class ChapterNarrationPlaybackArtifactJpaEntity {
     )
     private Instant createdAt;
 
+    @Column(name = "source_fingerprint", length = 64, columnDefinition = "CHAR(64)")
+    private String sourceFingerprint;
+
     public ChapterNarrationPlaybackArtifactJpaEntity() {
     }
 
@@ -128,7 +131,8 @@ public class ChapterNarrationPlaybackArtifactJpaEntity {
             long durationMillis,
             int cueCount,
             String codecMimeType,
-            Instant createdAt
+            Instant createdAt,
+            String sourceFingerprint
     ) {
         this.id = id;
         this.playbackId = playbackId;
@@ -142,6 +146,7 @@ public class ChapterNarrationPlaybackArtifactJpaEntity {
         this.cueCount = cueCount;
         this.codecMimeType = codecMimeType;
         this.createdAt = createdAt;
+        this.sourceFingerprint = sourceFingerprint;
     }
 
     public String getId() {
@@ -190,5 +195,9 @@ public class ChapterNarrationPlaybackArtifactJpaEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getSourceFingerprint() {
+        return sourceFingerprint;
     }
 }

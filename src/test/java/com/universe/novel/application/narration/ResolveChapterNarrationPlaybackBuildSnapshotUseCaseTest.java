@@ -148,6 +148,21 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
         verifyNoInteractions(audioRepositoryPort, mediaContract);
     }
 
+    @Test
+    void adminCanInspectDraftOrDisabledSourcesWithoutRelaxingBuildEligibility() {
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, audio2));
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_1_ID)).thenReturn(Optional.of(version(MEDIA_1_ID, 1, "a".repeat(64))));
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_2_ID)).thenReturn(Optional.of(version(MEDIA_2_ID, 1, "b".repeat(64))));
+        when(chapter.getStatus()).thenReturn(ChapterStatus.DRAFT);
+        when(voice.isActive()).thenReturn(false);
+
+        assertThat(useCase.inspect(CHAPTER_ID, VOICE_ID).segments()).hasSize(2);
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID)).isInstanceOf(IllegalStateException.class);
+        when(chapter.getStatus()).thenReturn(ChapterStatus.PUBLISHED);
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
+                .isInstanceOf(com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException.class);
+    }
+
     private void arrangeContext(
             List<ChapterNarrationSegment> segments,
             List<ChapterNarrationAudio> assignments

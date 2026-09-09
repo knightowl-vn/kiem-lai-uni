@@ -70,7 +70,8 @@ public class ChapterNarrationPlaybackArtifactPersistenceAdapter
                 artifact.getDurationMillis(),
                 artifact.getCueCount(),
                 artifact.getCodecMimeType(),
-                artifact.getCreatedAt()
+                artifact.getCreatedAt(),
+                artifact.getSourceFingerprint()
         );
     }
 
@@ -87,7 +88,8 @@ public class ChapterNarrationPlaybackArtifactPersistenceAdapter
                 entity.getDurationMillis(),
                 entity.getCueCount(),
                 entity.getCodecMimeType(),
-                entity.getCreatedAt()
+                entity.getCreatedAt(),
+                entity.getSourceFingerprint()
         );
     }
 }

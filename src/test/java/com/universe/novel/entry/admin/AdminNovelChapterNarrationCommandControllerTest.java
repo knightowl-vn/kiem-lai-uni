@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -375,7 +376,8 @@ class AdminNovelChapterNarrationCommandControllerTest {
                 0,
                 0,
                 0,
-                false
+                false,
+                com.universe.novel.application.narration.AdminChapterNarrationPlaybackDTO.missing()
         );
     }
 
@@ -397,6 +399,27 @@ class AdminNovelChapterNarrationCommandControllerTest {
                 .isEqualTo(dispatchResult.message());
         verify(overviewUseCase).execute(CHAPTER_ID, VOICE_ID);
         verify(dispatcher).dispatch(CHAPTER_ID, VOICE_ID);
+    }
+
+    @Test
+    void shouldDispatchLegacyAllReadyChapterThroughExistingOperationBoundary() {
+        GetAdminChapterNarrationOverviewResult base = createOverview("PUBLISHED", "ACTIVE");
+        GetAdminChapterNarrationOverviewResult ready = new GetAdminChapterNarrationOverviewResult(
+                base.chapter(), base.volume(), base.voices(), base.selectedVoice(), List.of(),
+                3, 3, 0, 0, 0, 0, 0, 0, 0, false,
+                com.universe.novel.application.narration.AdminChapterNarrationPlaybackDTO.missing()
+        );
+        when(overviewUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(ready);
+        AdminNarrationDispatchResult started = AdminNarrationDispatchResult.started(
+                AdminNarrationOperationState.running(CHAPTER_ID, VOICE_ID, Instant.now()));
+        when(dispatcher.dispatch(CHAPTER_ID, VOICE_ID)).thenReturn(started);
+
+        RedirectAttributesModelMap attributes = new RedirectAttributesModelMap();
+        assertThat(controller.generateAllAudio(CHAPTER_ID, VOICE_ID, attributes))
+                .isEqualTo("redirect:/admin/novel/chapters/" + CHAPTER_ID + "/narration?voiceId=" + VOICE_ID);
+        assertThat(attributes.getFlashAttributes().get("successMessage")).isEqualTo(started.message());
+        verify(dispatcher).dispatch(CHAPTER_ID, VOICE_ID);
+        verifyNoInteractions(generateUseCase, regenerateUseCase);
     }
 
     @Test
@@ -532,4 +555,3 @@ class AdminNovelChapterNarrationCommandControllerTest {
                 .isEqualTo("Không thể khởi chạy");
     }
 }
-

@@ -9,11 +9,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Background worker executing chapter-level narration generation via {@link GenerateChapterNarrationUseCase} (MS-04.9H.7D4A).
+ * Background worker ensuring segment readiness, then building and publishing chapter playback.
  * <p>
  * <strong>Execution & Boundary Invariants:</strong>
  * <ul>
  *     <li>Delegates directly to {@link GenerateChapterNarrationUseCase} as the sole generation planning & execution authority.</li>
+ *     <li>Delegates chapter playback publication to {@link BuildChapterNarrationPlaybackUseCase} only after segment readiness succeeds.</li>
  *     <li>Non-transactional: does not open an outer database transaction around long-running background execution.</li>
  *     <li>No direct dependencies on TTS engines, Media, or binary storage primitives.</li>
  *     <li>Catches and isolates {@link RuntimeException}, mapping outcomes to safe {@link AdminNarrationOperationState}
@@ -25,20 +26,26 @@ public class AdminNarrationGenerationWorker {
 
     private static final Logger log = LoggerFactory.getLogger(AdminNarrationGenerationWorker.class);
 
-    public static final String SAFE_SUCCESS_MESSAGE = "Tạo giọng đọc cho chương hoàn tất thành công.";
-    public static final String SAFE_PARTIAL_MESSAGE = "Tạo giọng đọc hoàn tất với một số đoạn bị lỗi.";
-    public static final String SAFE_FAILURE_MESSAGE = "Tạo giọng đọc cho chương thất bại.";
+    public static final String SAFE_FAILURE_MESSAGE = "Tạo / cập nhật audio cả chương thất bại. Vui lòng thử lại.";
+    public static final String SAFE_ALREADY_CURRENT_MESSAGE = "Audio cả chương đã là phiên bản hiện tại, không cần tạo lại.";
 
     private final GenerateChapterNarrationUseCase generateChapterNarrationUseCase;
+    private final BuildChapterNarrationPlaybackUseCase buildChapterNarrationPlaybackUseCase;
 
-    public AdminNarrationGenerationWorker(GenerateChapterNarrationUseCase generateChapterNarrationUseCase) {
+    public AdminNarrationGenerationWorker(
+            GenerateChapterNarrationUseCase generateChapterNarrationUseCase,
+            BuildChapterNarrationPlaybackUseCase buildChapterNarrationPlaybackUseCase
+    ) {
         this.generateChapterNarrationUseCase = Objects.requireNonNull(
                 generateChapterNarrationUseCase, "generateChapterNarrationUseCase must not be null"
+        );
+        this.buildChapterNarrationPlaybackUseCase = Objects.requireNonNull(
+                buildChapterNarrationPlaybackUseCase, "buildChapterNarrationPlaybackUseCase must not be null"
         );
     }
 
     /**
-     * Executes chapter narration generation and resolves the final operation state.
+     * Ensures segment readiness and publishes chapter playback before resolving the final operation state.
      *
      * @param chapterId      identity of the published chapter
      * @param managedVoiceId identity of the active managed voice
@@ -60,24 +67,24 @@ public class AdminNarrationGenerationWorker {
         try {
             log.info("Starting background chapter narration generation for chapter [{}] and voice [{}]", chapterId, managedVoiceId);
             GenerateChapterNarrationResult result = generateChapterNarrationUseCase.execute(chapterId, managedVoiceId);
-            Instant completedAt = Instant.now();
-
-            if (result.isCompleteSuccess()) {
-                String msg = String.format("Hoàn tất tạo giọng đọc cho %d đoạn (đã có: %d, tạo mới: %d, cập nhật: %d).",
-                        result.totalSegments(), result.skippedReadyCount(), result.generatedCount(), result.regeneratedCount());
-                log.info("Chapter narration generation succeeded for chapter [{}] and voice [{}]: total={}, completed={}, skipped={}",
-                        chapterId, managedVoiceId, result.totalSegments(), result.completedWorkCount(), result.skippedReadyCount());
-                return AdminNarrationOperationState.succeeded(chapterId, managedVoiceId, startedAt, completedAt, msg);
-            } else if (result.completedWorkCount() > 0 || result.skippedReadyCount() > 0) {
-                String msg = String.format("Hoàn tất tạo giọng đọc với %d/%d đoạn thành công, %d đoạn lỗi.",
-                        (result.completedWorkCount() + result.skippedReadyCount()), result.totalSegments(), result.remainingWorkCount());
-                log.warn("Chapter narration generation completed partially for chapter [{}] and voice [{}]: total={}, succeeded={}, failed={}",
-                        chapterId, managedVoiceId, result.totalSegments(), (result.completedWorkCount() + result.skippedReadyCount()), result.remainingWorkCount());
-                return AdminNarrationOperationState.partial(chapterId, managedVoiceId, startedAt, completedAt, msg);
-            } else {
-                log.warn("Chapter narration generation failed for all planned segments in chapter [{}] and voice [{}]", chapterId, managedVoiceId);
-                return AdminNarrationOperationState.failed(chapterId, managedVoiceId, startedAt, completedAt, SAFE_FAILURE_MESSAGE);
+            if (!result.isCompleteSuccess()) {
+                log.warn("Chapter narration readiness incomplete for chapter [{}] and voice [{}]: remaining={}",
+                        chapterId, managedVoiceId, result.remainingWorkCount());
+                return AdminNarrationOperationState.failed(chapterId, managedVoiceId, startedAt, Instant.now(), SAFE_FAILURE_MESSAGE);
             }
+
+            BuildChapterNarrationPlaybackResult playbackResult = buildChapterNarrationPlaybackUseCase.execute(
+                    new BuildChapterNarrationPlaybackCommand(chapterId, managedVoiceId));
+            if (playbackResult.outcome() == BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT) {
+                return AdminNarrationOperationState.succeeded(chapterId, managedVoiceId, startedAt,
+                        Instant.now(), SAFE_ALREADY_CURRENT_MESSAGE);
+            }
+
+            String msg = String.format("Hoàn tất tạo / cập nhật audio cả chương với %d đoạn (đã có: %d, tạo mới: %d, cập nhật: %d).",
+                    result.totalSegments(), result.skippedReadyCount(), result.generatedCount(), result.regeneratedCount());
+            log.info("Chapter narration playback published for chapter [{}] and voice [{}]: total={}, completed={}, skipped={}",
+                    chapterId, managedVoiceId, result.totalSegments(), result.completedWorkCount(), result.skippedReadyCount());
+            return AdminNarrationOperationState.succeeded(chapterId, managedVoiceId, startedAt, Instant.now(), msg);
         } catch (RuntimeException ex) {
             log.warn("Top-level exception during background chapter narration generation for chapter [{}] and voice [{}]: {}",
                     chapterId, managedVoiceId, ex.getMessage(), ex);

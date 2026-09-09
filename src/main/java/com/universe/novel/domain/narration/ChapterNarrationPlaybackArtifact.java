@@ -25,6 +25,7 @@ public class ChapterNarrationPlaybackArtifact {
     private final int cueCount;
     private final String codecMimeType;
     private final Instant createdAt;
+    private final String sourceFingerprint;
 
     private ChapterNarrationPlaybackArtifact(
             UUID id,
@@ -38,7 +39,8 @@ public class ChapterNarrationPlaybackArtifact {
             long durationMillis,
             int cueCount,
             String codecMimeType,
-            Instant createdAt
+            Instant createdAt,
+            String sourceFingerprint
     ) {
         this.id = Objects.requireNonNull(id, "id must not be null.");
         this.playbackId = Objects.requireNonNull(playbackId, "playbackId must not be null.");
@@ -58,6 +60,7 @@ public class ChapterNarrationPlaybackArtifact {
         this.cueCount = cueCount;
         this.codecMimeType = validateCodecMimeType(codecMimeType);
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null.");
+        this.sourceFingerprint = sourceFingerprint == null ? null : validateManifestHash(sourceFingerprint);
     }
 
     public static ChapterNarrationPlaybackArtifact create(
@@ -72,6 +75,15 @@ public class ChapterNarrationPlaybackArtifact {
             String codecMimeType,
             Instant createdAt
     ) {
+        return create(id, playback, sourceContentVersion, synthesisRevision, manifestHash, mediaAssetId,
+                durationMillis, cueCount, codecMimeType, createdAt, null);
+    }
+
+    public static ChapterNarrationPlaybackArtifact create(
+            UUID id, ChapterNarrationPlayback playback, long sourceContentVersion, long synthesisRevision,
+            String manifestHash, UUID mediaAssetId, long durationMillis, int cueCount,
+            String codecMimeType, Instant createdAt, String sourceFingerprint
+    ) {
         Objects.requireNonNull(playback, "playback must not be null.");
         return new ChapterNarrationPlaybackArtifact(
                 id,
@@ -85,7 +97,8 @@ public class ChapterNarrationPlaybackArtifact {
                 durationMillis,
                 cueCount,
                 codecMimeType,
-                createdAt
+                createdAt,
+                sourceFingerprint
         );
     }
 
@@ -103,6 +116,15 @@ public class ChapterNarrationPlaybackArtifact {
             String codecMimeType,
             Instant createdAt
     ) {
+        return rehydrate(id, playbackId, chapterId, managedVoiceId, sourceContentVersion, synthesisRevision,
+                manifestHash, mediaAssetId, durationMillis, cueCount, codecMimeType, createdAt, null);
+    }
+
+    public static ChapterNarrationPlaybackArtifact rehydrate(
+            UUID id, UUID playbackId, UUID chapterId, UUID managedVoiceId,
+            long sourceContentVersion, long synthesisRevision, String manifestHash, UUID mediaAssetId,
+            long durationMillis, int cueCount, String codecMimeType, Instant createdAt, String sourceFingerprint
+    ) {
         return new ChapterNarrationPlaybackArtifact(
                 id,
                 playbackId,
@@ -115,7 +137,8 @@ public class ChapterNarrationPlaybackArtifact {
                 durationMillis,
                 cueCount,
                 codecMimeType,
-                createdAt
+                createdAt,
+                sourceFingerprint
         );
     }
 
@@ -190,6 +213,10 @@ public class ChapterNarrationPlaybackArtifact {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getSourceFingerprint() {
+        return sourceFingerprint;
     }
 
     @Override

@@ -43,6 +43,7 @@ public class GetAdminChapterNarrationOverviewUseCase {
     private final ChapterNarrationSegmentRepositoryPort segmentRepositoryPort;
     private final ChapterNarrationAudioRepositoryPort audioRepositoryPort;
     private final ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort;
+    private final InspectChapterNarrationPlaybackUseCase playbackInspector;
 
     public GetAdminChapterNarrationOverviewUseCase(
             GetChapterDetailUseCase getChapterDetailUseCase,
@@ -50,7 +51,8 @@ public class GetAdminChapterNarrationOverviewUseCase {
             ManagedVoiceRepositoryPort managedVoiceRepositoryPort,
             ChapterNarrationSegmentRepositoryPort segmentRepositoryPort,
             ChapterNarrationAudioRepositoryPort audioRepositoryPort,
-            ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort
+            ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort,
+            InspectChapterNarrationPlaybackUseCase playbackInspector
     ) {
         this.getChapterDetailUseCase = Objects.requireNonNull(getChapterDetailUseCase, "getChapterDetailUseCase must not be null");
         this.getVolumeDetailUseCase = Objects.requireNonNull(getVolumeDetailUseCase, "getVolumeDetailUseCase must not be null");
@@ -58,6 +60,7 @@ public class GetAdminChapterNarrationOverviewUseCase {
         this.segmentRepositoryPort = Objects.requireNonNull(segmentRepositoryPort, "segmentRepositoryPort must not be null");
         this.audioRepositoryPort = Objects.requireNonNull(audioRepositoryPort, "audioRepositoryPort must not be null");
         this.failureRepositoryPort = Objects.requireNonNull(failureRepositoryPort, "failureRepositoryPort must not be null");
+        this.playbackInspector = Objects.requireNonNull(playbackInspector, "playbackInspector must not be null");
     }
 
     public GetAdminChapterNarrationOverviewResult execute(GetAdminChapterNarrationOverviewQuery query) {
@@ -229,7 +232,10 @@ public class GetAdminChapterNarrationOverviewUseCase {
                 retiredSegmentCount,
                 obsoleteRetiredSegmentCount,
                 obsoleteRetiredAudioCount,
-                contentChangeWarning
+                contentChangeWarning,
+                selectedVoice == null ? AdminChapterNarrationPlaybackDTO.missing()
+                        : playbackInspector.execute(chapterId, selectedVoice.getId(), chapter.contentVersion(),
+                                selectedVoice.getSynthesisRevision())
         );
     }
 

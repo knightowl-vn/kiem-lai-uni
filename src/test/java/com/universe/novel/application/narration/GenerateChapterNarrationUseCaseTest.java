@@ -37,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -145,6 +146,34 @@ class GenerateChapterNarrationUseCaseTest {
 
     private ChapterNarrationSegment createSegment(UUID id, int index, String text) {
         return ChapterNarrationSegment.create(id, CHAPTER_ID, index, text, T0);
+    }
+
+    @Test
+    void adminLegacyBackfillSkipsThreeReadySegmentsWithoutCallingGenerationPrimitives() {
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(createChapter(ChapterStatus.PUBLISHED)));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(createVoice(ManagedVoiceStatus.ACTIVE, 2L)));
+        List<UUID> segmentIds = List.of(SEGMENT_0_ID, SEGMENT_1_ID, SEGMENT_2_ID);
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(createSegment(SEGMENT_0_ID, 0, "Đoạn 0"),
+                        createSegment(SEGMENT_1_ID, 1, "Đoạn 1"), createSegment(SEGMENT_2_ID, 2, "Đoạn 2")));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(segmentIds, VOICE_ID)).thenReturn(List.of(
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, T0),
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_1_ID, VOICE_ID, MEDIA_1_ID, 2L, T0),
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_ID, MEDIA_2_ID, 2L, T0)
+        ));
+        BuildChapterNarrationPlaybackUseCase builder = mock(BuildChapterNarrationPlaybackUseCase.class);
+        when(builder.execute(any())).thenReturn(new BuildChapterNarrationPlaybackResult(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
+        AdminNarrationGenerationWorker worker = new AdminNarrationGenerationWorker(useCase, builder);
+        AdminNarrationGenerationDispatcher dispatcher = new AdminNarrationGenerationDispatcher(Runnable::run, worker);
+
+        dispatcher.dispatch(CHAPTER_ID, VOICE_ID);
+
+        assertThat(dispatcher.getOperationState(CHAPTER_ID, VOICE_ID).status()).isEqualTo(AdminNarrationOperationStatus.SUCCEEDED);
+        assertThat(dispatcher.getOperationState(CHAPTER_ID, VOICE_ID).message()).contains("đã có: 3, tạo mới: 0, cập nhật: 0");
+        verify(builder).execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+        verifyNoInteractions(generateChapterNarrationAudioUseCase, regenerateChapterNarrationAudioUseCase);
+        verify(audioRepositoryPort, never()).save(any());
     }
 
     @Test

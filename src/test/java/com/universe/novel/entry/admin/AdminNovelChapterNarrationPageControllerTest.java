@@ -145,7 +145,8 @@ class AdminNovelChapterNarrationPageControllerTest {
                 0,
                 0,
                 0,
-                false
+                false,
+                com.universe.novel.application.narration.AdminChapterNarrationPlaybackDTO.missing()
         );
     }
 
@@ -172,6 +173,7 @@ class AdminNovelChapterNarrationPageControllerTest {
         assertThat(model.get("segments")).isEqualTo(overviewResult.segments());
         assertThat(model.get("totalSegments")).isEqualTo(1);
         assertThat(model.get("currentSegmentCount")).isEqualTo(1);
+        assertThat(model.get("chapterPlayback")).isEqualTo(overviewResult.chapterPlayback());
         assertThat(model.get("readyCount")).isEqualTo(1);
         assertThat(model.get("outdatedCount")).isEqualTo(0);
         assertThat(model.get("missingCount")).isEqualTo(0);
@@ -241,7 +243,8 @@ class AdminNovelChapterNarrationPageControllerTest {
                 2,
                 1,
                 1,
-                true
+                true,
+                com.universe.novel.application.narration.AdminChapterNarrationPlaybackDTO.missing()
         );
 
         AdminNarrationOperationState opState = AdminNarrationOperationState.running(CHAPTER_ID, VOICE_ID, NOW);
@@ -294,4 +297,3 @@ class AdminNovelChapterNarrationPageControllerTest {
         assertThat(dto.completedAt()).isNull();
     }
 }
-

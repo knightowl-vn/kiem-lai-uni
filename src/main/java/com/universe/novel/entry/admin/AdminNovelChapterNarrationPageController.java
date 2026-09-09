@@ -73,6 +73,7 @@ public class AdminNovelChapterNarrationPageController {
         model.addAttribute("obsoleteRetiredSegmentCount", overview.obsoleteRetiredSegmentCount());
         model.addAttribute("obsoleteRetiredAudioCount", overview.obsoleteRetiredAudioCount());
         model.addAttribute("contentChangeWarning", overview.contentChangeWarning());
+        model.addAttribute("chapterPlayback", overview.chapterPlayback());
         model.addAttribute("operationState", operationState);
         model.addAttribute("isOperationRunning", operationState.isRunning());
         model.addAttribute("pageTitle", "Quản lý giọng đọc Chapter");

@@ -7,6 +7,16 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
 import com.universe.novel.application.ports.ChapterAudioEncoderPort;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
+import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
+import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
+import com.universe.novel.application.ports.ChapterNarrationPlaybackCueRepositoryPort;
+import com.universe.novel.domain.narration.ChapterNarrationPlayback;
+import com.universe.novel.domain.narration.ChapterNarrationPlaybackArtifact;
+import com.universe.novel.domain.narration.ChapterNarrationPlaybackCue;
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.dto.MediaVersionDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,7 +30,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +42,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -61,6 +75,9 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     private FinalizeChapterNarrationPlaybackUseCase finalizerUseCase;
     @Mock
     private RequestNarrationMediaCleanupUseCase cleanupUseCase;
+    @Mock private ChapterNarrationPlaybackRepositoryPort playbackRepository;
+    @Mock private ChapterNarrationPlaybackArtifactRepositoryPort artifactRepository;
+    @Mock private ChapterNarrationPlaybackCueRepositoryPort cueRepository;
 
     private BuildChapterNarrationPlaybackUseCase useCase;
     private TrackingInputStream sourceStream;
@@ -78,7 +95,9 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 encoderPort,
                 uploadMediaUseCase,
                 finalizerUseCase,
-                cleanupUseCase
+                cleanupUseCase,
+                new InspectChapterNarrationPlaybackUseCase(playbackRepository, artifactRepository,
+                        cueRepository, mediaContract, snapshotUseCase)
         );
         MediaAssetVersionSnapshotDTO sourceVersion = new MediaAssetVersionSnapshotDTO(
                 SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/wav", 4L, "segment.wav"
@@ -138,6 +157,120 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 BuildChapterNarrationPlaybackUseCase.originalFilename(CHAPTER_ID, VOICE_ID)
         ));
         verifyNoInteractions(cleanupUseCase);
+    }
+
+    @Test
+    void exactCurrentArtifactReturnsNoOpBeforeAnyHeavyWork() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        arrangeCurrentArtifact(snapshot, ChapterNarrationPlaybackSourceFingerprint.compute(snapshot));
+
+        var result = useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+
+        assertThat(result.outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
+        assertThat(result.artifactId()).isEqualTo(ARTIFACT_ID);
+        verifyNoInteractions(assemblerPort, encoderPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+        verify(mediaContract, never()).openVersionContent(any());
+    }
+
+    @Test
+    void repeatedCommandBuildsOnceThenReturnsAlreadyCurrent() {
+        arrangeSuccessfulHeavyBuild();
+        when(finalizerUseCase.execute(any())).thenAnswer(invocation -> {
+            arrangeCurrentArtifact(snapshot, ChapterNarrationPlaybackSourceFingerprint.compute(snapshot));
+            return finalized(null);
+        });
+        var command = new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID);
+        assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
+        assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
+        verify(assemblerPort).assemble(any());
+        verify(encoderPort).encode(any());
+        verify(uploadMediaUseCase).execute(any());
+        verify(finalizerUseCase).execute(any());
+        verifyNoInteractions(cleanupUseCase);
+    }
+
+    @Test
+    void legacyArtifactWithoutFingerprintRequiresUpgradeBuild() {
+        arrangeCurrentArtifact(snapshot, null);
+        assertRebuilt();
+    }
+
+    @Test
+    void staleContentDoesNotSuppressRebuild() {
+        var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 6L, 4L,
+                snapshot.manifestHash(), snapshot.segments());
+        arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
+        assertRebuilt();
+    }
+
+    @Test
+    void staleVoiceDoesNotSuppressRebuild() {
+        var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 3L,
+                snapshot.manifestHash(), snapshot.segments());
+        arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
+        assertRebuilt();
+    }
+
+    @Test
+    void changedExactMediaSourceDoesNotSuppressRebuild() {
+        var s = snapshot.segments().get(0);
+        var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
+                List.of(new ChapterNarrationPlaybackSegmentSnapshot(s.segmentId(), s.segmentIndex(), s.contentHash(),
+                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(),
+                        new MediaAssetVersionSnapshotDTO(SOURCE_ASSET_ID, 2, "d".repeat(64), "audio/wav", 4L, "segment.wav"))));
+        arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
+        assertRebuilt();
+    }
+
+    @Test
+    void changedSegmentSequenceDoesNotSuppressRebuild() {
+        var s = snapshot.segments().get(0);
+        var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
+                List.of(new ChapterNarrationPlaybackSegmentSnapshot(UUID.randomUUID(), 0, s.contentHash(),
+                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(), s.sourceMediaVersion())));
+        arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
+        assertRebuilt();
+    }
+
+    @Test
+    void anotherVoiceCannotSuppressBuild() {
+        when(playbackRepository.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID)).thenReturn(Optional.of(
+                ChapterNarrationPlayback.rehydrate(PLAYBACK_ID, CHAPTER_ID, UUID.randomUUID(), ARTIFACT_ID,
+                        1L, Instant.EPOCH, Instant.EPOCH)));
+        assertRebuilt();
+        verifyNoInteractions(artifactRepository, cueRepository);
+    }
+
+    private void assertRebuilt() {
+        arrangeSuccessfulHeavyBuild();
+        when(finalizerUseCase.execute(any())).thenReturn(finalized(null));
+        assertThat(useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)).outcome())
+                .isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
+        verify(assemblerPort).assemble(any());
+        verify(encoderPort).encode(any());
+        verify(uploadMediaUseCase).execute(any());
+        verify(finalizerUseCase).execute(any());
+    }
+
+    private void arrangeCurrentArtifact(ChapterNarrationPlaybackBuildSnapshot source, String fingerprint) {
+        var playback = ChapterNarrationPlayback.rehydrate(PLAYBACK_ID, CHAPTER_ID, VOICE_ID, ARTIFACT_ID,
+                1L, Instant.EPOCH, Instant.EPOCH);
+        var artifact = ChapterNarrationPlaybackArtifact.create(ARTIFACT_ID, playback, source.sourceContentVersion(),
+                source.synthesisRevision(), source.manifestHash(), CANDIDATE_ASSET_ID, 1000L, 1, "audio/mpeg", Instant.EPOCH, fingerprint);
+        when(playbackRepository.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID)).thenReturn(Optional.of(playback));
+        when(artifactRepository.findById(ARTIFACT_ID)).thenReturn(Optional.of(artifact));
+        when(cueRepository.findByArtifactId(ARTIFACT_ID)).thenReturn(List.of(
+                ChapterNarrationPlaybackCue.create(ARTIFACT_ID, 0, source.segments().get(0).segmentId(), 0, 0L, 1000L)));
+        var detail = mock(MediaAssetDetailDTO.class);
+        var version = mock(MediaVersionDTO.class);
+        when(detail.id()).thenReturn(CANDIDATE_ASSET_ID);
+        when(detail.status()).thenReturn(MediaAssetStatusDTO.ACTIVE);
+        when(detail.visibility()).thenReturn(MediaVisibilityDTO.PUBLIC);
+        when(detail.currentVersion()).thenReturn(version);
+        when(detail.currentVersionNumber()).thenReturn(1);
+        when(version.assetId()).thenReturn(CANDIDATE_ASSET_ID);
+        when(version.versionNumber()).thenReturn(1);
+        when(mediaContract.getAssetDetail(CANDIDATE_ASSET_ID)).thenReturn(Optional.of(detail));
     }
 
     @Test

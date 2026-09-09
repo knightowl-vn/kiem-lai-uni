@@ -25,7 +25,8 @@ public record GetAdminChapterNarrationOverviewResult(
         int retiredSegmentCount,
         int obsoleteRetiredSegmentCount,
         int obsoleteRetiredAudioCount,
-        boolean contentChangeWarning
+        boolean contentChangeWarning,
+        AdminChapterNarrationPlaybackDTO chapterPlayback
 ) {
     /**
      * Backward-compatible alias for {@link #currentSegmentCount()}.

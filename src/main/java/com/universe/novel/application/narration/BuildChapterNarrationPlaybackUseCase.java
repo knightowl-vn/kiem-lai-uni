@@ -38,6 +38,7 @@ public class BuildChapterNarrationPlaybackUseCase {
     private final UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase;
     private final FinalizeChapterNarrationPlaybackUseCase finalizerUseCase;
     private final RequestNarrationMediaCleanupUseCase cleanupUseCase;
+    private final InspectChapterNarrationPlaybackUseCase playbackInspector;
 
     public BuildChapterNarrationPlaybackUseCase(
             ResolveChapterNarrationPlaybackBuildSnapshotUseCase snapshotUseCase,
@@ -46,7 +47,8 @@ public class BuildChapterNarrationPlaybackUseCase {
             ChapterAudioEncoderPort encoderPort,
             UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase,
             FinalizeChapterNarrationPlaybackUseCase finalizerUseCase,
-            RequestNarrationMediaCleanupUseCase cleanupUseCase
+            RequestNarrationMediaCleanupUseCase cleanupUseCase,
+            InspectChapterNarrationPlaybackUseCase playbackInspector
     ) {
         this.snapshotUseCase = Objects.requireNonNull(snapshotUseCase, "snapshotUseCase must not be null");
         this.mediaContract = Objects.requireNonNull(mediaContract, "mediaContract must not be null");
@@ -55,6 +57,7 @@ public class BuildChapterNarrationPlaybackUseCase {
         this.uploadMediaUseCase = Objects.requireNonNull(uploadMediaUseCase, "uploadMediaUseCase must not be null");
         this.finalizerUseCase = Objects.requireNonNull(finalizerUseCase, "finalizerUseCase must not be null");
         this.cleanupUseCase = Objects.requireNonNull(cleanupUseCase, "cleanupUseCase must not be null");
+        this.playbackInspector = Objects.requireNonNull(playbackInspector, "playbackInspector must not be null");
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -73,6 +76,13 @@ public class BuildChapterNarrationPlaybackUseCase {
                 command.chapterId(),
                 command.managedVoiceId()
         );
+
+        var alreadyCurrent = playbackInspector.findAlreadyCurrent(snapshot);
+        if (alreadyCurrent.isPresent()) {
+            var artifact = alreadyCurrent.get();
+            return new BuildChapterNarrationPlaybackResult(artifact.getPlaybackId(), artifact.getId(),
+                    artifact.getMediaAssetId(), BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
+        }
 
         UUID candidateMediaAssetId = null;
         long durationMillis;

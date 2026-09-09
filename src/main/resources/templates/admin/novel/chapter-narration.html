@@ -201,7 +201,26 @@
                             </div>
                         </div>
 
-                        <!-- Whole Chapter Generation Action Button -->
+                        <!-- Whole Chapter Playback Status and Action -->
+                        <div id="novelAdminChapterPlaybackStatus">
+                            <span class="novel-admin-eyebrow">AUDIO CẢ CHƯƠNG</span>
+                            <div th:switch="${chapterPlayback.state.name()}">
+                                <strong th:case="'MISSING'">Chưa tạo</strong>
+                                <strong th:case="'CURRENT'">Đã sẵn sàng</strong>
+                                <strong th:case="'STALE_CONTENT'">Cần cập nhật: nội dung chương đã thay đổi</strong>
+                                <strong th:case="'STALE_VOICE'">Cần cập nhật: cấu hình giọng đọc đã thay đổi</strong>
+                                <strong th:case="'STALE_SOURCE'">Cần cập nhật audio cả chương</strong>
+                            </div>
+                            <div th:if="${chapterPlayback.durationMillis != null}">
+                                Thời lượng: <span th:text="${#numbers.formatDecimal(chapterPlayback.durationMillis / 1000.0, 1, 1)}">0</span> giây
+                            </div>
+                            <div th:if="${chapterPlayback.cueCount != null}">
+                                Số mốc lời đọc: <span th:text="${chapterPlayback.cueCount}">0</span>
+                            </div>
+                            <div th:if="${chapterPlayback.generatedAt != null}">
+                                Đã tạo lúc: <span th:text="${#temporals.format(chapterPlayback.generatedAt, 'dd/MM/yyyy HH:mm', 'Asia/Ho_Chi_Minh')}"></span>
+                            </div>
+                        </div>
                         <div th:if="${selectedVoice.status == 'ACTIVE' and chapter.status == 'PUBLISHED' and totalSegments > 0}">
                             <form id="novelAdminGenerateAllForm" method="post"
                                   th:action="@{/admin/novel/chapters/{chapterId}/narration/generate-all(chapterId=${chapter.id})}">
@@ -213,25 +232,21 @@
                                         class="novel-admin-primary-button"
                                         disabled="disabled"
                                         style="opacity: 0.7; cursor: not-allowed;">
-                                    ⏳ Đang tạo / cập nhật giọng đọc...
+                                    ⏳ Đang tạo / cập nhật audio cả chương...
                                 </button>
 
-                                <button th:if="${!isOperationRunning and currentGenerationRequiredCount == 0 and !contentChangeWarning}"
-                                        id="novelAdminGenerateAllBtn"
-                                        type="submit"
-                                        class="novel-admin-secondary-button"
-                                        disabled="disabled"
-                                        title="Tất cả phân đoạn hiện tại đã có audio phiên bản mới nhất"
-                                        style="opacity: 0.7; cursor: default;">
-                                    ✓ Đã tạo đủ giọng đọc
+                                <button th:if="${!isOperationRunning and chapterPlayback.state.name() == 'CURRENT'}"
+                                        id="novelAdminGenerateAllBtn" type="button"
+                                        class="novel-admin-secondary-button" disabled="disabled">
+                                    ✓ Audio cả chương đã sẵn sàng
                                 </button>
-
-                                <button th:if="${!isOperationRunning and (currentGenerationRequiredCount > 0 or contentChangeWarning)}"
+                                <button th:if="${!isOperationRunning and chapterPlayback.state.name() != 'CURRENT'}"
                                         id="novelAdminGenerateAllBtn"
                                         type="submit"
                                         class="novel-admin-primary-button">
-                                    🎙 Tạo / cập nhật toàn bộ giọng đọc
+                                    <span th:text="${chapterPlayback.state.name() == 'MISSING' ? 'Tạo audio cả chương' : 'Cập nhật audio cả chương'}">Tạo audio cả chương</span>
                                 </button>
+                                <p class="novel-admin-muted">Tạo hoặc cập nhật các đoạn cần thiết, sau đó ghép audio cả chương. Các đoạn đã sẵn sàng được sử dụng lại.</p>
                             </form>
                         </div>
                     </div>
@@ -507,4 +522,3 @@
 
 </body>
 </html>
-
