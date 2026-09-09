@@ -234,6 +234,7 @@
                     if (this.engine === this.chapterEngine) this._onEngineStateChange(state, previous, 'managed');
                 },
                 onCueChange: (index, cue) => this._onChapterCueChange(index, cue),
+                onProgress: progress => this._onChapterProgress(progress),
                 onChapterEnd: () => {
                     if (this.engine === this.chapterEngine) this._onEngineChapterEnd('managed');
                 },
@@ -521,7 +522,7 @@
                 this.dom.settingsTrigger.classList.remove('is-active');
             }
 
-            // On settings close, synchronize current highlighted block and scroll into comfortable view if needed
+            // Closing settings explicitly restores the current block into the comfortable viewport.
             if (this.chapterEngine && this.engine === this.chapterEngine) {
                 this._syncChapterHighlight(true);
                 return;
@@ -1359,7 +1360,7 @@
                     this.chapterEngine.setRate(this.dom.rateSelect ? this.dom.rateSelect.value : this.managedEngine.rate);
                     this.chunks = this.chapterEngine.getSegments();
                     this.chapterEngine.seekBySeconds(0);
-                    this._updateProgressDisplay(0, this.chunks.length);
+                    this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
                     this._updateNavButtons();
                     if (this.dom.playPauseBtn) {
                         this.dom.playPauseBtn.disabled = false;
@@ -1400,12 +1401,18 @@
             if (!cue) {
                 // A persisted gap has no active segment, including when seeking while paused.
                 this._clearHighlight();
-                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
                 this._updateNavButtons();
                 return;
             }
             this._onEngineChunkStart(index, cue, 'managed');
             if (this.chapterEngine.getState() === 'PAUSED') this._onEngineStateChange('PAUSED', 'PAUSED', 'managed');
+        }
+
+        _onChapterProgress(progress) {
+            if (this.engine !== this.chapterEngine || this.isUnloaded) return;
+            this._updateChapterProgressDisplay(progress);
+            this._syncChapterHighlight();
         }
 
         _resolveChapterCueElements(segmentId) {
@@ -1414,31 +1421,60 @@
                 (element.getAttribute('data-narration-segment-ids') || '').split(/\s+/).includes(segmentId));
         }
 
-        _syncChapterHighlight(restoreVisibility = false) {
+        _normalizedVisibleTextLength(element) {
+            if (!element) return 0;
+            const visibleText = typeof element.innerText === 'string' ? element.innerText : (element.textContent || '');
+            return visibleText.replace(/\s+/g, ' ').trim().length;
+        }
+
+        _selectChapterCueElement(cue, elements, currentTimeSeconds) {
+            if (!cue || elements.length === 0) return null;
+            if (elements.length === 1) return elements[0];
+
+            const cueDuration = Math.max(0, Number(cue.endMillis) - Number(cue.startMillis));
+            const localMillis = (Number(currentTimeSeconds) * 1000) - Number(cue.startMillis);
+            const ratio = cueDuration > 0 ? Math.max(0, Math.min(1, localMillis / cueDuration)) : 0;
+            const weights = elements.map(element => Math.max(1, this._normalizedVisibleTextLength(element)));
+            const totalWeight = weights.reduce((total, weight) => total + weight, 0);
+            const targetWeight = ratio * totalWeight;
+            let cumulativeWeight = 0;
+
+            for (let index = 0; index < elements.length; index++) {
+                cumulativeWeight += weights[index];
+                if (targetWeight < cumulativeWeight || index === elements.length - 1) return elements[index];
+            }
+            return elements[elements.length - 1];
+        }
+
+        _syncChapterHighlight(ensureVisible = false) {
             if (!this.chapterEngine || this.engine !== this.chapterEngine) return;
             const state = this.chapterEngine.getState();
             const cue = this.chapterEngine.getCurrentChunk();
             if (!this.followMode || this.isCompleted || this.isUnloaded || !cue ||
                 (state !== 'PLAYING' && state !== 'PAUSED')) {
-                this._clearHighlight();
+                if (this.activeHighlightedElement || this.activeChapterHighlightedElements.size > 0 ||
+                    this.activeNarrationSegmentId !== null) {
+                    this._clearHighlight();
+                }
                 return;
             }
             const elements = this._resolveChapterCueElements(cue.segmentId);
-            const next = new Set(elements);
-            const changed = next.size !== this.activeChapterHighlightedElements.size ||
-                elements.some(element => !this.activeChapterHighlightedElements.has(element));
+            const progress = this.chapterEngine.getProgress();
+            const selectedElement = this._selectChapterCueElement(cue, elements, progress.currentTimeSeconds);
+            const changed = selectedElement !== this.activeHighlightedElement;
             this.activeNarrationSegmentId = cue.segmentId;
             for (const element of this.activeChapterHighlightedElements) {
-                if (!next.has(element)) element.classList.remove(HIGHLIGHT_CLASS);
+                if (element !== selectedElement) element.classList.remove(HIGHLIGHT_CLASS);
             }
-            for (const element of next) {
-                if (!this.activeChapterHighlightedElements.has(element)) element.classList.add(HIGHLIGHT_CLASS);
+            if (this.activeHighlightedElement && this.activeHighlightedElement !== selectedElement) {
+                this.activeHighlightedElement.classList.remove(HIGHLIGHT_CLASS);
             }
-            this.activeChapterHighlightedElements = next;
-            const scrollTarget = elements[0];
-            if (scrollTarget && (changed || restoreVisibility) && !this.isSettingsOpen() &&
-                !this._isElementComfortablyVisible(scrollTarget)) {
-                this._scrollElementIntoView(scrollTarget);
+            if (selectedElement && changed) selectedElement.classList.add(HIGHLIGHT_CLASS);
+            this.activeHighlightedElement = selectedElement;
+            this.activeChapterHighlightedElements = new Set(selectedElement ? [selectedElement] : []);
+            if (selectedElement && (changed || ensureVisible) && !this.isSettingsOpen() &&
+                !this._isElementComfortablyVisible(selectedElement)) {
+                this._scrollElementIntoView(selectedElement);
             }
         }
 
@@ -1476,7 +1512,7 @@
             }
 
             if (this.chapterEngine && this.engine === this.chapterEngine) {
-                this._syncChapterHighlight(true);
+                this._syncChapterHighlight(this.followMode);
                 return;
             }
             if (!this.followMode) {
@@ -1932,6 +1968,7 @@
             if (this.activeEngineType === 'managed' && this.engine && typeof this.engine.seekBySeconds === 'function') {
                 this.isCompleted = false;
                 this.engine.seekBySeconds(-5);
+                if (this.engine === this.chapterEngine) this._syncNavigationAndProgress();
             }
         }
 
@@ -1945,6 +1982,7 @@
             if (this.activeEngineType === 'managed' && this.engine && typeof this.engine.seekBySeconds === 'function') {
                 this.isCompleted = false;
                 this.engine.seekBySeconds(5);
+                if (this.engine === this.chapterEngine) this._syncNavigationAndProgress();
             }
         }
 
@@ -1965,6 +2003,12 @@
 
             const clickX = event.clientX - rect.left;
             const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+            if (this.engine === this.chapterEngine && typeof this.chapterEngine.seekToRatio === 'function') {
+                this.isCompleted = false;
+                this.chapterEngine.seekToRatio(ratio);
+                this._syncNavigationAndProgress();
+                return;
+            }
             const targetIndex = Math.min(this.chunks.length - 1, Math.floor(ratio * this.chunks.length));
 
             this.seekToChunk(targetIndex);
@@ -1977,6 +2021,21 @@
          */
         _handleProgressBarKeydown(event) {
             if (this.chunks.length === 0) {
+                return;
+            }
+
+            if (this.engine === this.chapterEngine) {
+                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    this.isCompleted = false;
+                    this.chapterEngine.seekBySeconds(event.key === 'ArrowLeft' ? -5 : 5);
+                    this._syncNavigationAndProgress();
+                } else if (event.key === 'Home' || event.key === 'End') {
+                    event.preventDefault();
+                    this.isCompleted = false;
+                    this.chapterEngine.seekToRatio(event.key === 'Home' ? 0 : 1);
+                    this._syncNavigationAndProgress();
+                }
                 return;
             }
 
@@ -2014,10 +2073,26 @@
             }
 
             const curIndex = this.engine.getCurrentChunkIndex();
-            if (this.engine === this.chapterEngine && curIndex < 0) {
-                this._clearHighlight();
-                this._updateProgressDisplay(0, this.chunks.length);
+            if (this.engine === this.chapterEngine) {
+                this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+                if (curIndex < 0) {
+                    this._clearHighlight();
+                    this._updateNavButtons();
+                    return;
+                }
+                const cue = this.chunks[curIndex];
+                const currentNum = curIndex + 1;
+                const totalNum = this.chunks.length;
                 this._updateNavButtons();
+                this.hasMeaningfulResume = true;
+                this._saveResumePosition(curIndex);
+                this._syncChapterHighlight();
+                const chapterState = this.engine.getState();
+                if (chapterState === 'PAUSED') {
+                    this._setStatusMessage('\u0110ang \u1edf c\u00e2u ' + currentNum + ' / ' + totalNum + ' (T\u1ea1m d\u1eebng)');
+                } else if (chapterState !== 'PLAYING' && cue) {
+                    this._setStatusMessage('\u0110ang \u1edf c\u00e2u ' + currentNum + ' / ' + totalNum);
+                }
                 return;
             }
             const curChunk = this.chunks[curIndex];
@@ -2140,7 +2215,11 @@
                         this.chunks = (manifest && Array.isArray(manifest.segments))
                             ? manifest.segments
                             : (this.managedEngine.getSegments ? this.managedEngine.getSegments() : []);
-                        this._updateProgressDisplay(0, this.chunks.length);
+                        if (this.engine === this.chapterEngine) {
+                            this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+                        } else {
+                            this._updateProgressDisplay(0, this.chunks.length);
+                        }
                         this._updateNavButtons();
                         if (this.dom.playPauseBtn) {
                             this.dom.playPauseBtn.disabled = (this.chunks.length === 0);
@@ -2150,7 +2229,11 @@
                                 this.dom.playPauseBtn.setAttribute('aria-disabled', 'true');
                             }
                         }
-                        this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');
+                        if (this.engine === this.chapterEngine) {
+                            this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.');
+                        } else {
+                            this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');
+                        }
                     } catch (e) {
                         if (e.name === 'AbortError') return;
                         if (selectionSequence !== this._voiceSelectionSequenceId ||
@@ -2499,11 +2582,19 @@
                 this._setStatusMessage('Đã dừng chuẩn bị giọng đọc. Nhấn Phát để thử lại.');
             } else if (newState === 'STOPPED') {
                 if (this.isCompleted) {
-                    this._updateProgressDisplay(this.chunks.length, this.chunks.length);
+                    if (this.engine === this.chapterEngine) {
+                        this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+                    } else {
+                        this._updateProgressDisplay(this.chunks.length, this.chunks.length);
+                    }
                     this._setStatusMessage('Đã đọc xong chương.');
                 } else {
                     this._clearHighlight();
-                    this._updateProgressDisplay(0, this.chunks.length);
+                    if (this.engine === this.chapterEngine) {
+                        this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+                    } else {
+                        this._updateProgressDisplay(0, this.chunks.length);
+                    }
                     this._setStatusMessage('Đã dừng phát.');
                 }
             }
@@ -2570,7 +2661,11 @@
             const currentNum = chunkIndex + 1;
             const totalNum = this.chunks.length;
 
-            this._updateProgressDisplay(currentNum, totalNum);
+            if (this.chapterEngine && this.engine === this.chapterEngine) {
+                this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+            } else {
+                this._updateProgressDisplay(currentNum, totalNum);
+            }
 
             if (playbackDto && (playbackDto.refreshRecommended === true || playbackDto.healthStatus === 'OUTDATED')) {
                 this._setStatusMessage('Đang phát bản giọng đọc hiện có; bản mới có thể đang được cập nhật.');
@@ -2622,7 +2717,11 @@
             this.isAutoplayContinuation = false;
             this._clearSavedResume();
             this._clearHighlight();
-            this._updateProgressDisplay(this.chunks.length, this.chunks.length);
+            if (this.engine === this.chapterEngine) {
+                this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+            } else {
+                this._updateProgressDisplay(this.chunks.length, this.chunks.length);
+            }
             this._setStatusMessage('Đã đọc xong chương.');
             this._updateNavButtons();
             if (this.dom.playPauseBtn) {
@@ -3203,6 +3302,38 @@
             const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';
             const skipActivation = isPlaybackActive || Boolean(this._hasUserExplicitlySelectedVoice) || !this._managedCatalogResolved;
             this._populateVoiceDropdown(voices, mVoices, { skipActivation });
+        }
+
+        _formatPlaybackTime(seconds) {
+            const wholeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+            const hours = Math.floor(wholeSeconds / 3600);
+            const minutes = Math.floor((wholeSeconds % 3600) / 60);
+            const remainder = wholeSeconds % 60;
+            if (hours > 0) {
+                return hours + ':' + String(minutes).padStart(2, '0') + ':' + String(remainder).padStart(2, '0');
+            }
+            return minutes + ':' + String(remainder).padStart(2, '0');
+        }
+
+        _updateChapterProgressDisplay(progress) {
+            const currentTime = progress && Number.isFinite(progress.currentTimeSeconds)
+                ? Math.max(0, progress.currentTimeSeconds) : 0;
+            const duration = progress && Number.isFinite(progress.durationSeconds)
+                ? Math.max(0, progress.durationSeconds) : 0;
+            const ratio = progress && Number.isFinite(progress.progressRatio)
+                ? Math.max(0, Math.min(1, progress.progressRatio)) : 0;
+            const percent = ratio * 100;
+            const currentLabel = this._formatPlaybackTime(currentTime);
+            const durationLabel = this._formatPlaybackTime(duration);
+
+            if (this.dom.progressCurrent) this.dom.progressCurrent.textContent = currentLabel;
+            if (this.dom.progressTotal) this.dom.progressTotal.textContent = durationLabel;
+            if (this.dom.progressBar) {
+                this.dom.progressBar.setAttribute('aria-label', 'Ti\u1ebfn \u0111\u1ed9 audio c\u1ea3 ch\u01b0\u01a1ng');
+                this.dom.progressBar.setAttribute('aria-valuenow', String(Number(percent.toFixed(2))));
+                this.dom.progressBar.setAttribute('aria-valuetext', currentLabel + ' / ' + durationLabel);
+                if (this.dom.progressFill) this.dom.progressFill.style.width = percent + '%';
+            }
         }
 
         /**

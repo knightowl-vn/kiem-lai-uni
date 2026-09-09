@@ -1056,14 +1056,17 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("108. Successful voice switch ends in clean ready state without autoplaying (MS-04.9H.7D3)")
+    @DisplayName("108. Successful voice switch keeps the selected playback mode ready state without autoplaying (MS-04.9H.7D3)")
     void successfulVoiceSwitchEndsInCleanReadyStateWithoutAutoplay() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
         int methodStart = controllerJs.indexOf("async _handleVoiceChange() {");
         int methodEnd = controllerJs.indexOf("_handleRateChange() {", methodStart);
         String methodBody = controllerJs.substring(methodStart, methodEnd);
 
-        assertThat(methodBody).contains("this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');");
+        assertThat(methodBody).contains("if (this.engine === this.chapterEngine)",
+                "this._updateChapterProgressDisplay(this.chapterEngine.getProgress())",
+                "this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.')",
+                "this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');");
         assertThat(methodBody).doesNotContain("this.engine.play(");
         assertThat(methodBody).doesNotContain("this.play(");
     }
@@ -1242,8 +1245,8 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("122. Successful Managed voice manifest fetch enables Play and updates segment count (MS-04.9H.7D3A)")
-    void successfulManagedVoiceManifestFetchEnablesPlayAndUpdatesSegmentCount() throws Exception {
+    @DisplayName("122. Successful legacy Managed voice manifest fetch enables Play and keeps segment count UI (MS-04.9H.7D3A)")
+    void successfulLegacyManagedVoiceManifestFetchEnablesPlayAndUpdatesSegmentCount() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
         int methodStart = controllerJs.indexOf("async _handleVoiceChange() {");
         int methodEnd = controllerJs.indexOf("_handleRateChange() {", methodStart);
@@ -1251,7 +1254,8 @@ class ReaderManagedAudioContractTest {
 
         assertThat(methodBody).contains("this.dom.playPauseBtn.disabled = (this.chunks.length === 0);");
         assertThat(methodBody).contains("this.dom.playPauseBtn.removeAttribute('aria-disabled');");
-        assertThat(methodBody).contains("this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');");
+        assertThat(methodBody).contains("} else {\n                            this._updateProgressDisplay(0, this.chunks.length);",
+                "} else {\n                            this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');");
     }
 
     @Test
@@ -2233,9 +2237,34 @@ class ReaderManagedAudioContractTest {
     void h9gCueHooksClearHighlightInGapsWithoutInventingTextMapping() throws Exception {
         String hooks = controllerMethod("_onChapterCueChange(index, cue) {", "async _offerLegacyChapterFallback() {");
         assertThat(hooks).contains("this._clearHighlight()", "if (!cue)",
-                "this._updateProgressDisplay(0, this.chunks.length)", "this._onEngineChunkStart(index,",
-                "this._resolveChapterCueElements(cue.segmentId)", "_syncChapterHighlight(restoreVisibility = false)");
+                "this._updateChapterProgressDisplay(this.chapterEngine.getProgress())", "this._onEngineChunkStart(index,",
+                "this._resolveChapterCueElements(cue.segmentId)", "_syncChapterHighlight(ensureVisible = false)");
         assertThat(hooks).doesNotContain("parseChapterBody", "this.chunks[cue.segmentIndex]");
+    }
+
+    @Test
+    void h9gChapterTimelineUsesAudioPositionAndEmitsProgressWithinCues() throws Exception {
+        String engine = chapterEngine();
+        String progress = engine.substring(engine.indexOf("getProgress() {"), engine.indexOf("_transitionState(state) {"));
+        String synchronization = engine.substring(engine.indexOf("_syncCue() {"), engine.indexOf("async play(index) {"));
+        assertThat(progress).contains("this._time()", "this.audio.duration", "currentTimeSeconds / durationSeconds");
+        assertThat(synchronization).contains("this.options.onProgress(this.getProgress())")
+                .doesNotContain("index === this._activeCueIndex) return");
+        assertThat(engine).contains("listen('timeupdate', () => this._syncCue())");
+
+        String controller = read("src/main/resources/static/js/novel/narration-controller.js");
+        assertThat(controller).contains("onProgress: progress => this._onChapterProgress(progress)",
+                "this._updateChapterProgressDisplay(progress)", "const percent = ratio * 100");
+    }
+
+    @Test
+    void h9gChapterProgressControlSeeksAbsoluteRatioWithoutChangingPlaybackState() throws Exception {
+        String engine = chapterEngine();
+        String seek = engine.substring(engine.indexOf("_seekTime(seconds) {"), engine.indexOf("_previousIndex() {"));
+        assertThat(seek).contains("seekToRatio(ratio)", "this._seekTime(Math.max(0, Math.min(1, ratio)) * duration)")
+                .doesNotContain(".play(", ".pause(", ".src", "new Audio", "_transitionState");
+        String click = controllerMethod("_handleProgressBarClick(event) {", "_handleProgressBarKeydown(event) {");
+        assertThat(click).contains("this.chapterEngine.seekToRatio(ratio)", "this._syncNavigationAndProgress()", "return;");
     }
 
     @Test
@@ -2315,27 +2344,28 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    void h9gFollowModeUsesExactTokenMembershipAndSetDifferences() throws Exception {
+    void h9gFollowModeUsesExactTokenMembershipAndOneWeightedBlock() throws Exception {
         String hooks = controllerMethod("_resolveChapterCueElements(segmentId) {", "async _offerLegacyChapterFallback() {");
         assertThat(hooks).contains("querySelectorAll('[data-narration-segment-ids]')",
-                "split(/\\s+/).includes(segmentId)", "const next = new Set(elements)",
-                "if (!next.has(element)) element.classList.remove(HIGHLIGHT_CLASS)",
-                "if (!this.activeChapterHighlightedElements.has(element)) element.classList.add(HIGHLIGHT_CLASS)",
-                "const scrollTarget = elements[0]", "(changed || restoreVisibility)", "!this.isSettingsOpen()");
-        assertThat(hooks).doesNotContain("textContent", "innerText", "segmentIndex", "parseChapterBody");
+                "split(/\\s+/).includes(segmentId)", "this._normalizedVisibleTextLength(element)",
+                "localMillis / cueDuration", "ratio * totalWeight", "targetWeight < cumulativeWeight",
+                "selectedElement !== this.activeHighlightedElement", "new Set(selectedElement ? [selectedElement] : [])",
+                "selectedElement && (changed || ensureVisible) && !this.isSettingsOpen()");
+        assertThat(hooks).contains("element.innerText", "element.textContent")
+                .doesNotContain("segmentIndex", "parseChapterBody", "restoreVisibility");
     }
 
     @Test
     void h9gFollowModeRestoresPausedCueOnToggleSettingsAndNavigation() throws Exception {
         assertThat(controllerMethod("setFollowMode(enabled, persist = true) {", "_handleFollowChange() {"))
-                .contains("this._syncChapterHighlight(true)");
+                .contains("this._syncChapterHighlight(this.followMode)");
         assertThat(controllerMethod("closeSettings() {", "_handleSettingsTriggerClick(event) {"))
                 .contains("this._syncChapterHighlight(true)");
         assertThat(controllerMethod("_syncNavigationAndProgress() {", "async _handleVoiceChange() {"))
                 .contains("this._syncChapterHighlight()");
-        assertThat(controllerMethod("_syncChapterHighlight(restoreVisibility = false) {", "async _offerLegacyChapterFallback() {"))
+        assertThat(controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "async _offerLegacyChapterFallback() {"))
                 .contains("this.chapterEngine.getCurrentChunk()", "!this.followMode", "!cue", "this._clearHighlight()",
-                        "state !== 'PLAYING' && state !== 'PAUSED'")
+                        "state !== 'PLAYING' && state !== 'PAUSED'", "changed || ensureVisible")
                 .doesNotContain("getState() === 'PLAYING'");
     }
 
@@ -2344,7 +2374,7 @@ class ReaderManagedAudioContractTest {
         String state = controllerMethod("_onEngineStateChange(newState, prevState, engineType) {", "_onEngineBlocked(segIndex, seg, engineType, playbackDto) {");
         assertThat(state).contains("if (this.chapterEngine && this.engine === this.chapterEngine) this._syncChapterHighlight();");
         assertThat(state).doesNotContain(".play(", ".load(", "/prepare", "fetch(");
-        String highlight = controllerMethod("_syncChapterHighlight(restoreVisibility = false) {", "async _offerLegacyChapterFallback() {");
+        String highlight = controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "async _offerLegacyChapterFallback() {");
         assertThat(highlight.indexOf("state !== 'PLAYING' && state !== 'PAUSED'"))
                 .isLessThan(highlight.indexOf("this._resolveChapterCueElements(cue.segmentId)"));
     }

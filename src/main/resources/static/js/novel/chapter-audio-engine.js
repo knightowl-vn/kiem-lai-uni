@@ -47,6 +47,19 @@
         getChunks() { return this.cues; }
         getSegments() { return this.cues; }
         getSelectedVoiceKey() { return this.metadata ? this.metadata.voiceKey : null; }
+        getProgress() {
+            const durationSeconds = this.audio ? Number(this.audio.duration) : 0;
+            const hasDuration = Number.isFinite(durationSeconds) && durationSeconds > 0;
+            const rawCurrentTime = Number(this._time());
+            const currentTimeSeconds = Math.max(0, hasDuration
+                ? Math.min(durationSeconds, Number.isFinite(rawCurrentTime) ? rawCurrentTime : 0)
+                : (Number.isFinite(rawCurrentTime) ? rawCurrentTime : 0));
+            return {
+                currentTimeSeconds,
+                durationSeconds: hasDuration ? durationSeconds : 0,
+                progressRatio: hasDuration ? currentTimeSeconds / durationSeconds : 0
+            };
+        }
 
         _transitionState(state) {
             if (this.state === state) return;
@@ -131,9 +144,11 @@
         _syncCue() {
             const millis = this._time() * 1000;
             const index = this.cues.findIndex(cue => millis >= cue.startMillis && millis < cue.endMillis);
-            if (index === this._activeCueIndex) return;
-            this._activeCueIndex = index;
-            if (this.options.onCueChange) this.options.onCueChange(index, this.cues[index] || null);
+            if (index !== this._activeCueIndex) {
+                this._activeCueIndex = index;
+                if (this.options.onCueChange) this.options.onCueChange(index, this.cues[index] || null);
+            }
+            if (this.options.onProgress) this.options.onProgress(this.getProgress());
         }
 
         async play(index) {
@@ -187,6 +202,12 @@
 
         seekBySeconds(deltaSeconds) {
             if (Number.isFinite(deltaSeconds)) this._seekTime(this._time() + deltaSeconds);
+        }
+
+        seekToRatio(ratio) {
+            const duration = this.getProgress().durationSeconds;
+            if (!Number.isFinite(ratio) || duration <= 0) return;
+            this._seekTime(Math.max(0, Math.min(1, ratio)) * duration);
         }
 
         seekToChunk(index) {
