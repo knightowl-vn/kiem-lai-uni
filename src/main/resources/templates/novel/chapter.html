@@ -340,20 +340,27 @@
              th:attr="data-chapter-id=${chapter.id},data-csrf-token=${_csrf.token},data-csrf-header=${_csrf.headerName}"
              aria-label="Trình phát giọng đọc">
 
-        <!-- Chunk Progress Bar (Interactive Seek Slider) -->
-        <div class="novel-narration-progress-bar"
-             id="novelNarrationProgressBar"
-             role="slider"
-             aria-label="Tiến độ đoạn đọc"
-             aria-valuemin="0"
-             aria-valuemax="100"
-             aria-valuenow="0"
-             tabindex="0">
-            <div class="novel-narration-progress-track">
-                <div class="novel-narration-progress-fill"
-                     id="novelNarrationProgressFill"
-                     style="width: 0%;"></div>
+        <div class="novel-narration-timeline">
+            <span class="novel-narration-progress-time novel-narration-progress-time--current"
+                  id="novelNarrationProgressCurrent">0</span>
+            <!-- Interactive chapter-time or legacy chunk seek slider -->
+            <div class="novel-narration-progress-bar"
+                 id="novelNarrationProgressBar"
+                 role="slider"
+                 aria-label="Tiến độ đoạn đọc"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-valuenow="0"
+                 aria-valuetext="0 trên 0 câu"
+                 tabindex="0">
+                <div class="novel-narration-progress-track">
+                    <div class="novel-narration-progress-fill"
+                         id="novelNarrationProgressFill"
+                         style="width: 0%;"></div>
+                </div>
             </div>
+            <span class="novel-narration-progress-time novel-narration-progress-time--total"
+                  id="novelNarrationProgressTotal">0</span>
         </div>
 
         <div class="novel-narration-dock">

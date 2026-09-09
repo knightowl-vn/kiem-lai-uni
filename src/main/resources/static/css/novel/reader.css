@@ -1685,7 +1685,7 @@ body.has-toc-open {
     right: 0;
     z-index: 1040;
     margin: 0;
-    padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding: 28px 16px calc(8px + env(safe-area-inset-bottom, 0px));
     background: var(--reader-surface);
     border-top: 1px solid var(--reader-border);
     border-left: none;
@@ -1713,6 +1713,7 @@ body.has-toc-open {
     box-shadow: none;
 }
 
+.novel-narration-player.is-collapsed .novel-narration-timeline,
 .novel-narration-player.is-collapsed .novel-narration-progress-bar,
 .novel-narration-player.is-collapsed .novel-narration-controls,
 .novel-narration-player.is-collapsed .novel-narration-dock-actions,
@@ -1749,34 +1750,62 @@ body.has-toc-open {
     color: #ffffff;
 }
 
-/* Horizontal Narration Progress Bar (Chunk-Based Seek - Aligned to Chapter Width) */
-.novel-narration-progress-bar {
+/* One visible timeline row; labels switch between chapter time and legacy chunk counts. */
+.novel-narration-timeline {
     position: absolute;
-    top: 0;
+    top: 3px;
     left: 50%;
     right: auto;
     transform: translateX(-50%);
     width: min(calc(100% - 40px), var(--reader-chapter-width, 820px));
-    height: 3px;
+    display: grid;
+    grid-template-columns: 7ch minmax(0, 1fr) 7ch;
+    align-items: center;
+    gap: 8px;
+}
+
+.novel-narration-progress-time {
+    color: var(--reader-text-secondary);
+    font-size: 0.72rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.novel-narration-progress-time--total {
+    text-align: right;
+}
+
+.novel-narration-progress-bar {
+    position: relative;
+    width: 100%;
+    height: 20px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
     background: transparent;
-    transition: height 0.15s ease;
     z-index: 2;
 }
 
-.novel-narration-progress-bar:hover,
 .novel-narration-progress-bar:focus-visible {
-    height: 6px;
-    outline: none;
+    outline: 2px solid var(--reader-primary);
+    outline-offset: 2px;
+    border-radius: 3px;
 }
 
 .novel-narration-progress-track {
     width: 100%;
-    height: 100%;
+    height: 4px;
     background: var(--reader-border);
     position: relative;
     overflow: hidden;
     border-radius: 2px;
+    transition: height 0.15s ease;
+}
+
+.novel-narration-progress-bar:hover .novel-narration-progress-track,
+.novel-narration-progress-bar:focus-visible .novel-narration-progress-track {
+    height: 6px;
 }
 
 .novel-narration-progress-fill {
@@ -2021,7 +2050,17 @@ body.has-toc-open {
 @media (max-width: 640px) {
     .novel-narration-player {
         --narration-dock-action-size: 30px;
-        padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+        padding: 26px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .novel-narration-timeline {
+        width: calc(100% - 24px);
+        grid-template-columns: 6.5ch minmax(0, 1fr) 6.5ch;
+        gap: 6px;
+    }
+
+    .novel-narration-progress-time {
+        font-size: 0.68rem;
     }
 
     .novel-narration-dock {
@@ -2145,4 +2184,4 @@ body.has-toc-open {
 }
 
 
-
+

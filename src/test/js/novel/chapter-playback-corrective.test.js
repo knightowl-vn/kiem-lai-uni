@@ -369,6 +369,38 @@ test('controller renders chapter-global percentage and seeks the existing engine
     assert.equal(chapterEngine.getState(), 'PAUSED');
 });
 
+test('visible chapter times advance continuously and legacy progress clears chapter duration', () => {
+    const attributes = new Map();
+    const controller = Object.create(NarrationController.prototype);
+    Object.assign(controller, {
+        dom: {
+            progressBar: { setAttribute: (name, value) => attributes.set(name, value) },
+            progressFill: { style: {} }, progressCurrent: { textContent: 'stale' },
+            progressTotal: { textContent: 'stale' }
+        }
+    });
+
+    const visibleCurrentLabels = [];
+    for (const currentTimeSeconds of [27, 28, 29]) {
+        controller._updateChapterProgressDisplay({
+            currentTimeSeconds,
+            durationSeconds: 109.9,
+            progressRatio: currentTimeSeconds / 109.9
+        });
+        visibleCurrentLabels.push(controller.dom.progressCurrent.textContent);
+    }
+
+    assert.deepEqual(visibleCurrentLabels, ['0:27', '0:28', '0:29']);
+    assert.equal(controller.dom.progressTotal.textContent, '1:49');
+    assert.ok(Math.abs(parseFloat(controller.dom.progressFill.style.width) - (29 / 109.9 * 100)) < 0.0001);
+    assert.equal(attributes.get('aria-valuetext'), '0:29 / 1:49');
+
+    controller._updateProgressDisplay(2, 3);
+    assert.equal(controller.dom.progressCurrent.textContent, '2');
+    assert.equal(controller.dom.progressTotal.textContent, '3');
+    assert.equal(attributes.get('aria-valuetext'), '2 trên 3 câu');
+});
+
 test('Managed voice change keeps chapter playback progress and ready wording', async () => {
     const result = await managedVoiceChangeFixture(true);
     assert.equal(result.selectionCalls, 1);

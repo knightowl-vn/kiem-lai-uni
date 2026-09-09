@@ -21,6 +21,11 @@ class ReaderBrowserTtsContractTest {
         assertThat(chapterPage).contains("id=\"novelNarrationPlayer\"");
         assertThat(chapterPage).contains("id=\"novelNarrationProgressBar\"");
         assertThat(chapterPage).contains("id=\"novelNarrationProgressFill\"");
+        assertThat(chapterPage).containsOnlyOnce("id=\"novelNarrationProgressCurrent\"");
+        assertThat(chapterPage).containsOnlyOnce("id=\"novelNarrationProgressTotal\"");
+        assertThat(chapterPage).contains("class=\"novel-narration-timeline\"",
+                "aria-valuemin=\"0\"", "aria-valuemax=\"100\"", "aria-valuenow=\"0\"",
+                "aria-valuetext=\"0 trên 0 câu\"", "tabindex=\"0\"");
         assertThat(chapterPage).contains("role=\"slider\"");
         assertThat(chapterPage).contains("class=\"novel-narration-dock\"");
         assertThat(chapterPage).contains("class=\"novel-narration-dock-lead\"");
@@ -305,6 +310,8 @@ class ReaderBrowserTtsContractTest {
         assertThat(css).contains(".novel-narration-progress-bar");
         assertThat(css).contains(".novel-narration-progress-track");
         assertThat(css).contains(".novel-narration-progress-fill");
+        assertThat(css).contains(".novel-narration-timeline", ".novel-narration-progress-time",
+                "font-variant-numeric: tabular-nums", "grid-template-columns: 7ch minmax(0, 1fr) 7ch");
 
         // 3. Buttons, Dock Actions & Progress
         assertThat(css).contains("--narration-dock-action-size");
@@ -319,6 +326,9 @@ class ReaderBrowserTtsContractTest {
         assertThat(css).contains(".novel-narration-settings-panel");
         assertThat(css).contains(".novel-narration-settings-header");
         assertThat(css).contains(".novel-narration-setting-row");
+        assertThat(css).contains("@media (max-width: 640px)",
+                "grid-template-columns: 6.5ch minmax(0, 1fr) 6.5ch",
+                ".novel-narration-player.is-collapsed .novel-narration-timeline");
         assertThat(css).contains(".novel-narration-select--voice");
         assertThat(css).contains(".novel-narration-select--rate");
         assertThat(css).contains(".novel-reading-toggle-checkbox");
