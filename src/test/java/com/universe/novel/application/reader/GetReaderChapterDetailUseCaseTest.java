@@ -1,6 +1,15 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
+import com.universe.novel.application.narration.NarrationTextSegmenter;
+import com.universe.novel.application.narration.NarrationTextSegmentPlan;
+import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
+import com.universe.novel.application.reader.render.ReaderNarrationMarkdownRenderer;
+import com.universe.novel.domain.narration.ChapterNarrationSegment;
+import com.universe.novel.domain.narration.ChapterNarrationSegmentStatus;
+import com.universe.novel.domain.narration.NarrationTextSegment;
+import java.time.Instant;
+import java.util.Map;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
@@ -24,9 +33,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class GetReaderChapterDetailUseCaseTest {
+    @Mock private NarrationTextSegmenter segmenter;
+    @Mock private ChapterNarrationSegmentRepositoryPort segments;
+    @Mock private ReaderNarrationMarkdownRenderer narrationRenderer;
 
     private static final UUID CHAPTER_ID =
             UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -49,8 +62,59 @@ class GetReaderChapterDetailUseCaseTest {
     void setUp() {
         useCase = new GetReaderChapterDetailUseCase(
                 queryPort,
-                markdownRenderer
+                markdownRenderer, segmenter, segments, new ReaderNarrationBlockMappingResolver(), narrationRenderer
         );
+    }
+
+    private ReaderChapterRecord narrationRecord(String markdown) {
+        return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Chapter", "chapter", markdown, "Volume", "volume", 1);
+    }
+
+    @Test
+    void annotatesExactCurrentSequenceUsingOneRawSnapshotWithoutWrites() {
+        String markdown = "**Repeated** prose.";
+        var segment = ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Repeated prose.", Instant.EPOCH);
+        var mapping = Map.of(0, List.of(segment.getId()));
+        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
+        when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT)).thenReturn(List.of(segment));
+        when(segmenter.plan(markdown)).thenReturn(List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, "Repeated prose."), List.of(0))));
+        when(narrationRenderer.renderToHtml(markdown, mapping)).thenReturn("<p data-narration-segment-ids=\"" + segment.getId() + "\">Repeated prose.</p>");
+        assertThat(useCase.execute("chapter").contentHtml()).contains("data-narration-segment-ids");
+        verify(queryPort).findPublishedChapterBySlug("chapter");
+        verify(segmenter).plan(markdown);
+        verify(narrationRenderer).renderToHtml(markdown, mapping);
+        verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
+        verifyNoMoreInteractions(segments);
+        verifyNoInteractions(markdownRenderer);
+    }
+
+    @Test
+    void mismatchedCurrentSequenceRendersOrdinaryHtmlWithoutWrites() {
+        String markdown = "New prose.";
+        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
+        when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Old prose.", Instant.EPOCH)));
+        when(segmenter.plan(markdown)).thenReturn(List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, markdown), List.of(0))));
+        when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>New prose.</p>");
+        assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>New prose.</p>");
+        verifyNoInteractions(narrationRenderer);
+        verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
+        verifyNoMoreInteractions(segments);
+    }
+
+    @Test
+    void annotationFailureDoesNotPreventProseRendering() {
+        String markdown = "Prose.";
+        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
+        when(segmenter.plan(markdown)).thenThrow(new IllegalStateException("Mapping unavailable"));
+        when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>Prose.</p>");
+        assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>Prose.</p>");
+        verifyNoInteractions(narrationRenderer);
+    }
+
+    @Test
+    void readerUseCaseRemainsReadOnly() {
+        assertThat(GetReaderChapterDetailUseCase.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly()).isTrue();
     }
 
     @Test

@@ -16,4 +16,7 @@ public interface NarrationTextSegmenter {
      * @return ordered list of narration segments, or empty list if content is blank/empty
      */
     List<NarrationTextSegment> segment(String chapterContent);
+
+    /** Same canonical segmentation, retaining source semantic block ordinals. */
+    List<NarrationTextSegmentPlan> plan(String chapterContent);
 }

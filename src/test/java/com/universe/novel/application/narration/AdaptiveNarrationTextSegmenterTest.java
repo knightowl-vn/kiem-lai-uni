@@ -12,6 +12,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AdaptiveNarrationTextSegmenterTest {
+    @Test
+    void plansRetainDistinctOrdinalsForPackedDuplicateBlocks() {
+        var plans = segmenter.plan("Same paragraph.\n\nSame paragraph.\n\nLast paragraph.");
+        assertThat(plans).hasSize(1);
+        assertThat(plans.get(0).sourceBlockIndexes()).containsExactly(0, 1, 2);
+        assertThat(plans.get(0).segment()).isEqualTo(NarrationTextSegment.of(0,
+                "Same paragraph.\n\nSame paragraph.\n\nLast paragraph."));
+        assertThat(segmenter.segment("Same paragraph.\n\nSame paragraph.\n\nLast paragraph."))
+                .containsExactly(plans.get(0).segment());
+    }
+
+    @Test
+    void oversizedBlockPlansKeepSameOrdinalAcrossSegments() {
+        String sentence = "a".repeat(398) + ".";
+        String markdown = String.join(" ", java.util.Collections.nCopies(5, sentence));
+        var plans = segmenter.plan(markdown);
+        assertThat(plans).hasSize(3);
+        assertThat(plans).allSatisfy(plan -> assertThat(plan.sourceBlockIndexes()).containsExactly(0));
+        assertThat(segmenter.segment(markdown)).containsExactly(
+                NarrationTextSegment.of(0, sentence + " " + sentence),
+                NarrationTextSegment.of(1, sentence + " " + sentence),
+                NarrationTextSegment.of(2, sentence));
+    }
+
+    @Test
+    void provenancePreservesSoftThresholdAndBlockDelimiters() {
+        String first = "a".repeat(500);
+        String second = "b".repeat(450);
+        String third = "c".repeat(100);
+        var plans = segmenter.plan(first + "\n\n" + second + "\n\n" + third);
+        assertThat(plans).hasSize(2);
+        assertThat(plans.get(0).segment()).isEqualTo(NarrationTextSegment.of(0, first + "\n\n" + second));
+        assertThat(plans.get(0).sourceBlockIndexes()).containsExactly(0, 1);
+        assertThat(plans.get(1).segment()).isEqualTo(NarrationTextSegment.of(1, third));
+        assertThat(plans.get(1).sourceBlockIndexes()).containsExactly(2);
+    }
 
     private AdaptiveNarrationTextSegmenter segmenter;
 

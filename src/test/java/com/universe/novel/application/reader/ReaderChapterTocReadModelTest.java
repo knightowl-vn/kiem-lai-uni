@@ -1,6 +1,10 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
+import com.universe.novel.application.narration.NarrationTextSegmenter;
+import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
+import com.universe.novel.application.reader.render.ReaderNarrationMarkdownRenderer;
+import static org.mockito.Mockito.mock;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
@@ -67,7 +71,9 @@ class ReaderChapterTocReadModelTest {
     @Test
     @DisplayName("GetReaderChapterDetailUseCase expose TOC cùng với Previous/Next chapter độc lập")
     void useCaseExposesTocAlongWithIndependentPreviousAndNext() {
-        GetReaderChapterDetailUseCase useCase = new GetReaderChapterDetailUseCase(queryPort, markdownRenderer);
+        GetReaderChapterDetailUseCase useCase = new GetReaderChapterDetailUseCase(queryPort, markdownRenderer,
+                mock(NarrationTextSegmenter.class), mock(ChapterNarrationSegmentRepositoryPort.class),
+                new ReaderNarrationBlockMappingResolver(), mock(ReaderNarrationMarkdownRenderer.class));
 
         UUID chapterId = UUID.randomUUID();
         UUID volumeId = UUID.randomUUID();

@@ -9,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -82,6 +84,11 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
 
     @Override
     public List<NarrationTextSegment> segment(String chapterContent) {
+        return plan(chapterContent).stream().map(NarrationTextSegmentPlan::segment).toList();
+    }
+
+    @Override
+    public List<NarrationTextSegmentPlan> plan(String chapterContent) {
         if (chapterContent == null || chapterContent.isBlank()) {
             return List.of();
         }
@@ -121,7 +128,8 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
         }
 
         // Adaptively pack units into segments
-        List<NarrationTextSegment> segments = new ArrayList<>();
+        List<NarrationTextSegmentPlan> segments = new ArrayList<>();
+        Set<Integer> sourceBlockIndexes = new LinkedHashSet<>();
         StringBuilder currentSegment = new StringBuilder();
         int lastPackedBlockIndex = -1;
         int segmentIndex = 0;
@@ -149,31 +157,34 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
                         currentSegment.append(delimiter).append(unitText);
                         lastPackedBlockIndex = unit.blockIndex();
                     } else {
-                        flushSegment(segments, currentSegment.toString(), segmentIndex++);
+                        flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
+                        sourceBlockIndexes.clear();
                         currentSegment.setLength(0);
                         currentSegment.append(unitText);
                         lastPackedBlockIndex = unit.blockIndex();
                     }
                 } else {
-                    flushSegment(segments, currentSegment.toString(), segmentIndex++);
+                    flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
+                    sourceBlockIndexes.clear();
                     currentSegment.setLength(0);
                     currentSegment.append(unitText);
                     lastPackedBlockIndex = unit.blockIndex();
                 }
             }
+            sourceBlockIndexes.add(unit.blockIndex());
         }
 
         if (!currentSegment.isEmpty()) {
-            flushSegment(segments, currentSegment.toString(), segmentIndex++);
+            flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
         }
 
         return List.copyOf(segments);
     }
 
-    private void flushSegment(List<NarrationTextSegment> segments, String rawText, int index) {
+    private void flushSegment(List<NarrationTextSegmentPlan> segments, String rawText, int index, Set<Integer> sourceBlockIndexes) {
         String normalized = normalizeSegmentText(rawText);
         if (!normalized.isBlank()) {
-            segments.add(NarrationTextSegment.of(index, normalized));
+            segments.add(new NarrationTextSegmentPlan(NarrationTextSegment.of(index, normalized), List.copyOf(sourceBlockIndexes)));
         }
     }
 

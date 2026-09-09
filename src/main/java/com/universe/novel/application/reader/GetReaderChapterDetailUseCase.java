@@ -1,6 +1,12 @@
 package com.universe.novel.application.reader;
 
 import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
+import com.universe.novel.application.narration.NarrationTextSegmenter;
+import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
+import com.universe.novel.application.reader.render.ReaderNarrationMarkdownRenderer;
+import com.universe.novel.domain.narration.ChapterNarrationSegmentStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
@@ -18,6 +24,11 @@ import java.util.Objects;
 @Service
 @Transactional(readOnly = true)
 public class GetReaderChapterDetailUseCase {
+    private static final Logger log = LoggerFactory.getLogger(GetReaderChapterDetailUseCase.class);
+    private final NarrationTextSegmenter narrationTextSegmenter;
+    private final ChapterNarrationSegmentRepositoryPort segmentRepository;
+    private final ReaderNarrationBlockMappingResolver blockMappingResolver;
+    private final ReaderNarrationMarkdownRenderer narrationRenderer;
 
     private final ReaderChapterDetailQueryPort
             readerChapterDetailQueryPort;
@@ -27,8 +38,16 @@ public class GetReaderChapterDetailUseCase {
 
     public GetReaderChapterDetailUseCase(
             ReaderChapterDetailQueryPort readerChapterDetailQueryPort,
-            NovelMarkdownRenderer novelMarkdownRenderer
+            NovelMarkdownRenderer novelMarkdownRenderer,
+            NarrationTextSegmenter narrationTextSegmenter,
+            ChapterNarrationSegmentRepositoryPort segmentRepository,
+            ReaderNarrationBlockMappingResolver blockMappingResolver,
+            ReaderNarrationMarkdownRenderer narrationRenderer
     ) {
+        this.narrationTextSegmenter = Objects.requireNonNull(narrationTextSegmenter);
+        this.segmentRepository = Objects.requireNonNull(segmentRepository);
+        this.blockMappingResolver = Objects.requireNonNull(blockMappingResolver);
+        this.narrationRenderer = Objects.requireNonNull(narrationRenderer);
         this.readerChapterDetailQueryPort =
                 Objects.requireNonNull(
                         readerChapterDetailQueryPort,
@@ -63,10 +82,7 @@ public class GetReaderChapterDetailUseCase {
                                 normalizedSlug
                         ));
 
-        String contentHtml =
-                novelMarkdownRenderer.renderToHtml(
-                        chapterRecord.rawContent()
-                );
+        String contentHtml = renderReaderContent(chapterRecord);
 
         ReaderChapterNavigationDTO previousChapter =
                 readerChapterDetailQueryPort
@@ -105,5 +121,18 @@ public class GetReaderChapterDetailUseCase {
                 nextChapter,
                 tableOfContents
         );
+    }
+    private String renderReaderContent(ReaderChapterRecord chapterRecord) {
+        String markdown = chapterRecord.rawContent();
+        try {
+            var currentSegments = segmentRepository.findByChapterIdAndStatus(chapterRecord.id(), ChapterNarrationSegmentStatus.CURRENT);
+            var plans = narrationTextSegmenter.plan(markdown);
+            var mapping = blockMappingResolver.resolve(chapterRecord.id(), plans, currentSegments);
+            if (!mapping.isEmpty()) return narrationRenderer.renderToHtml(markdown, mapping);
+        } catch (RuntimeException exception) {
+            // Narration annotation is optional; prose remains readable if its mapping cannot be obtained.
+            log.warn("Reader narration mapping unavailable for chapter {}", chapterRecord.id(), exception);
+        }
+        return novelMarkdownRenderer.renderToHtml(markdown);
     }
 }

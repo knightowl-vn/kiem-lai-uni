@@ -142,6 +142,8 @@
             this.autoNext = typeof config.autoNext === 'boolean' ? config.autoNext : false;
             this.fallbackToDevice = typeof config.fallbackToDevice === 'boolean' ? config.fallbackToDevice : false;
             this.activeHighlightedElement = null;
+            this.activeNarrationSegmentId = null;
+            this.activeChapterHighlightedElements = new Set();
             this.savedVoicePreference = null;
             this.isNavigatingToNext = false;
             this._hasUserExplicitlySelectedVoice = false;
@@ -151,6 +153,7 @@
             this._transitionAbortController = null;
             this._transitionSequenceId = 0;
             this._voiceSelectionSequenceId = 0;
+            this._chapterSelectionId = 0;
 
             // Bound handlers for cleanup
             this._boundOnPlayPause = this._handlePlayPause.bind(this);
@@ -193,6 +196,14 @@
                 onError: (error) => this._onEngineError(error, 'managed'),
                 onManifestLoaded: (manifest) => this._onManifestLoaded(manifest)
             };
+            // Legacy callbacks cannot update the dock while chapter audio owns playback.
+            Object.keys(managedEngineOptions).forEach(name => {
+                if (name === 'onManifestLoaded') return;
+                const callback = managedEngineOptions[name];
+                managedEngineOptions[name] = (...args) => {
+                    if (this.engine === this.managedEngine) callback(...args);
+                };
+            });
 
             if (config.deviceEngine) {
                 this.deviceEngine = config.deviceEngine;
@@ -215,6 +226,19 @@
                     : null;
                 this.managedEngine = ManagedEngineClass ? new ManagedEngineClass(managedEngineOptions) : null;
             }
+
+            const ChapterEngineClass = typeof window !== 'undefined' && window.ChapterAudioEngine
+                ? window.ChapterAudioEngine.ChapterAudioEngine : null;
+            this.chapterEngine = config.chapterEngine || (ChapterEngineClass ? new ChapterEngineClass({
+                onStateChange: (state, previous) => {
+                    if (this.engine === this.chapterEngine) this._onEngineStateChange(state, previous, 'managed');
+                },
+                onCueChange: (index, cue) => this._onChapterCueChange(index, cue),
+                onChapterEnd: () => {
+                    if (this.engine === this.chapterEngine) this._onEngineChapterEnd('managed');
+                },
+                onError: () => this._offerLegacyChapterFallback()
+            }) : null);
 
             this.activeEngineType = 'device';
             this.engine = this.deviceEngine || this.managedEngine;
@@ -498,6 +522,10 @@
             }
 
             // On settings close, synchronize current highlighted block and scroll into comfortable view if needed
+            if (this.chapterEngine && this.engine === this.chapterEngine) {
+                this._syncChapterHighlight(true);
+                return;
+            }
             if (this.followMode && this.engine && this.chunks.length > 0) {
                 const state = this.engine.getState();
                 if (state === 'PLAYING' || state === 'PAUSED') {
@@ -948,9 +976,14 @@
                 return;
             }
 
+            const catalogChapterId = this.chapterId;
+            const catalogSelection = this._voiceSelectionSequenceId;
+            const catalogIsCurrent = () => !this.isUnloaded && this.chapterId === catalogChapterId &&
+                this._voiceSelectionSequenceId === catalogSelection;
             try {
                 // 1. Always discover catalog from default manifest (without voiceKey)
                 const defaultManifest = await this.managedEngine.loadManifest(this.chapterId);
+                if (!catalogIsCurrent()) return;
                 this._managedCatalogResolved = true;
                 const availableVoices = (defaultManifest && Array.isArray(defaultManifest.availableVoices))
                     ? defaultManifest.availableVoices
@@ -984,6 +1017,7 @@
                         if (targetKey !== defaultSelectedKey) {
                             try {
                                 await this.managedEngine.loadManifest(this.chapterId, targetKey);
+                                if (!catalogIsCurrent()) return;
                             } catch (keyedErr) {
                                 console.warn('[NarrationController] Failed to load manifest for saved voiceKey:', targetKey, keyedErr);
                             }
@@ -995,6 +1029,7 @@
                     }
                 }
 
+                if (!catalogIsCurrent()) return;
                 // 4. Re-check user intent after the keyed manifest await before any final automatic activation
                 if (isInterrupted()) {
                     this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
@@ -1004,6 +1039,7 @@
                 // 5. Populate dropdown and activate active/default voice
                 this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: false });
             } catch (e) {
+                if (!catalogIsCurrent()) return;
                 console.warn('[NarrationController] Initial managed manifest load skipped or failed:', e);
                 this._managedCatalogResolved = true;
                 const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
@@ -1022,7 +1058,7 @@
          * @private
          */
         _onManifestLoaded(manifest) {
-            if (this.activeEngineType === 'managed' && manifest && Array.isArray(manifest.segments)) {
+            if (this.engine === this.managedEngine && this.activeEngineType === 'managed' && manifest && Array.isArray(manifest.segments)) {
                 const currentSelectedKey = this.savedVoicePreference && this.savedVoicePreference.type === 'managed'
                     ? this.savedVoicePreference.voiceKey
                     : null;
@@ -1220,6 +1256,7 @@
          * @private
          */
         _activateEngine(type, identifier) {
+            this._invalidateChapterPlayback();
             if (type === 'managed' && this.managedEngine) {
                 if (this.deviceEngine) {
                     this.deviceEngine.stop();
@@ -1235,7 +1272,7 @@
 
                 if (typeof identifier === 'string') {
                     const requestedChapterId = this.chapterId;
-                    this.managedEngine.loadManifest(requestedChapterId, identifier).then(manifest => {
+                    this._selectManagedPlayback(requestedChapterId, identifier).then(manifest => {
                         if (this.activeEngineType !== 'managed') {
                             return;
                         }
@@ -1256,6 +1293,8 @@
                             : (this.managedEngine.getSegments ? this.managedEngine.getSegments() : []);
                         this._syncNavigationAndProgress();
                     }).catch(err => {
+                        if (err.name === 'AbortError' || this.chapterId !== requestedChapterId) return;
+                        this._setStatusMessage('Không thể tải giọng đã chọn. Vui lòng chọn lại giọng để thử lại.');
                         console.warn('[NarrationController] Error activating managed voice manifest:', err);
                     });
                 } else {
@@ -1285,6 +1324,138 @@
             }
         }
 
+        _invalidateChapterPlayback() {
+            ++this._chapterSelectionId;
+            if (this.chapterEngine) this.chapterEngine.stop();
+            this._clearHighlight();
+        }
+
+        async _selectManagedPlayback(chapterId, voiceKey, legacyOnly = false) {
+            this._invalidateChapterPlayback();
+            const selection = this._chapterSelectionId;
+            const voiceSequence = this._voiceSelectionSequenceId;
+            const isCurrent = () => !this.isUnloaded && this.chapterId === chapterId &&
+                this.activeEngineType === 'managed' && selection === this._chapterSelectionId &&
+                voiceSequence === this._voiceSelectionSequenceId;
+            const assertCurrent = () => {
+                if (!isCurrent()) throw new DOMException('Playback selection changed', 'AbortError');
+            };
+            this._cancelPendingAutoNext();
+            this.isCompleted = false;
+            this._clearHighlight();
+            this.managedEngine.stop();
+            this.managedEngine.cancel();
+            if (this.deviceEngine) this.deviceEngine.stop();
+            this.chunks = [];
+            this._updateProgressDisplay(0, 0);
+            this._updateNavButtons();
+            if (this.dom.playPauseBtn) this.dom.playPauseBtn.disabled = true;
+
+            if (!legacyOnly && this.chapterEngine && this.chapterEngine.isSupported()) {
+                this.engine = this.activeEngine = this.chapterEngine;
+                const metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey);
+                assertCurrent();
+                if (metadata) {
+                    this.chapterEngine.setRate(this.dom.rateSelect ? this.dom.rateSelect.value : this.managedEngine.rate);
+                    this.chunks = this.chapterEngine.getSegments();
+                    this.chapterEngine.seekBySeconds(0);
+                    this._updateProgressDisplay(0, this.chunks.length);
+                    this._updateNavButtons();
+                    if (this.dom.playPauseBtn) {
+                        this.dom.playPauseBtn.disabled = false;
+                        this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                    }
+                    this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.');
+                    return { segments: this.chunks, availableVoices: this.managedEngine.getVoices() };
+                }
+                this.chapterEngine.stop();
+            }
+
+            assertCurrent();
+            this.engine = this.activeEngine = this.managedEngine;
+            let manifest;
+            try {
+                manifest = await this.managedEngine.loadManifest(chapterId, voiceKey);
+            } catch (error) {
+                assertCurrent();
+                throw error;
+            }
+            assertCurrent();
+            if (!manifest || !manifest.selectedVoice || manifest.selectedVoice.voiceKey !== voiceKey) {
+                this.managedEngine.stop();
+                throw new Error('Selected voice unavailable');
+            }
+            this.chunks = manifest.segments || [];
+            this._updateProgressDisplay(0, this.chunks.length);
+            this._updateNavButtons();
+            if (this.dom.playPauseBtn) {
+                this.dom.playPauseBtn.disabled = this.chunks.length === 0;
+                this.dom.playPauseBtn.setAttribute('aria-disabled', String(this.chunks.length === 0));
+            }
+            return manifest;
+        }
+
+        _onChapterCueChange(index, cue) {
+            if (this.engine !== this.chapterEngine || this.isUnloaded) return;
+            if (!cue) {
+                // A persisted gap has no active segment, including when seeking while paused.
+                this._clearHighlight();
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
+            this._onEngineChunkStart(index, cue, 'managed');
+            if (this.chapterEngine.getState() === 'PAUSED') this._onEngineStateChange('PAUSED', 'PAUSED', 'managed');
+        }
+
+        _resolveChapterCueElements(segmentId) {
+            if (!segmentId || !this.dom.body) return [];
+            return Array.from(this.dom.body.querySelectorAll('[data-narration-segment-ids]')).filter(element =>
+                (element.getAttribute('data-narration-segment-ids') || '').split(/\s+/).includes(segmentId));
+        }
+
+        _syncChapterHighlight(restoreVisibility = false) {
+            if (!this.chapterEngine || this.engine !== this.chapterEngine) return;
+            const state = this.chapterEngine.getState();
+            const cue = this.chapterEngine.getCurrentChunk();
+            if (!this.followMode || this.isCompleted || this.isUnloaded || !cue ||
+                (state !== 'PLAYING' && state !== 'PAUSED')) {
+                this._clearHighlight();
+                return;
+            }
+            const elements = this._resolveChapterCueElements(cue.segmentId);
+            const next = new Set(elements);
+            const changed = next.size !== this.activeChapterHighlightedElements.size ||
+                elements.some(element => !this.activeChapterHighlightedElements.has(element));
+            this.activeNarrationSegmentId = cue.segmentId;
+            for (const element of this.activeChapterHighlightedElements) {
+                if (!next.has(element)) element.classList.remove(HIGHLIGHT_CLASS);
+            }
+            for (const element of next) {
+                if (!this.activeChapterHighlightedElements.has(element)) element.classList.add(HIGHLIGHT_CLASS);
+            }
+            this.activeChapterHighlightedElements = next;
+            const scrollTarget = elements[0];
+            if (scrollTarget && (changed || restoreVisibility) && !this.isSettingsOpen() &&
+                !this._isElementComfortablyVisible(scrollTarget)) {
+                this._scrollElementIntoView(scrollTarget);
+            }
+        }
+
+        async _offerLegacyChapterFallback() {
+            if (this.engine !== this.chapterEngine || this.isUnloaded) return;
+            const chapterId = this.chapterId;
+            const voiceKey = this.chapterEngine.getSelectedVoiceKey();
+            try {
+                await this._selectManagedPlayback(chapterId, voiceKey, true);
+                this._setStatusMessage('Không thể tải âm thanh cả chương. Nhấn Phát để nghe từng đoạn với giọng đã chọn.');
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    this._setStatusMessage('Không thể tải giọng đã chọn. Vui lòng chọn lại giọng để thử lại.');
+                }
+            }
+        }
+
         /**
          * Sets follow mode ON or OFF.
          * When turned OFF: immediately clears any active highlight without pausing TTS.
@@ -1304,6 +1475,10 @@
                 this._savePreferences();
             }
 
+            if (this.chapterEngine && this.engine === this.chapterEngine) {
+                this._syncChapterHighlight(true);
+                return;
+            }
             if (!this.followMode) {
                 this._clearHighlight();
             } else {
@@ -1413,6 +1588,7 @@
                 return false;
             }
 
+            this._invalidateChapterPlayback();
             if (this.managedEngine) {
                 try {
                     this.managedEngine.stop();
@@ -1539,6 +1715,11 @@
          * @private
          */
         _clearHighlight() {
+            for (const element of this.activeChapterHighlightedElements) {
+                element.classList.remove(HIGHLIGHT_CLASS);
+            }
+            this.activeChapterHighlightedElements.clear();
+            this.activeNarrationSegmentId = null;
             if (this.activeHighlightedElement) {
                 this.activeHighlightedElement.classList.remove(HIGHLIGHT_CLASS);
                 this.activeHighlightedElement = null;
@@ -1706,7 +1887,8 @@
                     this.dom.playPauseBtn.classList.remove('is-playing');
                 }
             } else {
-                this.engine.play(this.engine.getCurrentChunkIndex());
+                if (this.engine === this.chapterEngine) this.engine.play();
+                else this.engine.play(this.engine.getCurrentChunkIndex());
             }
         }
 
@@ -1747,8 +1929,9 @@
         _handleRewind() {
             this._cancelPendingAutoNext();
             this.isAutoplayContinuation = false;
-            if (this.activeEngineType === 'managed' && this.managedEngine && typeof this.managedEngine.seekBySeconds === 'function') {
-                this.managedEngine.seekBySeconds(-5);
+            if (this.activeEngineType === 'managed' && this.engine && typeof this.engine.seekBySeconds === 'function') {
+                this.isCompleted = false;
+                this.engine.seekBySeconds(-5);
             }
         }
 
@@ -1759,8 +1942,9 @@
         _handleForward() {
             this._cancelPendingAutoNext();
             this.isAutoplayContinuation = false;
-            if (this.activeEngineType === 'managed' && this.managedEngine && typeof this.managedEngine.seekBySeconds === 'function') {
-                this.managedEngine.seekBySeconds(5);
+            if (this.activeEngineType === 'managed' && this.engine && typeof this.engine.seekBySeconds === 'function') {
+                this.isCompleted = false;
+                this.engine.seekBySeconds(5);
             }
         }
 
@@ -1830,6 +2014,12 @@
             }
 
             const curIndex = this.engine.getCurrentChunkIndex();
+            if (this.engine === this.chapterEngine && curIndex < 0) {
+                this._clearHighlight();
+                this._updateProgressDisplay(0, this.chunks.length);
+                this._updateNavButtons();
+                return;
+            }
             const curChunk = this.chunks[curIndex];
             const currentNum = curIndex + 1;
             const totalNum = this.chunks.length;
@@ -1840,6 +2030,7 @@
             this.hasMeaningfulResume = true;
             this._saveResumePosition(curIndex);
 
+            if (this.chapterEngine && this.engine === this.chapterEngine) this._syncChapterHighlight();
             const state = this.engine.getState();
             if (state !== 'PLAYING') {
                 if (curChunk && curChunk.element && this.followMode) {
@@ -1864,6 +2055,7 @@
          * @private
          */
         async _handleVoiceChange() {
+            this._invalidateChapterPlayback();
             this._hasUserExplicitlySelectedVoice = true;
             const selectionSequence = ++this._voiceSelectionSequenceId;
 
@@ -1936,7 +2128,7 @@
 
                 if (this.managedEngine && this.chapterId) {
                     try {
-                        const manifest = await this.managedEngine.loadManifest(this.chapterId, voiceKey);
+                        const manifest = await this._selectManagedPlayback(this.chapterId, voiceKey);
 
                         // Sequence & current selection guard against rapid selection races
                         if (selectionSequence !== this._voiceSelectionSequenceId ||
@@ -1960,6 +2152,7 @@
                         }
                         this._setStatusMessage('Sẵn sàng phát giọng đọc Kiếm Lai (' + this.chunks.length + ' đoạn).');
                     } catch (e) {
+                        if (e.name === 'AbortError') return;
                         if (selectionSequence !== this._voiceSelectionSequenceId ||
                             !this.dom.voiceSelect ||
                             this.dom.voiceSelect.value !== voiceVal) {
@@ -2050,6 +2243,7 @@
                 }
             }
 
+            this._invalidateChapterPlayback();
             this._clearHighlight();
             if (this.deviceEngine) {
                 this.deviceEngine.stop();
@@ -2314,6 +2508,8 @@
                 }
             }
 
+            // Play may retain the cue established by the initial IDLE seek, so no new cue event is required.
+            if (this.chapterEngine && this.engine === this.chapterEngine) this._syncChapterHighlight();
             this._updateNavButtons();
         }
 
@@ -2386,6 +2582,10 @@
 
             this._saveResumePosition(chunkIndex);
 
+            if (this.chapterEngine && this.engine === this.chapterEngine) {
+                this._syncChapterHighlight();
+                return;
+            }
             if (this.followMode && chunk && chunk.element) {
                 const elementChanged = this._highlightChunk(chunk);
                 if (!this.isSettingsOpen() && elementChanged && !this._isElementComfortablyVisible(chunk.element)) {
@@ -2429,6 +2629,9 @@
                 this.dom.playPauseBtn.setAttribute('aria-label', 'Phát lại từ đầu');
                 this.dom.playPauseBtn.title = 'Phát lại từ đầu';
             }
+
+            // H.9G ends here. Chapter audio must not enter the legacy Auto Next path.
+            if (this.engine === this.chapterEngine) return;
 
             if (this.autoNext && !this.isNavigatingToNext) {
                 const nextUrl = this._resolveNextChapterUrl();
@@ -2586,6 +2789,7 @@
          * @private
          */
         _applyChapterTransition(fetchedDoc, nextUrl, validation) {
+            this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
 
             // 1. Chapter Prose Body (keep stable DOM node)
@@ -2817,7 +3021,7 @@
                     return;
                 }
 
-                this.managedEngine.loadManifest(requestedChapterId, requestedVoiceKey).then(manifest => {
+                this._selectManagedPlayback(requestedChapterId, requestedVoiceKey).then(manifest => {
                     if (this.chapterId !== requestedChapterId) {
                         return;
                     }
@@ -2864,7 +3068,7 @@
                             this.dom.playPauseBtn.disabled = false;
                             this.dom.playPauseBtn.removeAttribute('aria-disabled');
                         }
-                        if (this.managedEngine) {
+                        if (this.engine === this.managedEngine) {
                             this.managedEngine.play(0);
                         }
                     }
@@ -3071,8 +3275,8 @@
 
             const currentIndex = this.engine.getCurrentChunkIndex();
             const total = this.chunks.length;
-            const canPrev = currentIndex > 0;
-            const canNext = !this.isCompleted && (currentIndex < total - 1);
+            const canPrev = this.engine === this.chapterEngine ? this.chapterEngine.canPrevious() : currentIndex > 0;
+            const canNext = this.engine === this.chapterEngine ? this.chapterEngine.canNext() : !this.isCompleted && (currentIndex < total - 1);
 
             if (this.dom.prevBtn) {
                 this.dom.prevBtn.disabled = !canPrev;
@@ -3205,4 +3409,3 @@
         HIGHLIGHT_CLASS: HIGHLIGHT_CLASS
     };
 });
-
