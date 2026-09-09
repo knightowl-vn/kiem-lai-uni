@@ -49,7 +49,10 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -75,6 +78,7 @@ import com.universe.novel.entry.reader.ReaderReadingHistoryController;
 import com.universe.novel.entry.reader.ReaderReadingProgressController;
 import com.universe.novel.entry.reader.ReaderWikiLookupController;
 import com.universe.media.entry.delivery.MediaDeliveryController;
+import com.universe.media.application.asset.GetMediaAssetContentMetadataResult;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.asset.GetMediaAssetContentQuery;
 import com.universe.media.application.asset.GetMediaAssetContentResult;
@@ -192,6 +196,9 @@ class SecurityAuthorizationTest {
     @MockBean
     private com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
 
+    @MockBean
+    private com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -209,18 +216,47 @@ class SecurityAuthorizationTest {
     void shouldAllowAnonymousAccessToMediaAssetContentEndpoint() throws Exception {
         UUID assetId = UUID.randomUUID();
         byte[] payload = new byte[]{1, 2, 3};
-        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
-                new java.io.ByteArrayInputStream(payload),
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                assetId,
+                1,
                 payload.length,
                 "image/webp",
                 "dummyhash"
         );
 
-        when(getMediaAssetContentUseCase.execute(new GetMediaAssetContentQuery(assetId)))
-                .thenReturn(result);
+        when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(assetId)))
+                .thenReturn(metadata);
+        when(getMediaAssetContentUseCase.open(metadata))
+                .thenReturn(new java.io.ByteArrayInputStream(payload));
 
         mockMvc.perform(get("/media/assets/" + assetId + "/content"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous users can access HEAD /media/assets/{assetId}/content without opening binary storage")
+    void shouldAllowAnonymousHeadAccessToMediaAssetContentEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                assetId,
+                1,
+                3,
+                "audio/mpeg",
+                "dummyhash"
+        );
+        when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(assetId)))
+                .thenReturn(metadata);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request(
+                        org.springframework.http.HttpMethod.HEAD,
+                        "/media/assets/{assetId}/content",
+                        assetId
+                ))
+                .andExpect(status().isOk());
+
+        verify(getMediaAssetContentUseCase, never()).open(any());
+        verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
     }
 
     @Test
@@ -532,6 +568,32 @@ class SecurityAuthorizationTest {
                         .with(csrf())
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access GET chapter narration playback metadata")
+    void shouldAllowAnonymousAccessToNarrationPlaybackMetadata() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO result =
+                new com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO(
+                        chapterId,
+                        null,
+                        com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability.MISSING,
+                        null,
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of()
+                );
+        when(getPublicPlaybackUseCase.execute(any(
+                com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery.class
+        ))).thenReturn(result);
+
+        mockMvc.perform(get("/api/novel/chapters/" + chapterId + "/narration/playback"))
                 .andExpect(status().isOk());
     }
 

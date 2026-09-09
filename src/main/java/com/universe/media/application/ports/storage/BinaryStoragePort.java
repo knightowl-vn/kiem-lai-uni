@@ -19,7 +19,7 @@ import java.io.InputStream;
  *     <li>{@link #open} must fail with {@link StorageObjectNotFoundException} if the targeted key does not exist.</li>
  *     <li>{@link #delete} is idempotent: deleting a non-existent or previously deleted key must succeed silently.</li>
  *     <li>The caller retains ownership of the {@link InputStream} passed to {@link #store}; implementations must NOT close the store input stream.</li>
- *     <li>The caller owns and is responsible for closing the {@link InputStream} returned by {@link #open}.</li>
+ *     <li>The caller owns and is responsible for closing the {@link InputStream} returned by {@link #open} or {@link #openRange}.</li>
  *     <li>This port deals strictly with binary transport and contains no delivery URLs, deduplication, or vendor-specific constructs.</li>
  * </ul>
  */
@@ -70,6 +70,31 @@ public interface BinaryStoragePort {
      */
     InputStream open(
             StorageKey key
+    );
+
+    /**
+     * Opens a bounded byte range from the binary payload associated with the given key.
+     *
+     * <p>The implementation must seek or issue a provider-native ranged read. It must not emulate
+     * ranged access by opening the complete object and skipping bytes. The returned stream exposes
+     * no more than {@code length} bytes.
+     *
+     * <p><b>Stream Ownership:</b> The caller is responsible for closing the returned stream.
+     * Closing it must release the underlying provider resource.
+     *
+     * @param key            the unique opaque storage key
+     * @param startInclusive zero-based byte offset at which reading starts
+     * @param length         maximum number of bytes exposed by the returned stream
+     * @return a bounded open stream for the requested byte range
+     * @throws StorageObjectNotFoundException if no object exists at {@code key}
+     * @throws StorageException               if reading fails due to underlying I/O or provider error
+     * @throws NullPointerException           if key is null
+     * @throws IllegalArgumentException       if startInclusive is negative or length is not positive
+     */
+    InputStream openRange(
+            StorageKey key,
+            long startInclusive,
+            long length
     );
 
     /**

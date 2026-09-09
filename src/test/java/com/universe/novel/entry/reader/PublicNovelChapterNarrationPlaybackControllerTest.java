@@ -6,6 +6,8 @@ import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus;
+import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery;
+import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
@@ -15,6 +17,8 @@ import com.universe.novel.application.narration.PrepareReaderNarrationSegmentRes
 import com.universe.novel.application.narration.ReaderNarrationContinuationDispatchStatus;
 import com.universe.novel.application.narration.ReaderNarrationPreparationAction;
 import com.universe.novel.contracts.dto.narration.PrepareReaderNarrationPlaybackRequest;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
 import com.universe.novel.contracts.dto.narration.PublicReaderNarrationPlaybackDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,7 +28,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,11 +50,51 @@ class PublicNovelChapterNarrationPlaybackControllerTest {
     @Mock
     private PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
 
+    @Mock
+    private GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+
     private PublicNovelChapterNarrationPlaybackController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new PublicNovelChapterNarrationPlaybackController(preparePublicPlaybackUseCase);
+        controller = new PublicNovelChapterNarrationPlaybackController(
+                preparePublicPlaybackUseCase,
+                getPublicPlaybackUseCase
+        );
+    }
+
+    @Test
+    @DisplayName("H.9F1 playback metadata GET delegates passively and uses manifest-equivalent cache headers")
+    void shouldReturnChapterPlaybackMetadataWithoutCaching() {
+        PublicChapterNarrationPlaybackDTO expected = new PublicChapterNarrationPlaybackDTO(
+                CHAPTER_ID,
+                VOICE_KEY,
+                PublicChapterNarrationPlaybackAvailability.MISSING,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                List.of()
+        );
+        when(getPublicPlaybackUseCase.execute(new GetPublicChapterNarrationPlaybackQuery(CHAPTER_ID, VOICE_KEY)))
+                .thenReturn(expected);
+        MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+
+        ResponseEntity<PublicChapterNarrationPlaybackDTO> response = controller.getChapterPlayback(
+                CHAPTER_ID,
+                VOICE_KEY,
+                servletResponse
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expected);
+        assertThat(servletResponse.getHeader("Cache-Control"))
+                .isEqualTo("no-store, no-cache, must-revalidate, max-age=0");
+        assertThat(servletResponse.getHeader("Pragma")).isEqualTo("no-cache");
+        assertThat(servletResponse.getDateHeader("Expires")).isZero();
+        verify(getPublicPlaybackUseCase).execute(new GetPublicChapterNarrationPlaybackQuery(CHAPTER_ID, VOICE_KEY));
     }
 
     @Test

@@ -5,30 +5,33 @@ import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFound
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
+import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery;
+import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
 import com.universe.novel.contracts.dto.narration.PrepareReaderNarrationPlaybackRequest;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
 import com.universe.novel.contracts.dto.narration.PublicReaderNarrationPlaybackDTO;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Public REST controller exposing canonical on-demand narration preparation for browser playback (MS-04.9H.7D1A).
- * <p>
- * Invokes {@link PreparePublicReaderNarrationPlaybackUseCase} to resolve the public voice key, enforce published chapter
- * visibility, synchronously prepare the requested segment for immediate playback, and non-blockingly dispatch background continuation.
+ * Public REST controller for passive chapter playback metadata and legacy on-demand segment preparation.
  */
 @RestController
 @RequestMapping("/api/novel/chapters/{chapterId}/narration")
@@ -37,13 +40,34 @@ public class PublicNovelChapterNarrationPlaybackController {
     private static final Logger log = LoggerFactory.getLogger(PublicNovelChapterNarrationPlaybackController.class);
 
     private final PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
+    private final GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
 
     public PublicNovelChapterNarrationPlaybackController(
-            PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase
+            PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase,
+            GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase
     ) {
         this.preparePublicPlaybackUseCase = Objects.requireNonNull(
                 preparePublicPlaybackUseCase, "preparePublicPlaybackUseCase must not be null"
         );
+        this.getPublicPlaybackUseCase = Objects.requireNonNull(
+                getPublicPlaybackUseCase, "getPublicPlaybackUseCase must not be null"
+        );
+    }
+
+    /**
+     * GET /api/novel/chapters/{chapterId}/narration/playback?voiceKey={voiceKey}
+     */
+    @GetMapping("/playback")
+    public ResponseEntity<PublicChapterNarrationPlaybackDTO> getChapterPlayback(
+            @PathVariable UUID chapterId,
+            @RequestParam(name = "voiceKey", required = false) String voiceKey,
+            HttpServletResponse response
+    ) {
+        disableCaching(response);
+        PublicChapterNarrationPlaybackDTO playback = getPublicPlaybackUseCase.execute(
+                new GetPublicChapterNarrationPlaybackQuery(chapterId, voiceKey)
+        );
+        return ResponseEntity.ok(playback);
     }
 
     /**
@@ -113,7 +137,15 @@ public class PublicNovelChapterNarrationPlaybackController {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Void> handleGenericException(Exception ex) {
-        log.error("Unexpected error during reader narration playback preparation", ex);
+        log.error("Unexpected error during reader narration playback request", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+    }
+
+    private void disableCaching(HttpServletResponse response) {
+        if (response != null) {
+            response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+            response.setHeader("Pragma", "no-cache");
+            response.setDateHeader("Expires", 0);
+        }
     }
 }

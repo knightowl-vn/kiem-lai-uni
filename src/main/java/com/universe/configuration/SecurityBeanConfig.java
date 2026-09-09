@@ -95,10 +95,17 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.HEAD,
+                                "/media/assets/*/content"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
                                 "/media/assets/*/content",
                                 "/media/assets/*/variants/*",
-                                "/api/novel/chapters/*/narration/manifest"
+                                "/api/novel/chapters/*/narration/manifest",
+                                "/api/novel/chapters/*/narration/playback"
                         )
                         .permitAll()
 

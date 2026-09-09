@@ -264,6 +264,27 @@ public interface SpringDataChapterJpaRepository
             @Param("id") String id
     );
 
+    /**
+     * Lightweight public narration lookup using the canonical Reader publication predicate.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.content_version as contentVersion
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.id = :id
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    """,
+            nativeQuery = true
+    )
+    Optional<ReadableChapterNarrationAccessProjection> findPublishedNarrationAccessById(
+            @Param("id") String id
+    );
+
     /*
      * Public Reader Published Chapter by ID (for Continue Reading)
      *

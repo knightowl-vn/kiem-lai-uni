@@ -34,6 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -115,6 +116,161 @@ class GetMediaAssetContentUseCaseTest {
         assertThat(result.contentHash()).isEqualTo(HASH);
 
         verify(binaryStoragePort).open(StorageKey.of("objects/test-key"));
+    }
+
+    @Test
+    @DisplayName("metadata resolution validates public delivery without opening binary storage")
+    void shouldResolveMetadataWithoutOpeningBinaryStorage() {
+        MediaAsset asset = MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.AUDIO,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ACTIVE,
+                1,
+                T1,
+                T1
+        );
+        MediaAssetVersion version = MediaAssetVersion.create(
+                VERSION_ID,
+                ASSET_ID,
+                1,
+                StorageLocation.of("local", "objects/chapter.mp3"),
+                null,
+                ContentHash.of(HASH),
+                MimeType.of("audio/mpeg"),
+                1024L,
+                "chapter.mp3",
+                T1
+        );
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
+                .thenReturn(Optional.of(version));
+        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+
+        GetMediaAssetContentMetadataResult result = useCase.resolveMetadata(
+                new GetMediaAssetContentQuery(ASSET_ID)
+        );
+
+        assertThat(result).isEqualTo(new GetMediaAssetContentMetadataResult(
+                ASSET_ID,
+                1,
+                1024L,
+                "audio/mpeg",
+                HASH
+        ));
+        verify(binaryStoragePort, never()).open(any());
+        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("range open revalidates exact current metadata and uses storage openRange only")
+    void shouldOpenExactCurrentContentRange() {
+        MediaAsset asset = MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.AUDIO,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ACTIVE,
+                1,
+                T1,
+                T1
+        );
+        StorageKey storageKey = StorageKey.of("objects/chapter.mp3");
+        MediaAssetVersion version = MediaAssetVersion.create(
+                VERSION_ID,
+                ASSET_ID,
+                1,
+                StorageLocation.of("local", storageKey.value()),
+                null,
+                ContentHash.of(HASH),
+                MimeType.of("audio/mpeg"),
+                1024L,
+                "chapter.mp3",
+                T1
+        );
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                ASSET_ID,
+                1,
+                1024L,
+                "audio/mpeg",
+                HASH
+        );
+        InputStream rangeStream = new ByteArrayInputStream(new byte[]{4, 5, 6});
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
+                .thenReturn(Optional.of(version));
+        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+        when(binaryStoragePort.openRange(storageKey, 100, 3)).thenReturn(rangeStream);
+
+        InputStream result = useCase.openRange(metadata, 100, 3);
+
+        assertThat(result).isSameAs(rangeStream);
+        verify(binaryStoragePort).openRange(storageKey, 100, 3);
+        verify(binaryStoragePort, never()).open(any());
+    }
+
+    @Test
+    @DisplayName("open fails closed when current content differs from previously resolved metadata")
+    void shouldRejectChangedCurrentContentBeforeOpeningStorage() {
+        MediaAsset asset = MediaAsset.rehydrate(
+                ASSET_ID,
+                MediaType.AUDIO,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ACTIVE,
+                2,
+                T1,
+                T1
+        );
+        MediaAssetVersion currentVersion = MediaAssetVersion.create(
+                UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                ASSET_ID,
+                2,
+                StorageLocation.of("local", "objects/chapter-v2.mp3"),
+                null,
+                ContentHash.of("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+                MimeType.of("audio/mpeg"),
+                2048L,
+                "chapter-v2.mp3",
+                T1
+        );
+        GetMediaAssetContentMetadataResult staleMetadata = new GetMediaAssetContentMetadataResult(
+                ASSET_ID,
+                1,
+                1024L,
+                "audio/mpeg",
+                HASH
+        );
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 2))
+                .thenReturn(Optional.of(currentVersion));
+        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+
+        assertThatThrownBy(() -> useCase.open(staleMetadata))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("changed after delivery metadata was resolved");
+
+        verify(binaryStoragePort, never()).open(any());
+        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("range open rejects invalid bounds before persistence or storage access")
+    void shouldRejectInvalidRangeBeforeAccess() {
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                ASSET_ID,
+                1,
+                1024L,
+                "audio/mpeg",
+                HASH
+        );
+
+        assertThatThrownBy(() -> useCase.openRange(metadata, -1, 1))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> useCase.openRange(metadata, 0, 0))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(binaryStoragePort, never()).open(any());
+        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+        verify(mediaAssetRepositoryPort, never()).findById(any());
     }
 
     @Test

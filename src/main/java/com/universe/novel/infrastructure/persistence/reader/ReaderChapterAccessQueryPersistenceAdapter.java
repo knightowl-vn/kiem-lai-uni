@@ -1,8 +1,10 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
+import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableNarrationChapterReference;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
 import com.universe.novel.infrastructure.persistence.chapter.ReadableChapterAccessProjection;
+import com.universe.novel.infrastructure.persistence.chapter.ReadableChapterNarrationAccessProjection;
 import com.universe.novel.infrastructure.persistence.chapter.SpringDataChapterJpaRepository;
 
 import org.springframework.stereotype.Component;
@@ -36,10 +38,30 @@ public class ReaderChapterAccessQueryPersistenceAdapter implements ReaderChapter
                 .map(this::toReference);
     }
 
+    @Override
+    public Optional<ReadableNarrationChapterReference> findPublishedNarrationById(UUID chapterId) {
+        if (chapterId == null) {
+            return Optional.empty();
+        }
+
+        return chapterRepository
+                .findPublishedNarrationAccessById(chapterId.toString())
+                .map(this::toNarrationReference);
+    }
+
     private ReadableChapterReference toReference(ReadableChapterAccessProjection projection) {
         return new ReadableChapterReference(
                 UUID.fromString(projection.getId()),
                 projection.getChapterNumber()
+        );
+    }
+
+    private ReadableNarrationChapterReference toNarrationReference(
+            ReadableChapterNarrationAccessProjection projection
+    ) {
+        return new ReadableNarrationChapterReference(
+                UUID.fromString(projection.getId()),
+                projection.getContentVersion()
         );
     }
 }

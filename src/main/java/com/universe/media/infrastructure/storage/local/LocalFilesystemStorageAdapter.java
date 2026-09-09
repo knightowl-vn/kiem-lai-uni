@@ -14,6 +14,8 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -205,6 +207,51 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
     }
 
     @Override
+    public InputStream openRange(
+            StorageKey key,
+            long startInclusive,
+            long length
+    ) {
+        Objects.requireNonNull(key, "StorageKey cannot be null.");
+        if (startInclusive < 0) {
+            throw new IllegalArgumentException("startInclusive cannot be negative: " + startInclusive);
+        }
+        if (length <= 0) {
+            throw new IllegalArgumentException("length must be positive: " + length);
+        }
+
+        try {
+            Path targetPath = resolveReadableRegularFile(key);
+            FileChannel channel = null;
+            try {
+                channel = FileChannel.open(targetPath, StandardOpenOption.READ);
+                channel.position(startInclusive);
+                return new BoundedInputStream(Channels.newInputStream(channel), length);
+            } catch (NoSuchFileException e) {
+                closeQuietly(channel);
+                throw new StorageObjectNotFoundException(key, e);
+            } catch (SecurityException e) {
+                closeQuietly(channel);
+                throw new StorageException(
+                        "Storage access denied for key: " + key.value(),
+                        e
+                );
+            } catch (IOException e) {
+                closeQuietly(channel);
+                throw new StorageException(
+                        "Failed to open binary range for key: " + key.value(),
+                        e
+                );
+            }
+        } catch (SecurityException e) {
+            throw new StorageException(
+                    "Storage access denied for key: " + key.value(),
+                    e
+            );
+        }
+    }
+
+    @Override
     public void delete(
             StorageKey key
     ) {
@@ -284,6 +331,18 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
         return resolved;
     }
 
+    private Path resolveReadableRegularFile(
+            StorageKey key
+    ) {
+        Path targetPath = resolveAndVerifyPath(key);
+        if (!Files.exists(targetPath, LinkOption.NOFOLLOW_LINKS)
+                || !Files.isRegularFile(targetPath, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(targetPath)) {
+            throw new StorageObjectNotFoundException(key);
+        }
+        return targetPath;
+    }
+
     private void verifyNoSymbolicLinks(
             Path targetPath
     ) {
@@ -308,6 +367,78 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
             } catch (IOException | SecurityException ignored) {
                 // Best effort cleanup
             }
+        }
+    }
+
+    private void closeQuietly(
+            FileChannel channel
+    ) {
+        if (channel != null) {
+            try {
+                channel.close();
+            } catch (IOException ignored) {
+                // Best effort cleanup after a failed range open
+            }
+        }
+    }
+
+    private static final class BoundedInputStream extends InputStream {
+
+        private final InputStream delegate;
+        private long remaining;
+
+        private BoundedInputStream(InputStream delegate, long length) {
+            this.delegate = delegate;
+            this.remaining = length;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining == 0) {
+                return -1;
+            }
+            int value = delegate.read();
+            if (value != -1) {
+                remaining--;
+            }
+            return value;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            Objects.checkFromIndexSize(offset, length, buffer.length);
+            if (length == 0) {
+                return 0;
+            }
+            if (remaining == 0) {
+                return -1;
+            }
+            int boundedLength = (int) Math.min((long) length, remaining);
+            int bytesRead = delegate.read(buffer, offset, boundedLength);
+            if (bytesRead > 0) {
+                remaining -= bytesRead;
+            }
+            return bytesRead;
+        }
+
+        @Override
+        public long skip(long byteCount) throws IOException {
+            if (byteCount <= 0 || remaining == 0) {
+                return 0;
+            }
+            long skipped = delegate.skip(Math.min(byteCount, remaining));
+            remaining -= skipped;
+            return skipped;
+        }
+
+        @Override
+        public int available() throws IOException {
+            return (int) Math.min((long) delegate.available(), Math.min(remaining, Integer.MAX_VALUE));
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
         }
     }
 }

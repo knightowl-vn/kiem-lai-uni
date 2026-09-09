@@ -107,6 +107,43 @@ class LocalFilesystemStorageAdapterTest {
                     .isInstanceOf(StorageObjectNotFoundException.class)
                     .hasMessageContaining("non/existent/key.webp");
         }
+
+        @Test
+        @DisplayName("openRange seeks directly to the requested offset and exposes only the bounded length")
+        void shouldSeekAndBoundOpenedRange() throws IOException {
+            StorageKey key = StorageKey.of("audio/chapter.mp3");
+            byte[] data = "0123456789abcdef".getBytes(StandardCharsets.UTF_8);
+            adapter.store(key, new ByteArrayInputStream(data), data.length, MimeType.of("audio/mpeg"));
+
+            try (InputStream in = adapter.openRange(key, 5, 4)) {
+                assertThat(in.readAllBytes()).isEqualTo("5678".getBytes(StandardCharsets.UTF_8));
+                assertThat(in.read()).isEqualTo(-1);
+            }
+        }
+
+        @Test
+        @DisplayName("closing an openRange stream closes its underlying seekable channel")
+        void shouldCloseRangeChannelWithReturnedStream() throws IOException {
+            StorageKey key = StorageKey.of("audio/close-test.mp3");
+            byte[] data = "0123456789".getBytes(StandardCharsets.UTF_8);
+            adapter.store(key, new ByteArrayInputStream(data), data.length, MimeType.of("audio/mpeg"));
+
+            InputStream in = adapter.openRange(key, 2, 5);
+            assertThat(in.read()).isEqualTo('2');
+            in.close();
+
+            assertThatThrownBy(in::read).isInstanceOf(IOException.class);
+        }
+
+        @Test
+        @DisplayName("openRange on non-existent key preserves StorageObjectNotFoundException")
+        void shouldThrowWhenOpeningRangeForNonExistentObject() {
+            StorageKey key = StorageKey.of("non/existent/range.mp3");
+
+            assertThatThrownBy(() -> adapter.openRange(key, 0, 1))
+                    .isInstanceOf(StorageObjectNotFoundException.class)
+                    .hasMessageContaining("non/existent/range.mp3");
+        }
     }
 
     @Nested
@@ -222,6 +259,9 @@ class LocalFilesystemStorageAdapterTest {
             assertThatThrownBy(() -> adapter.open(key))
                     .isInstanceOf(IllegalArgumentException.class);
 
+            assertThatThrownBy(() -> adapter.openRange(key, 0, 1))
+                    .isInstanceOf(IllegalArgumentException.class);
+
             assertThatThrownBy(() -> adapter.delete(key))
                     .isInstanceOf(IllegalArgumentException.class);
         }
@@ -264,6 +304,10 @@ class LocalFilesystemStorageAdapterTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Symbolic links");
 
+            assertThatThrownBy(() -> adapter.openRange(key, 0, 1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Symbolic links");
+
             assertThatThrownBy(() -> adapter.delete(key))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("Symbolic links");
@@ -300,6 +344,21 @@ class LocalFilesystemStorageAdapterTest {
         void shouldRejectNullKeyOnOpen() {
             assertThatThrownBy(() -> adapter.open(null))
                     .isInstanceOf(NullPointerException.class);
+        }
+
+        @Test
+        @DisplayName("openRange rejects null key, negative start, and non-positive length")
+        void shouldRejectInvalidRangeOpenArguments() {
+            StorageKey key = StorageKey.of("valid/key.webp");
+
+            assertThatThrownBy(() -> adapter.openRange(null, 0, 1))
+                    .isInstanceOf(NullPointerException.class);
+            assertThatThrownBy(() -> adapter.openRange(key, -1, 1))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> adapter.openRange(key, 0, 0))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> adapter.openRange(key, 0, -1))
+                    .isInstanceOf(IllegalArgumentException.class);
         }
 
         @Test
