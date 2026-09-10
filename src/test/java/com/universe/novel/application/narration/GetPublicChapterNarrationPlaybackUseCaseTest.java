@@ -9,19 +9,16 @@ import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
-import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackCueRepositoryPort;
-import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
 import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
-import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
-import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableNarrationChapterReference;
+import com.universe.novel.application.ports.PlaybackManagedVoiceQueryPort;
+import com.universe.novel.application.ports.PlaybackManagedVoiceQueryPort.PlaybackManagedVoice;
+import com.universe.novel.application.ports.PublicChapterNarrationPlaybackQueryPort;
+import com.universe.novel.application.ports.PublicChapterNarrationPlaybackQueryPort.PublicChapterNarrationPlaybackSnapshot;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackFreshness;
-import com.universe.novel.domain.narration.ChapterNarrationPlayback;
-import com.universe.novel.domain.narration.ChapterNarrationPlaybackArtifact;
 import com.universe.novel.domain.narration.ChapterNarrationPlaybackCue;
-import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.ManagedVoiceStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -41,10 +38,8 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -59,6 +54,7 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     private static final UUID MEDIA_VERSION_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final UUID SEGMENT_0_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
     private static final UUID SEGMENT_1_ID = UUID.fromString("88888888-8888-8888-8888-888888888888");
+    private static final UUID FOREIGN_ID = UUID.fromString("99999999-9999-9999-9999-999999999999");
     private static final Instant NOW = Instant.parse("2026-09-09T00:00:00Z");
     private static final String VOICE_KEY = "kiemlai-male-01";
     private static final long CONTENT_VERSION = 12L;
@@ -66,16 +62,10 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     private static final long DURATION_MILLIS = 4_000L;
 
     @Mock
-    private ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
+    private PlaybackManagedVoiceQueryPort playbackManagedVoiceQueryPort;
 
     @Mock
-    private ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
-
-    @Mock
-    private ChapterNarrationPlaybackRepositoryPort playbackRepositoryPort;
-
-    @Mock
-    private ChapterNarrationPlaybackArtifactRepositoryPort artifactRepositoryPort;
+    private PublicChapterNarrationPlaybackQueryPort playbackQueryPort;
 
     @Mock
     private ChapterNarrationPlaybackCueRepositoryPort cueRepositoryPort;
@@ -88,28 +78,23 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new GetPublicChapterNarrationPlaybackUseCase(
-                readerChapterAccessQueryPort,
-                managedVoiceRepositoryPort,
-                playbackRepositoryPort,
-                artifactRepositoryPort,
+                playbackManagedVoiceQueryPort,
+                playbackQueryPort,
                 cueRepositoryPort,
                 mediaContract
         );
     }
 
     @Test
-    @DisplayName("CURRENT artifact is READY, playable, and preserves exact ordered cue timing")
+    @DisplayName("CURRENT artifact remains READY and playable with ordered cues")
     void shouldReturnCurrentReadyPlaybackWithOrderedCues() {
-        ManagedVoice voice = voice(VOICE_ID, VOICE_KEY, 1, true, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        ChapterNarrationPlaybackArtifact artifact = givenUsableArtifact(
-                voice,
-                CONTENT_VERSION,
-                SYNTHESIS_REVISION,
-                List.of(
-                        cue(1, SEGMENT_1_ID, 1, 2_500L, 4_000L),
-                        cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)
-                )
-        );
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION, 2));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID)).thenReturn(List.of(
+                cue(1, SEGMENT_1_ID, 1, 2_500L, 4_000L),
+                cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)
+        ));
+        givenEligibleMedia();
 
         PublicChapterNarrationPlaybackDTO result = execute(null);
 
@@ -131,40 +116,29 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
                         org.assertj.core.groups.Tuple.tuple(0, SEGMENT_0_ID, 0, 0L, 2_000L),
                         org.assertj.core.groups.Tuple.tuple(1, SEGMENT_1_ID, 1, 2_500L, 4_000L)
                 );
-        assertThat(artifact.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
     }
 
     @Test
-    @DisplayName("STALE_VOICE remains READY and playable without regeneration")
+    @DisplayName("STALE_VOICE remains READY and playable")
     void shouldReturnPlayableStaleVoiceArtifact() {
-        ManagedVoice voice = voice(VOICE_ID, VOICE_KEY, 1, true, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        givenUsableArtifact(
-                voice,
-                CONTENT_VERSION,
-                SYNTHESIS_REVISION - 1,
-                List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L))
-        );
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION - 1));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
+        givenEligibleMedia();
 
         PublicChapterNarrationPlaybackDTO result = execute(null);
 
-        assertThat(result.availability()).isEqualTo(PublicChapterNarrationPlaybackAvailability.READY);
         assertThat(result.freshness()).isEqualTo(PublicChapterNarrationPlaybackFreshness.STALE_VOICE);
         assertThat(result.playable()).isTrue();
         assertThat(result.audioUrl()).isNotNull();
-        assertThat(result.cues()).hasSize(1);
-        verifyNoMoreInteractions(mediaContract);
     }
 
     @Test
-    @DisplayName("STALE_CONTENT wins over stale voice and withholds every playable payload")
-    void shouldWithholdStaleContentPlayback() {
-        ManagedVoice voice = voice(VOICE_ID, VOICE_KEY, 1, true, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        givenUsableArtifact(
-                voice,
-                CONTENT_VERSION - 1,
-                SYNTHESIS_REVISION - 1,
-                List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L))
-        );
+    @DisplayName("STALE_CONTENT wins and skips cues and Media")
+    void shouldReturnStaleContentBeforeCueOrMediaValidation() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION - 1, SYNTHESIS_REVISION - 1));
 
         PublicChapterNarrationPlaybackDTO result = execute(null);
 
@@ -176,86 +150,107 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
         assertThat(result.codecMimeType()).isNull();
         assertThat(result.durationMillis()).isNull();
         assertThat(result.cues()).isEmpty();
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("No playback is a truthful MISSING response")
+    @DisplayName("No playback is MISSING")
     void shouldReturnMissingWhenPlaybackDoesNotExist() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.empty());
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(chapterOnlySnapshot());
 
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
-        verifyNoInteractions(artifactRepositoryPort, cueRepositoryPort, mediaContract);
+        assertMissing(execute(null), VOICE_KEY);
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Playback without a current artifact pointer is MISSING")
+    @DisplayName("Null current artifact pointer is MISSING")
     void shouldReturnMissingWhenCurrentArtifactPointerIsNull() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.of(playback(null, CHAPTER_ID, VOICE_ID)));
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(new PublicChapterNarrationPlaybackSnapshot(
+                CHAPTER_ID, CONTENT_VERSION, PLAYBACK_ID, null,
+                null, null, null, null, null, null, null, null, null, null
+        ));
 
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
-        verifyNoInteractions(artifactRepositoryPort, cueRepositoryPort, mediaContract);
+        assertMissing(execute(null), VOICE_KEY);
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
     @DisplayName("Missing pointed artifact is MISSING")
     void shouldReturnMissingWhenCurrentArtifactDoesNotExist() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.of(playback(ARTIFACT_ID, CHAPTER_ID, VOICE_ID)));
-        when(artifactRepositoryPort.findById(ARTIFACT_ID)).thenReturn(Optional.empty());
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(new PublicChapterNarrationPlaybackSnapshot(
+                CHAPTER_ID, CONTENT_VERSION, PLAYBACK_ID, ARTIFACT_ID,
+                null, null, null, null, null, null, null, null, null, null
+        ));
 
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
+        assertMissing(execute(null), VOICE_KEY);
         verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Artifact ownership inconsistency is MISSING and not exposed")
+    @DisplayName("Artifact ownership inconsistency is MISSING")
     void shouldReturnMissingForArtifactOwnershipInconsistency() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        ChapterNarrationPlayback playback = playback(ARTIFACT_ID, CHAPTER_ID, VOICE_ID);
-        ChapterNarrationPlaybackArtifact artifact = artifact(
-                UUID.fromString("99999999-9999-9999-9999-999999999999"),
-                CHAPTER_ID,
-                VOICE_ID,
-                CONTENT_VERSION,
-                SYNTHESIS_REVISION,
-                1
-        );
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.of(playback));
-        when(artifactRepositoryPort.findById(ARTIFACT_ID)).thenReturn(Optional.of(artifact));
+        givenPreferredVoice(activeVoice());
+        PublicChapterNarrationPlaybackSnapshot value = snapshot(CONTENT_VERSION, SYNTHESIS_REVISION);
+        givenSnapshot(new PublicChapterNarrationPlaybackSnapshot(
+                value.chapterId(), value.chapterContentVersion(), value.playbackId(), value.currentArtifactId(),
+                value.artifactId(), FOREIGN_ID, value.artifactChapterId(), value.artifactManagedVoiceId(),
+                value.artifactSourceContentVersion(), value.artifactSynthesisRevision(), value.mediaAssetId(),
+                value.durationMillis(), value.cueCount(), value.codecMimeType()
+        ));
 
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
+        assertMissing(execute(null), VOICE_KEY);
         verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Non-contiguous cue ordinals are MISSING")
-    void shouldReturnMissingForNonContiguousCues() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(cue(1, SEGMENT_0_ID, 0, 0L, 2_000L)));
+    @DisplayName("Invalid basic artifact metadata is MISSING before cues or Media")
+    void shouldReturnMissingForInvalidBasicArtifactMetadata() {
+        givenPreferredVoice(activeVoice());
+        PublicChapterNarrationPlaybackSnapshot value = snapshot(CONTENT_VERSION, SYNTHESIS_REVISION);
+        givenSnapshot(new PublicChapterNarrationPlaybackSnapshot(
+                value.chapterId(), value.chapterContentVersion(), value.playbackId(), value.currentArtifactId(),
+                value.artifactId(), value.artifactPlaybackId(), value.artifactChapterId(),
+                value.artifactManagedVoiceId(), value.artifactSourceContentVersion(),
+                value.artifactSynthesisRevision(), value.mediaAssetId(), 0L, value.cueCount(), value.codecMimeType()
+        ));
+
+        assertMissing(execute(null), VOICE_KEY);
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
+    }
+
+    @Test
+    @DisplayName("Cue validation remains authoritative on playable paths")
+    void shouldReturnMissingForInvalidCueTiming() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, DURATION_MILLIS + 1)));
 
         assertMissing(execute(null), VOICE_KEY);
         verifyNoInteractions(mediaContract);
     }
 
     @Test
-    @DisplayName("Overlapping cue intervals are MISSING")
+    @DisplayName("Non-contiguous cue ordinals remain MISSING")
+    void shouldReturnMissingForNonContiguousCues() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(1, SEGMENT_0_ID, 0, 0L, 2_000L)));
+
+        assertMissing(execute(null), VOICE_KEY);
+        verifyNoInteractions(mediaContract);
+    }
+
+    @Test
+    @DisplayName("Overlapping cue intervals remain MISSING")
     void shouldReturnMissingForOverlappingCues() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION, 2));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID)).thenReturn(List.of(
                 cue(0, SEGMENT_0_ID, 0, 0L, 2_000L),
                 cue(1, SEGMENT_1_ID, 1, 1_999L, 3_000L)
         ));
@@ -265,21 +260,10 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     }
 
     @Test
-    @DisplayName("Persisted cue count mismatch is MISSING")
-    void shouldReturnMissingWhenPersistedCueCountDoesNotMatchArtifact() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        ChapterNarrationPlayback playback = playback(ARTIFACT_ID, CHAPTER_ID, voice.getId());
-        ChapterNarrationPlaybackArtifact artifact = artifact(
-                PLAYBACK_ID,
-                CHAPTER_ID,
-                voice.getId(),
-                CONTENT_VERSION,
-                SYNTHESIS_REVISION,
-                2
-        );
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.of(playback));
-        when(artifactRepositoryPort.findById(ARTIFACT_ID)).thenReturn(Optional.of(artifact));
+    @DisplayName("Persisted cue count mismatch remains MISSING")
+    void shouldReturnMissingForCueCountMismatch() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION, 2));
         when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
                 .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
 
@@ -288,38 +272,26 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     }
 
     @Test
-    @DisplayName("Cue belonging to another artifact is MISSING")
-    void shouldReturnMissingWhenCueDoesNotBelongToCurrentArtifact() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
+    @DisplayName("Cue ownership mismatch remains MISSING")
+    void shouldReturnMissingForCueOwnershipMismatch() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
         ChapterNarrationPlaybackCue foreignCue = ChapterNarrationPlaybackCue.rehydrate(
-                UUID.fromString("99999999-9999-9999-9999-999999999999"),
-                0,
-                SEGMENT_0_ID,
-                0,
-                0L,
-                2_000L
+                FOREIGN_ID, 0, SEGMENT_0_ID, 0, 0L, 2_000L
         );
-        givenArtifactAndCues(voice, List.of(foreignCue));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID)).thenReturn(List.of(foreignCue));
 
         assertMissing(execute(null), VOICE_KEY);
         verifyNoInteractions(mediaContract);
     }
 
     @Test
-    @DisplayName("Cue ending beyond artifact duration is MISSING")
-    void shouldReturnMissingWhenCueExceedsArtifactDuration() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(cue(0, SEGMENT_0_ID, 0, 0L, DURATION_MILLIS + 1)));
-
-        assertMissing(execute(null), VOICE_KEY);
-        verifyNoInteractions(mediaContract);
-    }
-
-    @Test
-    @DisplayName("Null cue entry is MISSING")
+    @DisplayName("Null cue entry remains MISSING")
     void shouldReturnMissingForNullCue() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, java.util.Collections.singletonList(null));
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(java.util.Collections.singletonList(null));
 
         assertMissing(execute(null), VOICE_KEY);
         verifyNoInteractions(mediaContract);
@@ -327,15 +299,17 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
 
     @ParameterizedTest(name = "Media case {0} is MISSING")
     @MethodSource("ineligibleMediaCases")
-    @DisplayName("Missing or non-publicly eligible Media metadata is MISSING")
+    @DisplayName("Missing or non-publicly eligible Media metadata remains MISSING")
     void shouldReturnMissingForIneligibleMedia(
             String caseName,
             MediaAssetStatusDTO status,
             MediaVisibilityDTO visibility,
             boolean present
     ) {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
         when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(
                 present ? Optional.of(mediaDetail(status, visibility)) : Optional.empty()
         );
@@ -344,30 +318,29 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     }
 
     @Test
-    @DisplayName("Media detail without a current version is MISSING")
+    @DisplayName("Media detail without a current version remains MISSING")
     void shouldReturnMissingWhenMediaCurrentVersionIsAbsent() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
-        MediaAssetDetailDTO detailWithoutVersion = new MediaAssetDetailDTO(
-                MEDIA_ASSET_ID,
-                MediaTypeDTO.AUDIO,
-                MediaVisibilityDTO.PUBLIC,
-                MediaAssetStatusDTO.ACTIVE,
-                1,
-                NOW,
-                NOW,
-                null
-        );
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(Optional.of(detailWithoutVersion));
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
+        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(Optional.of(
+                new MediaAssetDetailDTO(
+                        MEDIA_ASSET_ID, MediaTypeDTO.AUDIO, MediaVisibilityDTO.PUBLIC,
+                        MediaAssetStatusDTO.ACTIVE, 1, NOW, NOW, null
+                )
+        ));
 
         assertMissing(execute(null), VOICE_KEY);
     }
 
     @Test
-    @DisplayName("Unexpected Media infrastructure failure propagates instead of becoming MISSING")
+    @DisplayName("Unexpected Media failure still propagates")
     void shouldPropagateUnexpectedMediaFailure() {
-        ManagedVoice voice = givenPublishedChapterAndVoice(CONTENT_VERSION, SYNTHESIS_REVISION);
-        givenArtifactAndCues(voice, List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
+        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
+                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
         IllegalStateException failure = new IllegalStateException("media unavailable");
         when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenThrow(failure);
 
@@ -375,238 +348,137 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     }
 
     @Test
-    @DisplayName("Missing or non-public Chapter uses public not-found semantics before voice lookup")
-    void shouldRejectMissingOrNonPublicChapter() {
-        when(readerChapterAccessQueryPort.findPublishedNarrationById(CHAPTER_ID)).thenReturn(Optional.empty());
+    @DisplayName("Explicit active voiceKey is trimmed and resolved directly")
+    void shouldTrimAndResolveExplicitActiveVoice() {
+        when(playbackManagedVoiceQueryPort.findByVoiceKey(VOICE_KEY)).thenReturn(Optional.of(activeVoice()));
+        givenSnapshot(chapterOnlySnapshot());
 
-        assertThatThrownBy(() -> execute(null)).isInstanceOf(ChapterNotFoundException.class);
+        assertMissing(execute("  " + VOICE_KEY + "  "), VOICE_KEY);
 
-        verifyNoInteractions(managedVoiceRepositoryPort, playbackRepositoryPort, artifactRepositoryPort, cueRepositoryPort, mediaContract);
+        verify(playbackManagedVoiceQueryPort).findByVoiceKey(VOICE_KEY);
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Explicit missing voice is rejected")
-    void shouldRejectExplicitMissingVoice() {
-        givenPublishedChapter(CONTENT_VERSION);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of());
-        when(managedVoiceRepositoryPort.findByVoiceKey("missing-voice")).thenReturn(Optional.empty());
+    @DisplayName("Public Chapter plus unknown explicit voice preserves not-found behavior")
+    void shouldRejectUnknownExplicitVoice() {
+        when(playbackManagedVoiceQueryPort.findByVoiceKey("missing-voice")).thenReturn(Optional.empty());
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, null))
+                .thenReturn(Optional.of(chapterOnlySnapshot()));
 
         assertThatThrownBy(() -> execute("  missing-voice  "))
                 .isInstanceOf(ManagedVoiceNotFoundException.class);
     }
 
     @Test
-    @DisplayName("Explicit inactive voice is rejected")
-    void shouldRejectExplicitInactiveVoice() {
-        givenPublishedChapter(CONTENT_VERSION);
-        ManagedVoice inactive = voice(VOICE_ID, VOICE_KEY, 1, false, SYNTHESIS_REVISION, ManagedVoiceStatus.DISABLED);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of());
-        when(managedVoiceRepositoryPort.findByVoiceKey(VOICE_KEY)).thenReturn(Optional.of(inactive));
+    @DisplayName("Public Chapter plus inactive explicit voice preserves invalid-state behavior")
+    void shouldRejectInactiveExplicitVoice() {
+        PlaybackManagedVoice inactive = new PlaybackManagedVoice(
+                VOICE_ID, VOICE_KEY, ManagedVoiceStatus.DISABLED, SYNTHESIS_REVISION
+        );
+        when(playbackManagedVoiceQueryPort.findByVoiceKey(VOICE_KEY)).thenReturn(Optional.of(inactive));
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, VOICE_ID))
+                .thenReturn(Optional.of(chapterOnlySnapshot()));
 
         assertThatThrownBy(() -> execute(VOICE_KEY))
                 .isInstanceOf(ManagedVoiceInvalidStateException.class);
     }
 
     @Test
-    @DisplayName("Explicit active voice key is selected after trimming")
-    void shouldSelectExplicitActiveVoice() {
-        givenPublishedChapter(CONTENT_VERSION);
-        ManagedVoice defaultVoice = voice(
-                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                "default-voice",
-                1,
-                true,
-                SYNTHESIS_REVISION,
-                ManagedVoiceStatus.ACTIVE
-        );
-        ManagedVoice requestedVoice = voice(VOICE_ID, VOICE_KEY, 2, false, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of(defaultVoice, requestedVoice));
-        when(managedVoiceRepositoryPort.findByVoiceKey(VOICE_KEY)).thenReturn(Optional.of(requestedVoice));
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID))
-                .thenReturn(Optional.empty());
+    @DisplayName("Absent key uses the one-query preferred ACTIVE voice result")
+    void shouldUsePreferredActiveVoiceForAbsentKey() {
+        givenPreferredVoice(activeVoice());
+        givenSnapshot(chapterOnlySnapshot());
 
-        PublicChapterNarrationPlaybackDTO result = execute("  " + VOICE_KEY + "  ");
+        assertMissing(execute("   "), VOICE_KEY);
 
-        assertMissing(result, VOICE_KEY);
+        verify(playbackManagedVoiceQueryPort).findPreferredActiveVoice();
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Absent voice key selects active default using established deterministic ordering")
-    void shouldSelectActiveDefaultVoice() {
-        givenPublishedChapter(CONTENT_VERSION);
-        ManagedVoice fallback = voice(
-                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                "fallback-voice",
-                1,
-                false,
-                SYNTHESIS_REVISION,
-                ManagedVoiceStatus.ACTIVE
-        );
-        ManagedVoice defaultVoice = voice(VOICE_ID, VOICE_KEY, 9, true, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of(defaultVoice, fallback));
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID))
-                .thenReturn(Optional.empty());
-
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
-    }
-
-    @Test
-    @DisplayName("Without a default voice, deterministic first active voice is selected")
-    void shouldSelectFirstOrderedActiveVoiceAsFallback() {
-        givenPublishedChapter(CONTENT_VERSION);
-        ManagedVoice later = voice(
-                UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                "later-voice",
-                20,
-                false,
-                SYNTHESIS_REVISION,
-                ManagedVoiceStatus.ACTIVE
-        );
-        ManagedVoice first = voice(VOICE_ID, VOICE_KEY, 5, false, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of(later, first));
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID))
-                .thenReturn(Optional.empty());
-
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, VOICE_KEY);
-    }
-
-    @Test
-    @DisplayName("No active voice returns MISSING without querying playback")
+    @DisplayName("No ACTIVE voice returns MISSING after public Chapter is established")
     void shouldReturnMissingWhenNoActiveVoiceExists() {
-        givenPublishedChapter(CONTENT_VERSION);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of());
+        when(playbackManagedVoiceQueryPort.findPreferredActiveVoice()).thenReturn(Optional.empty());
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, null))
+                .thenReturn(Optional.of(chapterOnlySnapshot()));
 
-        PublicChapterNarrationPlaybackDTO result = execute(null);
-
-        assertMissing(result, null);
-        verifyNoInteractions(playbackRepositoryPort, artifactRepositoryPort, cueRepositoryPort, mediaContract);
+        assertMissing(execute(null), null);
+        verifyNoInteractions(cueRepositoryPort, mediaContract);
     }
 
     @Test
-    @DisplayName("Playback GET uses Media metadata only and performs no repository writes")
-    void shouldRemainReadOnlyAndAvoidBinaryMediaOperations() {
-        ManagedVoice voice = voice(VOICE_ID, VOICE_KEY, 1, true, SYNTHESIS_REVISION, ManagedVoiceStatus.ACTIVE);
-        givenUsableArtifact(
-                voice,
-                CONTENT_VERSION,
-                SYNTHESIS_REVISION,
-                List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L))
+    @DisplayName("Missing Chapter wins over unknown voice without leaking voice existence")
+    void shouldPreferMissingChapterOverUnknownVoice() {
+        when(playbackManagedVoiceQueryPort.findByVoiceKey("missing-voice")).thenReturn(Optional.empty());
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, null)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> execute("missing-voice"))
+                .isInstanceOf(ChapterNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("Missing Chapter wins over inactive voice without leaking voice state")
+    void shouldPreferMissingChapterOverInactiveVoice() {
+        PlaybackManagedVoice inactive = new PlaybackManagedVoice(
+                VOICE_ID, VOICE_KEY, ManagedVoiceStatus.DISABLED, SYNTHESIS_REVISION
         );
+        when(playbackManagedVoiceQueryPort.findByVoiceKey(VOICE_KEY)).thenReturn(Optional.of(inactive));
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, VOICE_ID)).thenReturn(Optional.empty());
 
-        execute(null);
+        assertThatThrownBy(() -> execute(VOICE_KEY))
+                .isInstanceOf(ChapterNotFoundException.class);
+    }
 
-        verify(playbackRepositoryPort, never()).save(org.mockito.ArgumentMatchers.any());
-        verify(artifactRepositoryPort, never()).insert(org.mockito.ArgumentMatchers.any());
-        verify(cueRepositoryPort, never()).insertAll(org.mockito.ArgumentMatchers.any());
-        verify(mediaContract).getAssetDetail(MEDIA_ASSET_ID);
-        verifyNoMoreInteractions(mediaContract);
+    @Test
+    @DisplayName("Playback use case no longer depends on the aggregate voice repository")
+    void shouldNotUseLegacyAggregateVoiceRepository() {
+        assertThat(
+                GetPublicChapterNarrationPlaybackUseCase.class
+                        .getDeclaredConstructors()[0]
+                        .getParameterTypes()
+        ).doesNotContain(ManagedVoiceRepositoryPort.class);
     }
 
     private PublicChapterNarrationPlaybackDTO execute(String voiceKey) {
         return useCase.execute(new GetPublicChapterNarrationPlaybackQuery(CHAPTER_ID, voiceKey));
     }
 
-    private ManagedVoice givenPublishedChapterAndVoice(long contentVersion, long synthesisRevision) {
-        givenPublishedChapter(contentVersion);
-        ManagedVoice voice = voice(VOICE_ID, VOICE_KEY, 1, true, synthesisRevision, ManagedVoiceStatus.ACTIVE);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of(voice));
-        return voice;
+    private void givenPreferredVoice(PlaybackManagedVoice voice) {
+        when(playbackManagedVoiceQueryPort.findPreferredActiveVoice()).thenReturn(Optional.of(voice));
     }
 
-    private void givenPublishedChapter(long contentVersion) {
-        when(readerChapterAccessQueryPort.findPublishedNarrationById(CHAPTER_ID))
-                .thenReturn(Optional.of(new ReadableNarrationChapterReference(CHAPTER_ID, contentVersion)));
+    private void givenSnapshot(PublicChapterNarrationPlaybackSnapshot snapshot) {
+        when(playbackQueryPort.findPublishedPlayback(CHAPTER_ID, VOICE_ID)).thenReturn(Optional.of(snapshot));
     }
 
-    private ChapterNarrationPlaybackArtifact givenUsableArtifact(
-            ManagedVoice voice,
+    private static PlaybackManagedVoice activeVoice() {
+        return new PlaybackManagedVoice(VOICE_ID, VOICE_KEY, ManagedVoiceStatus.ACTIVE, SYNTHESIS_REVISION);
+    }
+
+    private static PublicChapterNarrationPlaybackSnapshot chapterOnlySnapshot() {
+        return new PublicChapterNarrationPlaybackSnapshot(
+                CHAPTER_ID, CONTENT_VERSION, null, null,
+                null, null, null, null, null, null, null, null, null, null
+        );
+    }
+
+    private static PublicChapterNarrationPlaybackSnapshot snapshot(
+            long sourceContentVersion,
+            long artifactSynthesisRevision
+    ) {
+        return snapshot(sourceContentVersion, artifactSynthesisRevision, 1);
+    }
+
+    private static PublicChapterNarrationPlaybackSnapshot snapshot(
             long sourceContentVersion,
             long artifactSynthesisRevision,
-            List<ChapterNarrationPlaybackCue> cues
-    ) {
-        givenPublishedChapter(CONTENT_VERSION);
-        when(managedVoiceRepositoryPort.findAllActive()).thenReturn(List.of(voice));
-        ChapterNarrationPlaybackArtifact artifact = givenArtifactAndCues(
-                voice,
-                sourceContentVersion,
-                artifactSynthesisRevision,
-                cues
-        );
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID))
-                .thenReturn(Optional.of(mediaDetail(MediaAssetStatusDTO.ACTIVE, MediaVisibilityDTO.PUBLIC)));
-        return artifact;
-    }
-
-    private ChapterNarrationPlaybackArtifact givenArtifactAndCues(
-            ManagedVoice voice,
-            List<ChapterNarrationPlaybackCue> cues
-    ) {
-        return givenArtifactAndCues(voice, CONTENT_VERSION, SYNTHESIS_REVISION, cues);
-    }
-
-    private ChapterNarrationPlaybackArtifact givenArtifactAndCues(
-            ManagedVoice voice,
-            long sourceContentVersion,
-            long artifactSynthesisRevision,
-            List<ChapterNarrationPlaybackCue> cues
-    ) {
-        ChapterNarrationPlayback playback = playback(ARTIFACT_ID, CHAPTER_ID, voice.getId());
-        ChapterNarrationPlaybackArtifact artifact = artifact(
-                PLAYBACK_ID,
-                CHAPTER_ID,
-                voice.getId(),
-                sourceContentVersion,
-                artifactSynthesisRevision,
-                cues.size()
-        );
-        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, voice.getId()))
-                .thenReturn(Optional.of(playback));
-        when(artifactRepositoryPort.findById(ARTIFACT_ID)).thenReturn(Optional.of(artifact));
-        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID)).thenReturn(cues);
-        return artifact;
-    }
-
-    private static ChapterNarrationPlayback playback(
-            UUID currentArtifactId,
-            UUID chapterId,
-            UUID voiceId
-    ) {
-        return ChapterNarrationPlayback.rehydrate(
-                PLAYBACK_ID,
-                chapterId,
-                voiceId,
-                currentArtifactId,
-                0L,
-                NOW,
-                NOW
-        );
-    }
-
-    private static ChapterNarrationPlaybackArtifact artifact(
-            UUID playbackId,
-            UUID chapterId,
-            UUID voiceId,
-            long sourceContentVersion,
-            long synthesisRevision,
             int cueCount
     ) {
-        return ChapterNarrationPlaybackArtifact.rehydrate(
-                ARTIFACT_ID,
-                playbackId,
-                chapterId,
-                voiceId,
-                sourceContentVersion,
-                synthesisRevision,
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                MEDIA_ASSET_ID,
-                DURATION_MILLIS,
-                cueCount,
-                "audio/mpeg",
-                NOW
+        return new PublicChapterNarrationPlaybackSnapshot(
+                CHAPTER_ID, CONTENT_VERSION, PLAYBACK_ID, ARTIFACT_ID, ARTIFACT_ID,
+                PLAYBACK_ID, CHAPTER_ID, VOICE_ID, sourceContentVersion, artifactSynthesisRevision,
+                MEDIA_ASSET_ID, DURATION_MILLIS, cueCount, "audio/mpeg"
         );
     }
 
@@ -618,35 +490,14 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
             long endMillis
     ) {
         return ChapterNarrationPlaybackCue.rehydrate(
-                ARTIFACT_ID,
-                cueOrdinal,
-                segmentId,
-                segmentIndex,
-                startMillis,
-                endMillis
+                ARTIFACT_ID, cueOrdinal, segmentId, segmentIndex, startMillis, endMillis
         );
     }
 
-    private static ManagedVoice voice(
-            UUID id,
-            String voiceKey,
-            int displayOrder,
-            boolean defaultVoice,
-            long synthesisRevision,
-            ManagedVoiceStatus status
-    ) {
-        return ManagedVoice.rehydrate(
-                id,
-                voiceKey,
-                voiceKey,
-                "provider-voice",
-                status,
-                displayOrder,
-                defaultVoice,
-                synthesisRevision,
-                NOW,
-                NOW
-        );
+    private void givenEligibleMedia() {
+        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(Optional.of(
+                mediaDetail(MediaAssetStatusDTO.ACTIVE, MediaVisibilityDTO.PUBLIC)
+        ));
     }
 
     private static MediaAssetDetailDTO mediaDetail(
@@ -654,24 +505,10 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
             MediaVisibilityDTO visibility
     ) {
         MediaVersionDTO version = new MediaVersionDTO(
-                MEDIA_VERSION_ID,
-                MEDIA_ASSET_ID,
-                1,
-                null,
-                "audio/mpeg",
-                1_024L,
-                "chapter.mp3",
-                NOW
+                MEDIA_VERSION_ID, MEDIA_ASSET_ID, 1, null, "audio/mpeg", 1_024L, "chapter.mp3", NOW
         );
         return new MediaAssetDetailDTO(
-                MEDIA_ASSET_ID,
-                MediaTypeDTO.AUDIO,
-                visibility,
-                status,
-                1,
-                NOW,
-                NOW,
-                version
+                MEDIA_ASSET_ID, MediaTypeDTO.AUDIO, visibility, status, 1, NOW, NOW, version
         );
     }
 

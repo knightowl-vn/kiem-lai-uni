@@ -7,20 +7,18 @@ import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
-import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
+import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
+import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackCueRepositoryPort;
-import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
-import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
-import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
-import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableNarrationChapterReference;
+import com.universe.novel.application.ports.PlaybackManagedVoiceQueryPort;
+import com.universe.novel.application.ports.PlaybackManagedVoiceQueryPort.PlaybackManagedVoice;
+import com.universe.novel.application.ports.PublicChapterNarrationPlaybackQueryPort;
+import com.universe.novel.application.ports.PublicChapterNarrationPlaybackQueryPort.PublicChapterNarrationPlaybackSnapshot;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackCueDTO;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackFreshness;
-import com.universe.novel.domain.narration.ChapterNarrationPlayback;
-import com.universe.novel.domain.narration.ChapterNarrationPlaybackArtifact;
 import com.universe.novel.domain.narration.ChapterNarrationPlaybackCue;
-import com.universe.novel.domain.narration.ManagedVoice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,32 +36,22 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class GetPublicChapterNarrationPlaybackUseCase {
 
-    private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
-    private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
-    private final ChapterNarrationPlaybackRepositoryPort playbackRepositoryPort;
-    private final ChapterNarrationPlaybackArtifactRepositoryPort artifactRepositoryPort;
+    private final PlaybackManagedVoiceQueryPort playbackManagedVoiceQueryPort;
+    private final PublicChapterNarrationPlaybackQueryPort playbackQueryPort;
     private final ChapterNarrationPlaybackCueRepositoryPort cueRepositoryPort;
     private final MediaContract mediaContract;
 
     public GetPublicChapterNarrationPlaybackUseCase(
-            ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
-            ManagedVoiceRepositoryPort managedVoiceRepositoryPort,
-            ChapterNarrationPlaybackRepositoryPort playbackRepositoryPort,
-            ChapterNarrationPlaybackArtifactRepositoryPort artifactRepositoryPort,
+            PlaybackManagedVoiceQueryPort playbackManagedVoiceQueryPort,
+            PublicChapterNarrationPlaybackQueryPort playbackQueryPort,
             ChapterNarrationPlaybackCueRepositoryPort cueRepositoryPort,
             MediaContract mediaContract
     ) {
-        this.readerChapterAccessQueryPort = Objects.requireNonNull(
-                readerChapterAccessQueryPort, "readerChapterAccessQueryPort must not be null"
+        this.playbackManagedVoiceQueryPort = Objects.requireNonNull(
+                playbackManagedVoiceQueryPort, "playbackManagedVoiceQueryPort must not be null"
         );
-        this.managedVoiceRepositoryPort = Objects.requireNonNull(
-                managedVoiceRepositoryPort, "managedVoiceRepositoryPort must not be null"
-        );
-        this.playbackRepositoryPort = Objects.requireNonNull(
-                playbackRepositoryPort, "playbackRepositoryPort must not be null"
-        );
-        this.artifactRepositoryPort = Objects.requireNonNull(
-                artifactRepositoryPort, "artifactRepositoryPort must not be null"
+        this.playbackQueryPort = Objects.requireNonNull(
+                playbackQueryPort, "playbackQueryPort must not be null"
         );
         this.cueRepositoryPort = Objects.requireNonNull(
                 cueRepositoryPort, "cueRepositoryPort must not be null"
@@ -80,72 +68,41 @@ public class GetPublicChapterNarrationPlaybackUseCase {
             throw new IllegalArgumentException("chapterId must not be null");
         }
 
-        ReadableNarrationChapterReference chapter = readerChapterAccessQueryPort
-                .findPublishedNarrationById(chapterId)
+        String requestedVoiceKey = normalizedVoiceKey(query.voiceKey());
+        Optional<PlaybackManagedVoice> selectedVoiceOptional = requestedVoiceKey == null
+                ? playbackManagedVoiceQueryPort.findPreferredActiveVoice()
+                : playbackManagedVoiceQueryPort.findByVoiceKey(requestedVoiceKey);
+
+        UUID selectedVoiceId = selectedVoiceOptional.map(PlaybackManagedVoice::id).orElse(null);
+        PublicChapterNarrationPlaybackSnapshot snapshot = playbackQueryPort
+                .findPublishedPlayback(chapterId, selectedVoiceId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        PublicNarrationVoiceResolver.Resolution voiceResolution = PublicNarrationVoiceResolver.resolve(
-                managedVoiceRepositoryPort,
-                query.voiceKey()
+        PlaybackManagedVoice selectedVoice = resolveSelectedVoice(
+                selectedVoiceOptional,
+                requestedVoiceKey
         );
-        ManagedVoice selectedVoice = voiceResolution.selectedVoice();
         if (selectedVoice == null) {
             return missing(chapterId, null);
         }
 
-        String voiceKey = selectedVoice.getVoiceKey();
-        Optional<ChapterNarrationPlayback> playbackOptional = playbackRepositoryPort
-                .findByChapterIdAndManagedVoiceId(chapterId, selectedVoice.getId());
-        if (playbackOptional.isEmpty()) {
+        String voiceKey = selectedVoice.voiceKey();
+        if (!isOwnedCurrentArtifact(snapshot, chapterId, selectedVoice.id())
+                || !hasValidPlaybackMetadata(snapshot)) {
             return missing(chapterId, voiceKey);
         }
 
-        ChapterNarrationPlayback playback = playbackOptional.get();
-        if (!chapterId.equals(playback.getChapterId())
-                || !selectedVoice.getId().equals(playback.getManagedVoiceId())
-                || playback.getCurrentArtifactId() == null) {
-            return missing(chapterId, voiceKey);
-        }
-
-        UUID currentArtifactId = playback.getCurrentArtifactId();
-        Optional<ChapterNarrationPlaybackArtifact> artifactOptional = artifactRepositoryPort.findById(currentArtifactId);
-        if (artifactOptional.isEmpty()) {
-            return missing(chapterId, voiceKey);
-        }
-
-        ChapterNarrationPlaybackArtifact artifact = artifactOptional.get();
-        if (!isOwnedCurrentArtifact(artifact, playback, chapterId, selectedVoice.getId(), currentArtifactId)
-                || !hasValidPlaybackMetadata(artifact)) {
-            return missing(chapterId, voiceKey);
+        PublicChapterNarrationPlaybackFreshness freshness = deriveFreshness(snapshot, selectedVoice);
+        if (freshness == PublicChapterNarrationPlaybackFreshness.STALE_CONTENT) {
+            return staleContent(chapterId, voiceKey, snapshot.artifactId());
         }
 
         List<ChapterNarrationPlaybackCue> orderedCues = validateAndOrderCues(
-                cueRepositoryPort.findByArtifactId(artifact.getId()),
-                artifact
+                cueRepositoryPort.findByArtifactId(snapshot.artifactId()),
+                snapshot
         );
-        if (orderedCues == null || !isPubliclyEligibleMedia(artifact.getMediaAssetId())) {
+        if (orderedCues == null || !isPubliclyEligibleMedia(snapshot.mediaAssetId())) {
             return missing(chapterId, voiceKey);
-        }
-
-        PublicChapterNarrationPlaybackFreshness freshness = deriveFreshness(
-                artifact,
-                chapter.contentVersion(),
-                selectedVoice.getSynthesisRevision()
-        );
-
-        if (freshness == PublicChapterNarrationPlaybackFreshness.STALE_CONTENT) {
-            return new PublicChapterNarrationPlaybackDTO(
-                    chapterId,
-                    voiceKey,
-                    PublicChapterNarrationPlaybackAvailability.READY,
-                    freshness,
-                    false,
-                    artifact.getId(),
-                    null,
-                    null,
-                    null,
-                    List.of()
-            );
         }
 
         List<PublicChapterNarrationPlaybackCueDTO> publicCues = orderedCues.stream()
@@ -164,39 +121,74 @@ public class GetPublicChapterNarrationPlaybackUseCase {
                 PublicChapterNarrationPlaybackAvailability.READY,
                 freshness,
                 true,
-                artifact.getId(),
-                MediaDeliveryUrlSupport.contentUrl(artifact.getMediaAssetId()),
-                artifact.getCodecMimeType(),
-                artifact.getDurationMillis(),
+                snapshot.artifactId(),
+                MediaDeliveryUrlSupport.contentUrl(snapshot.mediaAssetId()),
+                snapshot.codecMimeType(),
+                snapshot.durationMillis(),
                 publicCues
         );
     }
 
-    private boolean isOwnedCurrentArtifact(
-            ChapterNarrationPlaybackArtifact artifact,
-            ChapterNarrationPlayback playback,
-            UUID chapterId,
-            UUID managedVoiceId,
-            UUID currentArtifactId
-    ) {
-        return currentArtifactId.equals(artifact.getId())
-                && playback.getId().equals(artifact.getPlaybackId())
-                && chapterId.equals(artifact.getChapterId())
-                && managedVoiceId.equals(artifact.getManagedVoiceId());
+    private String normalizedVoiceKey(String requestedVoiceKey) {
+        return requestedVoiceKey == null || requestedVoiceKey.isBlank()
+                ? null
+                : requestedVoiceKey.trim();
     }
 
-    private boolean hasValidPlaybackMetadata(ChapterNarrationPlaybackArtifact artifact) {
-        return artifact.getDurationMillis() > 0
-                && artifact.getCueCount() >= 0
-                && artifact.getCodecMimeType() != null
-                && !artifact.getCodecMimeType().isBlank();
+    private PlaybackManagedVoice resolveSelectedVoice(
+            Optional<PlaybackManagedVoice> selectedVoiceOptional,
+            String requestedVoiceKey
+    ) {
+        if (selectedVoiceOptional.isEmpty()) {
+            if (requestedVoiceKey != null) {
+                throw new ManagedVoiceNotFoundException(requestedVoiceKey);
+            }
+            return null;
+        }
+
+        PlaybackManagedVoice selectedVoice = selectedVoiceOptional.get();
+        if (!selectedVoice.isActive()) {
+            if (requestedVoiceKey != null) {
+                throw new ManagedVoiceInvalidStateException(
+                        "Managed voice is not active: " + requestedVoiceKey
+                );
+            }
+            return null;
+        }
+        return selectedVoice;
+    }
+
+    private boolean isOwnedCurrentArtifact(
+            PublicChapterNarrationPlaybackSnapshot snapshot,
+            UUID chapterId,
+            UUID managedVoiceId
+    ) {
+        return chapterId.equals(snapshot.chapterId())
+                && snapshot.playbackId() != null
+                && snapshot.currentArtifactId() != null
+                && snapshot.currentArtifactId().equals(snapshot.artifactId())
+                && snapshot.playbackId().equals(snapshot.artifactPlaybackId())
+                && chapterId.equals(snapshot.artifactChapterId())
+                && managedVoiceId.equals(snapshot.artifactManagedVoiceId());
+    }
+
+    private boolean hasValidPlaybackMetadata(PublicChapterNarrationPlaybackSnapshot snapshot) {
+        return snapshot.artifactSourceContentVersion() != null
+                && snapshot.artifactSynthesisRevision() != null
+                && snapshot.mediaAssetId() != null
+                && snapshot.durationMillis() != null
+                && snapshot.durationMillis() > 0
+                && snapshot.cueCount() != null
+                && snapshot.cueCount() >= 0
+                && snapshot.codecMimeType() != null
+                && !snapshot.codecMimeType().isBlank();
     }
 
     private List<ChapterNarrationPlaybackCue> validateAndOrderCues(
             List<ChapterNarrationPlaybackCue> cues,
-            ChapterNarrationPlaybackArtifact artifact
+            PublicChapterNarrationPlaybackSnapshot snapshot
     ) {
-        if (cues.size() != artifact.getCueCount() || cues.stream().anyMatch(Objects::isNull)) {
+        if (cues.size() != snapshot.cueCount() || cues.stream().anyMatch(Objects::isNull)) {
             return null;
         }
 
@@ -207,13 +199,13 @@ public class GetPublicChapterNarrationPlaybackUseCase {
         for (int expectedOrdinal = 0; expectedOrdinal < orderedCues.size(); expectedOrdinal++) {
             ChapterNarrationPlaybackCue cue = orderedCues.get(expectedOrdinal);
             if (cue.getCueOrdinal() != expectedOrdinal
-                    || !artifact.getId().equals(cue.getArtifactId())
+                    || !snapshot.artifactId().equals(cue.getArtifactId())
                     || cue.getSegmentId() == null
                     || cue.getSegmentIndex() < 0
                     || cue.getStartMillis() < 0
                     || cue.getEndMillis() <= cue.getStartMillis()
                     || cue.getStartMillis() < previousEndMillis
-                    || cue.getEndMillis() > artifact.getDurationMillis()) {
+                    || cue.getEndMillis() > snapshot.durationMillis()) {
                 return null;
             }
             previousEndMillis = cue.getEndMillis();
@@ -239,17 +231,35 @@ public class GetPublicChapterNarrationPlaybackUseCase {
     }
 
     private PublicChapterNarrationPlaybackFreshness deriveFreshness(
-            ChapterNarrationPlaybackArtifact artifact,
-            long currentContentVersion,
-            long currentSynthesisRevision
+            PublicChapterNarrationPlaybackSnapshot snapshot,
+            PlaybackManagedVoice selectedVoice
     ) {
-        if (artifact.getSourceContentVersion() != currentContentVersion) {
+        if (snapshot.artifactSourceContentVersion() != snapshot.chapterContentVersion()) {
             return PublicChapterNarrationPlaybackFreshness.STALE_CONTENT;
         }
-        if (artifact.getSynthesisRevision() != currentSynthesisRevision) {
+        if (snapshot.artifactSynthesisRevision() != selectedVoice.synthesisRevision()) {
             return PublicChapterNarrationPlaybackFreshness.STALE_VOICE;
         }
         return PublicChapterNarrationPlaybackFreshness.CURRENT;
+    }
+
+    private PublicChapterNarrationPlaybackDTO staleContent(
+            UUID chapterId,
+            String voiceKey,
+            UUID artifactId
+    ) {
+        return new PublicChapterNarrationPlaybackDTO(
+                chapterId,
+                voiceKey,
+                PublicChapterNarrationPlaybackAvailability.READY,
+                PublicChapterNarrationPlaybackFreshness.STALE_CONTENT,
+                false,
+                artifactId,
+                null,
+                null,
+                null,
+                List.of()
+        );
     }
 
     private PublicChapterNarrationPlaybackDTO missing(UUID chapterId, String voiceKey) {
