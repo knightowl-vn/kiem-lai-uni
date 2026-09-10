@@ -7,6 +7,9 @@ import com.universe.media.application.asset.GetMediaAssetContentQuery;
 import com.universe.media.application.asset.GetMediaAssetContentResult;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -14,6 +17,7 @@ import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.novel.application.profile.GetNovelProfileUseCase;
@@ -78,6 +82,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         GetNovelProfileUseCase.class,
         UpdateNovelProfileUseCase.class,
         MediaAssetPersistenceAdapter.class,
+        MediaAssetCurrentMetadataQueryPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
         com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
@@ -86,6 +91,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         GetMediaAssetDetailUseCase.class,
+        GetMediaAssetCurrentMetadataUseCase.class,
+        GetCurrentMediaAssetVersionSnapshotUseCase.class,
+        OpenMediaAssetVersionContentUseCase.class,
         ChangeMediaVisibilityUseCase.class,
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,

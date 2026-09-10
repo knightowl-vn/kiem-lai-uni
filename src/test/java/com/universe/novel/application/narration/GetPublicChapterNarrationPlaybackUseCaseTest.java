@@ -1,9 +1,7 @@
 package com.universe.novel.application.narration;
 
-import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
-import com.universe.media.contracts.dto.MediaTypeDTO;
-import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
@@ -30,7 +28,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,11 +48,9 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     private static final UUID PLAYBACK_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID ARTIFACT_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID MEDIA_ASSET_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
-    private static final UUID MEDIA_VERSION_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final UUID SEGMENT_0_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
     private static final UUID SEGMENT_1_ID = UUID.fromString("88888888-8888-8888-8888-888888888888");
     private static final UUID FOREIGN_ID = UUID.fromString("99999999-9999-9999-9999-999999999999");
-    private static final Instant NOW = Instant.parse("2026-09-09T00:00:00Z");
     private static final String VOICE_KEY = "kiemlai-male-01";
     private static final long CONTENT_VERSION = 12L;
     private static final long SYNTHESIS_REVISION = 4L;
@@ -310,26 +305,9 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
         givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
         when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
                 .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(
-                present ? Optional.of(mediaDetail(status, visibility)) : Optional.empty()
+        when(mediaContract.getAssetCurrentMetadata(MEDIA_ASSET_ID)).thenReturn(
+                present ? Optional.of(mediaMetadata(status, visibility)) : Optional.empty()
         );
-
-        assertMissing(execute(null), VOICE_KEY);
-    }
-
-    @Test
-    @DisplayName("Media detail without a current version remains MISSING")
-    void shouldReturnMissingWhenMediaCurrentVersionIsAbsent() {
-        givenPreferredVoice(activeVoice());
-        givenSnapshot(snapshot(CONTENT_VERSION, SYNTHESIS_REVISION));
-        when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
-                .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(Optional.of(
-                new MediaAssetDetailDTO(
-                        MEDIA_ASSET_ID, MediaTypeDTO.AUDIO, MediaVisibilityDTO.PUBLIC,
-                        MediaAssetStatusDTO.ACTIVE, 1, NOW, NOW, null
-                )
-        ));
 
         assertMissing(execute(null), VOICE_KEY);
     }
@@ -342,7 +320,7 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
         when(cueRepositoryPort.findByArtifactId(ARTIFACT_ID))
                 .thenReturn(List.of(cue(0, SEGMENT_0_ID, 0, 0L, 2_000L)));
         IllegalStateException failure = new IllegalStateException("media unavailable");
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenThrow(failure);
+        when(mediaContract.getAssetCurrentMetadata(MEDIA_ASSET_ID)).thenThrow(failure);
 
         assertThatThrownBy(() -> execute(null)).isSameAs(failure);
     }
@@ -495,21 +473,16 @@ class GetPublicChapterNarrationPlaybackUseCaseTest {
     }
 
     private void givenEligibleMedia() {
-        when(mediaContract.getAssetDetail(MEDIA_ASSET_ID)).thenReturn(Optional.of(
-                mediaDetail(MediaAssetStatusDTO.ACTIVE, MediaVisibilityDTO.PUBLIC)
+        when(mediaContract.getAssetCurrentMetadata(MEDIA_ASSET_ID)).thenReturn(Optional.of(
+                mediaMetadata(MediaAssetStatusDTO.ACTIVE, MediaVisibilityDTO.PUBLIC)
         ));
     }
 
-    private static MediaAssetDetailDTO mediaDetail(
+    private static MediaAssetCurrentMetadataDTO mediaMetadata(
             MediaAssetStatusDTO status,
             MediaVisibilityDTO visibility
     ) {
-        MediaVersionDTO version = new MediaVersionDTO(
-                MEDIA_VERSION_ID, MEDIA_ASSET_ID, 1, null, "audio/mpeg", 1_024L, "chapter.mp3", NOW
-        );
-        return new MediaAssetDetailDTO(
-                MEDIA_ASSET_ID, MediaTypeDTO.AUDIO, visibility, status, 1, NOW, NOW, version
-        );
+        return new MediaAssetCurrentMetadataDTO(MEDIA_ASSET_ID, status, visibility, 1);
     }
 
     private static Stream<Arguments> ineligibleMediaCases() {

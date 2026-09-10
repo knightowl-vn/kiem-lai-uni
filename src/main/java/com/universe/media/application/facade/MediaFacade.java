@@ -10,7 +10,10 @@ import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQ
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataQuery;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetCurrentMetadataResult;
 import com.universe.media.application.asset.MediaAssetVersionContentResult;
 import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
@@ -30,6 +33,7 @@ import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
@@ -62,6 +66,7 @@ import java.util.UUID;
 public class MediaFacade implements MediaContract {
 
     private final GetMediaAssetDetailUseCase getMediaAssetDetailUseCase;
+    private final GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase;
     private final ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase;
     private final ArchiveMediaAssetUseCase archiveMediaAssetUseCase;
     private final RestoreMediaAssetUseCase restoreMediaAssetUseCase;
@@ -74,6 +79,7 @@ public class MediaFacade implements MediaContract {
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
+            GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase,
             ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase,
             ArchiveMediaAssetUseCase archiveMediaAssetUseCase,
             RestoreMediaAssetUseCase restoreMediaAssetUseCase,
@@ -87,6 +93,10 @@ public class MediaFacade implements MediaContract {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
                 "GetMediaAssetDetailUseCase cannot be null."
+        );
+        this.getMediaAssetCurrentMetadataUseCase = Objects.requireNonNull(
+                getMediaAssetCurrentMetadataUseCase,
+                "GetMediaAssetCurrentMetadataUseCase cannot be null."
         );
         this.changeMediaVisibilityUseCase = Objects.requireNonNull(
                 changeMediaVisibilityUseCase,
@@ -192,6 +202,25 @@ public class MediaFacade implements MediaContract {
             MediaAssetDetailResult result =
                     getMediaAssetDetailUseCase.execute(new GetMediaAssetDetailQuery(assetId));
             return Optional.of(toMediaAssetDetailDTO(result));
+        } catch (MediaAssetNotFoundException e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public Optional<MediaAssetCurrentMetadataDTO> getAssetCurrentMetadata(UUID assetId) {
+        Objects.requireNonNull(assetId, "Asset ID cannot be null.");
+
+        try {
+            MediaAssetCurrentMetadataResult result = getMediaAssetCurrentMetadataUseCase.execute(
+                    new GetMediaAssetCurrentMetadataQuery(assetId)
+            );
+            return Optional.of(new MediaAssetCurrentMetadataDTO(
+                    result.id(),
+                    toMediaAssetStatusDTO(result.status()),
+                    toMediaVisibilityDTO(result.visibility()),
+                    result.currentVersionNumber()
+            ));
         } catch (MediaAssetNotFoundException e) {
             return Optional.empty();
         }

@@ -4,6 +4,9 @@ import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -22,6 +25,7 @@ import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.shared.time.ClockPort;
@@ -77,12 +81,16 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
 })
 @Import({
         MediaAssetPersistenceAdapter.class,
+        MediaAssetCurrentMetadataQueryPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         MediaImageVariantPersistenceAdapter.class,
         JavaImageProcessorAdapter.class,
         RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         GetMediaAssetDetailUseCase.class,
+        GetMediaAssetCurrentMetadataUseCase.class,
+        GetCurrentMediaAssetVersionSnapshotUseCase.class,
+        OpenMediaAssetVersionContentUseCase.class,
         ChangeMediaVisibilityUseCase.class,
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,

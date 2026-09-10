@@ -1,8 +1,7 @@
 package com.universe.novel.application.narration;
 
-import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
-import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
@@ -215,19 +214,16 @@ public class GetPublicChapterNarrationPlaybackUseCase {
     }
 
     private boolean isPubliclyEligibleMedia(UUID mediaAssetId) {
-        Optional<MediaAssetDetailDTO> detailOptional = mediaContract.getAssetDetail(mediaAssetId);
-        if (detailOptional.isEmpty()) {
+        Optional<MediaAssetCurrentMetadataDTO> metadataOptional =
+                mediaContract.getAssetCurrentMetadata(mediaAssetId);
+        if (metadataOptional.isEmpty()) {
             return false;
         }
 
-        MediaAssetDetailDTO detail = detailOptional.get();
-        MediaVersionDTO currentVersion = detail.currentVersion();
-        return mediaAssetId.equals(detail.id())
-                && detail.status() == MediaAssetStatusDTO.ACTIVE
-                && detail.visibility() == MediaVisibilityDTO.PUBLIC
-                && currentVersion != null
-                && mediaAssetId.equals(currentVersion.assetId())
-                && currentVersion.versionNumber() == detail.currentVersionNumber();
+        MediaAssetCurrentMetadataDTO metadata = metadataOptional.get();
+        return mediaAssetId.equals(metadata.id())
+                && metadata.status() == MediaAssetStatusDTO.ACTIVE
+                && metadata.visibility() == MediaVisibilityDTO.PUBLIC;
     }
 
     private PublicChapterNarrationPlaybackFreshness deriveFreshness(

@@ -22,6 +22,9 @@ import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
+import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
+import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -32,6 +35,7 @@ import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.shared.id.IdGeneratorPort;
@@ -89,10 +93,14 @@ import static org.mockito.Mockito.mock;
         DeleteAvatarService.class,
         GoogleOAuthUserService.class,
         MediaAssetPersistenceAdapter.class,
+        MediaAssetCurrentMetadataQueryPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         RegisterMediaAssetUseCase.class,
         RegisterMediaAssetVersionUseCase.class,
         GetMediaAssetDetailUseCase.class,
+        GetMediaAssetCurrentMetadataUseCase.class,
+        GetCurrentMediaAssetVersionSnapshotUseCase.class,
+        OpenMediaAssetVersionContentUseCase.class,
         ChangeMediaVisibilityUseCase.class,
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,

@@ -10,7 +10,10 @@ import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQ
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataQuery;
+import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.MediaAssetDetailResult;
+import com.universe.media.application.asset.MediaAssetCurrentMetadataResult;
 import com.universe.media.application.asset.MediaAssetVersionContentResult;
 import com.universe.media.application.asset.MediaAssetVersionSnapshotResult;
 import com.universe.media.application.asset.MediaVersionItemResult;
@@ -28,6 +31,7 @@ import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
@@ -84,6 +88,9 @@ class MediaFacadeTest {
     private GetMediaAssetDetailUseCase getMediaAssetDetailUseCase;
 
     @Mock
+    private GetMediaAssetCurrentMetadataUseCase getMediaAssetCurrentMetadataUseCase;
+
+    @Mock
     private ChangeMediaVisibilityUseCase changeMediaVisibilityUseCase;
 
     @Mock
@@ -116,6 +123,7 @@ class MediaFacadeTest {
     void setUp() {
         facade = new MediaFacade(
                 getMediaAssetDetailUseCase,
+                getMediaAssetCurrentMetadataUseCase,
                 changeMediaVisibilityUseCase,
                 archiveMediaAssetUseCase,
                 restoreMediaAssetUseCase,
@@ -126,6 +134,47 @@ class MediaFacadeTest {
                 getCurrentMediaAssetVersionSnapshotUseCase,
                 openMediaAssetVersionContentUseCase
         );
+    }
+
+    @Test
+    @DisplayName("getAssetCurrentMetadata returns only mapped consumer-neutral current metadata")
+    void shouldReturnAssetCurrentMetadataWhenFound() {
+        when(getMediaAssetCurrentMetadataUseCase.execute(
+                new GetMediaAssetCurrentMetadataQuery(ASSET_ID)
+        )).thenReturn(new MediaAssetCurrentMetadataResult(
+                ASSET_ID,
+                MediaAssetStatus.ARCHIVED,
+                MediaVisibility.RESTRICTED,
+                3
+        ));
+
+        Optional<MediaAssetCurrentMetadataDTO> result = facade.getAssetCurrentMetadata(ASSET_ID);
+
+        assertThat(result).contains(new MediaAssetCurrentMetadataDTO(
+                ASSET_ID,
+                MediaAssetStatusDTO.ARCHIVED,
+                MediaVisibilityDTO.RESTRICTED,
+                3
+        ));
+    }
+
+    @Test
+    @DisplayName("getAssetCurrentMetadata converts only a missing asset to Optional.empty")
+    void shouldReturnEmptyWhenCurrentMetadataAssetIsMissing() {
+        when(getMediaAssetCurrentMetadataUseCase.execute(any(GetMediaAssetCurrentMetadataQuery.class)))
+                .thenThrow(new MediaAssetNotFoundException(ASSET_ID));
+
+        assertThat(facade.getAssetCurrentMetadata(ASSET_ID)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAssetCurrentMetadata propagates a broken declared current-version reference")
+    void shouldPropagateMissingDeclaredCurrentVersionForCurrentMetadata() {
+        MediaAssetVersionNotFoundException failure = new MediaAssetVersionNotFoundException(ASSET_ID, 2);
+        when(getMediaAssetCurrentMetadataUseCase.execute(any(GetMediaAssetCurrentMetadataQuery.class)))
+                .thenThrow(failure);
+
+        assertThatThrownBy(() -> facade.getAssetCurrentMetadata(ASSET_ID)).isSameAs(failure);
     }
 
     @Test

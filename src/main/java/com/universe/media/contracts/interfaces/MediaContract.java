@@ -3,6 +3,7 @@ package com.universe.media.contracts.interfaces;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
@@ -66,6 +67,16 @@ public interface MediaContract {
      * @return Optional containing the asset detail if present, empty otherwise
      */
     Optional<MediaAssetDetailDTO> getAssetDetail(
+            UUID assetId
+    );
+
+    /**
+     * Retrieves lightweight asset metadata after resolving its declared current version.
+     *
+     * @param assetId ID of the media asset
+     * @return Optional containing current metadata if the asset is present, empty otherwise
+     */
+    Optional<MediaAssetCurrentMetadataDTO> getAssetCurrentMetadata(
             UUID assetId
     );
 
