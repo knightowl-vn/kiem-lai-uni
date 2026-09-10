@@ -39,7 +39,13 @@ param(
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string] $OutputDirectory
+    [string] $OutputDirectory,
+
+    [Parameter()]
+    [switch] $Authenticated,
+
+    [Parameter()]
+    [System.Security.SecureString] $BrowserCookieHeader
 )
 
 Set-StrictMode -Version Latest
@@ -53,6 +59,242 @@ Add-Type -AssemblyName System.Net.Http
 
 $InvariantCulture = [System.Globalization.CultureInfo]::InvariantCulture
 $RequestedMediaRange = "bytes=0-65535"
+
+function Add-BrowserCookiesToContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.CookieContainer] $CookieContainer,
+
+        [Parameter(Mandatory = $true)]
+        [Uri] $Origin,
+
+        [Parameter(Mandatory = $true)]
+        [string] $HeaderValue
+    )
+
+    $cookieCount = 0
+    foreach ($cookiePair in $HeaderValue.Split(';')) {
+        $trimmedPair = $cookiePair.Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmedPair)) {
+            continue
+        }
+
+        $separatorIndex = $trimmedPair.IndexOf('=')
+        if ($separatorIndex -le 0) {
+            throw "Invalid browser cookie header."
+        }
+
+        $cookieName = $trimmedPair.Substring(0, $separatorIndex).Trim()
+        $cookieValue = $trimmedPair.Substring($separatorIndex + 1).Trim()
+        if ([string]::IsNullOrWhiteSpace($cookieName)) {
+            throw "Invalid browser cookie header."
+        }
+
+        $cookie = [System.Net.Cookie]::new($cookieName, $cookieValue, "/")
+        $CookieContainer.Add($Origin, $cookie)
+        $cookieCount++
+    }
+
+    if ($cookieCount -eq 0) {
+        throw "Invalid browser cookie header."
+    }
+}
+
+function New-AuthenticatedCookieContainer {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Security.SecureString] $SecureHeader,
+
+        [Parameter(Mandatory = $true)]
+        [Uri] $Origin
+    )
+
+    $unmanagedHeader = [IntPtr]::Zero
+    $plainHeader = $null
+    try {
+        $unmanagedHeader = [Runtime.InteropServices.Marshal]::SecureStringToGlobalAllocUnicode(
+            $SecureHeader
+        )
+        $plainHeader = [Runtime.InteropServices.Marshal]::PtrToStringUni($unmanagedHeader)
+        $container = [System.Net.CookieContainer]::new()
+        Add-BrowserCookiesToContainer `
+            -CookieContainer $container `
+            -Origin $Origin `
+            -HeaderValue $plainHeader
+        return $container
+    }
+    catch {
+        throw "Authenticated session setup failed."
+    }
+    finally {
+        $plainHeader = $null
+        if ($unmanagedHeader -ne [IntPtr]::Zero) {
+            [Runtime.InteropServices.Marshal]::ZeroFreeGlobalAllocUnicode($unmanagedHeader)
+        }
+    }
+}
+
+function Invoke-AuthenticationPreflight {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Http.HttpClient] $Client
+    )
+
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Get,
+        [Uri] ($script:NormalizedBaseUrl + "/novel/history")
+    )
+    $request.Headers.Accept.ParseAdd("text/html")
+    $response = $null
+    try {
+        $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+        if ([int] $response.StatusCode -ne 200) {
+            throw "Authenticated session preflight failed."
+        }
+    }
+    catch {
+        throw "Authenticated session preflight failed."
+    }
+    finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        $request.Dispose()
+    }
+}
+
+function Get-ChapterCsrfContext {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Http.HttpClient] $Client,
+
+        [Parameter(Mandatory = $true)]
+        [string] $EncodedChapterSlug
+    )
+
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Get,
+        [Uri] ($script:NormalizedBaseUrl + "/novel/chapters/" + $EncodedChapterSlug)
+    )
+    $request.Headers.Accept.ParseAdd("text/html")
+    $response = $null
+    try {
+        $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+        if ([int] $response.StatusCode -ne 200) {
+            throw "CSRF acquisition failed."
+        }
+
+        $html = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $tokenMatch = [regex]::Match(
+            $html,
+            '<meta\b[^>]*\bname\s*=\s*"_csrf"[^>]*\bcontent\s*=\s*"(?<value>[^"]+)"',
+            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+        )
+        $headerMatch = [regex]::Match(
+            $html,
+            '<meta\b[^>]*\bname\s*=\s*"_csrf_header"[^>]*\bcontent\s*=\s*"(?<value>[^"]+)"',
+            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+        )
+        if (-not $tokenMatch.Success -or -not $headerMatch.Success) {
+            throw "CSRF acquisition failed."
+        }
+
+        $token = [System.Net.WebUtility]::HtmlDecode($tokenMatch.Groups['value'].Value)
+        $headerName = [System.Net.WebUtility]::HtmlDecode($headerMatch.Groups['value'].Value)
+        if ([string]::IsNullOrWhiteSpace($token) -or
+                [string]::IsNullOrWhiteSpace($headerName) -or
+                $token.Contains("`r") -or
+                $token.Contains("`n") -or
+                $headerName.Contains("`r") -or
+                $headerName.Contains("`n")) {
+            throw "CSRF acquisition failed."
+        }
+
+        return [pscustomobject]@{
+            HeaderName = $headerName
+            Token = $token
+        }
+    }
+    catch {
+        throw "CSRF acquisition failed."
+    }
+    finally {
+        if ($null -ne $response) {
+            $response.Dispose()
+        }
+        $request.Dispose()
+    }
+}
+
+function New-ReaderStateRequest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Uri] $Uri,
+
+        [Parameter(Mandatory = $true)]
+        [string] $CsrfHeaderName,
+
+        [Parameter(Mandatory = $true)]
+        [string] $CsrfToken
+    )
+
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::Post,
+        $Uri
+    )
+    $request.Headers.Accept.ParseAdd("*/*")
+    $request.Content = [System.Net.Http.ByteArrayContent]::new([byte[]]::new(0))
+    $request.Content.Headers.ContentType = [System.Net.Http.Headers.MediaTypeHeaderValue]::new(
+        "application/json"
+    )
+    if (-not $request.Headers.TryAddWithoutValidation($CsrfHeaderName, $CsrfToken)) {
+        $request.Dispose()
+        throw "CSRF request setup failed."
+    }
+    return $request
+}
+
+function Invoke-ReaderStatePreflight {
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Net.Http.HttpClient] $Client,
+
+        [Parameter(Mandatory = $true)]
+        [Guid] $TargetChapterId,
+
+        [Parameter(Mandatory = $true)]
+        [string] $CsrfHeaderName,
+
+        [Parameter(Mandatory = $true)]
+        [string] $CsrfToken
+    )
+
+    foreach ($statePath in @("progress", "history")) {
+        $request = $null
+        $response = $null
+        try {
+            $request = New-ReaderStateRequest `
+                -Uri ([Uri] ($script:NormalizedBaseUrl + "/novel/chapters/" + $TargetChapterId + "/" + $statePath)) `
+                -CsrfHeaderName $CsrfHeaderName `
+                -CsrfToken $CsrfToken
+            $response = $Client.SendAsync($request).GetAwaiter().GetResult()
+            if ([int] $response.StatusCode -ne 204) {
+                throw "Authenticated state preflight failed."
+            }
+        }
+        catch {
+            throw "Authenticated state preflight failed."
+        }
+        finally {
+            if ($null -ne $response) {
+                $response.Dispose()
+            }
+            if ($null -ne $request) {
+                $request.Dispose()
+            }
+        }
+    }
+}
 
 function Get-HeaderValue {
     param(
@@ -141,16 +383,29 @@ function Invoke-BenchmarkSample {
         [string] $SampleType,
 
         [Parameter(Mandatory = $true)]
-        [int] $SampleNumber
+        [int] $SampleNumber,
+
+        [AllowNull()]
+        [string] $CsrfHeaderName,
+
+        [AllowNull()]
+        [string] $CsrfToken
     )
 
     $validationErrors = [System.Collections.Generic.List[string]]::new()
     $warnings = [System.Collections.Generic.List[string]]::new()
-    $request = [System.Net.Http.HttpRequestMessage]::new(
-        [System.Net.Http.HttpMethod]::Get,
-        [Uri] ($script:NormalizedBaseUrl + $Endpoint.Path)
-    )
-    $request.Headers.Accept.ParseAdd($Endpoint.Accept)
+    if ($Endpoint.Method -eq "POST") {
+        $request = New-ReaderStateRequest `
+            -Uri ([Uri] ($script:NormalizedBaseUrl + $Endpoint.Path)) `
+            -CsrfHeaderName $CsrfHeaderName `
+            -CsrfToken $CsrfToken
+    } else {
+        $request = [System.Net.Http.HttpRequestMessage]::new(
+            [System.Net.Http.HttpMethod]::Get,
+            [Uri] ($script:NormalizedBaseUrl + $Endpoint.Path)
+        )
+        $request.Headers.Accept.ParseAdd($Endpoint.Accept)
+    }
     if ($Endpoint.IsMediaRange) {
         $request.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::new(0, 65535)
     }
@@ -437,26 +692,112 @@ $script:NormalizedBaseUrl = $BaseUrl.TrimEnd('/')
 
 $encodedChapterSlug = [Uri]::EscapeDataString($ChapterSlug)
 $encodedVoiceKey = [Uri]::EscapeDataString($VoiceKey)
+$isAuthenticatedMode = $Authenticated.IsPresent
+
+if (-not $isAuthenticatedMode -and $PSBoundParameters.ContainsKey("BrowserCookieHeader")) {
+    throw "BrowserCookieHeader requires -Authenticated."
+}
+
+if ($isAuthenticatedMode) {
+    $expectedSqlCounts = @{
+        Home = 2
+        Novel = $null
+        ChapterList = 3
+        ChapterHtml = 9
+        VoiceCatalog = 3
+        PlaybackMetadata = 6
+        MediaRange = 4
+        ProgressWrite = $null
+        HistoryWrite = $null
+    }
+} else {
+    $expectedSqlCounts = @{
+        Home = $null
+        Novel = 3
+        ChapterList = 1
+        ChapterHtml = 5
+        VoiceCatalog = 1
+        PlaybackMetadata = 4
+        MediaRange = 2
+    }
+}
+
 $endpoints = @(
-    [pscustomobject]@{ Label = "home"; Path = "/"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $null; IsMediaRange = $false; Accept = "text/html" },
-    [pscustomobject]@{ Label = "novel"; Path = "/novel"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = 3; IsMediaRange = $false; Accept = "text/html" },
-    [pscustomobject]@{ Label = "chapter-list"; Path = "/novel/volumes/$VolumeId/chapters"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = 1; IsMediaRange = $false; Accept = "text/html" },
-    [pscustomobject]@{ Label = "chapter-html"; Path = "/novel/chapters/$encodedChapterSlug"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = 5; IsMediaRange = $false; Accept = "text/html" },
-    [pscustomobject]@{ Label = "voice-catalog"; Path = "/api/novel/narration/voices"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = 1; IsMediaRange = $false; Accept = "application/json" },
-    [pscustomobject]@{ Label = "playback-metadata"; Path = "/api/novel/chapters/$ChapterId/narration/playback?voiceKey=$encodedVoiceKey"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = 4; IsMediaRange = $false; Accept = "application/json" },
-    [pscustomobject]@{ Label = "media-range"; Path = "/media/assets/$MediaAssetId/content"; ExpectedStatus = 206; PrimaryMetric = "firstbyte"; ExpectedSqlCount = 2; IsMediaRange = $true; Accept = "audio/*, */*" }
+    [pscustomobject]@{ Label = "home"; Method = "GET"; Path = "/"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.Home; IsMediaRange = $false; Accept = "text/html" },
+    [pscustomobject]@{ Label = "novel"; Method = "GET"; Path = "/novel"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.Novel; IsMediaRange = $false; Accept = "text/html" },
+    [pscustomobject]@{ Label = "chapter-list"; Method = "GET"; Path = "/novel/volumes/$VolumeId/chapters"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.ChapterList; IsMediaRange = $false; Accept = "text/html" },
+    [pscustomobject]@{ Label = "chapter-html"; Method = "GET"; Path = "/novel/chapters/$encodedChapterSlug"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.ChapterHtml; IsMediaRange = $false; Accept = "text/html" },
+    [pscustomobject]@{ Label = "voice-catalog"; Method = "GET"; Path = "/api/novel/narration/voices"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.VoiceCatalog; IsMediaRange = $false; Accept = "application/json" },
+    [pscustomobject]@{ Label = "playback-metadata"; Method = "GET"; Path = "/api/novel/chapters/$ChapterId/narration/playback?voiceKey=$encodedVoiceKey"; ExpectedStatus = 200; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.PlaybackMetadata; IsMediaRange = $false; Accept = "application/json" },
+    [pscustomobject]@{ Label = "media-range"; Method = "GET"; Path = "/media/assets/$MediaAssetId/content"; ExpectedStatus = 206; PrimaryMetric = "firstbyte"; ExpectedSqlCount = $expectedSqlCounts.MediaRange; IsMediaRange = $true; Accept = "audio/*, */*" }
 )
 
+if ($isAuthenticatedMode) {
+    $endpoints += @(
+        [pscustomobject]@{ Label = "progress-write"; Method = "POST"; Path = "/novel/chapters/$ChapterId/progress"; ExpectedStatus = 204; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.ProgressWrite; IsMediaRange = $false; Accept = "*/*" },
+        [pscustomobject]@{ Label = "history-write"; Method = "POST"; Path = "/novel/chapters/$ChapterId/history"; ExpectedStatus = 204; PrimaryMetric = "total"; ExpectedSqlCount = $expectedSqlCounts.HistoryWrite; IsMediaRange = $false; Accept = "*/*" }
+    )
+}
+
+$cookieContainer = $null
+$promptedCookieHeader = $false
+if ($isAuthenticatedMode) {
+    if ($null -eq $BrowserCookieHeader) {
+        $BrowserCookieHeader = Read-Host `
+            -Prompt "Paste the browser Cookie request header" `
+            -AsSecureString
+        $promptedCookieHeader = $true
+    }
+
+    try {
+        if ($null -eq $BrowserCookieHeader -or $BrowserCookieHeader.Length -eq 0) {
+            throw "Authenticated session setup failed."
+        }
+        $cookieContainer = New-AuthenticatedCookieContainer `
+            -SecureHeader $BrowserCookieHeader `
+            -Origin $baseUri
+    }
+    finally {
+        if ($promptedCookieHeader -and $null -ne $BrowserCookieHeader) {
+            $BrowserCookieHeader.Dispose()
+        }
+        $BrowserCookieHeader = $null
+    }
+}
+
 $handler = [System.Net.Http.HttpClientHandler]::new()
-$handler.UseCookies = $false
+$handler.UseCookies = $isAuthenticatedMode
+if ($isAuthenticatedMode) {
+    $handler.CookieContainer = $cookieContainer
+}
 $handler.UseDefaultCredentials = $false
 $handler.AllowAutoRedirect = $false
 $client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
-$client.DefaultRequestHeaders.UserAgent.ParseAdd("KiemLai-Anonymous-Perf-Collector/1.0")
+if ($isAuthenticatedMode) {
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd("KiemLai-Authenticated-Perf-Collector/1.0")
+} else {
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd("KiemLai-Anonymous-Perf-Collector/1.0")
+}
 
 $rows = [System.Collections.Generic.List[object]]::new()
+$csrfHeaderName = $null
+$csrfToken = $null
 try {
+    if ($isAuthenticatedMode) {
+        Invoke-AuthenticationPreflight -Client $client
+        $csrfContext = Get-ChapterCsrfContext `
+            -Client $client `
+            -EncodedChapterSlug $encodedChapterSlug
+        $csrfHeaderName = $csrfContext.HeaderName
+        $csrfToken = $csrfContext.Token
+        Invoke-ReaderStatePreflight `
+            -Client $client `
+            -TargetChapterId $ChapterId `
+            -CsrfHeaderName $csrfHeaderName `
+            -CsrfToken $csrfToken
+    }
+
     $hasIssuedRequest = $false
     for ($sampleNumber = 1; $sampleNumber -le $ColdSamples; $sampleNumber++) {
         foreach ($endpoint in $endpoints) {
@@ -469,6 +810,8 @@ try {
                 Endpoint = $endpoint
                 SampleType = "cold-ish"
                 SampleNumber = $sampleNumber
+                CsrfHeaderName = $csrfHeaderName
+                CsrfToken = $csrfToken
             }
             [void] $rows.Add((Invoke-BenchmarkSample @sampleParameters))
             $hasIssuedRequest = $true
@@ -483,21 +826,27 @@ try {
                 Endpoint = $endpoint
                 SampleType = "warm"
                 SampleNumber = $sampleNumber
+                CsrfHeaderName = $csrfHeaderName
+                CsrfToken = $csrfToken
             }
             [void] $rows.Add((Invoke-BenchmarkSample @sampleParameters))
         }
     }
 }
 finally {
+    $csrfToken = $null
+    $csrfHeaderName = $null
     $client.Dispose()
     $handler.Dispose()
+    $cookieContainer = $null
 }
 
 $resolvedOutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 [void] [System.IO.Directory]::CreateDirectory($resolvedOutputDirectory)
 $fileTimestamp = [DateTimeOffset]::Now.ToString("yyyyMMdd-HHmmss-fff", $InvariantCulture)
-$rawPath = Join-Path $resolvedOutputDirectory ("reader-anonymous-{0}-raw.csv" -f $fileTimestamp)
-$summaryPath = Join-Path $resolvedOutputDirectory ("reader-anonymous-{0}-summary.csv" -f $fileTimestamp)
+$outputMode = $(if ($isAuthenticatedMode) { "authenticated" } else { "anonymous" })
+$rawPath = Join-Path $resolvedOutputDirectory ("reader-{0}-{1}-raw.csv" -f $outputMode, $fileTimestamp)
+$summaryPath = Join-Path $resolvedOutputDirectory ("reader-{0}-{1}-summary.csv" -f $outputMode, $fileTimestamp)
 if ((Test-Path -LiteralPath $rawPath) -or (Test-Path -LiteralPath $summaryPath)) {
     throw "Refusing to overwrite an existing benchmark output. Run the collector again for a new timestamp."
 }
