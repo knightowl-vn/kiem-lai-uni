@@ -157,6 +157,34 @@ class PerformanceInstrumentationTest {
                 .contains("sql;dur=0.000;desc=\"0 statements\"");
     }
 
+    @Test
+    void voiceCatalogAndLegacyManifestAreBothMeasuredForFocusedComparison() throws Exception {
+        PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter(
+                new SequenceNanoTime(0, 4_000_000, 10_000_000, 19_000_000)
+        );
+        MockHttpServletResponse catalogResponse = new MockHttpServletResponse();
+        MockHttpServletResponse manifestResponse = new MockHttpServletResponse();
+
+        filter.doFilter(
+                new MockHttpServletRequest("GET", "/api/novel/narration/voices"),
+                catalogResponse,
+                (request, response) -> response.getWriter().write("{\"voices\":[]}")
+        );
+        filter.doFilter(
+                new MockHttpServletRequest(
+                        "GET",
+                        "/api/novel/chapters/00000000-0000-0000-0000-000000000001/narration/manifest"
+                ),
+                manifestResponse,
+                (request, response) -> response.getWriter().write("{\"segments\":[]}")
+        );
+
+        assertThat(catalogResponse.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
+                .startsWith("total;dur=4.000");
+        assertThat(manifestResponse.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
+                .startsWith("total;dur=9.000");
+    }
+
     private Callable<PerformanceRequestMetrics.Snapshot> measuredExecutions(
             PerformanceDataSource dataSource,
             int count

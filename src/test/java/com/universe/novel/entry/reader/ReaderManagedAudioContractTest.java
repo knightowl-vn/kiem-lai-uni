@@ -24,68 +24,79 @@ class ReaderManagedAudioContractTest {
     @DisplayName("2. Saved managed preference is validated only after managed catalog resolution")
     void savedManagedPreferenceValidatedOnlyAfterCatalogResolution() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).contains("const defaultManifest = await this.managedEngine.loadManifest(this.chapterId);");
+        assertThat(controllerJs).contains("const catalog = await this.managedEngine.loadVoiceCatalog();");
+        assertThat(controllerJs).contains("const availableVoices = (catalog && Array.isArray(catalog.voices))");
         assertThat(controllerJs).contains("this._managedCatalogResolved = true;");
         assertThat(controllerJs).contains("if (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)");
         assertThat(controllerJs).contains("const voiceExists = availableVoices.some(v => v.voiceKey === targetKey);");
     }
 
     @Test
-    @DisplayName("3. Valid saved managed preference survives bootstrap and requests keyed manifest")
+    @DisplayName("3. Valid saved managed preference survives catalog bootstrap without loading a manifest")
     void validSavedManagedPreferenceSurvivesBootstrap() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).contains("if (voiceExists) {");
-        assertThat(controllerJs).contains("if (targetKey !== defaultSelectedKey) {");
-        assertThat(controllerJs).contains("await this.managedEngine.loadManifest(this.chapterId, targetKey);");
+        String initialDiscovery = controllerMethod("async _loadInitialManagedVoices()", "_onManifestLoaded(manifest)");
+        assertThat(initialDiscovery).contains("const voiceExists = availableVoices.some(v => v.voiceKey === targetKey);");
+        assertThat(initialDiscovery).contains("if (!voiceExists) {");
+        assertThat(initialDiscovery).doesNotContain("loadManifest(");
     }
 
     @Test
     @DisplayName("4. Stale saved managed preference is cleared only after catalog confirms absence")
     void staleSavedManagedPreferenceClearedOnlyAfterCatalogConfirmsAbsence() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).contains("} else {\n                        // Stale saved managed voice: catalog has arrived and confirms absence\n                        this.savedVoicePreference = null;\n                        this._savePreferences();\n                    }");
+        assertThat(controllerJs).contains("if (!voiceExists) {\n                        // Stale saved managed voice: catalog has arrived and confirms absence\n                        this.savedVoicePreference = null;\n                        this._savePreferences();\n                    }");
     }
 
     @Test
-    @DisplayName("5. User voice selection made during saved-key manifest await is preserved")
-    void userVoiceSelectionMadeDuringKeyedManifestAwaitIsPreserved() throws Exception {
+    @DisplayName("5. User voice selection made during catalog await is preserved")
+    void userVoiceSelectionMadeDuringCatalogAwaitIsPreserved() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
         assertThat(controllerJs).contains("this._hasUserExplicitlySelectedVoice = true;");
         assertThat(controllerJs).contains("const userExplicitlySelected = Boolean(this._hasUserExplicitlySelectedVoice);");
-        assertThat(controllerJs).contains("// 4. Re-check user intent after the keyed manifest await before any final automatic activation\n                if (isInterrupted()) {\n                    this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });\n                    return;\n                }");
+        assertThat(controllerJs).contains("// 4. Re-check user intent before final automatic activation.\n                if (isInterrupted()) {\n                    this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });\n                    return;\n                }");
     }
 
     @Test
-    @DisplayName("6. PLAYING/PAUSED state reached during saved-key manifest await is preserved")
-    void playingPausedStateReachedDuringKeyedManifestAwaitIsPreserved() throws Exception {
+    @DisplayName("6. PLAYING/PAUSED state reached during catalog await is preserved")
+    void playingPausedStateReachedDuringCatalogAwaitIsPreserved() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
         assertThat(controllerJs).contains("const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';");
         assertThat(controllerJs).contains("const isInterrupted = () => {\n                    const engineState = this.engine ? this.engine.getState() : null;\n                    const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';\n                    const userExplicitlySelected = Boolean(this._hasUserExplicitlySelectedVoice);\n                    return isPlaybackActive || userExplicitlySelected;\n                };");
     }
 
     @Test
-    @DisplayName("7. Final automatic activation re-check occurs after the keyed await")
-    void finalAutomaticActivationReCheckOccursAfterKeyedAwait() throws Exception {
+    @DisplayName("7. Final automatic activation re-check occurs after catalog validation")
+    void finalAutomaticActivationReCheckOccursAfterCatalogValidation() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int firstCheck = controllerJs.indexOf("// 2. Check if user already started playback or explicitly changed voice while default manifest was loading");
-        int keyedAwait = controllerJs.indexOf("await this.managedEngine.loadManifest(this.chapterId, targetKey);");
-        int secondCheck = controllerJs.indexOf("// 4. Re-check user intent after the keyed manifest await before any final automatic activation");
+        int catalogAwait = controllerJs.indexOf("await this.managedEngine.loadVoiceCatalog();");
+        int firstCheck = controllerJs.indexOf("// 2. Check if user already started playback or explicitly changed voice while the catalog was loading.");
+        int savedValidation = controllerJs.indexOf("// 3. Restore and validate saved managed preference only after catalog discovery.");
+        int secondCheck = controllerJs.indexOf("// 4. Re-check user intent before final automatic activation.");
         int finalPopulate = controllerJs.indexOf("// 5. Populate dropdown and activate active/default voice");
 
-        assertThat(firstCheck).isGreaterThan(0);
-        assertThat(keyedAwait).isGreaterThan(firstCheck);
-        assertThat(secondCheck).isGreaterThan(keyedAwait);
+        assertThat(catalogAwait).isGreaterThan(0);
+        assertThat(firstCheck).isGreaterThan(catalogAwait);
+        assertThat(savedValidation).isGreaterThan(firstCheck);
+        assertThat(secondCheck).isGreaterThan(savedValidation);
         assertThat(finalPopulate).isGreaterThan(secondCheck);
     }
 
     @Test
-    @DisplayName("8. Initial catalog discovery uses default manifest without voiceKey")
-    void initialCatalogDiscoveryUsesDefaultManifestWithoutVoiceKey() throws Exception {
+    @DisplayName("8. Initial catalog discovery uses the lightweight global endpoint")
+    void initialCatalogDiscoveryUsesLightweightGlobalEndpoint() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).contains("const defaultManifest = await this.managedEngine.loadManifest(this.chapterId);");
-        assertThat(controllerJs).contains("availableVoices = (defaultManifest && Array.isArray(defaultManifest.availableVoices))");
+        String initialDiscovery = controllerMethod("async _loadInitialManagedVoices()", "_onManifestLoaded(manifest)");
+        assertThat(initialDiscovery).contains("const catalog = await this.managedEngine.loadVoiceCatalog();");
+        assertThat(initialDiscovery).doesNotContain("loadManifest(");
 
         String managedJs = read("src/main/resources/static/js/novel/managed-audio-engine.js");
+        assertThat(managedJs).contains("function buildVoiceCatalogUrl() {");
+        assertThat(managedJs).contains("return '/api/novel/narration/voices';");
+        assertThat(managedJs).contains("async loadVoiceCatalog()");
+        assertThat(managedJs).contains("const response = await fetchFn(buildVoiceCatalogUrl()");
+        assertThat(managedJs).contains("this.availableVoices = catalog && Array.isArray(catalog.voices) ? catalog.voices : [];");
+        assertThat(managedJs).contains("return { voices: this.availableVoices.slice() };");
         assertThat(managedJs).contains("buildManifestUrl(chapterId, cleanVoiceKey)");
         assertThat(managedJs).contains("let url = '/api/novel/chapters/' + encodeURIComponent(String(chapterId)) + '/narration/manifest';");
     }
@@ -106,6 +117,78 @@ class ReaderManagedAudioContractTest {
         assertThat(controllerJs).contains("const isPlaybackActive = engineState === 'PLAYING' || engineState === 'PAUSED';");
         assertThat(controllerJs).contains("this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });");
         assertThat(controllerJs).contains("if (skipActivation) {");
+    }
+
+    @Test
+    @DisplayName("PERF-02B1: Playback cancellation does not cancel passive catalog discovery")
+    void playbackCancellationDoesNotCancelPassiveCatalogDiscovery() throws Exception {
+        String cancel = managedMethod("cancel() {", "_handleAudioEnded() {");
+
+        assertThat(cancel).contains(
+                "this._playbackSequenceId++;",
+                "this._manifestLoadSequenceId++;",
+                "this._cancelPrefetch();",
+                "this._activeFetchController.abort();",
+                "this._activeManifestFetchController.abort();"
+        );
+        assertThat(cancel).doesNotContain(
+                "_voiceCatalogLoadSequenceId",
+                "_activeVoiceCatalogFetchController",
+                "cancelVoiceCatalogLoad"
+        );
+
+        String voiceChange = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
+        assertThat(voiceChange).contains("this.managedEngine.cancel();");
+        assertThat(voiceChange).doesNotContain("cancelVoiceCatalogLoad");
+    }
+
+    @Test
+    @DisplayName("PERF-02B1: Late catalog discovery remains usable after explicit Device selection")
+    void lateCatalogDiscoveryRemainsUsableWithoutAutomaticManagedActivation() throws Exception {
+        String discovery = controllerMethod("async _loadInitialManagedVoices()", "_onManifestLoaded(manifest)");
+
+        assertThat(discovery).contains(
+                "const catalog = await this.managedEngine.loadVoiceCatalog();",
+                "const userExplicitlySelected = Boolean(this._hasUserExplicitlySelectedVoice);",
+                "this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });"
+        );
+        assertThat(discovery).doesNotContain(
+                "_voiceSelectionSequenceId",
+                "catalogChapterId",
+                "catalogSelection"
+        );
+    }
+
+    @Test
+    @DisplayName("PERF-02B1: Catalog failure rejects without mutating Managed playback error state")
+    void catalogFailureDoesNotInvokePlaybackErrorHandling() throws Exception {
+        String catalogLoad = managedMethod("async loadVoiceCatalog() {", "cancelVoiceCatalogLoad() {");
+
+        assertThat(catalogLoad).contains("throw error;");
+        assertThat(catalogLoad).doesNotContain("this._handleError(error)");
+    }
+
+    @Test
+    @DisplayName("PERF-02B1: Catalog supersession and teardown have a dedicated cancellation boundary")
+    void catalogSupersessionAndTeardownRemainExplicit() throws Exception {
+        String catalogLoad = managedMethod("async loadVoiceCatalog() {", "cancelVoiceCatalogLoad() {");
+        String catalogCancel = managedMethod("cancelVoiceCatalogLoad() {", "async loadManifest(");
+        String destroy = managedMethod("destroy() {", "return {");
+        String unload = controllerMethod("_handleUnload() {", "_handleStorageEvent(event) {");
+
+        assertThat(catalogLoad).contains(
+                "const sequenceId = ++this._voiceCatalogLoadSequenceId;",
+                "previousController.abort();",
+                "sequenceId !== this._voiceCatalogLoadSequenceId",
+                "this._activeVoiceCatalogFetchController !== controller"
+        );
+        assertThat(catalogCancel).contains(
+                "this._voiceCatalogLoadSequenceId++;",
+                "this._activeVoiceCatalogFetchController.abort();",
+                "this._activeVoiceCatalogFetchController = null;"
+        );
+        assertThat(destroy).contains("this.cancelVoiceCatalogLoad();", "this.cancel();");
+        assertThat(unload).contains("this.managedEngine.cancelVoiceCatalogLoad();");
     }
 
     @Test
@@ -2395,6 +2478,12 @@ class ReaderManagedAudioContractTest {
         String controller = read("src/main/resources/static/js/novel/narration-controller.js");
         int from = controller.indexOf(start);
         return controller.substring(from, controller.indexOf(end, from));
+    }
+
+    private String managedMethod(String start, String end) throws Exception {
+        String managed = read("src/main/resources/static/js/novel/managed-audio-engine.js");
+        int from = managed.indexOf(start);
+        return managed.substring(from, managed.indexOf(end, from));
     }
 
     private String read(String relativePath) throws Exception {

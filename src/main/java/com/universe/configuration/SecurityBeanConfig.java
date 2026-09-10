@@ -104,6 +104,7 @@ public class SecurityBeanConfig {
                                 org.springframework.http.HttpMethod.GET,
                                 "/media/assets/*/content",
                                 "/media/assets/*/variants/*",
+                                "/api/novel/narration/voices",
                                 "/api/novel/chapters/*/narration/manifest",
                                 "/api/novel/chapters/*/narration/playback"
                         )

@@ -97,6 +97,7 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         AdminNovelProfilePageController.class,
         AdminNovelProfileCommandController.class,
         MediaDeliveryController.class,
+        com.universe.novel.entry.reader.PublicNovelManagedVoiceCatalogController.class,
         com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class
 })
 @Import({
@@ -198,6 +199,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+
+    @MockBean
+    private com.universe.novel.application.narration.GetPublicManagedVoiceCatalogUseCase getPublicManagedVoiceCatalogUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -594,6 +598,18 @@ class SecurityAuthorizationTest {
         ))).thenReturn(result);
 
         mockMvc.perform(get("/api/novel/chapters/" + chapterId + "/narration/playback"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access the public Managed voice catalog")
+    void shouldAllowAnonymousAccessToManagedVoiceCatalog() throws Exception {
+        when(getPublicManagedVoiceCatalogUseCase.execute(any(
+                com.universe.novel.application.narration.GetPublicManagedVoiceCatalogQuery.class
+        ))).thenReturn(new com.universe.novel.contracts.dto.narration.PublicManagedVoiceCatalogDTO(List.of()));
+
+        mockMvc.perform(get("/api/novel/narration/voices"))
                 .andExpect(status().isOk());
     }
 

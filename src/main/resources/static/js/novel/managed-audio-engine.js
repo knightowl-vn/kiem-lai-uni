@@ -81,6 +81,14 @@
     }
 
     /**
+     * Builds the lightweight public Managed voice catalog endpoint URL.
+     * @returns {string}
+     */
+    function buildVoiceCatalogUrl() {
+        return '/api/novel/narration/voices';
+    }
+
+    /**
      * Builds the canonical public narration segment prepare endpoint URL (H.7D1).
      * @param {string|number} chapterId
      * @param {string} segmentId
@@ -181,9 +189,11 @@
             // Fetch coordination
             this.fetchFunction = options.fetchFunction || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
             this._activeFetchController = null;
+            this._activeVoiceCatalogFetchController = null;
             this._activeManifestFetchController = null;
             this._activePrefetchController = null;
             this._playbackSequenceId = 0;
+            this._voiceCatalogLoadSequenceId = 0;
             this._manifestLoadSequenceId = 0;
             this._prefetchSequenceId = 0;
             this._warmedSegment = null;
@@ -277,7 +287,7 @@
         }
 
         /**
-         * Returns list of available managed voices from current manifest.
+         * Returns the available Managed voices from the catalog or current manifest.
          * @returns {Array<Object>}
          */
         getVoices() {
@@ -461,6 +471,67 @@
                 } catch (e) {
                     console.error('[ManagedAudioEngine] Error in onManifestLoaded callback:', e);
                 }
+            }
+        }
+
+        /**
+         * Fetches only the publicly selectable Managed voice catalog.
+         * This path never applies chapter segments or playback state.
+         * @returns {Promise<Object>}
+         */
+        async loadVoiceCatalog() {
+            const sequenceId = ++this._voiceCatalogLoadSequenceId;
+            const previousController = this._activeVoiceCatalogFetchController;
+            if (previousController) {
+                try {
+                    previousController.abort();
+                } catch (ignored) {}
+            }
+
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this._activeVoiceCatalogFetchController = controller;
+            const fetchFn = this.fetchFunction || fetch;
+
+            try {
+                const response = await fetchFn(buildVoiceCatalogUrl(), {
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                    signal: controller ? controller.signal : undefined
+                });
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status + ' when loading Managed voice catalog.');
+                }
+
+                const catalog = await response.json();
+                if (sequenceId !== this._voiceCatalogLoadSequenceId ||
+                    this._activeVoiceCatalogFetchController !== controller) {
+                    const abortError = new Error('Managed voice catalog load was aborted or superseded.');
+                    abortError.name = 'AbortError';
+                    throw abortError;
+                }
+
+                this._activeVoiceCatalogFetchController = null;
+                this.availableVoices = catalog && Array.isArray(catalog.voices) ? catalog.voices : [];
+                return { voices: this.availableVoices.slice() };
+            } catch (error) {
+                if (this._activeVoiceCatalogFetchController === controller) {
+                    this._activeVoiceCatalogFetchController = null;
+                }
+                throw error;
+            }
+        }
+
+        /**
+         * Cancels only passive Managed voice catalog discovery.
+         * Playback cancellation intentionally does not call this method.
+         */
+        cancelVoiceCatalogLoad() {
+            this._voiceCatalogLoadSequenceId++;
+            if (this._activeVoiceCatalogFetchController) {
+                try {
+                    this._activeVoiceCatalogFetchController.abort();
+                } catch (ignored) {}
+                this._activeVoiceCatalogFetchController = null;
             }
         }
 
@@ -1502,7 +1573,8 @@
         }
 
         /**
-         * Cancels active playback or fetch operations.
+         * Cancels active playback, prepare, prefetch, and manifest operations.
+         * Passive global voice catalog discovery remains independent.
          */
         cancel() {
             this._playbackSequenceId++;
@@ -1833,6 +1905,7 @@
          * Destroys engine instance and releases listeners and audio resources.
          */
         destroy() {
+            this.cancelVoiceCatalogLoad();
             this.cancel();
             this._unbindAudioListeners();
             if (this.audio) {
@@ -1854,6 +1927,7 @@
         ManagedEngineState: ManagedEngineState,
         ENGINE_CAPABILITIES: ENGINE_CAPABILITIES,
         isSupported: isSupported,
+        buildVoiceCatalogUrl: buildVoiceCatalogUrl,
         buildManifestUrl: buildManifestUrl,
         buildPrepareUrl: buildPrepareUrl,
         resolveCsrfToken: resolveCsrfToken

@@ -290,7 +290,7 @@
                 : (this.deviceEngine ? this.deviceEngine.getVoices() : []);
             this._populateVoiceDropdown(deviceVoices, [], { skipActivation: true });
 
-            // Asynchronously fetch initial managed narration manifest
+            // Asynchronously fetch the lightweight Managed voice catalog
             this._loadInitialManagedVoices();
 
             this._bindEventListeners();
@@ -967,8 +967,8 @@
         }
 
         /**
-         * Loads initial managed narration manifest for available voices discovery and auto-selection.
-         * Always uses default manifest endpoint (without voiceKey) for initial catalog discovery.
+         * Loads the lightweight public Managed voice catalog for discovery and auto-selection.
+         * Chapter playback metadata and the legacy manifest remain selection-time concerns.
          * Re-checks user intent and playback state after every await to avoid overriding user interaction.
          * @private
          */
@@ -977,17 +977,13 @@
                 return;
             }
 
-            const catalogChapterId = this.chapterId;
-            const catalogSelection = this._voiceSelectionSequenceId;
-            const catalogIsCurrent = () => !this.isUnloaded && this.chapterId === catalogChapterId &&
-                this._voiceSelectionSequenceId === catalogSelection;
             try {
-                // 1. Always discover catalog from default manifest (without voiceKey)
-                const defaultManifest = await this.managedEngine.loadManifest(this.chapterId);
-                if (!catalogIsCurrent()) return;
+                // 1. Discover only selectable Managed voices; no chapter narration state is loaded here.
+                const catalog = await this.managedEngine.loadVoiceCatalog();
+                if (this.isUnloaded) return;
                 this._managedCatalogResolved = true;
-                const availableVoices = (defaultManifest && Array.isArray(defaultManifest.availableVoices))
-                    ? defaultManifest.availableVoices
+                const availableVoices = (catalog && Array.isArray(catalog.voices))
+                    ? catalog.voices
                     : [];
 
                 const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
@@ -1001,37 +997,26 @@
                     return isPlaybackActive || userExplicitlySelected;
                 };
 
-                // 2. Check if user already started playback or explicitly changed voice while default manifest was loading
+                // 2. Check if user already started playback or explicitly changed voice while the catalog was loading.
                 if (isInterrupted()) {
                     // Populate options in dropdown without stopping or switching active engine
                     this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
                     return;
                 }
 
-                // 3. Restore and validate saved managed preference only after catalog discovery
+                // 3. Restore and validate saved managed preference only after catalog discovery.
                 if (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey) {
                     const targetKey = this.savedVoicePreference.voiceKey;
                     const voiceExists = availableVoices.some(v => v.voiceKey === targetKey);
 
-                    if (voiceExists) {
-                        const defaultSelectedKey = defaultManifest.selectedVoice ? defaultManifest.selectedVoice.voiceKey : null;
-                        if (targetKey !== defaultSelectedKey) {
-                            try {
-                                await this.managedEngine.loadManifest(this.chapterId, targetKey);
-                                if (!catalogIsCurrent()) return;
-                            } catch (keyedErr) {
-                                console.warn('[NarrationController] Failed to load manifest for saved voiceKey:', targetKey, keyedErr);
-                            }
-                        }
-                    } else {
+                    if (!voiceExists) {
                         // Stale saved managed voice: catalog has arrived and confirms absence
                         this.savedVoicePreference = null;
                         this._savePreferences();
                     }
                 }
 
-                if (!catalogIsCurrent()) return;
-                // 4. Re-check user intent after the keyed manifest await before any final automatic activation
+                // 4. Re-check user intent before final automatic activation.
                 if (isInterrupted()) {
                     this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
                     return;
@@ -1040,8 +1025,8 @@
                 // 5. Populate dropdown and activate active/default voice
                 this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: false });
             } catch (e) {
-                if (!catalogIsCurrent()) return;
-                console.warn('[NarrationController] Initial managed manifest load skipped or failed:', e);
+                if (this.isUnloaded || (e && e.name === 'AbortError')) return;
+                console.warn('[NarrationController] Initial Managed voice catalog load skipped or failed:', e);
                 this._managedCatalogResolved = true;
                 const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
                     ? this.deviceEngine.getSortedVoices()
@@ -2333,6 +2318,9 @@
             }
             if (this.managedEngine) {
                 this.managedEngine.stop();
+                if (typeof this.managedEngine.cancelVoiceCatalogLoad === 'function') {
+                    this.managedEngine.cancelVoiceCatalogLoad();
+                }
             }
             if (this.engine && this.engine !== this.deviceEngine && this.engine !== this.managedEngine) {
                 this.engine.stop();
