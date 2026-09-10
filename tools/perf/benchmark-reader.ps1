@@ -39,11 +39,15 @@ param(
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string] $OutputDirectory = (Join-Path $PSScriptRoot "results")
+    [string] $OutputDirectory
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $PSBoundParameters.ContainsKey("OutputDirectory")) {
+    $OutputDirectory = Join-Path -Path $PSScriptRoot -ChildPath "results"
+}
 
 Add-Type -AssemblyName System.Net.Http
 
@@ -114,6 +118,7 @@ function ConvertFrom-ServerTiming {
 function Add-ValidationMessage {
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.List[string]] $Messages,
 
         [Parameter(Mandatory = $true)]
