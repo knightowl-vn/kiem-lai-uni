@@ -4,61 +4,51 @@ import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
-import com.universe.media.application.ports.MediaAssetRepositoryPort;
-import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
+import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort;
+import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort.MediaAssetContentDeliverySnapshot;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
-import com.universe.media.domain.ContentHash;
-import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
-import com.universe.media.domain.MediaAssetVersion;
-import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
-import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
-import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
-
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class GetMediaAssetContentUseCaseTest {
 
-    private static final UUID ASSET_ID =
-            UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-
-    private static final UUID VERSION_ID =
-            UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-
-    private static final Instant T1 =
-            Instant.parse("2026-09-01T10:00:00Z");
-
+    private static final UUID ASSET_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static final UUID VERSION_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
     private static final String HASH =
             "a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e";
+    private static final String OTHER_HASH =
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    private static final StorageKey STORAGE_KEY = StorageKey.of("objects/chapter.mp3");
 
     @Mock
-    private MediaAssetRepositoryPort mediaAssetRepositoryPort;
-
-    @Mock
-    private MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
+    private MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort;
 
     @Mock
     private BinaryStoragePort binaryStoragePort;
@@ -67,399 +57,288 @@ class GetMediaAssetContentUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new GetMediaAssetContentUseCase(
-                mediaAssetRepositoryPort,
-                mediaAssetVersionRepositoryPort,
-                binaryStoragePort
-        );
+        useCase = new GetMediaAssetContentUseCase(contentDeliveryQueryPort, binaryStoragePort);
     }
 
     @Test
-    @DisplayName("ACTIVE + PUBLIC asset successfully returns stream and metadata")
-    void shouldReturnContentStreamForActivePublicAsset() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
-
-        MediaAssetVersion version = MediaAssetVersion.create(
-                VERSION_ID,
-                ASSET_ID,
-                1,
-                StorageLocation.of("local", "objects/test-key"),
-                null,
-                ContentHash.of(HASH),
-                MimeType.of("image/webp"),
-                1024L,
-                "cover.webp",
-                T1
-        );
-
-        ByteArrayInputStream fakeStream = new ByteArrayInputStream(new byte[]{1, 2, 3, 4});
-
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
-        when(binaryStoragePort.open(StorageKey.of("objects/test-key"))).thenReturn(fakeStream);
+    void executeUsesOneResolvedSnapshotAndOpensTheFullBinary() {
+        InputStream stream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        stubSnapshot(activePublicSnapshot());
+        when(binaryStoragePort.open(STORAGE_KEY)).thenReturn(stream);
 
         GetMediaAssetContentResult result = useCase.execute(new GetMediaAssetContentQuery(ASSET_ID));
 
-        assertThat(result).isNotNull();
-        assertThat(result.content()).isSameAs(fakeStream);
+        assertThat(result.content()).isSameAs(stream);
         assertThat(result.sizeBytes()).isEqualTo(1024L);
-        assertThat(result.mimeType()).isEqualTo("image/webp");
+        assertThat(result.mimeType()).isEqualTo("audio/mpeg");
         assertThat(result.contentHash()).isEqualTo(HASH);
-
-        verify(binaryStoragePort).open(StorageKey.of("objects/test-key"));
+        verify(contentDeliveryQueryPort).findByAssetId(ASSET_ID);
+        verify(binaryStoragePort).open(STORAGE_KEY);
+        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
     }
 
     @Test
-    @DisplayName("metadata resolution validates public delivery without opening binary storage")
-    void shouldResolveMetadataWithoutOpeningBinaryStorage() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.AUDIO,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
-        MediaAssetVersion version = MediaAssetVersion.create(
-                VERSION_ID,
-                ASSET_ID,
-                1,
-                StorageLocation.of("local", "objects/chapter.mp3"),
-                null,
-                ContentHash.of(HASH),
-                MimeType.of("audio/mpeg"),
-                1024L,
-                "chapter.mp3",
-                T1
-        );
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
-                .thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+    void resolveMetadataUsesOneSnapshotAndDoesNotOpenBinaryStorage() {
+        stubSnapshot(activePublicSnapshot());
 
         GetMediaAssetContentMetadataResult result = useCase.resolveMetadata(
                 new GetMediaAssetContentQuery(ASSET_ID)
         );
 
-        assertThat(result).isEqualTo(new GetMediaAssetContentMetadataResult(
-                ASSET_ID,
-                1,
-                1024L,
-                "audio/mpeg",
-                HASH
-        ));
-        verify(binaryStoragePort, never()).open(any());
-        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+        assertThat(result).isEqualTo(metadata());
+        verify(contentDeliveryQueryPort).findByAssetId(ASSET_ID);
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("range open revalidates exact current metadata and uses storage openRange only")
-    void shouldOpenExactCurrentContentRange() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.AUDIO,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
-        StorageKey storageKey = StorageKey.of("objects/chapter.mp3");
-        MediaAssetVersion version = MediaAssetVersion.create(
-                VERSION_ID,
-                ASSET_ID,
-                1,
-                StorageLocation.of("local", storageKey.value()),
-                null,
-                ContentHash.of(HASH),
-                MimeType.of("audio/mpeg"),
-                1024L,
-                "chapter.mp3",
-                T1
-        );
-        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
-                ASSET_ID,
-                1,
-                1024L,
-                "audio/mpeg",
-                HASH
-        );
-        InputStream rangeStream = new ByteArrayInputStream(new byte[]{4, 5, 6});
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
-                .thenReturn(Optional.of(version));
+    void rangeOpenRevalidatesFreshSnapshotAndUsesOpenRangeOnly() {
+        InputStream stream = new ByteArrayInputStream(new byte[]{4, 5, 6});
+        stubSnapshot(activePublicSnapshot());
+        when(binaryStoragePort.openRange(STORAGE_KEY, 100, 3)).thenReturn(stream);
+
+        InputStream result = useCase.openRange(metadata(), 100, 3);
+
+        assertThat(result).isSameAs(stream);
+        verify(contentDeliveryQueryPort).findByAssetId(ASSET_ID);
+        verify(binaryStoragePort).openRange(STORAGE_KEY, 100, 3);
+        verify(binaryStoragePort, never()).open(any());
+    }
+
+    @Test
+    void separateMetadataAndBodyCallsResolveFreshSnapshots() {
+        when(contentDeliveryQueryPort.findByAssetId(ASSET_ID))
+                .thenReturn(Optional.of(activePublicSnapshot()), Optional.of(activePublicSnapshot()));
         when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
-        when(binaryStoragePort.openRange(storageKey, 100, 3)).thenReturn(rangeStream);
+        when(binaryStoragePort.open(STORAGE_KEY)).thenReturn(new ByteArrayInputStream(new byte[]{1}));
 
-        InputStream result = useCase.openRange(metadata, 100, 3);
+        GetMediaAssetContentMetadataResult resolved = useCase.resolveMetadata(
+                new GetMediaAssetContentQuery(ASSET_ID)
+        );
+        useCase.open(resolved);
 
-        assertThat(result).isSameAs(rangeStream);
-        verify(binaryStoragePort).openRange(storageKey, 100, 3);
-        verify(binaryStoragePort, never()).open(any());
+        verify(contentDeliveryQueryPort, times(2)).findByAssetId(ASSET_ID);
+        verify(binaryStoragePort).open(STORAGE_KEY);
     }
 
     @Test
-    @DisplayName("open fails closed when current content differs from previously resolved metadata")
-    void shouldRejectChangedCurrentContentBeforeOpeningStorage() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.AUDIO,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                2,
-                T1,
-                T1
-        );
-        MediaAssetVersion currentVersion = MediaAssetVersion.create(
-                UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc"),
-                ASSET_ID,
-                2,
-                StorageLocation.of("local", "objects/chapter-v2.mp3"),
-                null,
-                ContentHash.of("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
-                MimeType.of("audio/mpeg"),
-                2048L,
-                "chapter-v2.mp3",
-                T1
-        );
-        GetMediaAssetContentMetadataResult staleMetadata = new GetMediaAssetContentMetadataResult(
-                ASSET_ID,
-                1,
-                1024L,
-                "audio/mpeg",
-                HASH
-        );
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 2))
-                .thenReturn(Optional.of(currentVersion));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
-
-        assertThatThrownBy(() -> useCase.open(staleMetadata))
-                .isInstanceOf(StorageException.class)
-                .hasMessageContaining("changed after delivery metadata was resolved");
-
-        verify(binaryStoragePort, never()).open(any());
-        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
-    }
-
-    @Test
-    @DisplayName("range open rejects invalid bounds before persistence or storage access")
-    void shouldRejectInvalidRangeBeforeAccess() {
-        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
-                ASSET_ID,
-                1,
-                1024L,
-                "audio/mpeg",
-                HASH
-        );
-
-        assertThatThrownBy(() -> useCase.openRange(metadata, -1, 1))
+    void invalidRangeBoundsFailBeforeQueryOrStorageAccess() {
+        assertThatThrownBy(() -> useCase.openRange(metadata(), -1, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> useCase.openRange(metadata, 0, 0))
+        assertThatThrownBy(() -> useCase.openRange(metadata(), 0, 0))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        verify(binaryStoragePort, never()).open(any());
-        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
-        verify(mediaAssetRepositoryPort, never()).findById(any());
+        verify(contentDeliveryQueryPort, never()).findByAssetId(any());
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("missing asset throws MediaAssetNotFoundException")
-    void shouldThrowWhenAssetMissing() {
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.empty());
+    void missingAssetThrowsNotFoundWithoutStorageAccess() {
+        when(contentDeliveryQueryPort.findByAssetId(ASSET_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
                 .isInstanceOf(MediaAssetNotFoundException.class);
 
-        verify(binaryStoragePort, never()).open(any());
+        verifyNoStorageOpen();
     }
 
-    @Test
-    @DisplayName("ARCHIVED asset throws MediaAssetNotFoundException")
-    void shouldThrowWhenAssetArchived() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ARCHIVED,
-                1,
-                T1,
-                T1
-        );
+    @ParameterizedTest
+    @MethodSource("ineligibleStates")
+    void ineligibleAssetFailsClosedDuringMetadataResolution(
+            MediaAssetStatus status,
+            MediaVisibility visibility
+    ) {
+        stubSnapshot(snapshot(status, visibility, 1, VERSION_ID, ASSET_ID, 1,
+                "local", STORAGE_KEY.value(), HASH, "audio/mpeg", 1024L));
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
                 .isInstanceOf(MediaAssetNotFoundException.class);
 
-        verify(binaryStoragePort, never()).open(any());
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("DELETED asset throws MediaAssetNotFoundException")
-    void shouldThrowWhenAssetDeleted() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.DELETED,
-                1,
-                T1,
-                T1
-        );
+    void missingOrInconsistentDeclaredCurrentVersionThrowsVersionNotFound() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 2,
+                null, null, null, null, null, null, null, null));
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
+                .isInstanceOf(MediaAssetVersionNotFoundException.class)
+                .hasMessageContaining("2");
 
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
-                .isInstanceOf(MediaAssetNotFoundException.class);
-
-        verify(binaryStoragePort, never()).open(any());
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("PRIVATE asset throws MediaAssetNotFoundException")
-    void shouldThrowWhenAssetPrivate() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PRIVATE,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
+    void wrongVersionOwnershipThrowsVersionNotFound() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, UUID.randomUUID(), 1, "local", STORAGE_KEY.value(), HASH,
+                "audio/mpeg", 1024L));
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
-                .isInstanceOf(MediaAssetNotFoundException.class);
-
-        verify(binaryStoragePort, never()).open(any());
-    }
-
-    @Test
-    @DisplayName("RESTRICTED asset throws MediaAssetNotFoundException")
-    void shouldThrowWhenAssetRestricted() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.RESTRICTED,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
-
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
-                .isInstanceOf(MediaAssetNotFoundException.class);
-
-        verify(binaryStoragePort, never()).open(any());
-    }
-
-    @Test
-    @DisplayName("missing current version throws MediaAssetVersionNotFoundException")
-    void shouldThrowWhenCurrentVersionMissing() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
-
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
                 .isInstanceOf(MediaAssetVersionNotFoundException.class);
-
-        verify(binaryStoragePort, never()).open(any());
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("storage provider mismatch throws internal StorageException")
-    void shouldThrowWhenStorageProviderMismatch() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
-        );
+    void invalidTechnicalMetadataFailsClosed() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1, "local", STORAGE_KEY.value(), null,
+                "audio/mpeg", 1024L));
 
-        MediaAssetVersion version = MediaAssetVersion.create(
-                VERSION_ID,
-                ASSET_ID,
-                1,
-                StorageLocation.of("s3", "objects/s3-key"),
-                null,
-                ContentHash.of(HASH),
-                MimeType.of("image/webp"),
-                1024L,
-                "cover.webp",
-                T1
-        );
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Invalid current Media delivery metadata");
+        verifyNoStorageOpen();
+    }
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+    @Test
+    void providerMismatchFailsBeforeStorageOpen() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1, "s3", STORAGE_KEY.value(), HASH,
+                "audio/mpeg", 1024L));
 
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+        assertThatThrownBy(() -> useCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
                 .isInstanceOf(StorageException.class)
                 .hasMessageContaining("Storage provider mismatch");
-
-        verify(binaryStoragePort, never()).open(any());
+        verifyNoStorageOpen();
     }
 
     @Test
-    @DisplayName("storage object not found propagates StorageObjectNotFoundException")
-    void shouldPropagateWhenStorageObjectNotFound() {
-        MediaAsset asset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.ACTIVE,
-                1,
-                T1,
-                T1
+    void currentVersionAdvanceBetweenPhasesFailsClosed() {
+        MediaAssetContentDeliverySnapshot changed = snapshot(
+                MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 2, UUID.randomUUID(), ASSET_ID, 2,
+                "local", "objects/chapter-v2.mp3", OTHER_HASH, "audio/mpeg", 2048L
         );
+        stubSnapshot(changed);
 
-        MediaAssetVersion version = MediaAssetVersion.create(
-                VERSION_ID,
-                ASSET_ID,
-                1,
-                StorageLocation.of("local", "objects/missing-key"),
-                null,
-                ContentHash.of(HASH),
-                MimeType.of("image/webp"),
-                1024L,
-                "cover.webp",
-                T1
-        );
+        assertThatThrownBy(() -> useCase.open(metadata()))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("changed after delivery metadata was resolved");
+        verifyNoStorageOpen();
+    }
 
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
-        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
-        when(binaryStoragePort.open(StorageKey.of("objects/missing-key")))
-                .thenThrow(new StorageObjectNotFoundException(StorageKey.of("objects/missing-key")));
+    @ParameterizedTest
+    @MethodSource("phaseTwoRevocations")
+    void lifecycleOrVisibilityRevocationBetweenPhasesFailsClosed(
+            MediaAssetStatus status,
+            MediaVisibility visibility
+    ) {
+        stubSnapshot(snapshot(status, visibility, 1, VERSION_ID, ASSET_ID, 1,
+                "local", STORAGE_KEY.value(), HASH, "audio/mpeg", 1024L));
 
-        assertThatThrownBy(() -> useCase.execute(new GetMediaAssetContentQuery(ASSET_ID)))
+        assertThatThrownBy(() -> useCase.open(metadata()))
+                .isInstanceOf(MediaAssetNotFoundException.class);
+        verifyNoStorageOpen();
+    }
+
+    @Test
+    void declaredCurrentVersionDisappearingBetweenPhasesFailsClosed() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                null, null, null, null, null, null, null, null));
+
+        assertThatThrownBy(() -> useCase.open(metadata()))
+                .isInstanceOf(MediaAssetVersionNotFoundException.class);
+        verifyNoStorageOpen();
+    }
+
+    @Test
+    void providerChangingBetweenPhasesFailsClosed() {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1, "s3", STORAGE_KEY.value(), HASH,
+                "audio/mpeg", 1024L));
+
+        assertThatThrownBy(() -> useCase.open(metadata()))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("Storage provider mismatch");
+        verifyNoStorageOpen();
+    }
+
+    @ParameterizedTest
+    @MethodSource("changedRepresentations")
+    void publicRepresentationChangeBetweenPhasesFailsClosed(
+            String hash,
+            String mimeType,
+            long sizeBytes
+    ) {
+        stubSnapshot(snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1, "local", STORAGE_KEY.value(), hash, mimeType, sizeBytes));
+
+        assertThatThrownBy(() -> useCase.openRange(metadata(), 0, 10))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("changed after delivery metadata was resolved");
+        verifyNoStorageOpen();
+    }
+
+    @Test
+    void storageObjectNotFoundStillPropagates() {
+        stubSnapshot(activePublicSnapshot());
+        when(binaryStoragePort.open(STORAGE_KEY))
+                .thenThrow(new StorageObjectNotFoundException(STORAGE_KEY));
+
+        assertThatThrownBy(() -> useCase.open(metadata()))
                 .isInstanceOf(StorageObjectNotFoundException.class);
+    }
+
+    private void stubSnapshot(MediaAssetContentDeliverySnapshot snapshot) {
+        when(contentDeliveryQueryPort.findByAssetId(ASSET_ID)).thenReturn(Optional.of(snapshot));
+        if (snapshot.storageProviderId() != null) {
+            lenient().when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+        }
+    }
+
+    private MediaAssetContentDeliverySnapshot activePublicSnapshot() {
+        return snapshot(MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1, "local", STORAGE_KEY.value(), HASH,
+                "audio/mpeg", 1024L);
+    }
+
+    private GetMediaAssetContentMetadataResult metadata() {
+        return new GetMediaAssetContentMetadataResult(ASSET_ID, 1, 1024L, "audio/mpeg", HASH);
+    }
+
+    private MediaAssetContentDeliverySnapshot snapshot(
+            MediaAssetStatus status,
+            MediaVisibility visibility,
+            int currentVersionNumber,
+            UUID versionId,
+            UUID versionAssetId,
+            Integer versionNumber,
+            String storageProviderId,
+            String storageKey,
+            String contentHash,
+            String mimeType,
+            Long sizeBytes
+    ) {
+        return new MediaAssetContentDeliverySnapshot(
+                ASSET_ID, status, visibility, currentVersionNumber,
+                versionId, versionAssetId, versionNumber,
+                storageProviderId, storageKey, contentHash, mimeType, sizeBytes
+        );
+    }
+
+    private void verifyNoStorageOpen() {
+        verify(binaryStoragePort, never()).open(any());
+        verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+    }
+
+    private static Stream<Arguments> ineligibleStates() {
+        return Stream.of(
+                Arguments.of(MediaAssetStatus.ARCHIVED, MediaVisibility.PUBLIC),
+                Arguments.of(MediaAssetStatus.DELETED, MediaVisibility.PUBLIC),
+                Arguments.of(MediaAssetStatus.ACTIVE, MediaVisibility.PRIVATE),
+                Arguments.of(MediaAssetStatus.ACTIVE, MediaVisibility.RESTRICTED)
+        );
+    }
+
+    private static Stream<Arguments> phaseTwoRevocations() {
+        return ineligibleStates();
+    }
+
+    private static Stream<Arguments> changedRepresentations() {
+        return Stream.of(
+                Arguments.of(OTHER_HASH, "audio/mpeg", 1024L),
+                Arguments.of(HASH, "audio/ogg", 1024L),
+                Arguments.of(HASH, "audio/mpeg", 2048L)
+        );
     }
 }

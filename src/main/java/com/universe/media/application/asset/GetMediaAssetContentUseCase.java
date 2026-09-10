@@ -3,14 +3,15 @@ package com.universe.media.application.asset;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
-import com.universe.media.application.ports.MediaAssetRepositoryPort;
-import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
+import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort;
+import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort.MediaAssetContentDeliverySnapshot;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
-import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAssetStatus;
-import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaVisibility;
+import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageProviderId;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,22 +29,16 @@ import java.util.UUID;
 @Service
 public class GetMediaAssetContentUseCase {
 
-    private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
-    private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
+    private final MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort;
     private final BinaryStoragePort binaryStoragePort;
 
     public GetMediaAssetContentUseCase(
-            MediaAssetRepositoryPort mediaAssetRepositoryPort,
-            MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
+            MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort,
             BinaryStoragePort binaryStoragePort
     ) {
-        this.mediaAssetRepositoryPort = Objects.requireNonNull(
-                mediaAssetRepositoryPort,
-                "MediaAssetRepositoryPort cannot be null."
-        );
-        this.mediaAssetVersionRepositoryPort = Objects.requireNonNull(
-                mediaAssetVersionRepositoryPort,
-                "MediaAssetVersionRepositoryPort cannot be null."
+        this.contentDeliveryQueryPort = Objects.requireNonNull(
+                contentDeliveryQueryPort,
+                "MediaAssetContentDeliveryQueryPort cannot be null."
         );
         this.binaryStoragePort = Objects.requireNonNull(
                 binaryStoragePort,
@@ -114,35 +109,67 @@ public class GetMediaAssetContentUseCase {
     private ResolvedContent resolveEligibleCurrentContent(UUID assetId) {
         Objects.requireNonNull(assetId, "Asset ID cannot be null.");
 
-        MediaAsset asset = mediaAssetRepositoryPort.findById(assetId)
+        MediaAssetContentDeliverySnapshot snapshot = contentDeliveryQueryPort.findByAssetId(assetId)
                 .orElseThrow(() -> new MediaAssetNotFoundException(assetId));
 
-        if (asset.getStatus() != MediaAssetStatus.ACTIVE || asset.getVisibility() != MediaVisibility.PUBLIC) {
+        if (snapshot.status() != MediaAssetStatus.ACTIVE
+                || snapshot.visibility() != MediaVisibility.PUBLIC) {
             throw new MediaAssetNotFoundException(assetId);
         }
 
-        int currentVersionNumber = asset.getCurrentVersionNumber();
-        MediaAssetVersion currentVersion = mediaAssetVersionRepositoryPort
-                .findByAssetIdAndVersionNumber(assetId, currentVersionNumber)
-                .orElseThrow(() -> new MediaAssetVersionNotFoundException(assetId, currentVersionNumber));
+        int currentVersionNumber = snapshot.currentVersionNumber();
+        if (!assetId.equals(snapshot.assetId())
+                || snapshot.versionId() == null
+                || !assetId.equals(snapshot.versionAssetId())
+                || snapshot.versionNumber() == null
+                || snapshot.versionNumber() != currentVersionNumber) {
+            throw new MediaAssetVersionNotFoundException(assetId, currentVersionNumber);
+        }
 
-        if (!binaryStoragePort.providerId().equals(currentVersion.getStorageLocation().providerId())) {
+        ResolvedTechnicalMetadata technicalMetadata = resolveTechnicalMetadata(snapshot, assetId);
+
+        if (!binaryStoragePort.providerId().equals(technicalMetadata.storageProviderId())) {
             throw new StorageException(
                     "Storage provider mismatch for asset " + assetId
                             + ": configured provider is " + binaryStoragePort.providerId().value()
-                            + ", but asset requires " + currentVersion.getStorageLocation().providerId().value()
+                            + ", but asset requires " + technicalMetadata.storageProviderId().value()
             );
         }
 
         GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
                 assetId,
-                currentVersion.getVersionNumber(),
-                currentVersion.getSizeBytes(),
-                currentVersion.getMimeType().value(),
-                currentVersion.getContentHash().value()
+                currentVersionNumber,
+                technicalMetadata.sizeBytes(),
+                technicalMetadata.mimeType().value(),
+                technicalMetadata.contentHash().value()
         );
 
-        return new ResolvedContent(metadata, currentVersion.getStorageLocation().key());
+        return new ResolvedContent(metadata, technicalMetadata.storageKey());
+    }
+
+    private ResolvedTechnicalMetadata resolveTechnicalMetadata(
+            MediaAssetContentDeliverySnapshot snapshot,
+            UUID assetId
+    ) {
+        if (snapshot.storageProviderId() == null
+                || snapshot.storageKey() == null
+                || snapshot.contentHash() == null
+                || snapshot.mimeType() == null
+                || snapshot.sizeBytes() == null
+                || snapshot.sizeBytes() <= 0) {
+            throw new StorageException("Invalid current Media delivery metadata for asset " + assetId);
+        }
+        try {
+            return new ResolvedTechnicalMetadata(
+                    StorageProviderId.of(snapshot.storageProviderId()),
+                    StorageKey.of(snapshot.storageKey()),
+                    ContentHash.of(snapshot.contentHash()),
+                    MimeType.of(snapshot.mimeType()),
+                    snapshot.sizeBytes()
+            );
+        } catch (IllegalArgumentException e) {
+            throw new StorageException("Invalid current Media delivery metadata for asset " + assetId, e);
+        }
     }
 
     private ResolvedContent resolveMatchingCurrentContent(
@@ -162,6 +189,15 @@ public class GetMediaAssetContentUseCase {
     private record ResolvedContent(
             GetMediaAssetContentMetadataResult metadata,
             StorageKey storageKey
+    ) {
+    }
+
+    private record ResolvedTechnicalMetadata(
+            StorageProviderId storageProviderId,
+            StorageKey storageKey,
+            ContentHash contentHash,
+            MimeType mimeType,
+            long sizeBytes
     ) {
     }
 }

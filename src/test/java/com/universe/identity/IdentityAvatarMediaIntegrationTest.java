@@ -36,6 +36,7 @@ import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.shared.id.IdGeneratorPort;
@@ -93,6 +94,7 @@ import static org.mockito.Mockito.mock;
         DeleteAvatarService.class,
         GoogleOAuthUserService.class,
         MediaAssetPersistenceAdapter.class,
+        MediaAssetContentDeliveryQueryPersistenceAdapter.class,
         MediaAssetCurrentMetadataQueryPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         RegisterMediaAssetUseCase.class,

@@ -18,6 +18,7 @@ import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
+import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.novel.application.profile.GetNovelProfileUseCase;
@@ -82,6 +83,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         GetNovelProfileUseCase.class,
         UpdateNovelProfileUseCase.class,
         MediaAssetPersistenceAdapter.class,
+        MediaAssetContentDeliveryQueryPersistenceAdapter.class,
         MediaAssetCurrentMetadataQueryPersistenceAdapter.class,
         MediaAssetVersionPersistenceAdapter.class,
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
