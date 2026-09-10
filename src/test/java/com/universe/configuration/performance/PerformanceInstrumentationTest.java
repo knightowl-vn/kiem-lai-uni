@@ -1,5 +1,6 @@
 package com.universe.configuration.performance;
 
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -22,6 +23,91 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class PerformanceInstrumentationTest {
+
+    @Test
+    void canonicalHomeRoutesAreInstrumented() throws Exception {
+        PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter();
+
+        for (String path : List.of("/", "/home")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(request, response, (servletRequest, servletResponse) ->
+                    servletResponse.getWriter().write("home body")
+            );
+
+            assertThat(response.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
+                    .startsWith("total;dur=")
+                    .contains("conn;dur=")
+                    .contains("sql;dur=")
+                    .contains("tx;dur=")
+                    .contains("app;dur=");
+            assertThat(response.getContentAsString()).isEqualTo("home body");
+        }
+    }
+
+    @Test
+    void readerProgressAndHistoryPostsAreInstrumentedWithoutExposingRequestContent() throws Exception {
+        PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter();
+        String sensitiveRequestBody = "{\"password\":\"must-not-appear\"}";
+
+        for (String statePath : List.of("progress", "history")) {
+            MockHttpServletRequest request = new MockHttpServletRequest(
+                    "POST",
+                    "/novel/chapters/00000000-0000-0000-0000-000000000001/" + statePath
+            );
+            request.setContent(sensitiveRequestBody.getBytes(StandardCharsets.UTF_8));
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(request, response, (servletRequest, servletResponse) ->
+                    ((HttpServletResponse) servletResponse).setStatus(204)
+            );
+
+            assertThat(response.getStatus()).isEqualTo(204);
+            assertThat(response.getContentAsByteArray()).isEmpty();
+            assertThat(response.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
+                    .startsWith("total;dur=")
+                    .contains("conn;dur=")
+                    .contains("sql;dur=")
+                    .contains("tx;dur=")
+                    .contains("app;dur=")
+                    .doesNotContain("password")
+                    .doesNotContain("must-not-appear")
+                    .doesNotContain("jdbc:");
+        }
+    }
+
+    @Test
+    void unrelatedPostRemainsUninstrumentedAndResponseIsUnchanged() throws Exception {
+        PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/admin/novel/profile");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) -> {
+            ((HttpServletResponse) servletResponse).setStatus(202);
+            servletResponse.setContentType("text/plain");
+            servletResponse.getWriter().write("unchanged unrelated response");
+        });
+
+        assertThat(response.getHeader(PerformanceServerTimingFilter.SERVER_TIMING)).isNull();
+        assertThat(response.getStatus()).isEqualTo(202);
+        assertThat(response.getContentType()).isEqualTo("text/plain");
+        assertThat(response.getContentAsString()).isEqualTo("unchanged unrelated response");
+    }
+
+    @Test
+    void staticResourceRemainsUninstrumented() throws Exception {
+        PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/js/theme.js");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, (servletRequest, servletResponse) ->
+                servletResponse.getWriter().write("static bytes")
+        );
+
+        assertThat(response.getHeader(PerformanceServerTimingFilter.SERVER_TIMING)).isNull();
+        assertThat(response.getContentAsString()).isEqualTo("static bytes");
+    }
 
     @Test
     void enabledFilterEmitsRequestScopedMetricsWithoutChangingTheResponse() throws Exception {

@@ -93,17 +93,37 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String method = request.getMethod();
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+
+        if ("POST".equals(method)) {
+            return !isReaderStateWritePath(path);
+        }
         if (!"GET".equals(method) && !"HEAD".equals(method)) {
             return true;
         }
 
-        String path = request.getRequestURI().substring(request.getContextPath().length());
-        return !(path.equals("/novel")
+        return !("GET".equals(method) && (path.equals("/") || path.equals("/home"))
+                || path.equals("/novel")
                 || path.startsWith("/novel/")
                 || path.equals("/api/novel/narration/voices")
                 || isManifestPath(path)
                 || isPlaybackMetadataPath(path)
                 || isMediaContentPath(path));
+    }
+
+    private boolean isReaderStateWritePath(String path) {
+        String prefix = "/novel/chapters/";
+        if (!path.startsWith(prefix)) {
+            return false;
+        }
+
+        int stateSeparator = path.indexOf('/', prefix.length());
+        if (stateSeparator < 0 || stateSeparator == prefix.length()) {
+            return false;
+        }
+
+        String statePath = path.substring(stateSeparator);
+        return statePath.equals("/progress") || statePath.equals("/history");
     }
 
     private boolean isMediaContentRequest(HttpServletRequest request) {
