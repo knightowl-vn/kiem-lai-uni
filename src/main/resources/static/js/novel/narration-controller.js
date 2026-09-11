@@ -146,6 +146,8 @@
             this.activeChapterHighlightedElements = new Set();
             this.savedVoicePreference = null;
             this.isNavigatingToNext = false;
+            this._activeNextChapterPreload = null;
+            this._nextChapterPreloadSequenceId = 0;
             this._hasUserExplicitlySelectedVoice = false;
             this._managedCatalogResolved = false;
             this._cachedManagedVoices = [];
@@ -373,6 +375,23 @@
                     this.dom.fallbackToggle = this.dom.settingsPanel.querySelector(sel.fallbackToggle);
                 }
             }
+        }
+
+        /**
+         * Cancels any active next-chapter preload requests and invalidates the state.
+         * Used to ensure preload snapshots stay perfectly aligned with the authoritative configuration.
+         * @private
+         */
+        _cancelNextChapterPreload() {
+            if (this._activeNextChapterPreload) {
+                if (this._activeNextChapterPreload.abortController) {
+                    try {
+                        this._activeNextChapterPreload.abortController.abort();
+                    } catch (ignored) {}
+                }
+                this._activeNextChapterPreload = null;
+            }
+            this._nextChapterPreloadSequenceId++;
         }
 
         /**
@@ -918,6 +937,7 @@
          * @private
          */
         _handlePopState(event) {
+            this._cancelNextChapterPreload();
             if (typeof window !== 'undefined' && window.location) {
                 window.location.reload();
             }
@@ -1242,6 +1262,7 @@
          * @private
          */
         _activateEngine(type, identifier) {
+            this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             if (type === 'managed' && this.managedEngine) {
                 if (this.deviceEngine) {
@@ -1465,6 +1486,7 @@
 
         async _offerLegacyChapterFallback() {
             if (this.engine !== this.chapterEngine || this.isUnloaded) return;
+            this._cancelNextChapterPreload();
             const chapterId = this.chapterId;
             const voiceKey = this.chapterEngine.getSelectedVoiceKey();
             try {
@@ -1541,6 +1563,7 @@
             this.autoNext = Boolean(enabled);
 
             if (!this.autoNext) {
+                this._cancelNextChapterPreload();
                 if (this.isNavigatingToNext || this._autoNextTimeoutId) {
                     this._cancelPendingAutoNext();
                     if (this.isCompleted) {
@@ -1609,6 +1632,7 @@
                 return false;
             }
 
+            this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             if (this.managedEngine) {
                 try {
@@ -2118,6 +2142,7 @@
          * @private
          */
         async _handleVoiceChange() {
+            this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             this._hasUserExplicitlySelectedVoice = true;
             const selectionSequence = ++this._voiceSelectionSequenceId;
@@ -2305,6 +2330,7 @@
                 return;
             }
             this.isUnloaded = true;
+            this._cancelNextChapterPreload();
             this._cancelPendingAutoNext();
 
             if (!this.isCompleted && this.hasMeaningfulResume && this.engine && this.chunks.length > 0 && this.chapterId) {
@@ -2888,6 +2914,7 @@
          * @private
          */
         _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {
+            this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
 

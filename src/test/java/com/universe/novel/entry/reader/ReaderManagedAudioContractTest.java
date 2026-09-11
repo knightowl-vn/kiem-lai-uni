@@ -2384,11 +2384,10 @@ class ReaderManagedAudioContractTest {
         String selection = controllerMethod("async _selectManagedPlayback(", "_onChapterCueChange(index, cue) {");
         assertThat(selection).contains("this.chapterId === chapterId", "selection === this._chapterSelectionId",
                 "voiceSequence === this._voiceSelectionSequenceId", "this.managedEngine.stop()", "this.managedEngine.cancel()");
-        for (String lifecycle : new String[]{"_handleVoiceChange() {", "_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {"}) {
-            String controller = read("src/main/resources/static/js/novel/narration-controller.js");
-            assertThat(controller.substring(controller.indexOf(lifecycle), controller.indexOf(lifecycle) + 140))
-                    .contains("this._invalidateChapterPlayback()");
-        }
+        assertThat(controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {"))
+                .contains("this._invalidateChapterPlayback()");
+        assertThat(controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {", "_onEngineError(error, engineType) {"))
+                .contains("this._invalidateChapterPlayback()");
         assertThat(controllerMethod("_handleUnload() {", "_handleStorageEvent(event) {"))
                 .contains("this._invalidateChapterPlayback()");
     }

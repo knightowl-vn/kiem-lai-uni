@@ -68,24 +68,62 @@
             if (this.options.onStateChange) this.options.onStateChange(state, previous);
         }
 
-        async loadPlayback(chapterId, voiceKey) {
+        /**
+         * Passively fetches chapter playback metadata without mutating active playback state.
+         * Used for next-chapter preload foundation.
+         */
+        async fetchPlaybackMetadata(chapterId, voiceKey, options = {}) {
+            try {
+                const response = await this.fetchFunction(buildPlaybackUrl(chapterId, voiceKey), {
+                    method: 'GET',
+                    cache: 'no-store',
+                    signal: options.signal,
+                    headers: { Accept: 'application/json' }
+                });
+                if (!response.ok) return null;
+                const metadata = await response.json();
+                if (String(metadata.chapterId) !== String(chapterId) || metadata.voiceKey !== voiceKey) return null;
+                if (!isChapterPlayable(metadata)) return null;
+                return metadata;
+            } catch (error) {
+                if (error && error.name === 'AbortError') return null;
+                throw error;
+            }
+        }
+
+        async loadPlayback(chapterId, voiceKey, preloadedMetadata = null) {
             this.stop();
             const generation = this._generation;
             const controller = new AbortController();
             this._fetchController = controller;
             this._transitionState('LOADING');
             try {
-                const response = await this.fetchFunction(buildPlaybackUrl(chapterId, voiceKey), {
-                    method: 'GET', cache: 'no-store', signal: controller.signal,
-                    headers: { Accept: 'application/json' }
-                });
-                if (!response.ok) throw new Error('Chapter playback unavailable');
-                const metadata = await response.json();
+                let metadata = preloadedMetadata;
+                let isPreloadValid = false;
+
+                if (metadata) {
+                    isPreloadValid = String(metadata.chapterId) === String(chapterId) &&
+                                     metadata.voiceKey === voiceKey &&
+                                     isChapterPlayable(metadata);
+                }
+
+                if (!isPreloadValid) {
+                    const response = await this.fetchFunction(buildPlaybackUrl(chapterId, voiceKey), {
+                        method: 'GET', cache: 'no-store', signal: controller.signal,
+                        headers: { Accept: 'application/json' }
+                    });
+                    if (!response.ok) throw new Error('Chapter playback unavailable');
+                    metadata = await response.json();
+                }
+
                 if (generation !== this._generation || controller.signal.aborted) return null;
-                if (String(metadata.chapterId) !== String(chapterId) || metadata.voiceKey !== voiceKey) return null;
-                if (!isChapterPlayable(metadata)) {
-                    this._transitionState('IDLE');
-                    return null;
+
+                if (!isPreloadValid) {
+                    if (String(metadata.chapterId) !== String(chapterId) || metadata.voiceKey !== voiceKey) return null;
+                    if (!isChapterPlayable(metadata)) {
+                        this._transitionState('IDLE');
+                        return null;
+                    }
                 }
                 this.metadata = metadata;
                 // Ordering is a view; persisted intervals and identifiers are never rewritten.

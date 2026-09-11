@@ -30,11 +30,11 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
                 this._listeners[event].forEach(cb => cb());
             }
         }
-        play() { 
-            this.emit('play'); this.emit('playing'); return Promise.resolve(); 
+        play() {
+            this.emit('play'); this.emit('playing'); return Promise.resolve();
         }
-        pause() { 
-            this.emit('pause'); 
+        pause() {
+            this.emit('pause');
         }
         removeAttribute(attr) {
             if (attr === 'src') this.src = '';
@@ -89,7 +89,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         const { engine, audio } = await createStartedEngine(env, counter);
 
         assert.strictEqual(engine.state, 'PLAYING');
-        
+
         audio.currentTime = 100;
         audio.ended = true;
         audio.emit('ended');
@@ -104,7 +104,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         const { engine, audio } = await createStartedEngine(env, counter);
 
         engine.seekToRatio(1);
-        
+
         audio.ended = true;
         audio.emit('ended');
 
@@ -150,7 +150,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
 
         engine.seekToRatio(0.95);
         assert.strictEqual(engine.state, 'PLAYING');
-        
+
         audio.currentTime = 100;
         audio.ended = true;
         audio.emit('ended');
@@ -208,7 +208,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller.autoNext = false;
         controller.engine = controller.chapterEngine = { getSelectedVoiceKey: () => 'voice', getProgress: () => ({}) };
         controller.activeEngineType = 'managed';
-        
+
         let timeoutCalled = false;
         env.window.setTimeout = () => { timeoutCalled = true; return 1; };
         controller._resolveNextChapterUrl = () => '/next';
@@ -223,12 +223,12 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         const env = createControllerEnv();
         const controller = new env.NarrationController.NarrationController({});
         controller.autoNext = true;
-        controller.engine = controller.chapterEngine = { 
+        controller.engine = controller.chapterEngine = {
             getSelectedVoiceKey: () => 'voice123',
-            getProgress: () => ({}) 
+            getProgress: () => ({})
         };
         controller.activeEngineType = 'managed';
-        
+
         let timeoutCb = null;
         let timeoutDelay = 0;
         env.window.setTimeout = (cb, delay) => { timeoutCb = cb; timeoutDelay = delay; return 1; };
@@ -259,7 +259,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller.dom = { progressBar: { getBoundingClientRect: () => ({ left: 0, width: 100 }) } };
         controller.chunks = [{}];
         controller.engine = controller.chapterEngine = { seekToRatio: () => {} };
-        
+
         let cancelCalled = false;
         controller._cancelPendingAutoNext = () => { cancelCalled = true; };
         controller._syncNavigationAndProgress = () => {};
@@ -275,7 +275,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller.autoNext = true;
         controller.engine = controller.chapterEngine = { getProgress: () => ({}) };
         controller.activeEngineType = 'managed';
-        
+
         controller._resolveNextChapterUrl = () => null;
 
         controller._onEngineChapterEnd('managed');
@@ -287,7 +287,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
     await t.test('11. Continuation behavior: transition uses active engine authority', async () => {
         const env = createControllerEnv();
         const controller = new env.NarrationController.NarrationController({});
-        
+
         let playCalled = false;
 
         controller.chapterEngine = {
@@ -303,7 +303,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller.activeEngineType = 'managed';
         controller._voiceSelectionSequenceId = 1;
         controller.chapterId = '456';
-        
+
         controller.savedVoicePreference = null;
         controller.dom = {};
 
@@ -318,7 +318,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller._setStatusMessage = () => {};
 
         await controller._applyChapterTransition({
-            title: 'Doc', 
+            title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
         }, '/url', {}, { mode: 'managed', voiceKey: 'voice-B' }); // request voice-B
@@ -343,7 +343,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller.managedEngine = { getSelectedVoiceKey: () => 'some-voice' };
         controller.dom = { body: { querySelectorAll: () => [], setAttribute: () => {} } };
         controller.parser = { parseChapterBody: () => [{ text: 'hello' }] };
-        
+
         controller._updateProgressDisplay = () => {};
         controller._updateNavButtons = () => {};
         controller._setStatusMessage = () => {};
@@ -356,7 +356,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller._resolveNextChapterUrl = () => '/next';
         env.window.setTimeout = (cb) => cb(); // invoke immediately
         controller._onEngineChapterEnd('device');
-        
+
         assert.strictEqual(capturedIntent.mode, 'device');
 
         // 2. Simulate transition
@@ -364,7 +364,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         controller._selectManagedPlayback = async () => { selectManagedCalled = true; };
 
         await controller._applyChapterTransition({
-            title: 'Doc', 
+            title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
         }, '/url', { newChapterId: '456', bodyEl: {} }, capturedIntent);
@@ -380,4 +380,347 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
 
 
 
+
+test('H.9H2A Passive Preload Tests', async (t) => {
+    function createEngineEnv() {
+        const env = {
+            console, setTimeout, clearTimeout,
+            AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } }
+        };
+        const engineSrc = require('fs').readFileSync('src/main/resources/static/js/novel/chapter-audio-engine.js', 'utf8');
+        require('vm').runInNewContext(engineSrc, env);
+        return env;
+    }
+
+    const fakeAudioFactory = () => {
+        const listeners = {};
+        return {
+            readyState: 4,
+            currentTime: 0,
+            duration: 100,
+            ended: false,
+            playbackRate: 1,
+            src: '',
+            preload: '',
+            _listeners: listeners,
+            addEventListener(event, cb) {
+                if (!listeners[event]) listeners[event] = [];
+                listeners[event].push(cb);
+            },
+            removeEventListener(event, cb) {
+                if (listeners[event]) {
+                    listeners[event] = listeners[event].filter(l => l !== cb);
+                }
+            },
+            emit(event) {
+                if (listeners[event]) {
+                    listeners[event].forEach(cb => cb());
+                }
+            },
+            play() {
+                if (listeners['play']) listeners['play'].forEach(cb => cb());
+                if (listeners['playing']) listeners['playing'].forEach(cb => cb());
+                return Promise.resolve();
+            },
+            pause() {
+                if (listeners['pause']) listeners['pause'].forEach(cb => cb());
+            },
+            removeAttribute(attr) {
+                if (attr === 'src') this.src = '';
+            },
+            load() {
+                this.readyState = 4;
+                if (listeners['canplay']) listeners['canplay'].forEach(cb => cb());
+            }
+        };
+    };
+
+    await t.test('1. passive metadata fetch returns valid matching READY/CURRENT metadata', async () => {
+        const env = createEngineEnv();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '1', voiceKey: 'v1', audioUrl: 'u', cues: [{}] }) })
+        });
+        const meta = await engine.fetchPlaybackMetadata('1', 'v1');
+        require('node:assert').ok(meta);
+        require('node:assert').strictEqual(meta.chapterId, '1');
+    });
+
+    await t.test('2. STALE_VOICE remains playable according to existing semantics', async () => {
+        const env = createEngineEnv();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'STALE_VOICE', chapterId: '1', voiceKey: 'v1', audioUrl: 'u', cues: [{}] }) })
+        });
+        const meta = await engine.fetchPlaybackMetadata('1', 'v1');
+        require('node:assert').ok(meta);
+    });
+
+    await t.test('3. chapterId mismatch returns null', async () => {
+        const env = createEngineEnv();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '2', voiceKey: 'v1', audioUrl: 'u', cues: [{}] }) })
+        });
+        const meta = await engine.fetchPlaybackMetadata('1', 'v1');
+        require('node:assert').strictEqual(meta, null);
+    });
+
+    await t.test('4. voiceKey mismatch returns null', async () => {
+        const env = createEngineEnv();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '1', voiceKey: 'v2', audioUrl: 'u', cues: [{}] }) })
+        });
+        const meta = await engine.fetchPlaybackMetadata('1', 'v1');
+        require('node:assert').strictEqual(meta, null);
+    });
+
+    await t.test('5. non-playable freshness/availability returns null', async () => {
+        const env = createEngineEnv();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'PENDING', playable: false, freshness: 'CURRENT', chapterId: '1', voiceKey: 'v1', audioUrl: 'u', cues: [{}] }) })
+        });
+        const meta = await engine.fetchPlaybackMetadata('1', 'v1');
+        require('node:assert').strictEqual(meta, null);
+    });
+
+    await t.test('6. passive fetch does not stop/change active Chapter A', async () => {
+        const env = createEngineEnv();
+        let stopped = false;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: fakeAudioFactory,
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '2', voiceKey: 'v2', audioUrl: 'u', cues: [{}] }) })
+        });
+        engine.stop = () => { stopped = true; };
+        engine.state = 'PLAYING';
+        engine._generation = 5;
+        await engine.fetchPlaybackMetadata('2', 'v2');
+        require('node:assert').strictEqual(stopped, false);
+        require('node:assert').strictEqual(engine.state, 'PLAYING');
+        require('node:assert').strictEqual(engine._generation, 5);
+    });
+
+    await t.test('7. passive fetch creates no Audio and assigns no src', async () => {
+        const env = createEngineEnv();
+        let factoryCalled = false;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: () => { factoryCalled = true; return {}; },
+            fetchFunction: async () => ({ ok: true, json: async () => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '2', voiceKey: 'v2', audioUrl: 'u', cues: [{}] }) })
+        });
+        await engine.fetchPlaybackMetadata('2', 'v2');
+        require('node:assert').strictEqual(factoryCalled, false);
+        require('node:assert').strictEqual(engine.audio, null);
+    });
+
+    await t.test('8. abort is handled without mutating playback', async () => {
+        const env = createEngineEnv();
+        const initialMeta = {
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            chapterId: '100',
+            voiceKey: 'voice-a',
+            audioUrl: 'http://example.com/audio100.mp3',
+            durationMillis: 100000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        const audio = fakeAudioFactory();
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: () => audio,
+            fetchFunction: async () => ({ ok: true, json: async () => initialMeta })
+        });
+        await engine.loadPlayback('100', 'voice-a');
+        await engine.play(0);
+
+        require('node:assert').strictEqual(engine.state, 'PLAYING');
+        const initialGeneration = engine._generation;
+        const initialPlayId = engine._playId;
+        const initialWantsPlay = engine._wantsPlay;
+        const initialAudio = engine.audio;
+        const initialMetadata = engine.metadata;
+        const initialCues = engine.cues;
+
+        const abortCtrl = new env.AbortController();
+        // Cause passive fetch AbortError
+        engine.fetchFunction = async () => {
+            const err = new Error('The operation was aborted');
+            err.name = 'AbortError';
+            throw err;
+        };
+        const meta = await engine.fetchPlaybackMetadata('101', 'voice-b', { signal: abortCtrl.signal });
+
+        require('node:assert').strictEqual(meta, null);
+        require('node:assert').strictEqual(engine.state, 'PLAYING');
+        require('node:assert').strictEqual(engine._generation, initialGeneration);
+        require('node:assert').strictEqual(engine._playId, initialPlayId);
+        require('node:assert').strictEqual(engine._wantsPlay, initialWantsPlay);
+        require('node:assert').strictEqual(engine.audio, initialAudio);
+        require('node:assert').strictEqual(engine.metadata, initialMetadata);
+        require('node:assert').strictEqual(engine.cues, initialCues);
+    });
+
+    await t.test('9. loadPlayback consumes valid preloaded metadata without metadata GET', async () => {
+        const env = createEngineEnv();
+        let fetchCalled = false;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: fakeAudioFactory,
+            fetchFunction: async () => { fetchCalled = true; return { ok: true, json: async() => ({}) }; }
+        });
+        const validMeta = { availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '2', voiceKey: 'v2', audioUrl: 'u', cues: [{}] };
+        await engine.loadPlayback('2', 'v2', validMeta);
+        require('node:assert').strictEqual(fetchCalled, false);
+        require('node:assert').strictEqual(engine.metadata, validMeta);
+    });
+
+    await t.test('10. invalid preloaded metadata falls back to the normal cold GET', async () => {
+        const env = createEngineEnv();
+        let fetchCalled = false;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: fakeAudioFactory,
+            fetchFunction: async () => {
+                fetchCalled = true;
+                return { ok: true, json: async() => ({ availability: 'READY', playable: true, freshness: 'CURRENT', chapterId: '2', voiceKey: 'v2', audioUrl: 'u', cues: [{}] }) };
+            }
+        });
+        const invalidMeta = { chapterId: '999' };
+        await engine.loadPlayback('2', 'v2', invalidMeta);
+        require('node:assert').strictEqual(fetchCalled, true);
+        require('node:assert').strictEqual(engine.metadata.chapterId, '2');
+    });
+
+    await t.test('11. preload cancellation has its own sequence/controller separate from Auto Next transition cancellation', async () => {
+        function createControllerEnv() {
+            const env = {
+                console, setTimeout, clearTimeout, window: { location: { reload: () => {} } },
+                document: { querySelector: () => null, getElementById: () => null },
+                AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } }
+            };
+            const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+            require('vm').runInNewContext(controllerSrc, env);
+            return env;
+        }
+        const env = createControllerEnv();
+        const controller = new env.NarrationController.NarrationController({});
+
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, 0);
+        controller._activeNextChapterPreload = { abortController: new env.AbortController() };
+
+        // Disabling auto next cancels preload
+        controller.setAutoNext(false, false);
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, 1);
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, null);
+
+        // Voice change cancels preload
+        controller._activeNextChapterPreload = { abortController: new env.AbortController() };
+        controller.dom = { voiceSelect: { value: 'managed:test' } };
+        controller.managedEngine = { stop: ()=>{}, cancel: ()=>{} };
+        await controller._handleVoiceChange();
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, 2);
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, null);
+
+        // _activateEngine cancels preload
+        controller._activeNextChapterPreload = { abortController: new env.AbortController() };
+        controller.managedEngine = { stop: () => {}, getSegments: () => [] };
+        controller._selectManagedPlayback = async () => ({ segments: [] });
+        controller._activateEngine('managed', 'test-key');
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, 3);
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, null);
+    });
+
+    await t.test('12. ChapterAudio to legacy Managed fallback cancels preload, aborts controller, and increments sequence', async () => {
+        function createControllerEnv() {
+            const env = {
+                console, setTimeout, clearTimeout, window: { location: { reload: () => {} } },
+                document: { querySelector: () => null, getElementById: () => null },
+                AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } }
+            };
+            const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+            require('vm').runInNewContext(controllerSrc, env);
+            return env;
+        }
+        const env = createControllerEnv();
+        const controller = new env.NarrationController.NarrationController({});
+
+        controller.chapterEngine = {
+            getSelectedVoiceKey: () => 'voice-1',
+            isSupported: () => true,
+            stop: () => {}
+        };
+        controller.engine = controller.chapterEngine;
+        controller.chapterId = 'chap-1';
+        controller.isUnloaded = false;
+        controller._selectManagedPlayback = async () => ({ segments: [] });
+
+        const preloadAc = new env.AbortController();
+        controller._activeNextChapterPreload = {
+            sourceChapterId: 'chap-1',
+            nextUrl: '/chapter-2',
+            mode: 'managed',
+            voiceKey: 'voice-1',
+            abortController: preloadAc
+        };
+        const initialPreloadSeq = controller._nextChapterPreloadSequenceId;
+
+        await controller._offerLegacyChapterFallback();
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true, 'preload AbortController should be aborted');
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, null, 'preload slot should be cleared to null');
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, initialPreloadSeq + 1, 'preload sequence should increment');
+    });
+
+    await t.test('13. Sequence isolation: _cancelPendingAutoNext and _cancelNextChapterPreload remain independent', async () => {
+        function createControllerEnv() {
+            const env = {
+                console, setTimeout, clearTimeout, window: { location: { reload: () => {} } },
+                document: { querySelector: () => null, getElementById: () => null },
+                AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } }
+            };
+            const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+            require('vm').runInNewContext(controllerSrc, env);
+            return env;
+        }
+        const env = createControllerEnv();
+        const controller = new env.NarrationController.NarrationController({});
+
+        const preloadAc = new env.AbortController();
+        const initialPreloadSlot = {
+            sourceChapterId: 'chap-1',
+            nextUrl: '/chapter-2',
+            mode: 'managed',
+            voiceKey: 'voice-1',
+            abortController: preloadAc
+        };
+        controller._activeNextChapterPreload = initialPreloadSlot;
+        const initialPreloadSeq = controller._nextChapterPreloadSequenceId;
+
+        const transitionAc = new env.AbortController();
+        controller._transitionAbortController = transitionAc;
+        const initialTransitionSeq = controller._transitionSequenceId;
+
+        // 1. Call _cancelPendingAutoNext()
+        controller._cancelPendingAutoNext();
+
+        // Must NOT clear _activeNextChapterPreload, increment sequence, or abort preload controller
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, initialPreloadSlot, 'preload slot must remain intact');
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, initialPreloadSeq, 'preload sequence must NOT increment');
+        require('node:assert').strictEqual(preloadAc.signal.aborted, false, 'preload controller must NOT be aborted');
+        // Did abort and clear transition state
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true, 'transition controller was aborted');
+        require('node:assert').strictEqual(controller._transitionAbortController, null, 'transition controller was cleared');
+        require('node:assert').strictEqual(controller._transitionSequenceId, initialTransitionSeq + 1, 'transition sequence incremented');
+
+        // 2. Reset transition state and test _cancelNextChapterPreload()
+        const newTransitionAc = new env.AbortController();
+        controller._transitionAbortController = newTransitionAc;
+        const currentTransitionSeq = controller._transitionSequenceId;
+
+        controller._cancelNextChapterPreload();
+
+        // Must NOT mutate _transitionSequenceId or clear/replace _transitionAbortController
+        require('node:assert').strictEqual(controller._transitionSequenceId, currentTransitionSeq, 'transition sequence must NOT be mutated');
+        require('node:assert').strictEqual(controller._transitionAbortController, newTransitionAc, 'transition controller must NOT be cleared or replaced');
+        require('node:assert').strictEqual(newTransitionAc.signal.aborted, false, 'transition controller must NOT be aborted');
+        // Did abort and clear preload state
+        require('node:assert').strictEqual(controller._activeNextChapterPreload, null, 'preload slot is now cleared');
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true, 'preload controller is aborted');
+        require('node:assert').strictEqual(controller._nextChapterPreloadSequenceId, initialPreloadSeq + 1, 'preload sequence incremented');
+    });
+});
 
