@@ -1,16 +1,11 @@
 package com.universe.novel.application.reader;
 
-import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
-import com.universe.novel.application.narration.NarrationTextSegmenter;
-import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
 import com.universe.novel.application.ports.PublicReaderNavigationIndexCachePort;
-import com.universe.novel.application.reader.render.ReaderNarrationMarkdownRenderer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.ArgumentMatchers.any;
-import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
-import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
+import com.universe.novel.application.ports.PublicReaderRenderedChapterCachePort;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
+import com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
+import com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,21 +15,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ReaderChapterTocReadModelTest {
-
-    @Mock
-    private ReaderChapterDetailQueryPort queryPort;
-
-    @Mock
-    private NovelMarkdownRenderer markdownRenderer;
 
     @Mock
     private PublicReaderNavigationIndexCachePort navigationCachePort;
@@ -73,26 +63,22 @@ class ReaderChapterTocReadModelTest {
 
     @Test
     @DisplayName("GetReaderChapterDetailUseCase expose Previous/Next chapter được derive từ chung 1 TOC snapshot")
-    void useCaseExposesTocAlongWithIndependentPreviousAndNext() {
-        GetReaderChapterDetailUseCase useCase = new GetReaderChapterDetailUseCase(queryPort, markdownRenderer,
-                mock(NarrationTextSegmenter.class), mock(ChapterNarrationSegmentRepositoryPort.class),
-                new ReaderNarrationBlockMappingResolver(), mock(ReaderNarrationMarkdownRenderer.class),
-                navigationCachePort);
+    void useCaseDerivesPreviousAndNextFromTocSnapshot() {
+        PublicReaderRenderedChapterCachePort cachePort = mock(PublicReaderRenderedChapterCachePort.class);
+        GetReaderChapterDetailUseCase useCase = new GetReaderChapterDetailUseCase(
+                cachePort,
+                mock(PublicReaderRenderedChapterLoader.class),
+                navigationCachePort,
+                mock(PublicReaderNavigationIndexLoader.class)
+        );
 
         UUID chapterId = UUID.randomUUID();
         UUID volumeId = UUID.randomUUID();
         String slug = "chuong-3";
 
-        ReaderChapterRecord record = new ReaderChapterRecord(
-                chapterId,
-                volumeId,
-                3,
-                "Chương 3",
-                slug,
-                "# Raw markdown",
-                "Quyển 1",
-                "quyen-1",
-                1
+        com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO volume = new com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO(volumeId, "Quyển 1", "quyen-1", 1);
+        com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO snapshot = new com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO(
+                chapterId, 3, "Chương 3", slug, "<p>HTML</p>", volume
         );
 
         List<ReaderChapterTocItemDTO> toc = List.of(
@@ -101,8 +87,7 @@ class ReaderChapterTocReadModelTest {
                 new ReaderChapterTocItemDTO(7, "Chương 7", "chuong-7")
         );
 
-        when(queryPort.findPublishedChapterBySlug(slug)).thenReturn(Optional.of(record));
-        when(markdownRenderer.renderToHtml("# Raw markdown")).thenReturn("<p>HTML</p>");
+        when(cachePort.getOrLoad(any(), any())).thenReturn(snapshot);
         when(navigationCachePort.getOrLoad(any())).thenReturn(toc);
 
         ReaderChapterDetailDTO result = useCase.execute(slug);

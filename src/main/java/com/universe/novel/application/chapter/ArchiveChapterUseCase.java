@@ -28,11 +28,14 @@ public class ArchiveChapterUseCase {
 	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
 	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
 
+	private final com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
+
 	public ArchiveChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
 			ChapterRevisionRecorder chapterRevisionRecorder,
 			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
 			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
-			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator) {
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator) {
 		this.chapterRepositoryPort = chapterRepositoryPort;
 
 		this.clockPort = clockPort;
@@ -42,6 +45,7 @@ public class ArchiveChapterUseCase {
 		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
 		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
 		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
+		this.renderedChapterInvalidationCoordinator = renderedChapterInvalidationCoordinator;
 	}
 
 	@Transactional
@@ -72,6 +76,7 @@ public class ArchiveChapterUseCase {
 			publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
 			publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
 			publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
+			renderedChapterInvalidationCoordinator.invalidateAfterCommit(savedChapter.getSlug().value());
 		}
 
 		return ChapterDTOMapper.toDTO(savedChapter);

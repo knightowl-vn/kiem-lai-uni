@@ -59,6 +59,9 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
     @Mock
     private ClockPort clockPort;
 
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
+
     private ReconcileChapterNarrationSegmentsUseCase useCase;
 
     @BeforeEach
@@ -68,7 +71,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
                 segmentRepositoryPort,
                 narrationTextSegmenter,
                 idGeneratorPort,
-                clockPort
+                clockPort,
+                renderedChapterInvalidationCoordinator
         );
         lenient().when(clockPort.now()).thenReturn(T0);
     }
@@ -199,6 +203,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
         assertThat(saved.get(1).getSegmentIndex()).isEqualTo(1);
         assertThat(saved.get(1).getText()).isEqualTo("Nội dung đoạn 2.");
         assertThat(saved.get(1).getStatus()).isEqualTo(ChapterNarrationSegmentStatus.CURRENT);
+
+        verify(renderedChapterInvalidationCoordinator).invalidateAfterCommit("chuong-1");
     }
 
     @Test
@@ -239,6 +245,7 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
 
         verify(idGeneratorPort, never()).generate();
         verify(segmentRepositoryPort, never()).saveAll(any());
+        verify(renderedChapterInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 
     @Test
@@ -284,6 +291,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
         assertThat(seg1.getId()).isEqualTo(id1);
         assertThat(seg2.getSegmentIndex()).isEqualTo(2);
         assertThat(seg2.getId()).isEqualTo(id2);
+
+        verify(renderedChapterInvalidationCoordinator).invalidateAfterCommit("chuong-1");
     }
 
     @Test
@@ -325,6 +334,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
 
         assertThat(seg1.isCurrent()).isTrue();
         assertThat(seg2.isRetired()).isTrue();
+
+        verify(renderedChapterInvalidationCoordinator).invalidateAfterCommit("chuong-1");
     }
 
     @Test
@@ -367,6 +378,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
         assertThat(seg2.isRetired()).isTrue();
         assertThat(seg3.isCurrent()).isTrue();
         assertThat(seg3.getSegmentIndex()).isEqualTo(1);
+
+        verify(renderedChapterInvalidationCoordinator).invalidateAfterCommit("chuong-1");
     }
 
     @Test
@@ -407,6 +420,8 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
         assertThat(seg2.isCurrent()).isTrue();
         assertThat(seg2.getSegmentIndex()).isEqualTo(1);
         verify(idGeneratorPort, never()).generate();
+
+        verify(renderedChapterInvalidationCoordinator).invalidateAfterCommit("chuong-1");
     }
 
     @Test
@@ -555,5 +570,25 @@ class ReconcileChapterNarrationSegmentsUseCaseTest {
         List<UUID> retiredList = result.retiredSegmentIds();
         assertThatThrownBy(() -> retiredList.add(UUID.randomUUID()))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("11. Reconciliation failure does not invalidate cache")
+    void shouldNotInvalidateWhenSaveAllThrows() {
+        Chapter chapter = mockChapter("Nội dung mới", 1L);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(segmentRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(List.of());
+
+        List<NarrationTextSegment> desired = List.of(NarrationTextSegment.of(0, "Nội dung mới"));
+        when(narrationTextSegmenter.segment(chapter.getContent())).thenReturn(desired);
+        when(idGeneratorPort.generate()).thenReturn(UUID.randomUUID());
+
+        when(segmentRepositoryPort.saveAll(any())).thenThrow(new RuntimeException("DB Failure"));
+
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("DB Failure");
+
+        verify(renderedChapterInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 }

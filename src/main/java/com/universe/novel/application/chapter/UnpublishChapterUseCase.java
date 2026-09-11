@@ -30,11 +30,14 @@ public class UnpublishChapterUseCase {
 
 	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
 
+	private final com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
+
 	public UnpublishChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
 			ChapterRevisionRecorder chapterRevisionRecorder,
 			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
 			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
-			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator) {
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator) {
 		this.chapterRepositoryPort = chapterRepositoryPort;
 
 		this.clockPort = clockPort;
@@ -46,6 +49,8 @@ public class UnpublishChapterUseCase {
 		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
 
 		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
+
+		this.renderedChapterInvalidationCoordinator = renderedChapterInvalidationCoordinator;
 	}
 
 	@Transactional
@@ -72,6 +77,8 @@ public class UnpublishChapterUseCase {
 		publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
 
 		publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
+
+		renderedChapterInvalidationCoordinator.invalidateAfterCommit(savedChapter.getSlug().value());
 
 		return ChapterDTOMapper.toDTO(savedChapter);
 	}

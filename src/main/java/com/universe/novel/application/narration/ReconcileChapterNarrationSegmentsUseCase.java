@@ -61,18 +61,22 @@ public class ReconcileChapterNarrationSegmentsUseCase {
     private final IdGeneratorPort idGeneratorPort;
     private final ClockPort clockPort;
 
+    private final com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
+
     public ReconcileChapterNarrationSegmentsUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             ChapterNarrationSegmentRepositoryPort segmentRepositoryPort,
             NarrationTextSegmenter narrationTextSegmenter,
             IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator
     ) {
         this.chapterRepositoryPort = Objects.requireNonNull(chapterRepositoryPort, "chapterRepositoryPort must not be null");
         this.segmentRepositoryPort = Objects.requireNonNull(segmentRepositoryPort, "segmentRepositoryPort must not be null");
         this.narrationTextSegmenter = Objects.requireNonNull(narrationTextSegmenter, "narrationTextSegmenter must not be null");
         this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "idGeneratorPort must not be null");
         this.clockPort = Objects.requireNonNull(clockPort, "clockPort must not be null");
+        this.renderedChapterInvalidationCoordinator = Objects.requireNonNull(renderedChapterInvalidationCoordinator, "renderedChapterInvalidationCoordinator must not be null");
     }
 
     /**
@@ -219,6 +223,7 @@ public class ReconcileChapterNarrationSegmentsUseCase {
         // 5. Persist ONLY segments that were created, repositioned, restored, or retired
         if (!toSave.isEmpty()) {
             segmentRepositoryPort.saveAll(toSave);
+            renderedChapterInvalidationCoordinator.invalidateAfterCommit(chapter.getSlug().value());
         }
 
         return new ReconcileChapterNarrationSegmentsResult(
