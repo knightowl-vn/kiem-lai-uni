@@ -85,6 +85,11 @@
     };
 
     /**
+     * Maximum snapshot age (TTL) for next-chapter speculative preload.
+     */
+    const NEXT_CHAPTER_PRELOAD_TTL_MS = 60000;
+
+    /**
      * Narration Controller managing player UI and TTS engine orchestration.
      */
     class NarrationController {
@@ -1419,6 +1424,200 @@
             if (this.engine !== this.chapterEngine || this.isUnloaded) return;
             this._updateChapterProgressDisplay(progress);
             this._syncChapterHighlight();
+            this._checkAndTriggerNextChapterPreload(progress);
+        }
+
+        _checkAndTriggerNextChapterPreload(progress) {
+            if (!this.autoNext || this.isUnloaded || this.engine !== this.chapterEngine || this.activeEngineType !== 'managed') {
+                return;
+            }
+            if (typeof this.chapterEngine.getState === 'function' && this.chapterEngine.getState() !== 'PLAYING') {
+                return;
+            }
+            if (!progress ||
+                !Number.isFinite(progress.currentTimeSeconds) ||
+                !Number.isFinite(progress.durationSeconds) ||
+                progress.durationSeconds <= 0) {
+                return;
+            }
+            const remaining = progress.durationSeconds - progress.currentTimeSeconds;
+            if (remaining > 30) {
+                return;
+            }
+            const nextUrl = this._resolveNextChapterUrl();
+            if (!nextUrl) {
+                return;
+            }
+            const voiceKey = typeof this.chapterEngine.getSelectedVoiceKey === 'function' ? this.chapterEngine.getSelectedVoiceKey() : null;
+            if (!voiceKey) {
+                return;
+            }
+
+            if (this._activeNextChapterPreload) {
+                const existing = this._activeNextChapterPreload;
+                const isFresh = (Date.now() - existing.createdAt) <= NEXT_CHAPTER_PRELOAD_TTL_MS;
+                const matches = isFresh &&
+                    existing.sourceChapterId === this.chapterId &&
+                    existing.nextUrl === nextUrl &&
+                    existing.mode === 'managed' &&
+                    existing.voiceKey === voiceKey &&
+                    existing.voiceSelectionSequence === this._voiceSelectionSequenceId &&
+                    existing.preloadSequence === this._nextChapterPreloadSequenceId &&
+                    existing.status !== 'failed' &&
+                    existing.status !== 'aborted' &&
+                    existing.status !== 'stale' &&
+                    (!existing.abortController || !existing.abortController.signal || !existing.abortController.signal.aborted);
+
+                if (matches) {
+                    return;
+                }
+
+                this._cancelNextChapterPreload();
+            }
+
+            const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const snapshot = {
+                sourceChapterId: this.chapterId,
+                nextUrl: nextUrl,
+                targetChapterId: null,
+                mode: 'managed',
+                voiceKey: voiceKey,
+                voiceSelectionSequence: this._voiceSelectionSequenceId,
+                preloadSequence: this._nextChapterPreloadSequenceId,
+                createdAt: Date.now(),
+                abortController: abortController,
+                promise: null,
+                status: 'pending',
+                result: null,
+                playbackMetadata: null
+            };
+
+            this._activeNextChapterPreload = snapshot;
+            snapshot.promise = this._executeNextChapterPreload(snapshot);
+        }
+
+        async _executeNextChapterPreload(snapshot) {
+            try {
+                const fetchOptions = {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/html,application/xhtml+xml,application/xml',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-Partial-Render': 'true'
+                    }
+                };
+                if (snapshot.abortController) {
+                    fetchOptions.signal = snapshot.abortController.signal;
+                }
+
+                const fetchFn = (typeof window !== 'undefined' && typeof window.fetch === 'function')
+                    ? window.fetch.bind(window)
+                    : (typeof fetch === 'function' ? fetch : null);
+                if (!fetchFn) {
+                    throw new Error('fetch not available');
+                }
+
+                const response = await fetchFn(snapshot.nextUrl, fetchOptions);
+
+                if (this._isPreloadStale(snapshot)) {
+                    const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                        ? 'aborted' : 'stale';
+                    this._discardPreloadIfOwned(snapshot, status);
+                    return;
+                }
+
+                if (!response.ok) {
+                    this._discardPreloadIfOwned(snapshot, 'failed');
+                    return;
+                }
+
+                const htmlText = await response.text();
+
+                if (this._isPreloadStale(snapshot)) {
+                    const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                        ? 'aborted' : 'stale';
+                    this._discardPreloadIfOwned(snapshot, status);
+                    return;
+                }
+
+                const parser = new DOMParser();
+                const fetchedDoc = parser.parseFromString(htmlText, 'text/html');
+
+                const validation = this._validateFetchedChapterDocument(fetchedDoc);
+                if (!validation || !validation.valid || !validation.newChapterId || validation.newChapterId === snapshot.sourceChapterId) {
+                    this._discardPreloadIfOwned(snapshot, 'failed');
+                    return;
+                }
+
+                snapshot.targetChapterId = validation.newChapterId;
+                snapshot.result = { document: fetchedDoc, validation: validation };
+
+                if (this._isPreloadStale(snapshot)) {
+                    const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                        ? 'aborted' : 'stale';
+                    this._discardPreloadIfOwned(snapshot, status);
+                    return;
+                }
+
+                if (typeof this.chapterEngine.fetchPlaybackMetadata === 'function') {
+                    try {
+                        const metaOpts = {};
+                        if (snapshot.abortController) {
+                            metaOpts.signal = snapshot.abortController.signal;
+                        }
+                        const metadata = await this.chapterEngine.fetchPlaybackMetadata(snapshot.targetChapterId, snapshot.voiceKey, metaOpts);
+                        if (this._isPreloadStale(snapshot)) {
+                            const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                                ? 'aborted' : 'stale';
+                            this._discardPreloadIfOwned(snapshot, status);
+                            return;
+                        }
+                        snapshot.playbackMetadata = metadata;
+                    } catch (metaErr) {
+                        if (metaErr && (metaErr.name === 'AbortError' || metaErr.message === 'The operation was aborted')) {
+                            throw metaErr;
+                        } else {
+                            snapshot.playbackMetadata = null;
+                        }
+                    }
+                }
+
+                if (this._isPreloadStale(snapshot)) {
+                    const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                        ? 'aborted' : 'stale';
+                    this._discardPreloadIfOwned(snapshot, status);
+                    return;
+                }
+
+                snapshot.status = 'completed';
+
+            } catch (err) {
+                if (err && (err.name === 'AbortError' || err.message === 'The operation was aborted')) {
+                    this._discardPreloadIfOwned(snapshot, 'aborted');
+                } else {
+                    this._discardPreloadIfOwned(snapshot, 'failed');
+                }
+            }
+        }
+
+        _isPreloadStale(snapshot) {
+            if (!snapshot) return true;
+            if (Date.now() - snapshot.createdAt > NEXT_CHAPTER_PRELOAD_TTL_MS) return true;
+            if (this.isUnloaded || !this.autoNext || this.chapterId !== snapshot.sourceChapterId || this._resolveNextChapterUrl() !== snapshot.nextUrl) return true;
+            if (this.engine !== this.chapterEngine || this.activeEngineType !== 'managed') return true;
+            if (typeof this.chapterEngine.getSelectedVoiceKey === 'function' && this.chapterEngine.getSelectedVoiceKey() !== snapshot.voiceKey) return true;
+            if (this._voiceSelectionSequenceId !== snapshot.voiceSelectionSequence || this._nextChapterPreloadSequenceId !== snapshot.preloadSequence) return true;
+            if (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted) return true;
+            return false;
+        }
+
+        _discardPreloadIfOwned(snapshot, status) {
+            if (snapshot) {
+                snapshot.status = status;
+            }
+            if (this._activeNextChapterPreload === snapshot) {
+                this._cancelNextChapterPreload();
+            }
         }
 
         _resolveChapterCueElements(segmentId) {
@@ -1568,6 +1767,12 @@
                     this._cancelPendingAutoNext();
                     if (this.isCompleted) {
                         this._setStatusMessage('Đã đọc xong chương.');
+                    }
+                }
+            } else {
+                if (this.engine === this.chapterEngine && this.activeEngineType === 'managed' && typeof this.chapterEngine.getState === 'function' && this.chapterEngine.getState() === 'PLAYING') {
+                    if (typeof this.chapterEngine.getProgress === 'function') {
+                        this._checkAndTriggerNextChapterPreload(this.chapterEngine.getProgress());
                     }
                 }
             }

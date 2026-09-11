@@ -724,3 +724,555 @@ test('H.9H2A Passive Preload Tests', async (t) => {
     });
 });
 
+
+test('H.9H2B1 Late Next-Chapter Preload Trigger + Snapshot Tests', async (t) => {
+    function createControllerEnv(customDateNow) {
+        let currentTime = 1000;
+        const env = {
+            console, setTimeout, clearTimeout,
+            Date: class extends Date {
+                static now() {
+                    return typeof customDateNow === 'function' ? customDateNow() : currentTime;
+                }
+            },
+            window: { location: { reload: () => {} }, fetch: async () => ({ ok: true, text: async () => '<html></html>' }) },
+            document: { querySelector: () => null, getElementById: () => null },
+            DOMParser: class { parseFromString() { return { title: 'Test' }; } },
+            AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } }
+        };
+        env.setCurrentTime = (t) => { currentTime = t; };
+        const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        require('vm').runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    await t.test('1. REAL progress contract: 31s remaining -> no preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 69, durationSeconds: 100, progressRatio: 0.69 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('2. exactly 30s remaining starts preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 70, durationSeconds: 100, progressRatio: 0.7 });
+        require('node:assert').ok(ctrl._activeNextChapterPreload);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload.nextUrl, '/next');
+    });
+
+    await t.test('3. inside threshold starts only once across repeated progress events', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 70, durationSeconds: 100, progressRatio: 0.7 });
+        const firstPreload = ctrl._activeNextChapterPreload;
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, firstPreload);
+    });
+
+    await t.test('4. Auto Next OFF prevents preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = false; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('5. no next chapter prevents preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => null;
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('6. Device engine does not preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'device';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.deviceEngine = {}; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('7. legacy Managed engine does not preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.managedEngine = {}; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('8. PAUSED ChapterAudio does not newly start preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PAUSED', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('9. setAutoNext(true) while already PLAYING inside threshold uses the real getProgress shape', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = false; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = {
+            getState: () => 'PLAYING',
+            getSelectedVoiceKey: () => 'v1',
+            getCurrentChunk: () => null,
+            getProgress: () => ({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 })
+        };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+        ctrl.dom = { autoNextToggle: { setAttribute: () => {} } };
+
+        ctrl.setAutoNext(true, false);
+        require('node:assert').ok(ctrl._activeNextChapterPreload);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload.voiceKey, 'v1');
+    });
+
+    await t.test('10. pause after preload begins does not cancel the slot', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const preload = ctrl._activeNextChapterPreload;
+
+        ctrl.chapterEngine.getState = () => 'PAUSED';
+        ctrl._onEngineStateChange('PAUSED', 'PLAYING', 'managed');
+
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, preload);
+    });
+
+    await t.test('11. request contract contains exactly the required three headers', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        let fetchOptions = null;
+        env.window.fetch = async (url, opts) => { fetchOptions = opts; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').ok(fetchOptions);
+        require('node:assert').strictEqual(fetchOptions.method, 'GET');
+        require('node:assert').strictEqual(fetchOptions.headers['Accept'], 'text/html,application/xhtml+xml,application/xml');
+        require('node:assert').strictEqual(fetchOptions.headers['X-Requested-With'], 'XMLHttpRequest');
+        require('node:assert').strictEqual(fetchOptions.headers['X-Partial-Render'], 'true');
+    });
+
+    await t.test('12. fresh matching snapshot is reused without duplicate fetch', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+
+        let fetchCalls = 0;
+        env.window.fetch = async () => { fetchCalls++; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const first = ctrl._activeNextChapterPreload;
+        ctrl._onChapterProgress({ currentTimeSeconds: 76, durationSeconds: 100, progressRatio: 0.76 });
+        const second = ctrl._activeNextChapterPreload;
+
+        await first.promise;
+        require('node:assert').strictEqual(first, second);
+        require('node:assert').strictEqual(fetchCalls, 1);
+    });
+
+    await t.test('13. expired matching snapshot (>60s) is cancelled and replaced', async () => {
+        let mockTime = 1000;
+        const env = createControllerEnv(() => mockTime);
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot1 = ctrl._activeNextChapterPreload;
+        require('node:assert').ok(snapshot1);
+
+        mockTime = 70000; // >60s later
+        ctrl._onChapterProgress({ currentTimeSeconds: 76, durationSeconds: 100, progressRatio: 0.76 });
+        const snapshot2 = ctrl._activeNextChapterPreload;
+
+        require('node:assert').ok(snapshot2);
+        require('node:assert').notStrictEqual(snapshot2, snapshot1);
+        require('node:assert').strictEqual(snapshot1.abortController.signal.aborted, true);
+    });
+
+    await t.test('14. replacement snapshot gets fresh preload authority / sequence', async () => {
+        let mockTime = 1000;
+        const env = createControllerEnv(() => mockTime);
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._executeNextChapterPreload = async () => {};
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const seq1 = ctrl._activeNextChapterPreload.preloadSequence;
+
+        mockTime = 70000; // expired
+        ctrl._onChapterProgress({ currentTimeSeconds: 76, durationSeconds: 100, progressRatio: 0.76 });
+        const seq2 = ctrl._activeNextChapterPreload.preloadSequence;
+
+        require('node:assert').strictEqual(seq2, seq1 + 1);
+    });
+
+    await t.test('15. stale owned completion clears its own active slot', async () => {
+        let mockTime = 1000;
+        const env = createControllerEnv(() => mockTime);
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        env.window.fetch = async () => {
+            mockTime = 70000; // TTL expires while fetch is in progress
+            return { ok: true, text: async () => '<html></html>' };
+        };
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot = ctrl._activeNextChapterPreload;
+        await snapshot.promise;
+
+        require('node:assert').strictEqual(snapshot.status, 'stale');
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('16. stale OLD completion cannot clear a newer active preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        let finishFetch1;
+        const fetch1Promise = new Promise(resolve => { finishFetch1 = resolve; });
+
+        let fetchCount = 0;
+        env.window.fetch = async () => {
+            fetchCount++;
+            if (fetchCount === 1) {
+                await fetch1Promise;
+                return { ok: true, text: async () => '<html></html>' };
+            }
+            return { ok: true, text: async () => '<html></html>' };
+        };
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        // 1. Start snapshot 1
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot1 = ctrl._activeNextChapterPreload;
+
+        // 2. Advance preload sequence / create snapshot 2 (superseding snapshot 1)
+        ctrl._nextChapterPreloadSequenceId++;
+        const snapshot2 = {
+            sourceChapterId: ctrl.chapterId,
+            nextUrl: '/next',
+            targetChapterId: null,
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: 1000,
+            abortController: new env.AbortController(),
+            promise: Promise.resolve(),
+            status: 'completed',
+            result: {},
+            playbackMetadata: {}
+        };
+        ctrl._activeNextChapterPreload = snapshot2;
+
+        // 3. Complete snapshot 1 (it is now stale because preloadSequence mismatch)
+        finishFetch1();
+        await snapshot1.promise;
+
+        require('node:assert').strictEqual(snapshot1.status, 'stale');
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, snapshot2);
+    });
+
+    await t.test('17. AbortError does not leave an owned aborted slot blocking retry', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        env.window.fetch = async () => {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            throw err;
+        };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot = ctrl._activeNextChapterPreload;
+        await snapshot.promise;
+
+        require('node:assert').strictEqual(snapshot.status, 'aborted');
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+
+        // Next progress event can retry and create a fresh preload
+        env.window.fetch = async () => ({ ok: true, text: async () => '<html></html>' });
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 76, durationSeconds: 100, progressRatio: 0.76 });
+        require('node:assert').ok(ctrl._activeNextChapterPreload);
+        require('node:assert').notStrictEqual(ctrl._activeNextChapterPreload, snapshot);
+    });
+
+    await t.test('18. late aborted/stale old result cannot clear a newer snapshot', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        let abortFetch1;
+        const fetch1Promise = new Promise((_, reject) => { abortFetch1 = reject; });
+
+        env.window.fetch = () => fetch1Promise;
+
+        // 1. Start snapshot 1
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot1 = ctrl._activeNextChapterPreload;
+
+        // 2. Install snapshot 2 as current active slot
+        ctrl._cancelNextChapterPreload();
+        const snapshot2 = {
+            sourceChapterId: ctrl.chapterId,
+            nextUrl: '/next',
+            targetChapterId: null,
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: 1000,
+            abortController: new env.AbortController(),
+            promise: Promise.resolve(),
+            status: 'completed',
+            result: {},
+            playbackMetadata: {}
+        };
+        ctrl._activeNextChapterPreload = snapshot2;
+
+        // 3. Late abort occurs on snapshot 1
+        const abortErr = new Error('The operation was aborted');
+        abortErr.name = 'AbortError';
+        abortFetch1(abortErr);
+        await snapshot1.promise;
+
+        require('node:assert').strictEqual(snapshot1.status, 'aborted');
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, snapshot2);
+    });
+
+    await t.test('19. normal metadata failure still completes valid HTML with: playbackMetadata === null', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => { throw new Error('500 Server Error'); };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot = ctrl._activeNextChapterPreload;
+        await snapshot.promise;
+
+        require('node:assert').strictEqual(snapshot.status, 'completed');
+        require('node:assert').strictEqual(snapshot.playbackMetadata, null);
+        require('node:assert').ok(snapshot.result.document);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, snapshot);
+    });
+
+    await t.test('20. repeated progress with one fresh matching snapshot does not duplicate HTML or metadata requests', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+
+        let htmlFetchCalls = 0;
+        env.window.fetch = async () => { htmlFetchCalls++; return { ok: true, text: async () => '<html></html>' }; };
+        let metaFetchCalls = 0;
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => { metaFetchCalls++; return { ok: true }; };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        ctrl._onChapterProgress({ currentTimeSeconds: 76, durationSeconds: 100, progressRatio: 0.76 });
+        ctrl._onChapterProgress({ currentTimeSeconds: 77, durationSeconds: 100, progressRatio: 0.77 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').strictEqual(htmlFetchCalls, 1);
+        require('node:assert').strictEqual(metaFetchCalls, 1);
+    });
+
+    await t.test('21. fetched HTML is validated through _validateFetchedChapterDocument', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        let validated = false;
+        ctrl._validateFetchedChapterDocument = () => { validated = true; return { valid: false }; };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').strictEqual(validated, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('22. target chapter must differ from source chapter', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '1' });
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('23. passive metadata request uses targetChapterId + exact current voiceKey', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+
+        let metaArgs = null;
+        ctrl.chapterEngine.fetchPlaybackMetadata = async (id, voice, opts) => { metaArgs = { id, voice }; return {}; };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').deepStrictEqual(metaArgs, { id: '2', voice: 'v1' });
+    });
+
+    await t.test('24. no loadPlayback(), play(), audio creation or /prepare occurs during preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({});
+
+        let badCall = false;
+        ctrl.chapterEngine.loadPlayback = () => { badCall = true; };
+        ctrl.chapterEngine.play = () => { badCall = true; };
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        await ctrl._activeNextChapterPreload.promise;
+
+        require('node:assert').strictEqual(badCall, false);
+    });
+
+    await t.test('25. successful snapshot contains detached document, validation, targetChapterId and matching playbackMetadata when available', async () => {
+        const env = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
+        ctrl.engine = ctrl.chapterEngine; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+
+        ctrl._validateFetchedChapterDocument = () => ({ valid: true, newChapterId: '2' });
+        ctrl.chapterEngine.fetchPlaybackMetadata = async () => ({ some: 'data' });
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+        const snapshot = ctrl._activeNextChapterPreload;
+        await snapshot.promise;
+
+        require('node:assert').strictEqual(snapshot.status, 'completed');
+        require('node:assert').strictEqual(snapshot.targetChapterId, '2');
+        require('node:assert').ok(snapshot.result.document);
+        require('node:assert').ok(snapshot.result.validation);
+        require('node:assert').deepStrictEqual(snapshot.playbackMetadata, { some: 'data' });
+    });
+});
