@@ -18,85 +18,54 @@ import java.util.UUID;
 @Service
 public class ArchiveChapterUseCase {
 
-    private final ChapterRepositoryPort
-            chapterRepositoryPort;
+	private final ChapterRepositoryPort chapterRepositoryPort;
 
-    private final ClockPort
-            clockPort;
+	private final ClockPort clockPort;
 
-    private final ChapterRevisionRecorder
-            chapterRevisionRecorder;
+	private final ChapterRevisionRecorder chapterRevisionRecorder;
 
-    public ArchiveChapterUseCase(
-            ChapterRepositoryPort chapterRepositoryPort,
-            ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder
-    ) {
-        this.chapterRepositoryPort =
-                chapterRepositoryPort;
+	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
-        this.clockPort =
-                clockPort;
+	public ArchiveChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
+			ChapterRevisionRecorder chapterRevisionRecorder,
+			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator) {
+		this.chapterRepositoryPort = chapterRepositoryPort;
 
-        this.chapterRevisionRecorder =
-                chapterRevisionRecorder;
-    }
+		this.clockPort = clockPort;
 
-    @Transactional
-    public ChapterDTO execute(
-            ArchiveChapterCommand command
-    ) {
-        Objects.requireNonNull(
-                command,
-                "Archive chapter command không được để trống."
-        );
+		this.chapterRevisionRecorder = chapterRevisionRecorder;
 
-        UUID chapterId =
-                Objects.requireNonNull(
-                        command.chapterId(),
-                        "Chapter ID không được để trống."
-                );
+		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
+	}
 
-        Chapter chapter =
-                chapterRepositoryPort
-                        .findById(
-                                chapterId
-                        )
-                        .orElseThrow(() ->
-                                new ChapterNotFoundException(
-                                        chapterId
-                                )
-                        );
+	@Transactional
+	public ChapterDTO execute(ArchiveChapterCommand command) {
+		Objects.requireNonNull(command, "Archive chapter command không được để trống.");
 
-        /*
-         * Lấy version trước khi Domain mutate.
-         */
-        long expectedVersion =
-                chapter.getAggregateVersion();
+		UUID chapterId = Objects.requireNonNull(command.chapterId(), "Chapter ID không được để trống.");
 
-        Instant now =
-                clockPort.now();
+		Chapter chapter = chapterRepositoryPort.findById(chapterId)
+				.orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        chapter.archive(
-                command.actorId(),
-                now
-        );
+		/*
+		 * Lấy version trước khi Domain mutate.
+		 */
+		long expectedVersion = chapter.getAggregateVersion();
 
-        Chapter savedChapter =
-                chapterRepositoryPort.save(
-                        chapter,
-                        expectedVersion
-                );
+		boolean wasPublished = (chapter.getStatus() == com.universe.novel.domain.ChapterStatus.PUBLISHED);
 
-        chapterRevisionRecorder.record(
-                savedChapter,
-                ChapterRevisionChangeType.ARCHIVE,
-                command.actorId(),
-                null
-        );
+		Instant now = clockPort.now();
 
-        return ChapterDTOMapper.toDTO(
-                savedChapter
-        );
-    }
+		chapter.archive(command.actorId(), now);
+
+		Chapter savedChapter = chapterRepositoryPort.save(chapter, expectedVersion);
+
+		chapterRevisionRecorder.record(savedChapter, ChapterRevisionChangeType.ARCHIVE, command.actorId(), null);
+
+		if (wasPublished) {
+			publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+		}
+
+		return ChapterDTOMapper.toDTO(savedChapter);
+	}
 }

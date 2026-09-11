@@ -27,10 +27,14 @@ public class UnpublishChapterUseCase {
     private final ChapterRevisionRecorder
             chapterRevisionRecorder;
 
+    private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
+            publicReaderChapterListInvalidationCoordinator;
+
     public UnpublishChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder
+            ChapterRevisionRecorder chapterRevisionRecorder,
+            com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
@@ -40,7 +44,11 @@ public class UnpublishChapterUseCase {
 
         this.chapterRevisionRecorder =
                 chapterRevisionRecorder;
+
+        this.publicReaderChapterListInvalidationCoordinator =
+                publicReaderChapterListInvalidationCoordinator;
     }
+
 
     @Transactional
     public ChapterDTO execute(
@@ -90,6 +98,10 @@ public class UnpublishChapterUseCase {
                 ChapterRevisionChangeType.UNPUBLISH,
                 command.actorId(),
                 null
+        );
+
+        publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(
+                savedChapter.getVolumeId()
         );
 
         return ChapterDTOMapper.toDTO(

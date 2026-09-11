@@ -24,136 +24,79 @@ import java.util.UUID;
 @Service
 public class PublishChapterUseCase {
 
-    private final ChapterRepositoryPort
-            chapterRepositoryPort;
+	private final ChapterRepositoryPort chapterRepositoryPort;
 
-    private final VolumeRepositoryPort
-            volumeRepositoryPort;
+	private final VolumeRepositoryPort volumeRepositoryPort;
 
-    private final ClockPort
-            clockPort;
+	private final ClockPort clockPort;
 
-    private final ChapterRevisionRecorder
-            chapterRevisionRecorder;
+	private final ChapterRevisionRecorder chapterRevisionRecorder;
 
-    private final SynchronizePublishedChapterNarrationUseCase
-            synchronizePublishedChapterNarrationUseCase;
+	private final SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase;
 
-    public PublishChapterUseCase(
-            ChapterRepositoryPort chapterRepositoryPort,
-            VolumeRepositoryPort volumeRepositoryPort,
-            ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder,
-            SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase
-    ) {
-        this.chapterRepositoryPort =
-                chapterRepositoryPort;
+	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
-        this.volumeRepositoryPort =
-                volumeRepositoryPort;
+	public PublishChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, VolumeRepositoryPort volumeRepositoryPort,
+			ClockPort clockPort, ChapterRevisionRecorder chapterRevisionRecorder,
+			SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase,
+			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator) {
+		this.chapterRepositoryPort = chapterRepositoryPort;
 
-        this.clockPort =
-                clockPort;
+		this.volumeRepositoryPort = volumeRepositoryPort;
 
-        this.chapterRevisionRecorder =
-                chapterRevisionRecorder;
+		this.clockPort = clockPort;
 
-        this.synchronizePublishedChapterNarrationUseCase =
-                synchronizePublishedChapterNarrationUseCase;
-    }
+		this.chapterRevisionRecorder = chapterRevisionRecorder;
 
-    @Transactional
-    public ChapterDTO execute(
-            PublishChapterCommand command
-    ) {
-        Objects.requireNonNull(
-                command,
-                "Publish chapter command không được để trống."
-        );
+		this.synchronizePublishedChapterNarrationUseCase = synchronizePublishedChapterNarrationUseCase;
 
-        UUID chapterId =
-                Objects.requireNonNull(
-                        command.chapterId(),
-                        "Chapter ID không được để trống."
-                );
+		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
+	}
 
-        Chapter chapter =
-                chapterRepositoryPort
-                        .findById(
-                                chapterId
-                        )
-                        .orElseThrow(() ->
-                                new ChapterNotFoundException(
-                                        chapterId
-                                )
-                        );
+	@Transactional
+	public ChapterDTO execute(PublishChapterCommand command) {
+		Objects.requireNonNull(command, "Publish chapter command không được để trống.");
 
-        /*
-         * Quan trọng:
-         *
-         * Lock chính Volume cha để Publish Chapter
-         * và Archive Volume serialize trên cùng một row.
-         */
-        Volume parentVolume =
-                volumeRepositoryPort
-                        .findByIdForUpdate(
-                                chapter.getVolumeId()
-                        )
-                        .orElseThrow(() ->
-                                new VolumeNotFoundException(
-                                        chapter.getVolumeId()
-                                )
-                        );
+		UUID chapterId = Objects.requireNonNull(command.chapterId(), "Chapter ID không được để trống.");
 
-        ensureParentVolumePublished(
-                parentVolume
-        );
+		Chapter chapter = chapterRepositoryPort.findById(chapterId)
+				.orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        /*
-         * Chapter optimistic locking vẫn giữ nguyên.
-         */
-        long expectedVersion =
-                chapter.getAggregateVersion();
+		/*
+		 * Quan trọng:
+		 *
+		 * Lock chính Volume cha để Publish Chapter và Archive Volume serialize trên
+		 * cùng một row.
+		 */
+		Volume parentVolume = volumeRepositoryPort.findByIdForUpdate(chapter.getVolumeId())
+				.orElseThrow(() -> new VolumeNotFoundException(chapter.getVolumeId()));
 
-        Instant now =
-                clockPort.now();
+		ensureParentVolumePublished(parentVolume);
 
-        chapter.publish(
-                command.actorId(),
-                now
-        );
+		/*
+		 * Chapter optimistic locking vẫn giữ nguyên.
+		 */
+		long expectedVersion = chapter.getAggregateVersion();
 
-        Chapter savedChapter =
-                chapterRepositoryPort.save(
-                        chapter,
-                        expectedVersion
-                );
+		Instant now = clockPort.now();
 
-        chapterRevisionRecorder.record(
-                savedChapter,
-                ChapterRevisionChangeType.PUBLISH,
-                command.actorId(),
-                null
-        );
+		chapter.publish(command.actorId(), now);
 
-        synchronizePublishedChapterNarrationUseCase.execute(
-                chapterId
-        );
+		Chapter savedChapter = chapterRepositoryPort.save(chapter, expectedVersion);
 
-        return ChapterDTOMapper.toDTO(
-                savedChapter
-        );
-    }
+		chapterRevisionRecorder.record(savedChapter, ChapterRevisionChangeType.PUBLISH, command.actorId(), null);
 
-    private void ensureParentVolumePublished(
-            Volume volume
-    ) {
-        if (volume.getStatus()
-                != VolumeStatus.PUBLISHED) {
+		synchronizePublishedChapterNarrationUseCase.execute(chapterId);
 
-            throw new VolumeNotPublishedException(
-                    volume.getId()
-            );
-        }
-    }
+		publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+
+		return ChapterDTOMapper.toDTO(savedChapter);
+	}
+
+	private void ensureParentVolumePublished(Volume volume) {
+		if (volume.getStatus() != VolumeStatus.PUBLISHED) {
+
+			throw new VolumeNotPublishedException(volume.getId());
+		}
+	}
 }

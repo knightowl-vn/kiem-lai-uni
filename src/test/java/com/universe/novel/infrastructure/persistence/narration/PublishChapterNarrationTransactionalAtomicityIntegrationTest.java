@@ -72,6 +72,9 @@ import static org.mockito.ArgumentMatchers.any;
 @DisplayName("PublishChapterNarration Transactional Atomicity Integration Tests (MySQL)")
 class PublishChapterNarrationTransactionalAtomicityIntegrationTest {
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
+
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
         TestDatabaseSupport.configureDynamicProperties(registry);

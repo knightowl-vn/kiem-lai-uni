@@ -6,6 +6,7 @@ import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.exceptions.VolumeNotPublishedException;
 import com.universe.novel.application.narration.SynchronizePublishedChapterNarrationUseCase;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
@@ -88,6 +89,10 @@ class PublishChapterUseCaseTest {
     private SynchronizePublishedChapterNarrationUseCase
             synchronizePublishedChapterNarrationUseCase;
 
+    @Mock
+    private PublicReaderChapterListInvalidationCoordinator
+            publicReaderChapterListInvalidationCoordinator;
+
     private PublishChapterUseCase
             useCase;
 
@@ -99,7 +104,8 @@ class PublishChapterUseCaseTest {
                         volumeRepositoryPort,
                         clockPort,
                         chapterRevisionRecorder,
-                        synchronizePublishedChapterNarrationUseCase
+                        synchronizePublishedChapterNarrationUseCase,
+                        publicReaderChapterListInvalidationCoordinator
                 );
     }
 
@@ -215,7 +221,8 @@ class PublishChapterUseCaseTest {
                 Mockito.inOrder(
                         chapterRepositoryPort,
                         chapterRevisionRecorder,
-                        synchronizePublishedChapterNarrationUseCase
+                        synchronizePublishedChapterNarrationUseCase,
+                        publicReaderChapterListInvalidationCoordinator
                 );
 
         inOrder.verify(
@@ -239,6 +246,12 @@ class PublishChapterUseCaseTest {
         ).execute(
                 CHAPTER_ID
         );
+
+        inOrder.verify(
+                publicReaderChapterListInvalidationCoordinator
+        ).invalidateAfterCommit(
+                VOLUME_ID
+        );
     }
 
     @Test
@@ -260,6 +273,7 @@ class PublishChapterUseCaseTest {
 
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
         verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
+        verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 
     @Test
@@ -283,6 +297,7 @@ class PublishChapterUseCaseTest {
                 .hasMessage("Revision recorder failure");
 
         verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
+        verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 
     @Test
@@ -331,6 +346,13 @@ class PublishChapterUseCaseTest {
                 synchronizePublishedChapterNarrationUseCase
         ).execute(
                 CHAPTER_ID
+        );
+
+        verify(
+                publicReaderChapterListInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(
+                any()
         );
     }
 

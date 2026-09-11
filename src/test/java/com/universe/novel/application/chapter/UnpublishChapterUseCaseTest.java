@@ -35,363 +35,160 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class UnpublishChapterUseCaseTest {
 
-    private static final UUID CHAPTER_ID =
-            UUID.fromString(
-                    "11111111-1111-1111-1111-111111111111"
-            );
+	private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
-    private static final UUID VOLUME_ID =
-            UUID.fromString(
-                    "22222222-2222-2222-2222-222222222222"
-            );
+	private static final UUID VOLUME_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
-    private static final UUID ADMIN_ID =
-            UUID.fromString(
-                    "33333333-3333-3333-3333-333333333333"
-            );
+	private static final UUID ADMIN_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
-    private static final UUID OTHER_ADMIN_ID =
-            UUID.fromString(
-                    "44444444-4444-4444-4444-444444444444"
-            );
+	private static final UUID OTHER_ADMIN_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
 
-    private static final Instant CREATED_AT =
-            Instant.parse(
-                    "2026-08-18T02:00:00Z"
-            );
+	private static final Instant CREATED_AT = Instant.parse("2026-08-18T02:00:00Z");
 
-    private static final Instant UNPUBLISHED_AT =
-            Instant.parse(
-                    "2026-08-18T03:00:00Z"
-            );
+	private static final Instant UNPUBLISHED_AT = Instant.parse("2026-08-18T03:00:00Z");
 
-    @Mock
-    private ChapterRepositoryPort
-            chapterRepositoryPort;
+	@Mock
+	private ChapterRepositoryPort chapterRepositoryPort;
 
-    @Mock
-    private ClockPort
-            clockPort;
+	@Mock
+	private ClockPort clockPort;
 
-    @Mock
-    private ChapterRevisionRecorder
-            chapterRevisionRecorder;
+	@Mock
+	private ChapterRevisionRecorder chapterRevisionRecorder;
 
-    private UnpublishChapterUseCase
-            useCase;
+	@Mock
+	private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
-    @BeforeEach
-    void setUp() {
-        useCase =
-                new UnpublishChapterUseCase(
-                        chapterRepositoryPort,
-                        clockPort,
-                        chapterRevisionRecorder
-                );
-    }
+	private UnpublishChapterUseCase useCase;
 
-    @Test
-    @DisplayName(
-            "Gỡ xuất bản Chapter PUBLISHED thành công"
-    )
-    void shouldUnpublishPublishedChapter() {
+	@BeforeEach
+	void setUp() {
+		useCase = new UnpublishChapterUseCase(chapterRepositoryPort, clockPort, chapterRevisionRecorder,
+				publicReaderChapterListInvalidationCoordinator);
+	}
 
-        Chapter chapter =
-                createPublishedChapter();
+	@Test
+	@DisplayName("Gỡ xuất bản Chapter PUBLISHED thành công")
+	void shouldUnpublishPublishedChapter() {
 
-        when(
-                chapterRepositoryPort.findById(
-                        CHAPTER_ID
-                )
-        ).thenReturn(
-                Optional.of(
-                        chapter
-                )
-        );
+		Chapter chapter = createPublishedChapter();
 
-        when(
-                clockPort.now()
-        ).thenReturn(
-                UNPUBLISHED_AT
-        );
+		when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
 
-        when(
-                chapterRepositoryPort.save(
-                        chapter,
-                        2L
-                )
-        ).thenReturn(
-                chapter
-        );
+		when(clockPort.now()).thenReturn(UNPUBLISHED_AT);
 
-        ChapterDTO result =
-                useCase.execute(
-                        new UnpublishChapterCommand(
-                                CHAPTER_ID,
-                                OTHER_ADMIN_ID
-                        )
-                );
+		when(chapterRepositoryPort.save(chapter, 2L)).thenReturn(chapter);
 
-        assertThat(
-                chapter.getStatus()
-        ).isEqualTo(
-                ChapterStatus.DRAFT
-        );
+		ChapterDTO result = useCase.execute(new UnpublishChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID));
 
-        assertThat(
-                chapter.getPublishedBy()
-        ).isNull();
+		assertThat(chapter.getStatus()).isEqualTo(ChapterStatus.DRAFT);
 
-        assertThat(
-                chapter.getPublishedAt()
-        ).isNull();
+		assertThat(chapter.getPublishedBy()).isNull();
 
-        assertThat(
-                chapter.getUpdatedBy()
-        ).isEqualTo(
-                OTHER_ADMIN_ID
-        );
+		assertThat(chapter.getPublishedAt()).isNull();
 
-        assertThat(
-                chapter.getUpdatedAt()
-        ).isEqualTo(
-                UNPUBLISHED_AT
-        );
+		assertThat(chapter.getUpdatedBy()).isEqualTo(OTHER_ADMIN_ID);
 
-        assertThat(
-                chapter.getAggregateVersion()
-        ).isEqualTo(
-                3L
-        );
+		assertThat(chapter.getUpdatedAt()).isEqualTo(UNPUBLISHED_AT);
 
-        assertThat(
-                chapter.getContentVersion()
-        ).isEqualTo(
-                1L
-        );
+		assertThat(chapter.getAggregateVersion()).isEqualTo(3L);
 
-        assertThat(
-                result.status()
-        ).isEqualTo(
-                "DRAFT"
-        );
+		assertThat(chapter.getContentVersion()).isEqualTo(1L);
 
-        assertThat(
-                result.aggregateVersion()
-        ).isEqualTo(
-                3L
-        );
+		assertThat(result.status()).isEqualTo("DRAFT");
 
-        verify(
-                chapterRepositoryPort
-        ).save(
-                chapter,
-                2L
-        );
+		assertThat(result.aggregateVersion()).isEqualTo(3L);
 
-        verify(
-                chapterRevisionRecorder
-        ).record(
-                chapter,
-                ChapterRevisionChangeType.UNPUBLISH,
-                OTHER_ADMIN_ID,
-                null
-        );
-    }
+		verify(chapterRepositoryPort).save(chapter, 2L);
 
-    @Test
-    @DisplayName(
-            "Không ghi revision khi lưu Chapter thất bại lúc gỡ xuất bản"
-    )
-    void shouldNotRecordRevisionWhenUnpublishSaveFails() {
-        Chapter chapter = createPublishedChapter();
+		verify(chapterRevisionRecorder).record(chapter, ChapterRevisionChangeType.UNPUBLISH, OTHER_ADMIN_ID, null);
 
-        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
-        when(clockPort.now()).thenReturn(UNPUBLISHED_AT);
-        when(chapterRepositoryPort.save(chapter, 2L)).thenThrow(new RuntimeException("Database error"));
+		verify(publicReaderChapterListInvalidationCoordinator).invalidateAfterCommit(VOLUME_ID);
+	}
 
-        assertThatThrownBy(() -> useCase.execute(new UnpublishChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID)))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("Database error");
+	@Test
+	@DisplayName("Không ghi revision khi lưu Chapter thất bại lúc gỡ xuất bản")
+	void shouldNotRecordRevisionWhenUnpublishSaveFails() {
+		Chapter chapter = createPublishedChapter();
 
-        verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
-    }
+		when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+		when(clockPort.now()).thenReturn(UNPUBLISHED_AT);
+		when(chapterRepositoryPort.save(chapter, 2L)).thenThrow(new RuntimeException("Database error"));
 
-    @Test
-    @DisplayName(
-            "Từ chối unpublish Chapter DRAFT"
-    )
-    void shouldRejectDraftChapter() {
+		assertThatThrownBy(() -> useCase.execute(new UnpublishChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID)))
+				.isInstanceOf(RuntimeException.class).hasMessage("Database error");
 
-        Chapter chapter =
-                createDraftChapter();
+		verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
+		verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+	}
 
-        long aggregateVersionBefore =
-                chapter.getAggregateVersion();
+	@Test
+	@DisplayName("Từ chối unpublish Chapter DRAFT")
+	void shouldRejectDraftChapter() {
 
-        when(
-                chapterRepositoryPort.findById(
-                        CHAPTER_ID
-                )
-        ).thenReturn(
-                Optional.of(
-                        chapter
-                )
-        );
+		Chapter chapter = createDraftChapter();
 
-        when(
-                clockPort.now()
-        ).thenReturn(
-                UNPUBLISHED_AT
-        );
+		long aggregateVersionBefore = chapter.getAggregateVersion();
 
-        assertThatThrownBy(() ->
-                useCase.execute(
-                        command()
-                )
-        )
-                .isInstanceOf(
-                        IllegalStateException.class
-                )
-                .hasMessage(
-                        "Chỉ chương ở trạng thái PUBLISHED mới được gỡ xuất bản."
-                );
+		when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
 
-        assertThat(
-                chapter.getStatus()
-        ).isEqualTo(
-                ChapterStatus.DRAFT
-        );
+		when(clockPort.now()).thenReturn(UNPUBLISHED_AT);
 
-        assertThat(
-                chapter.getAggregateVersion()
-        ).isEqualTo(
-                aggregateVersionBefore
-        );
+		assertThatThrownBy(() -> useCase.execute(command())).isInstanceOf(IllegalStateException.class)
+				.hasMessage("Chỉ chương ở trạng thái PUBLISHED mới được gỡ xuất bản.");
 
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).save(
-                any(Chapter.class),
-                anyLong()
-        );
-    }
+		assertThat(chapter.getStatus()).isEqualTo(ChapterStatus.DRAFT);
 
-    @Test
-    @DisplayName(
-            "Từ chối unpublish Chapter không tồn tại"
-    )
-    void shouldRejectMissingChapter() {
+		assertThat(chapter.getAggregateVersion()).isEqualTo(aggregateVersionBefore);
 
-        when(
-                chapterRepositoryPort.findById(
-                        CHAPTER_ID
-                )
-        ).thenReturn(
-                Optional.empty()
-        );
+		verify(chapterRepositoryPort, never()).save(any(Chapter.class), anyLong());
 
-        assertThatThrownBy(() ->
-                useCase.execute(
-                        command()
-                )
-        )
-                .isInstanceOf(
-                        ChapterNotFoundException.class
-                )
-                .hasMessage(
-                        "Không tìm thấy chương: "
-                                + CHAPTER_ID
-                );
+		verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+	}
 
-        verify(
-                clockPort,
-                never()
-        ).now();
+	@Test
+	@DisplayName("Từ chối unpublish Chapter không tồn tại")
+	void shouldRejectMissingChapter() {
 
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).save(
-                any(Chapter.class),
-                anyLong()
-        );
-    }
+		when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.empty());
 
-    @Test
-    @DisplayName(
-            "Từ chối UnpublishChapterCommand null"
-    )
-    void shouldRejectNullCommand() {
+		assertThatThrownBy(() -> useCase.execute(command())).isInstanceOf(ChapterNotFoundException.class)
+				.hasMessage("Không tìm thấy chương: " + CHAPTER_ID);
 
-        assertThatThrownBy(() ->
-                useCase.execute(
-                        null
-                )
-        )
-                .isInstanceOf(
-                        NullPointerException.class
-                )
-                .hasMessage(
-                        "Unpublish chapter command không được để trống."
-                );
+		verify(clockPort, never()).now();
 
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).findById(
-                any(UUID.class)
-        );
+		verify(chapterRepositoryPort, never()).save(any(Chapter.class), anyLong());
+	}
 
-        verify(
-                chapterRepositoryPort,
-                never()
-        ).save(
-                any(Chapter.class),
-                anyLong()
-        );
-    }
+	@Test
+	@DisplayName("Từ chối UnpublishChapterCommand null")
+	void shouldRejectNullCommand() {
 
-    private UnpublishChapterCommand command() {
-        return new UnpublishChapterCommand(
-                CHAPTER_ID,
-                OTHER_ADMIN_ID
-        );
-    }
+		assertThatThrownBy(() -> useCase.execute(null)).isInstanceOf(NullPointerException.class)
+				.hasMessage("Unpublish chapter command không được để trống.");
 
-    private Chapter createDraftChapter() {
-        return Chapter.createDraft(        CHAPTER_ID,
-        VOLUME_ID,
-        1,
-        "Chương Một",
-        new Slug(
-                        "quyen-1-chuong-1"
-                ),
-        "Tóm tắt.",
-        "Nội dung chương.",
-        ADMIN_ID,
-        CREATED_AT);
-    }
+		verify(chapterRepositoryPort, never()).findById(any(UUID.class));
 
-    private Chapter createPublishedChapter() {
+		verify(chapterRepositoryPort, never()).save(any(Chapter.class), anyLong());
+	}
 
-        Chapter chapter =
-                createDraftChapter();
+	private UnpublishChapterCommand command() {
+		return new UnpublishChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID);
+	}
 
-        chapter.publish(
-                ADMIN_ID,
-                CREATED_AT.plusSeconds(
-                        60
-                )
-        );
+	private Chapter createDraftChapter() {
+		return Chapter.createDraft(CHAPTER_ID, VOLUME_ID, 1, "Chương Một", new Slug("quyen-1-chuong-1"), "Tóm tắt.",
+				"Nội dung chương.", ADMIN_ID, CREATED_AT);
+	}
 
-        assertThat(
-                chapter.getStatus()
-        ).isEqualTo(
-                ChapterStatus.PUBLISHED
-        );
+	private Chapter createPublishedChapter() {
 
-        return chapter;
-    }
+		Chapter chapter = createDraftChapter();
+
+		chapter.publish(ADMIN_ID, CREATED_AT.plusSeconds(60));
+
+		assertThat(chapter.getStatus()).isEqualTo(ChapterStatus.PUBLISHED);
+
+		return chapter;
+	}
 }

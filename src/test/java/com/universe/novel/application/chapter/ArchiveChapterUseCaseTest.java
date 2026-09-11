@@ -77,6 +77,10 @@ class ArchiveChapterUseCaseTest {
     private ChapterRevisionRecorder
             chapterRevisionRecorder;
 
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
+            publicReaderChapterListInvalidationCoordinator;
+
     private ArchiveChapterUseCase
             useCase;
 
@@ -86,7 +90,8 @@ class ArchiveChapterUseCaseTest {
                 new ArchiveChapterUseCase(
                         chapterRepositoryPort,
                         clockPort,
-                        chapterRevisionRecorder
+                        chapterRevisionRecorder,
+                        publicReaderChapterListInvalidationCoordinator
                 );
     }
 
@@ -204,6 +209,13 @@ class ArchiveChapterUseCaseTest {
                 OTHER_ADMIN_ID,
                 null
         );
+
+        verify(
+                publicReaderChapterListInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(
+                any()
+        );
     }
 
     @Test
@@ -306,6 +318,12 @@ class ArchiveChapterUseCaseTest {
                 OTHER_ADMIN_ID,
                 null
         );
+
+        verify(
+                publicReaderChapterListInvalidationCoordinator
+        ).invalidateAfterCommit(
+                VOLUME_ID
+        );
     }
 
     @Test
@@ -324,6 +342,7 @@ class ArchiveChapterUseCaseTest {
                 .hasMessage("Database error");
 
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
+        verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 
     @Test
