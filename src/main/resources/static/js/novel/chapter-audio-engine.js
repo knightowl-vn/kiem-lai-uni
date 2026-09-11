@@ -191,7 +191,19 @@
 
         _seekTime(seconds) {
             if (!this.audio || !Number.isFinite(seconds)) return;
-            const target = Math.max(0, Math.min(this._duration(), seconds));
+            const duration = this._duration();
+            const target = Math.max(0, Math.min(duration, seconds));
+            const isExplicitEnd = target >= duration && duration > 0;
+
+            if (isExplicitEnd && this.state === 'PLAYING') {
+                this._wantsPlay = false;
+                ++this._playId;
+                this._transitionState('STOPPED');
+                if (this.audio.readyState !== 0) {
+                    this.audio.pause();
+                }
+            }
+
             if (this.audio.readyState === 0) this._pendingTime = target;
             else {
                 this.audio.currentTime = target;

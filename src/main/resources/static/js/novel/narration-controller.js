@@ -1989,6 +1989,7 @@
             const clickX = event.clientX - rect.left;
             const ratio = Math.max(0, Math.min(1, clickX / rect.width));
             if (this.engine === this.chapterEngine && typeof this.chapterEngine.seekToRatio === 'function') {
+                this._cancelPendingAutoNext();
                 this.isCompleted = false;
                 this.chapterEngine.seekToRatio(ratio);
                 this._syncNavigationAndProgress();
@@ -2012,11 +2013,13 @@
             if (this.engine === this.chapterEngine) {
                 if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
                     event.preventDefault();
+                    this._cancelPendingAutoNext();
                     this.isCompleted = false;
                     this.chapterEngine.seekBySeconds(event.key === 'ArrowLeft' ? -5 : 5);
                     this._syncNavigationAndProgress();
                 } else if (event.key === 'Home' || event.key === 'End') {
                     event.preventDefault();
+                    this._cancelPendingAutoNext();
                     this.isCompleted = false;
                     this.chapterEngine.seekToRatio(event.key === 'Home' ? 0 : 1);
                     this._syncNavigationAndProgress();
@@ -2717,8 +2720,15 @@
                 this.dom.playPauseBtn.title = 'Phát lại từ đầu';
             }
 
-            // H.9G ends here. Chapter audio must not enter the legacy Auto Next path.
-            if (this.engine === this.chapterEngine) return;
+            // Capture authoritative voice key and mode before any invalidation
+            let continuationIntent = { mode: 'managed', voiceKey: null };
+            if (this.engine === this.deviceEngine) {
+                continuationIntent = { mode: 'device', voiceKey: null };
+            } else if (this.engine === this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
+                continuationIntent = { mode: 'managed', voiceKey: this.chapterEngine.getSelectedVoiceKey() };
+            } else if (this.engine === this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function') {
+                continuationIntent = { mode: 'managed', voiceKey: this.managedEngine.getSelectedVoiceKey() };
+            }
 
             if (this.autoNext && !this.isNavigatingToNext) {
                 const nextUrl = this._resolveNextChapterUrl();
@@ -2729,7 +2739,7 @@
                         this._autoNextTimeoutId = window.setTimeout(() => {
                             this._autoNextTimeoutId = null;
                             if (this.isNavigatingToNext && !this.isUnloaded) {
-                                this._transitionToNextChapter(nextUrl);
+                                this._transitionToNextChapter(nextUrl, continuationIntent);
                             }
                         }, 500);
                     }
@@ -2744,7 +2754,7 @@
          * @returns {Promise<void>}
          * @private
          */
-        async _transitionToNextChapter(nextUrl) {
+        async _transitionToNextChapter(nextUrl, continuationIntent) {
             if (!nextUrl || this.isUnloaded) {
                 this.isNavigatingToNext = false;
                 return;
@@ -2756,21 +2766,23 @@
                 } catch (ignored) {}
             }
 
+            this._transitionAbortController = new AbortController();
             const currentSequenceId = ++this._transitionSequenceId;
-            const abortController = new AbortController();
-            this._transitionAbortController = abortController;
             this.isNavigatingToNext = true;
 
             try {
                 const response = await fetch(nextUrl, {
-                    signal: abortController.signal,
+                    method: 'GET',
                     headers: {
-                        'Accept': 'text/html'
-                    }
+                        'Accept': 'text/html,application/xhtml+xml,application/xml',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-Partial-Render': 'true'
+                    },
+                    signal: this._transitionAbortController.signal
                 });
 
                 if (!response.ok) {
-                    throw new Error('HTTP ' + response.status);
+                    throw new Error('HTTP status ' + response.status);
                 }
 
                 const htmlText = await response.text();
@@ -2791,7 +2803,7 @@
                     throw new Error('Validation failed: ' + validation.reason);
                 }
 
-                this._applyChapterTransition(fetchedDoc, nextUrl, validation);
+                this._applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent);
             } catch (error) {
                 if (error && error.name === 'AbortError') {
                     return; // Intentional abort, no error state
@@ -2875,7 +2887,7 @@
          * @param {Object} validation
          * @private
          */
-        _applyChapterTransition(fetchedDoc, nextUrl, validation) {
+        _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {
             this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
 
@@ -3012,14 +3024,18 @@
             }
 
             // 11. Parse & Load Chapter B Chunks
-            const shouldAttemptManaged = Boolean(this.managedEngine && (this.activeEngineType === 'managed' || (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)));
+            let shouldAttemptManaged = Boolean(this.managedEngine && (this.activeEngineType === 'managed' || (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)));
+
+            if (continuationIntent && continuationIntent.mode === 'device') {
+                shouldAttemptManaged = false;
+            }
 
             if (shouldAttemptManaged) {
                 const requestedChapterId = newChapterId;
                 const activeEngineVoiceKey = (this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function')
                     ? this.managedEngine.getSelectedVoiceKey()
                     : null;
-                const requestedVoiceKey = activeEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
+                const requestedVoiceKey = (continuationIntent && continuationIntent.mode === 'managed' ? continuationIntent.voiceKey : null) || activeEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
                     ? this.savedVoicePreference.voiceKey
                     : null);
                 const requestedVoiceSequence = this._voiceSelectionSequenceId;
@@ -3118,9 +3134,12 @@
                     if (this._voiceSelectionSequenceId !== requestedVoiceSequence) {
                         return;
                     }
-                    const currentEngineVoiceKey = (this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function')
-                        ? this.managedEngine.getSelectedVoiceKey()
-                        : null;
+                    let currentEngineVoiceKey = null;
+                    if (this.engine === this.chapterEngine && this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
+                        currentEngineVoiceKey = this.chapterEngine.getSelectedVoiceKey();
+                    } else if (this.engine === this.managedEngine && this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function') {
+                        currentEngineVoiceKey = this.managedEngine.getSelectedVoiceKey();
+                    }
                     const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
                         ? this.savedVoicePreference.voiceKey
                         : null);
@@ -3157,6 +3176,8 @@
                         }
                         if (this.engine === this.managedEngine) {
                             this.managedEngine.play(0);
+                        } else if (this.engine === this.chapterEngine) {
+                            this.chapterEngine.play(0);
                         }
                     }
                 }).catch(err => {
@@ -3165,9 +3186,12 @@
                         this._voiceSelectionSequenceId !== requestedVoiceSequence) {
                         return;
                     }
-                    const currentEngineVoiceKey = (this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function')
-                        ? this.managedEngine.getSelectedVoiceKey()
-                        : null;
+                    let currentEngineVoiceKey = null;
+                    if (this.engine === this.chapterEngine && this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
+                        currentEngineVoiceKey = this.chapterEngine.getSelectedVoiceKey();
+                    } else if (this.engine === this.managedEngine && this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function') {
+                        currentEngineVoiceKey = this.managedEngine.getSelectedVoiceKey();
+                    }
                     const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
                         ? this.savedVoicePreference.voiceKey
                         : null);
@@ -3181,6 +3205,10 @@
                     handleManagedFailure();
                 });
             } else {
+                this.activeEngineType = 'device';
+                this.activeEngine = this.deviceEngine;
+                this.engine = this.deviceEngine;
+
                 if (this.parser && typeof this.parser.parseChapterBody === 'function' && this.dom.body) {
                     this.chunks = this.parser.parseChapterBody(this.dom.body);
                 } else {
@@ -3528,3 +3556,4 @@
         HIGHLIGHT_CLASS: HIGHLIGHT_CLASS
     };
 });
+
