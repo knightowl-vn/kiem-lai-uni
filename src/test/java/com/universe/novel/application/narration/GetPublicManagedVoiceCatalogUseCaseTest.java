@@ -1,8 +1,10 @@
 package com.universe.novel.application.narration;
 
-import com.universe.novel.application.ports.PublicManagedVoiceCatalogQueryPort;
-import com.universe.novel.application.ports.PublicManagedVoiceCatalogQueryPort.PublicManagedVoiceCatalogItem;
 import com.universe.novel.contracts.dto.narration.PublicManagedVoiceCatalogDTO;
+import com.universe.novel.contracts.dto.narration.PublicNarrationVoiceDTO;
+import com.universe.novel.infrastructure.cache.CaffeinePublicManagedVoiceCatalogCache;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -12,42 +14,52 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class GetPublicManagedVoiceCatalogUseCaseTest {
 
     @Mock
-    private PublicManagedVoiceCatalogQueryPort catalogQueryPort;
+    private LoadPublicManagedVoiceCatalogUseCase catalogLoader;
 
-    @Test
-    void mapsPublicFieldsAndPreservesAuthoritativeOrder() {
-        when(catalogQueryPort.findSelectableVoices()).thenReturn(List.of(
-                new PublicManagedVoiceCatalogItem("north-default", "North Default", true),
-                new PublicManagedVoiceCatalogItem("south-secondary", "South Secondary", false)
-        ));
+    private GetPublicManagedVoiceCatalogUseCase useCase;
 
-        GetPublicManagedVoiceCatalogUseCase useCase = new GetPublicManagedVoiceCatalogUseCase(catalogQueryPort);
-
-        PublicManagedVoiceCatalogDTO result = useCase.execute(new GetPublicManagedVoiceCatalogQuery());
-
-        assertThat(result.voices())
-                .extracting("voiceKey", "displayName", "defaultVoice")
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple("north-default", "North Default", true),
-                        org.assertj.core.groups.Tuple.tuple("south-secondary", "South Secondary", false)
-                );
-        verify(catalogQueryPort).findSelectableVoices();
+    @BeforeEach
+    void setUp() {
+        useCase = new GetPublicManagedVoiceCatalogUseCase(
+                new CaffeinePublicManagedVoiceCatalogCache(),
+                catalogLoader
+        );
     }
 
     @Test
-    void returnsAnEmptyCatalogWithoutFallbackVoice() {
-        when(catalogQueryPort.findSelectableVoices()).thenReturn(List.of());
+    void coldMissLoadsOnceAndWarmHitBypassesLoader() {
+        GetPublicManagedVoiceCatalogQuery query = new GetPublicManagedVoiceCatalogQuery();
+        PublicManagedVoiceCatalogDTO catalog = new PublicManagedVoiceCatalogDTO(List.of(
+                new PublicNarrationVoiceDTO("north-default", "North Default", true)
+        ));
+        when(catalogLoader.execute(query)).thenReturn(catalog);
 
-        GetPublicManagedVoiceCatalogUseCase useCase = new GetPublicManagedVoiceCatalogUseCase(catalogQueryPort);
+        PublicManagedVoiceCatalogDTO coldResult = useCase.execute(query);
+        PublicManagedVoiceCatalogDTO warmResult = useCase.execute(query);
 
-        PublicManagedVoiceCatalogDTO result = useCase.execute(new GetPublicManagedVoiceCatalogQuery());
+        assertThat(coldResult).isSameAs(catalog);
+        assertThat(warmResult).isSameAs(catalog);
+        verify(catalogLoader).execute(query);
+        verifyNoMoreInteractions(catalogLoader);
+    }
 
-        assertThat(result.voices()).isEmpty();
+    @Test
+    void emptySuccessfulCatalogIsCached() {
+        GetPublicManagedVoiceCatalogQuery query = new GetPublicManagedVoiceCatalogQuery();
+        PublicManagedVoiceCatalogDTO emptyCatalog = new PublicManagedVoiceCatalogDTO(List.of());
+        when(catalogLoader.execute(query)).thenReturn(emptyCatalog);
+
+        assertThat(useCase.execute(query).voices()).isEmpty();
+        assertThat(useCase.execute(query).voices()).isEmpty();
+
+        verify(catalogLoader).execute(query);
+        verifyNoMoreInteractions(catalogLoader);
     }
 }

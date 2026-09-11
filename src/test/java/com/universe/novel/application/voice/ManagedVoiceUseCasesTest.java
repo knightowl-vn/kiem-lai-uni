@@ -3,6 +3,7 @@ package com.universe.novel.application.voice;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceKeyAlreadyExistsException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
+import com.universe.novel.application.narration.PublicManagedVoiceCatalogInvalidationCoordinator;
 import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
 import com.universe.novel.application.voice.commands.ChangeManagedVoiceProviderMappingCommand;
 import com.universe.novel.application.voice.commands.CreateManagedVoiceCommand;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +50,9 @@ class ManagedVoiceUseCasesTest {
     @Mock
     private ClockPort clock;
 
+    @Mock
+    private PublicManagedVoiceCatalogInvalidationCoordinator catalogInvalidationCoordinator;
+
     private CreateManagedVoiceUseCase createUseCase;
     private UpdateManagedVoiceMetadataUseCase updateMetadataUseCase;
     private ChangeManagedVoiceProviderMappingUseCase changeMappingUseCase;
@@ -59,12 +64,21 @@ class ManagedVoiceUseCasesTest {
 
     @BeforeEach
     void setUp() {
-        createUseCase = new CreateManagedVoiceUseCase(repository, idGenerator, clock);
-        updateMetadataUseCase = new UpdateManagedVoiceMetadataUseCase(repository, clock);
+        createUseCase = new CreateManagedVoiceUseCase(
+                repository,
+                idGenerator,
+                clock,
+                catalogInvalidationCoordinator
+        );
+        updateMetadataUseCase = new UpdateManagedVoiceMetadataUseCase(
+                repository,
+                clock,
+                catalogInvalidationCoordinator
+        );
         changeMappingUseCase = new ChangeManagedVoiceProviderMappingUseCase(repository, clock);
-        activateUseCase = new ActivateManagedVoiceUseCase(repository, clock);
-        disableUseCase = new DisableManagedVoiceUseCase(repository, clock);
-        setDefaultUseCase = new SetDefaultManagedVoiceUseCase(repository, clock);
+        activateUseCase = new ActivateManagedVoiceUseCase(repository, clock, catalogInvalidationCoordinator);
+        disableUseCase = new DisableManagedVoiceUseCase(repository, clock, catalogInvalidationCoordinator);
+        setDefaultUseCase = new SetDefaultManagedVoiceUseCase(repository, clock, catalogInvalidationCoordinator);
         listUseCase = new ListManagedVoicesUseCase(repository);
         getDetailUseCase = new GetManagedVoiceDetailUseCase(repository);
     }
@@ -97,6 +111,7 @@ class ManagedVoiceUseCasesTest {
         assertThat(result.synthesisRevision()).isEqualTo(1L);
 
         verify(repository).save(any(ManagedVoice.class));
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test
@@ -118,6 +133,7 @@ class ManagedVoiceUseCasesTest {
         ManagedVoiceDTO result = createUseCase.execute(command);
 
         assertThat(result.displayOrder()).isEqualTo(6);
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test
@@ -174,6 +190,7 @@ class ManagedVoiceUseCasesTest {
         assertThat(existingDefault.isDefaultVoice()).isFalse();
 
         verify(repository).save(existingDefault);
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test
@@ -203,6 +220,7 @@ class ManagedVoiceUseCasesTest {
         assertThat(result.displayName()).isEqualTo("Anh Khôi (Truyền Cảm)");
         assertThat(result.displayOrder()).isEqualTo(1);
         assertThat(result.synthesisRevision()).isEqualTo(1L);
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test
@@ -231,6 +249,7 @@ class ManagedVoiceUseCasesTest {
 
         assertThat(result.providerVoiceId()).isEqualTo("pham-tuyen");
         assertThat(result.synthesisRevision()).isEqualTo(2L);
+        verifyNoInteractions(catalogInvalidationCoordinator);
     }
 
     @Test
@@ -269,6 +288,56 @@ class ManagedVoiceUseCasesTest {
 
         verify(repository).save(currentDefault);
         verify(repository).save(target);
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
+    }
+
+    @Test
+    @DisplayName("Activating a managed voice schedules public catalog invalidation")
+    void shouldInvalidateCatalogAfterActivatingVoice() {
+        ManagedVoice disabledVoice = ManagedVoice.rehydrate(
+                VOICE_ID_1,
+                "kiemlai-male-north-01",
+                "Anh Khôi",
+                "minh-duc",
+                ManagedVoiceStatus.DISABLED,
+                1,
+                false,
+                1L,
+                T0,
+                T0
+        );
+
+        when(repository.findById(VOICE_ID_1)).thenReturn(Optional.of(disabledVoice));
+        when(clock.now()).thenReturn(T1);
+        when(repository.save(any(ManagedVoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ManagedVoiceDTO result = activateUseCase.execute(VOICE_ID_1);
+
+        assertThat(result.status()).isEqualTo("ACTIVE");
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
+    }
+
+    @Test
+    @DisplayName("Disabling a managed voice schedules public catalog invalidation")
+    void shouldInvalidateCatalogAfterDisablingVoice() {
+        ManagedVoice activeVoice = ManagedVoice.create(
+                VOICE_ID_1,
+                "kiemlai-male-north-01",
+                "Anh Khôi",
+                "minh-duc",
+                1,
+                false,
+                T0
+        );
+
+        when(repository.findById(VOICE_ID_1)).thenReturn(Optional.of(activeVoice));
+        when(clock.now()).thenReturn(T1);
+        when(repository.save(any(ManagedVoice.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ManagedVoiceDTO result = disableUseCase.execute(VOICE_ID_1);
+
+        assertThat(result.status()).isEqualTo("DISABLED");
+        verify(catalogInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test

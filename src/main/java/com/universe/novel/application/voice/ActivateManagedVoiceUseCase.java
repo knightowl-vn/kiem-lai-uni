@@ -1,6 +1,7 @@
 package com.universe.novel.application.voice;
 
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
+import com.universe.novel.application.narration.PublicManagedVoiceCatalogInvalidationCoordinator;
 import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
 import com.universe.novel.application.voice.dto.ManagedVoiceDTO;
 import com.universe.novel.application.voice.dto.ManagedVoiceDTOMapper;
@@ -18,13 +19,19 @@ public class ActivateManagedVoiceUseCase {
 
     private final ManagedVoiceRepositoryPort repository;
     private final ClockPort clock;
+    private final PublicManagedVoiceCatalogInvalidationCoordinator catalogInvalidationCoordinator;
 
     public ActivateManagedVoiceUseCase(
             ManagedVoiceRepositoryPort repository,
-            ClockPort clock
+            ClockPort clock,
+            PublicManagedVoiceCatalogInvalidationCoordinator catalogInvalidationCoordinator
     ) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
+        this.catalogInvalidationCoordinator = Objects.requireNonNull(
+                catalogInvalidationCoordinator,
+                "catalogInvalidationCoordinator must not be null"
+        );
     }
 
     @Transactional
@@ -38,6 +45,7 @@ public class ActivateManagedVoiceUseCase {
         voice.activate(now);
 
         ManagedVoice saved = repository.save(voice);
+        catalogInvalidationCoordinator.invalidateAfterCommit();
         return ManagedVoiceDTOMapper.toDTO(saved);
     }
 }
