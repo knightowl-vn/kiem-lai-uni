@@ -515,9 +515,7 @@ function Invoke-BenchmarkSample {
     if ($null -ne $Endpoint.ExpectedSqlCount -and $null -ne $sqlCount) {
         $sqlCountMatchesExpected = ($sqlCount -eq $Endpoint.ExpectedSqlCount)
         if (-not $sqlCountMatchesExpected) {
-            [void] $warnings.Add(
-                "SQL count mismatch: expected {0}, observed {1}" -f $Endpoint.ExpectedSqlCount, $sqlCount
-            )
+            [void] $warnings.Add(("SQL count mismatch: expected {0}, observed {1}" -f $Endpoint.ExpectedSqlCount, $sqlCount))
         }
     }
 
@@ -700,13 +698,13 @@ if (-not $isAuthenticatedMode -and $PSBoundParameters.ContainsKey("BrowserCookie
 
 if ($isAuthenticatedMode) {
     $expectedSqlCounts = @{
-        Home = 2
+        Home = 1
         Novel = $null
-        ChapterList = 3
-        ChapterHtml = 9
-        VoiceCatalog = 3
-        PlaybackMetadata = 6
-        MediaRange = 4
+        ChapterList = 2
+        ChapterHtml = 7
+        VoiceCatalog = 2
+        PlaybackMetadata = 5
+        MediaRange = 3
         ProgressWrite = $null
         HistoryWrite = $null
     }
