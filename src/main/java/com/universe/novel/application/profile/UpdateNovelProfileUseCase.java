@@ -8,6 +8,7 @@ import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.ports.NovelProfileRepositoryPort;
+import com.universe.novel.application.ports.PublicNovelLandingCachePort;
 import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
 import com.universe.novel.domain.NovelStatus;
 import com.universe.shared.time.ClockPort;
@@ -77,10 +78,14 @@ public class UpdateNovelProfileUseCase {
     private final ClockPort
             clockPort;
 
+    private final PublicNovelLandingCachePort
+            publicNovelLandingCachePort;
+
     public UpdateNovelProfileUseCase(
             NovelProfileRepositoryPort novelProfileRepositoryPort,
             MediaContract mediaContract,
-            ClockPort clockPort
+            ClockPort clockPort,
+            PublicNovelLandingCachePort publicNovelLandingCachePort
     ) {
         this.novelProfileRepositoryPort =
                 Objects.requireNonNull(
@@ -98,6 +103,12 @@ public class UpdateNovelProfileUseCase {
                 Objects.requireNonNull(
                         clockPort,
                         "ClockPort không được để trống."
+                );
+
+        this.publicNovelLandingCachePort =
+                Objects.requireNonNull(
+                        publicNovelLandingCachePort,
+                        "PublicNovelLandingCachePort không được để trống."
                 );
     }
 
@@ -204,8 +215,9 @@ public class UpdateNovelProfileUseCase {
          */
         Instant now = clockPort.now();
 
+        NovelProfileDTO updated;
         try {
-            return novelProfileRepositoryPort.update(
+            updated = novelProfileRepositoryPort.update(
                     DEFAULT_NOVEL_SLUG,
                     title,
                     author,
@@ -225,6 +237,9 @@ public class UpdateNovelProfileUseCase {
             }
             throw ex;
         }
+
+        publicNovelLandingCachePort.invalidate();
+        return updated;
     }
 
     private String validateTitle(

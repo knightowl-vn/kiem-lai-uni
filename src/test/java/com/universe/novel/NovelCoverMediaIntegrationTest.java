@@ -137,6 +137,9 @@ class NovelCoverMediaIntegrationTest {
         }
     }
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.universe.novel.application.ports.PublicNovelLandingCachePort publicNovelLandingCachePort;
+
     private static Path tempStorageDir;
     private static final List<Path> createdTempDirs = new CopyOnWriteArrayList<>();
 

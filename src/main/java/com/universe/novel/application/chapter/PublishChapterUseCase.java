@@ -36,10 +36,13 @@ public class PublishChapterUseCase {
 
 	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
+	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+
 	public PublishChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, VolumeRepositoryPort volumeRepositoryPort,
 			ClockPort clockPort, ChapterRevisionRecorder chapterRevisionRecorder,
 			SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase,
-			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator) {
+			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator) {
 		this.chapterRepositoryPort = chapterRepositoryPort;
 
 		this.volumeRepositoryPort = volumeRepositoryPort;
@@ -51,6 +54,8 @@ public class PublishChapterUseCase {
 		this.synchronizePublishedChapterNarrationUseCase = synchronizePublishedChapterNarrationUseCase;
 
 		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
+
+		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
 	}
 
 	@Transactional
@@ -89,6 +94,11 @@ public class PublishChapterUseCase {
 		synchronizePublishedChapterNarrationUseCase.execute(chapterId);
 
 		publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+
+		boolean isVolumePublished = parentVolume.getStatus() == VolumeStatus.PUBLISHED;
+		if (isVolumePublished) {
+			publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
+		}
 
 		return ChapterDTOMapper.toDTO(savedChapter);
 	}

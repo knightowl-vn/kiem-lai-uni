@@ -75,6 +75,9 @@ class PublishChapterNarrationTransactionalAtomicityIntegrationTest {
     @org.springframework.boot.test.mock.mockito.MockBean
     private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
         TestDatabaseSupport.configureDynamicProperties(registry);

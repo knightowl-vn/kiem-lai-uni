@@ -3,6 +3,7 @@ package com.universe.novel.application.chapter;
 import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
@@ -81,6 +82,10 @@ class ArchiveChapterUseCaseTest {
     private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
             publicReaderChapterListInvalidationCoordinator;
 
+    @Mock
+    private PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
     private ArchiveChapterUseCase
             useCase;
 
@@ -91,7 +96,8 @@ class ArchiveChapterUseCaseTest {
                         chapterRepositoryPort,
                         clockPort,
                         chapterRevisionRecorder,
-                        publicReaderChapterListInvalidationCoordinator
+                        publicReaderChapterListInvalidationCoordinator,
+                        publicNovelLandingInvalidationCoordinator
                 );
     }
 
@@ -216,6 +222,11 @@ class ArchiveChapterUseCaseTest {
         ).invalidateAfterCommit(
                 any()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -324,6 +335,10 @@ class ArchiveChapterUseCaseTest {
         ).invalidateAfterCommit(
                 VOLUME_ID
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -343,6 +358,7 @@ class ArchiveChapterUseCaseTest {
 
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
         verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+        verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
     }
 
     @Test
@@ -420,6 +436,11 @@ class ArchiveChapterUseCaseTest {
                 any(Chapter.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -461,6 +482,11 @@ class ArchiveChapterUseCaseTest {
                 any(Chapter.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test

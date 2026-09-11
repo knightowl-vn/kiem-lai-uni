@@ -30,11 +30,15 @@ public class UnpublishChapterUseCase {
     private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
             publicReaderChapterListInvalidationCoordinator;
 
+    private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
     public UnpublishChapterUseCase(
             ChapterRepositoryPort chapterRepositoryPort,
             ClockPort clockPort,
             ChapterRevisionRecorder chapterRevisionRecorder,
-            com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator
+            com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
+            com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator
     ) {
         this.chapterRepositoryPort =
                 chapterRepositoryPort;
@@ -47,6 +51,9 @@ public class UnpublishChapterUseCase {
 
         this.publicReaderChapterListInvalidationCoordinator =
                 publicReaderChapterListInvalidationCoordinator;
+
+        this.publicNovelLandingInvalidationCoordinator =
+                publicNovelLandingInvalidationCoordinator;
     }
 
 
@@ -103,6 +110,8 @@ public class UnpublishChapterUseCase {
         publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(
                 savedChapter.getVolumeId()
         );
+
+        publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
 
         return ChapterDTOMapper.toDTO(
                 savedChapter

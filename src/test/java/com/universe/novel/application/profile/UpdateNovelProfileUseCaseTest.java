@@ -62,6 +62,10 @@ class UpdateNovelProfileUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private com.universe.novel.application.ports.PublicNovelLandingCachePort
+            publicNovelLandingCachePort;
+
     private UpdateNovelProfileUseCase
             useCase;
 
@@ -70,7 +74,8 @@ class UpdateNovelProfileUseCaseTest {
         useCase = new UpdateNovelProfileUseCase(
                 novelProfileRepositoryPort,
                 mediaContract,
-                clockPort
+                clockPort,
+                publicNovelLandingCachePort
         );
     }
 
@@ -808,5 +813,232 @@ class UpdateNovelProfileUseCaseTest {
 
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(novelProfileRepositoryPort);
+    }
+
+    @Test
+    @DisplayName("Cập nhật hồ sơ thành công -> Invalidate public landing cache")
+    void successfulProfilePersistence_invalidatesLandingCache() {
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai Mới",
+                "Phong Hỏa",
+                "Mô tả mới",
+                "ONGOING",
+                null
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                null,
+                null,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        NovelProfileDTO updatedResult = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai Mới",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả mới",
+                null,
+                null,
+                "ONGOING",
+                CREATED_AT,
+                NOW
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                eq("kiem-lai"),
+                eq("Kiếm Lai Mới"),
+                eq("Phong Hỏa"),
+                eq("Mô tả mới"),
+                eq(null),
+                eq(null),
+                eq("ONGOING"),
+                eq(NOW)
+        )).thenReturn(updatedResult);
+
+        useCase.execute(command);
+
+        verify(publicNovelLandingCachePort).invalidate();
+    }
+
+    @Test
+    @DisplayName("DB persistence failure -> Không invalidate landing cache")
+    void databasePersistenceFailure_doesNotInvalidateLandingCache() {
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai Mới",
+                "Phong Hỏa",
+                "Mô tả mới",
+                "ONGOING",
+                null
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                null,
+                null,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verifyNoInteractions(publicNovelLandingCachePort);
+    }
+
+    @Test
+    @DisplayName("Media upload failure -> Không invalidate landing cache")
+    void mediaUploadFailure_doesNotInvalidateLandingCache() {
+        NovelCoverUpload upload = new NovelCoverUpload(
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
+                "image/png",
+                "cover.png"
+        );
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai Mới",
+                "Phong Hỏa",
+                "Mô tả mới",
+                "ONGOING",
+                upload
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                null,
+                null,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(mediaContract.uploadAsset(any()))
+                .thenThrow(new RuntimeException("Storage failure"));
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Storage failure");
+
+        verifyNoInteractions(publicNovelLandingCachePort);
+        verify(novelProfileRepositoryPort, never()).update(any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Validation failure -> Không invalidate landing cache")
+    void validationFailure_doesNotInvalidateLandingCache() {
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "",
+                "Phong Hỏa",
+                "Mô tả mới",
+                "ONGOING",
+                null
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(publicNovelLandingCachePort);
+    }
+
+    @Test
+    @DisplayName("DB update thành công nhưng landing cache invalidate ném ngoại lệ -> Không xóa/compensate Media asset vừa tạo")
+    void databaseUpdateSucceeds_andLandingCacheInvalidationThrows_doesNotDeleteOrCompensateMediaAsset() {
+        UUID newAssetId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        NovelCoverUpload upload = new NovelCoverUpload(
+                new ByteArrayInputStream(VALID_IMAGE_BYTES),
+                VALID_IMAGE_BYTES.length,
+                "image/png",
+                "cover.png"
+        );
+        UpdateNovelProfileCommand command = new UpdateNovelProfileCommand(
+                "Kiếm Lai Mới",
+                "Phong Hỏa",
+                "Mô tả mới",
+                "ONGOING",
+                upload
+        );
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                null,
+                null,
+                "ONGOING",
+                CREATED_AT,
+                CREATED_AT
+        );
+
+        UploadMediaAssetResponseDTO uploadResponse = new UploadMediaAssetResponseDTO(
+                newAssetId
+        );
+
+        NovelProfileDTO updatedResult = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai Mới",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả mới",
+                null,
+                newAssetId,
+                "ONGOING",
+                CREATED_AT,
+                NOW
+        );
+
+        when(novelProfileRepositoryPort.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(existingProfile));
+        when(mediaContract.uploadAsset(any()))
+                .thenReturn(uploadResponse);
+        when(clockPort.now()).thenReturn(NOW);
+        when(novelProfileRepositoryPort.update(
+                eq("kiem-lai"),
+                eq("Kiếm Lai Mới"),
+                eq("Phong Hỏa"),
+                eq("Mô tả mới"),
+                eq(null),
+                eq(newAssetId),
+                eq("ONGOING"),
+                eq(NOW)
+        )).thenReturn(updatedResult);
+        doThrow(new RuntimeException("Cache invalidation failure"))
+                .when(publicNovelLandingCachePort).invalidate();
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Cache invalidation failure");
+
+        verify(mediaContract, never()).delete(any());
     }
 }

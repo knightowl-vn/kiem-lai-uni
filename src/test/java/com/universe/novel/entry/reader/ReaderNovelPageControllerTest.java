@@ -172,6 +172,7 @@ class ReaderNovelPageControllerTest {
         ExtendedModelMap model = new ExtendedModelMap();
         String viewName = controller.landingPage(authenticatedRequest(), model);
 
+
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("novel")).isEqualTo(landing.novel());
         assertThat(model.getAttribute("volumes")).isEqualTo(landing.volumes());
@@ -179,5 +180,66 @@ class ReaderNovelPageControllerTest {
         assertThat(model.getAttribute("continueReading")).isNull();
 
         verify(getContinueReadingUseCase).execute(USER_ID);
+    }
+
+    @Test
+    @DisplayName("Two different authenticated users reuse identical shared public landing DTO while receiving distinct continueReading state")
+    void shouldReuseSharedPublicLandingWhileIsolatingPersonalizedContinueReadingForDifferentUsers() {
+        ReaderNovelLandingDTO sharedLanding = createSampleLanding();
+        when(getReaderNovelLandingUseCase.execute()).thenReturn(sharedLanding);
+
+        UUID user1Id = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID user2Id = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+        ReaderContinueReadingDTO user1Progress = new ReaderContinueReadingDTO(
+                CHAPTER_ID,
+                10,
+                "Chương 10",
+                "chuong-10",
+                15
+        );
+        ReaderContinueReadingDTO user2Progress = new ReaderContinueReadingDTO(
+                UUID.fromString("55555555-5555-5555-5555-555555555555"),
+                42,
+                "Chương 42",
+                "chuong-42",
+                80
+        );
+
+        when(getContinueReadingUseCase.execute(user1Id)).thenReturn(Optional.of(user1Progress));
+        when(getContinueReadingUseCase.execute(user2Id)).thenReturn(Optional.of(user2Progress));
+
+        MockHttpServletRequest request1 = new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request1,
+                new AuthenticatedRequestIdentity(user1Id, "user1@universe.local", "User One", null, UserStatus.ACTIVE, UserRole.USER)
+        );
+        ExtendedModelMap model1 = new ExtendedModelMap();
+        String view1 = controller.landingPage(request1, model1);
+
+        MockHttpServletRequest request2 = new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request2,
+                new AuthenticatedRequestIdentity(user2Id, "user2@universe.local", "User Two", null, UserStatus.ACTIVE, UserRole.USER)
+        );
+        ExtendedModelMap model2 = new ExtendedModelMap();
+        String view2 = controller.landingPage(request2, model2);
+
+        assertThat(view1).isEqualTo("novel/index");
+        assertThat(view2).isEqualTo("novel/index");
+
+        assertThat(model1.getAttribute("novel")).isSameAs(sharedLanding.novel());
+        assertThat(model2.getAttribute("novel")).isSameAs(sharedLanding.novel());
+        assertThat(model1.getAttribute("volumes")).isSameAs(sharedLanding.volumes());
+        assertThat(model2.getAttribute("volumes")).isSameAs(sharedLanding.volumes());
+        assertThat(model1.getAttribute("firstChapter")).isSameAs(sharedLanding.firstChapter());
+        assertThat(model2.getAttribute("firstChapter")).isSameAs(sharedLanding.firstChapter());
+
+        assertThat(model1.getAttribute("continueReading")).isEqualTo(user1Progress);
+        assertThat(model2.getAttribute("continueReading")).isEqualTo(user2Progress);
+        assertThat(model1.getAttribute("continueReading")).isNotEqualTo(model2.getAttribute("continueReading"));
+
+        verify(getContinueReadingUseCase).execute(user1Id);
+        verify(getContinueReadingUseCase).execute(user2Id);
     }
 }

@@ -2,6 +2,7 @@ package com.universe.novel.application.volume;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.domain.Volume;
 import com.universe.shared.time.ClockPort;
@@ -22,15 +23,22 @@ public class PublishVolumeUseCase {
     private final ClockPort
             clockPort;
 
+    private final PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
     public PublishVolumeUseCase(
             VolumeRepositoryPort volumeRepositoryPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator
     ) {
         this.volumeRepositoryPort =
                 volumeRepositoryPort;
 
         this.clockPort =
                 clockPort;
+
+        this.publicNovelLandingInvalidationCoordinator =
+                publicNovelLandingInvalidationCoordinator;
     }
 
     @Transactional
@@ -78,6 +86,8 @@ public class PublishVolumeUseCase {
                         volume,
                         expectedVersion
                 );
+
+        publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
 
         return VolumeDTOMapper.toDTO(
                 savedVolume

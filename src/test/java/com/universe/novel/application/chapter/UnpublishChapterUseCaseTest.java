@@ -3,6 +3,7 @@ package com.universe.novel.application.chapter;
 import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
@@ -59,12 +60,15 @@ class UnpublishChapterUseCaseTest {
 	@Mock
 	private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
+	@Mock
+	private PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+
 	private UnpublishChapterUseCase useCase;
 
 	@BeforeEach
 	void setUp() {
 		useCase = new UnpublishChapterUseCase(chapterRepositoryPort, clockPort, chapterRevisionRecorder,
-				publicReaderChapterListInvalidationCoordinator);
+				publicReaderChapterListInvalidationCoordinator, publicNovelLandingInvalidationCoordinator);
 	}
 
 	@Test
@@ -104,6 +108,8 @@ class UnpublishChapterUseCaseTest {
 		verify(chapterRevisionRecorder).record(chapter, ChapterRevisionChangeType.UNPUBLISH, OTHER_ADMIN_ID, null);
 
 		verify(publicReaderChapterListInvalidationCoordinator).invalidateAfterCommit(VOLUME_ID);
+
+		verify(publicNovelLandingInvalidationCoordinator).invalidateAfterCommit();
 	}
 
 	@Test
@@ -120,6 +126,7 @@ class UnpublishChapterUseCaseTest {
 
 		verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
 		verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
@@ -144,6 +151,7 @@ class UnpublishChapterUseCaseTest {
 		verify(chapterRepositoryPort, never()).save(any(Chapter.class), anyLong());
 
 		verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
@@ -158,6 +166,8 @@ class UnpublishChapterUseCaseTest {
 		verify(clockPort, never()).now();
 
 		verify(chapterRepositoryPort, never()).save(any(Chapter.class), anyLong());
+
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
