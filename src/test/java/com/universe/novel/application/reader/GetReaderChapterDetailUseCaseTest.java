@@ -16,6 +16,7 @@ import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderC
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
+import com.universe.novel.application.ports.PublicReaderNavigationIndexCachePort;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -27,282 +28,257 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class GetReaderChapterDetailUseCaseTest {
-    @Mock private NarrationTextSegmenter segmenter;
-    @Mock private ChapterNarrationSegmentRepositoryPort segments;
-    @Mock private ReaderNarrationMarkdownRenderer narrationRenderer;
+	@Mock
+	private NarrationTextSegmenter segmenter;
+	@Mock
+	private ChapterNarrationSegmentRepositoryPort segments;
+	@Mock
+	private ReaderNarrationMarkdownRenderer narrationRenderer;
+	@Mock
+	private PublicReaderNavigationIndexCachePort navigationCachePort;
 
-    private static final UUID CHAPTER_ID =
-            UUID.fromString("11111111-1111-1111-1111-111111111111");
+	private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
-    private static final UUID VOLUME_ID =
-            UUID.fromString("22222222-2222-2222-2222-222222222222");
+	private static final UUID VOLUME_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
-    @Mock
-    private ReaderChapterDetailQueryPort
-            queryPort;
+	@Mock
+	private ReaderChapterDetailQueryPort queryPort;
 
-    @Mock
-    private NovelMarkdownRenderer
-            markdownRenderer;
+	@Mock
+	private NovelMarkdownRenderer markdownRenderer;
 
-    private GetReaderChapterDetailUseCase
-            useCase;
+	private GetReaderChapterDetailUseCase useCase;
 
-    @BeforeEach
-    void setUp() {
-        useCase = new GetReaderChapterDetailUseCase(
-                queryPort,
-                markdownRenderer, segmenter, segments, new ReaderNarrationBlockMappingResolver(), narrationRenderer
-        );
-    }
+	@BeforeEach
+	void setUp() {
+		useCase = new GetReaderChapterDetailUseCase(queryPort, markdownRenderer, segmenter, segments,
+				new ReaderNarrationBlockMappingResolver(), narrationRenderer, navigationCachePort);
+	}
 
-    private ReaderChapterRecord narrationRecord(String markdown) {
-        return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Chapter", "chapter", markdown, "Volume", "volume", 1);
-    }
+	private ReaderChapterRecord narrationRecord(String markdown) {
+		return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Chapter", "chapter", markdown, "Volume", "volume", 1);
+	}
 
-    @Test
-    void annotatesExactCurrentSequenceUsingOneRawSnapshotWithoutWrites() {
-        String markdown = "**Repeated** prose.";
-        var segment = ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Repeated prose.", Instant.EPOCH);
-        var mapping = Map.of(0, List.of(segment.getId()));
-        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
-        when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT)).thenReturn(List.of(segment));
-        when(segmenter.plan(markdown)).thenReturn(List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, "Repeated prose."), List.of(0))));
-        when(narrationRenderer.renderToHtml(markdown, mapping)).thenReturn("<p data-narration-segment-ids=\"" + segment.getId() + "\">Repeated prose.</p>");
-        assertThat(useCase.execute("chapter").contentHtml()).contains("data-narration-segment-ids");
-        verify(queryPort).findPublishedChapterBySlug("chapter");
-        verify(segmenter).plan(markdown);
-        verify(narrationRenderer).renderToHtml(markdown, mapping);
-        verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
-        verifyNoMoreInteractions(segments);
-        verifyNoInteractions(markdownRenderer);
-    }
+	private ReaderChapterRecord narrationRecord(String markdown, int chapterNumber) {
+		return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, chapterNumber, "Chapter", "chapter", markdown, "Volume",
+				"volume", 1);
+	}
 
-    @Test
-    void mismatchedCurrentSequenceRendersOrdinaryHtmlWithoutWrites() {
-        String markdown = "New prose.";
-        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
-        when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
-                .thenReturn(List.of(ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Old prose.", Instant.EPOCH)));
-        when(segmenter.plan(markdown)).thenReturn(List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, markdown), List.of(0))));
-        when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>New prose.</p>");
-        assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>New prose.</p>");
-        verifyNoInteractions(narrationRenderer);
-        verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
-        verifyNoMoreInteractions(segments);
-    }
+	@Test
+	void annotatesExactCurrentSequenceUsingOneRawSnapshotWithoutWrites() {
+		String markdown = "**Repeated** prose.";
+		var segment = ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Repeated prose.",
+				Instant.EPOCH);
+		var mapping = Map.of(0, List.of(segment.getId()));
+		when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown, 1)));
+		when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+				.thenReturn(List.of(segment));
+		when(segmenter.plan(markdown)).thenReturn(
+				List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, "Repeated prose."), List.of(0))));
+		when(narrationRenderer.renderToHtml(markdown, mapping))
+				.thenReturn("<p data-narration-segment-ids=\"" + segment.getId() + "\">Repeated prose.</p>");
+		when(navigationCachePort.getOrLoad(any()))
+				.thenReturn(List.of(new ReaderChapterTocItemDTO(1, "Title", "chapter")));
 
-    @Test
-    void annotationFailureDoesNotPreventProseRendering() {
-        String markdown = "Prose.";
-        when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown)));
-        when(segmenter.plan(markdown)).thenThrow(new IllegalStateException("Mapping unavailable"));
-        when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>Prose.</p>");
-        assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>Prose.</p>");
-        verifyNoInteractions(narrationRenderer);
-    }
+		assertThat(useCase.execute("chapter").contentHtml()).contains("data-narration-segment-ids");
 
-    @Test
-    void readerUseCaseRemainsReadOnly() {
-        assertThat(GetReaderChapterDetailUseCase.class.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly()).isTrue();
-    }
+		verify(queryPort).findPublishedChapterBySlug("chapter");
+		verify(segmenter).plan(markdown);
+		verify(narrationRenderer).renderToHtml(markdown, mapping);
+		verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
+		verifyNoMoreInteractions(segments);
+		verifyNoInteractions(markdownRenderer);
+	}
 
-    @Test
-    @DisplayName("Lấy chi tiết Chapter PUBLISHED thành công với đầy đủ nội dung HTML, navigation và Table of Contents")
-    void shouldReturnChapterDetailSuccessfullyWithToc() {
-        String slug = "chuong-2-can-duyen";
-        String rawMarkdown = "## Nội dung chương 2\n\nTrần Bình An đứng bên bờ suối.";
-        String renderedHtml = "<h2>Nội dung chương 2</h2>\n<p>Trần Bình An đứng bên bờ suối.</p>";
+	@Test
+	void mismatchedCurrentSequenceRendersOrdinaryHtmlWithoutWrites() {
+		String markdown = "New prose.";
+		when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown, 1)));
+		when(segments.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT)).thenReturn(
+				List.of(ChapterNarrationSegment.create(UUID.randomUUID(), CHAPTER_ID, 0, "Old prose.", Instant.EPOCH)));
+		when(segmenter.plan(markdown))
+				.thenReturn(List.of(new NarrationTextSegmentPlan(NarrationTextSegment.of(0, markdown), List.of(0))));
+		when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>New prose.</p>");
+		when(navigationCachePort.getOrLoad(any()))
+				.thenReturn(List.of(new ReaderChapterTocItemDTO(1, "Title", "chapter")));
 
-        ReaderChapterRecord record = new ReaderChapterRecord(
-                CHAPTER_ID,
-                VOLUME_ID,
-                2,
-                "Căn Duyên",
-                slug,
-                rawMarkdown,
-                "Quyển Một - Lung Trung Tước",
-                "quyen-1-lung-trung-tuoc",
-                1
-        );
+		assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>New prose.</p>");
+		verifyNoInteractions(narrationRenderer);
+		verify(segments).findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT);
+		verifyNoMoreInteractions(segments);
+	}
 
-        ReaderChapterNavigationDTO prev = new ReaderChapterNavigationDTO(
-                1,
-                "Khởi Đầu",
-                "chuong-1-khoi-dau"
-        );
+	@Test
+	void annotationFailureDoesNotPreventProseRendering() {
+		String markdown = "Prose.";
+		when(queryPort.findPublishedChapterBySlug("chapter")).thenReturn(Optional.of(narrationRecord(markdown, 1)));
+		when(segmenter.plan(markdown)).thenThrow(new IllegalStateException("Mapping unavailable"));
+		when(markdownRenderer.renderToHtml(markdown)).thenReturn("<p>Prose.</p>");
+		when(navigationCachePort.getOrLoad(any()))
+				.thenReturn(List.of(new ReaderChapterTocItemDTO(1, "Title", "chapter")));
 
-        ReaderChapterNavigationDTO next = new ReaderChapterNavigationDTO(
-                5,
-                "Họa Phúc",
-                "chuong-5-hoa-phuc"
-        );
+		assertThat(useCase.execute("chapter").contentHtml()).isEqualTo("<p>Prose.</p>");
+		verifyNoInteractions(narrationRenderer);
+	}
 
-        List<ReaderChapterTocItemDTO> toc = List.of(
-                new ReaderChapterTocItemDTO(1, "Khởi Đầu", "chuong-1-khoi-dau"),
-                new ReaderChapterTocItemDTO(2, "Căn Duyên", "chuong-2-can-duyen"),
-                new ReaderChapterTocItemDTO(5, "Họa Phúc", "chuong-5-hoa-phuc")
-        );
+	@Test
+	void readerUseCaseRemainsReadOnly() {
+		assertThat(GetReaderChapterDetailUseCase.class
+				.getAnnotation(org.springframework.transaction.annotation.Transactional.class).readOnly()).isTrue();
+	}
 
-        when(queryPort.findPublishedChapterBySlug("chuong-2-can-duyen"))
-                .thenReturn(Optional.of(record));
-        when(markdownRenderer.renderToHtml(rawMarkdown))
-                .thenReturn(renderedHtml);
-        when(queryPort.findPreviousPublishedChapter(2))
-                .thenReturn(Optional.of(prev));
-        when(queryPort.findNextPublishedChapter(2))
-                .thenReturn(Optional.of(next));
-        when(queryPort.findAllPublishedChaptersForToc())
-                .thenReturn(toc);
+	@Test
+	@DisplayName("Lấy chi tiết Chapter PUBLISHED thành công với đầy đủ nội dung HTML, navigation và Table of Contents")
+	void shouldReturnChapterDetailSuccessfullyWithToc() {
+		String slug = "chuong-2-can-duyen";
+		String rawMarkdown = "## Nội dung chương 2\n\nTrần Bình An đứng bên bờ suối.";
+		String renderedHtml = "<h2>Nội dung chương 2</h2>\n<p>Trần Bình An đứng bên bờ suối.</p>";
 
-        ReaderChapterDetailDTO result = useCase.execute(slug);
+		ReaderChapterRecord record = new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 2, "Căn Duyên", slug, rawMarkdown,
+				"Quyển Một - Lung Trung Tước", "quyen-1-lung-trung-tuoc", 1);
 
-        assertThat(result).isNotNull();
-        assertThat(result.id()).isEqualTo(CHAPTER_ID);
-        assertThat(result.chapterNumber()).isEqualTo(2);
-        assertThat(result.title()).isEqualTo("Căn Duyên");
-        assertThat(result.slug()).isEqualTo(slug);
-        assertThat(result.contentHtml()).isEqualTo(renderedHtml);
+		List<ReaderChapterTocItemDTO> toc = List.of(new ReaderChapterTocItemDTO(1, "Khởi Đầu", "chuong-1-khoi-dau"),
+				new ReaderChapterTocItemDTO(2, "Căn Duyên", "chuong-2-can-duyen"),
+				new ReaderChapterTocItemDTO(5, "Họa Phúc", "chuong-5-hoa-phuc"));
 
-        assertThat(result.volume()).isNotNull();
-        assertThat(result.volume().id()).isEqualTo(VOLUME_ID);
-        assertThat(result.volume().title()).isEqualTo("Quyển Một - Lung Trung Tước");
-        assertThat(result.volume().slug()).isEqualTo("quyen-1-lung-trung-tuoc");
-        assertThat(result.volume().sortOrder()).isEqualTo(1);
+		when(queryPort.findPublishedChapterBySlug("chuong-2-can-duyen")).thenReturn(Optional.of(record));
+		when(markdownRenderer.renderToHtml(rawMarkdown)).thenReturn(renderedHtml);
+		when(navigationCachePort.getOrLoad(any())).thenReturn(toc);
 
-        assertThat(result.previousChapter()).isEqualTo(prev);
-        assertThat(result.nextChapter()).isEqualTo(next);
+		ReaderChapterDetailDTO result = useCase.execute(slug);
 
-        assertThat(result.tableOfContents()).isNotNull();
-        assertThat(result.tableOfContents()).hasSize(3);
-        assertThat(result.tableOfContents()).containsExactlyElementsOf(toc);
+		assertThat(result).isNotNull();
+		assertThat(result.id()).isEqualTo(CHAPTER_ID);
+		assertThat(result.chapterNumber()).isEqualTo(2);
+		assertThat(result.title()).isEqualTo("Căn Duyên");
+		assertThat(result.slug()).isEqualTo(slug);
+		assertThat(result.contentHtml()).isEqualTo(renderedHtml);
 
-        verify(queryPort).findPublishedChapterBySlug("chuong-2-can-duyen");
-        verify(markdownRenderer).renderToHtml(rawMarkdown);
-        verify(queryPort).findPreviousPublishedChapter(2);
-        verify(queryPort).findNextPublishedChapter(2);
-        verify(queryPort).findAllPublishedChaptersForToc();
-    }
+		assertThat(result.volume()).isNotNull();
+		assertThat(result.volume().id()).isEqualTo(VOLUME_ID);
+		assertThat(result.volume().title()).isEqualTo("Quyển Một - Lung Trung Tước");
+		assertThat(result.volume().slug()).isEqualTo("quyen-1-lung-trung-tuoc");
+		assertThat(result.volume().sortOrder()).isEqualTo(1);
 
-    @Test
-    @DisplayName("Chương đầu tiên không có previousChapter (null)")
-    void shouldHandleFirstChapterWithoutPrevious() {
-        String slug = "chuong-1-khoi-dau";
-        String rawMarkdown = "Chương mở đầu.";
+		assertThat(result.previousChapter().chapterNumber()).isEqualTo(1);
+		assertThat(result.previousChapter().slug()).isEqualTo("chuong-1-khoi-dau");
+		assertThat(result.nextChapter().chapterNumber()).isEqualTo(5);
+		assertThat(result.nextChapter().slug()).isEqualTo("chuong-5-hoa-phuc");
 
-        ReaderChapterRecord record = new ReaderChapterRecord(
-                CHAPTER_ID,
-                VOLUME_ID,
-                1,
-                "Khởi Đầu",
-                slug,
-                rawMarkdown,
-                "Quyển Một",
-                "quyen-1",
-                1
-        );
+		assertThat(result.tableOfContents()).isNotNull();
+		assertThat(result.tableOfContents()).hasSize(3);
+		assertThat(result.tableOfContents()).containsExactlyElementsOf(toc);
 
-        ReaderChapterNavigationDTO next = new ReaderChapterNavigationDTO(
-                2,
-                "Căn Duyên",
-                "chuong-2-can-duyen"
-        );
+		verify(queryPort).findPublishedChapterBySlug("chuong-2-can-duyen");
+		verify(markdownRenderer).renderToHtml(rawMarkdown);
+	}
 
-        when(queryPort.findPublishedChapterBySlug("chuong-1-khoi-dau"))
-                .thenReturn(Optional.of(record));
-        when(markdownRenderer.renderToHtml(rawMarkdown))
-                .thenReturn("<p>Chương mở đầu.</p>");
-        when(queryPort.findPreviousPublishedChapter(1))
-                .thenReturn(Optional.empty());
-        when(queryPort.findNextPublishedChapter(1))
-                .thenReturn(Optional.of(next));
-        when(queryPort.findAllPublishedChaptersForToc())
-                .thenReturn(List.of(new ReaderChapterTocItemDTO(1, "Khởi Đầu", "chuong-1-khoi-dau")));
+	@Test
+	@DisplayName("Chương đầu tiên không có previousChapter (null)")
+	void shouldHandleFirstChapterWithoutPrevious() {
+		String slug = "chuong-1-khoi-dau";
+		String rawMarkdown = "Chương mở đầu.";
 
-        ReaderChapterDetailDTO result = useCase.execute(slug);
+		ReaderChapterRecord record = new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Khởi Đầu", slug, rawMarkdown,
+				"Quyển Một", "quyen-1", 1);
 
-        assertThat(result.previousChapter()).isNull();
-        assertThat(result.nextChapter()).isEqualTo(next);
-        assertThat(result.tableOfContents()).hasSize(1);
-    }
+		List<ReaderChapterTocItemDTO> toc = List.of(new ReaderChapterTocItemDTO(1, "Khởi Đầu", "chuong-1-khoi-dau"),
+				new ReaderChapterTocItemDTO(2, "Căn Duyên", "chuong-2-can-duyen"));
 
-    @Test
-    @DisplayName("Chương mới nhất không có nextChapter (null)")
-    void shouldHandleLatestChapterWithoutNext() {
-        String slug = "chuong-100-ket-thuc";
-        String rawMarkdown = "Chương cuối cùng hiện tại.";
+		when(queryPort.findPublishedChapterBySlug("chuong-1-khoi-dau")).thenReturn(Optional.of(record));
+		when(markdownRenderer.renderToHtml(rawMarkdown)).thenReturn("<p>Chương mở đầu.</p>");
+		when(navigationCachePort.getOrLoad(any())).thenReturn(toc);
 
-        ReaderChapterRecord record = new ReaderChapterRecord(
-                CHAPTER_ID,
-                VOLUME_ID,
-                100,
-                "Kết Thúc",
-                slug,
-                rawMarkdown,
-                "Quyển Hai",
-                "quyen-2",
-                2
-        );
+		ReaderChapterDetailDTO result = useCase.execute(slug);
 
-        ReaderChapterNavigationDTO prev = new ReaderChapterNavigationDTO(
-                99,
-                "Áp Chót",
-                "chuong-99-ap-chot"
-        );
+		assertThat(result.previousChapter()).isNull();
+		assertThat(result.nextChapter().chapterNumber()).isEqualTo(2);
+		assertThat(result.tableOfContents()).hasSize(2);
+	}
 
-        when(queryPort.findPublishedChapterBySlug("chuong-100-ket-thuc"))
-                .thenReturn(Optional.of(record));
-        when(markdownRenderer.renderToHtml(rawMarkdown))
-                .thenReturn("<p>Chương cuối cùng hiện tại.</p>");
-        when(queryPort.findPreviousPublishedChapter(100))
-                .thenReturn(Optional.of(prev));
-        when(queryPort.findNextPublishedChapter(100))
-                .thenReturn(Optional.empty());
-        when(queryPort.findAllPublishedChaptersForToc())
-                .thenReturn(List.of(
-                        new ReaderChapterTocItemDTO(99, "Áp Chót", "chuong-99-ap-chot"),
-                        new ReaderChapterTocItemDTO(100, "Kết Thúc", "chuong-100-ket-thuc")
-                ));
+	@Test
+	@DisplayName("Chương mới nhất không có nextChapter (null)")
+	void shouldHandleLatestChapterWithoutNext() {
+		String slug = "chuong-100-ket-thuc";
+		String rawMarkdown = "Chương cuối cùng hiện tại.";
 
-        ReaderChapterDetailDTO result = useCase.execute(slug);
+		ReaderChapterRecord record = new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 100, "Kết Thúc", slug, rawMarkdown,
+				"Quyển Hai", "quyen-2", 2);
 
-        assertThat(result.previousChapter()).isEqualTo(prev);
-        assertThat(result.nextChapter()).isNull();
-        assertThat(result.tableOfContents()).hasSize(2);
-    }
+		List<ReaderChapterTocItemDTO> toc = List.of(new ReaderChapterTocItemDTO(99, "Áp Chót", "chuong-99-ap-chot"),
+				new ReaderChapterTocItemDTO(100, "Kết Thúc", "chuong-100-ket-thuc"));
 
-    @Test
-    @DisplayName("Ném ChapterNotFoundException khi không tìm thấy Chapter hoặc Chapter/Volume chưa PUBLISHED")
-    void shouldThrowChapterNotFoundExceptionWhenChapterNotPublishedOrNotFound() {
-        when(queryPort.findPublishedChapterBySlug("chuong-chua-xuat-ban"))
-                .thenReturn(Optional.empty());
+		when(queryPort.findPublishedChapterBySlug("chuong-100-ket-thuc")).thenReturn(Optional.of(record));
+		when(markdownRenderer.renderToHtml(rawMarkdown)).thenReturn("<p>Chương cuối cùng hiện tại.</p>");
+		when(navigationCachePort.getOrLoad(any())).thenReturn(toc);
 
-        assertThatThrownBy(() -> useCase.execute("chuong-chua-xuat-ban"))
-                .isInstanceOf(ChapterNotFoundException.class);
+		ReaderChapterDetailDTO result = useCase.execute(slug);
 
-        verifyNoInteractions(markdownRenderer);
-    }
+		assertThat(result.previousChapter().chapterNumber()).isEqualTo(99);
+		assertThat(result.nextChapter()).isNull();
+		assertThat(result.tableOfContents()).hasSize(2);
+	}
 
-    @Test
-    @DisplayName("Ném ChapterNotFoundException khi slug là null hoặc rỗng")
-    void shouldThrowChapterNotFoundExceptionWhenSlugIsNullOrBlank() {
-        assertThatThrownBy(() -> useCase.execute(null))
-                .isInstanceOf(ChapterNotFoundException.class);
+	@Test
+	void missingCurrentChapterInCacheTriggersExactlyOneReload() {
+		String slug = "chuong-100-ket-thuc";
+		ReaderChapterRecord record = new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 100, "Kết Thúc", slug, "text",
+				"Quyển Hai", "quyen-2", 2);
 
-        assertThatThrownBy(() -> useCase.execute("   "))
-                .isInstanceOf(ChapterNotFoundException.class);
+		List<ReaderChapterTocItemDTO> staleToc = List
+				.of(new ReaderChapterTocItemDTO(99, "Áp Chót", "chuong-99-ap-chot"));
 
-        verifyNoInteractions(queryPort);
-        verifyNoInteractions(markdownRenderer);
-    }
+		List<ReaderChapterTocItemDTO> freshToc = List.of(
+				new ReaderChapterTocItemDTO(99, "Áp Chót", "chuong-99-ap-chot"),
+				new ReaderChapterTocItemDTO(100, "Kết Thúc", "chuong-100-ket-thuc"));
+
+		when(queryPort.findPublishedChapterBySlug(slug)).thenReturn(Optional.of(record));
+		when(markdownRenderer.renderToHtml(any())).thenReturn("text");
+
+		when(navigationCachePort.getOrLoad(any())).thenReturn(staleToc).thenReturn(freshToc);
+
+		ReaderChapterDetailDTO result = useCase.execute(slug);
+
+		org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(navigationCachePort);
+		inOrder.verify(navigationCachePort).getOrLoad(any());
+		inOrder.verify(navigationCachePort).invalidate();
+		inOrder.verify(navigationCachePort).getOrLoad(any());
+
+		assertThat(result.previousChapter().chapterNumber()).isEqualTo(99);
+		assertThat(result.nextChapter()).isNull();
+	}
+
+	@Test
+	@DisplayName("Ném ChapterNotFoundException khi không tìm thấy Chapter hoặc Chapter/Volume chưa PUBLISHED")
+	void shouldThrowChapterNotFoundExceptionWhenChapterNotPublishedOrNotFound() {
+		when(queryPort.findPublishedChapterBySlug("chuong-chua-xuat-ban")).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> useCase.execute("chuong-chua-xuat-ban")).isInstanceOf(ChapterNotFoundException.class);
+
+		verifyNoInteractions(markdownRenderer);
+	}
+
+	@Test
+	@DisplayName("Ném ChapterNotFoundException khi slug là null hoặc rỗng")
+	void shouldThrowChapterNotFoundExceptionWhenSlugIsNullOrBlank() {
+		assertThatThrownBy(() -> useCase.execute(null)).isInstanceOf(ChapterNotFoundException.class);
+
+		assertThatThrownBy(() -> useCase.execute("   ")).isInstanceOf(ChapterNotFoundException.class);
+
+		verifyNoInteractions(queryPort);
+		verifyNoInteractions(markdownRenderer);
+	}
 }

@@ -26,11 +26,13 @@ public class ArchiveChapterUseCase {
 
 	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
 
 	public ArchiveChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
 			ChapterRevisionRecorder chapterRevisionRecorder,
 			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
-			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator) {
+			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator) {
 		this.chapterRepositoryPort = chapterRepositoryPort;
 
 		this.clockPort = clockPort;
@@ -39,6 +41,7 @@ public class ArchiveChapterUseCase {
 
 		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
 		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
+		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
 	}
 
 	@Transactional
@@ -68,6 +71,7 @@ public class ArchiveChapterUseCase {
 		if (wasPublished) {
 			publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
 			publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
+			publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
 		}
 
 		return ChapterDTOMapper.toDTO(savedChapter);

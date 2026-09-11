@@ -3,14 +3,14 @@ package com.universe.novel.application.reader;
 import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
 import com.universe.novel.application.narration.NarrationTextSegmenter;
 import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
+import com.universe.novel.application.ports.PublicReaderNavigationIndexCachePort;
 import com.universe.novel.application.reader.render.ReaderNarrationMarkdownRenderer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
 import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
-import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
-import com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,6 +35,9 @@ class ReaderChapterTocReadModelTest {
 
     @Mock
     private NovelMarkdownRenderer markdownRenderer;
+
+    @Mock
+    private PublicReaderNavigationIndexCachePort navigationCachePort;
 
     @Test
     @DisplayName("ReaderChapterTocItemDTO là lightweight DTO chỉ chứa navigation metadata (chapterNumber, title, slug)")
@@ -69,11 +72,12 @@ class ReaderChapterTocReadModelTest {
     }
 
     @Test
-    @DisplayName("GetReaderChapterDetailUseCase expose TOC cùng với Previous/Next chapter độc lập")
+    @DisplayName("GetReaderChapterDetailUseCase expose Previous/Next chapter được derive từ chung 1 TOC snapshot")
     void useCaseExposesTocAlongWithIndependentPreviousAndNext() {
         GetReaderChapterDetailUseCase useCase = new GetReaderChapterDetailUseCase(queryPort, markdownRenderer,
                 mock(NarrationTextSegmenter.class), mock(ChapterNarrationSegmentRepositoryPort.class),
-                new ReaderNarrationBlockMappingResolver(), mock(ReaderNarrationMarkdownRenderer.class));
+                new ReaderNarrationBlockMappingResolver(), mock(ReaderNarrationMarkdownRenderer.class),
+                navigationCachePort);
 
         UUID chapterId = UUID.randomUUID();
         UUID volumeId = UUID.randomUUID();
@@ -91,9 +95,6 @@ class ReaderChapterTocReadModelTest {
                 1
         );
 
-        ReaderChapterNavigationDTO prev = new ReaderChapterNavigationDTO(1, "Chương 1", "chuong-1");
-        ReaderChapterNavigationDTO next = new ReaderChapterNavigationDTO(7, "Chương 7", "chuong-7");
-
         List<ReaderChapterTocItemDTO> toc = List.of(
                 new ReaderChapterTocItemDTO(1, "Chương 1", "chuong-1"),
                 new ReaderChapterTocItemDTO(3, "Chương 3", "chuong-3"),
@@ -102,19 +103,17 @@ class ReaderChapterTocReadModelTest {
 
         when(queryPort.findPublishedChapterBySlug(slug)).thenReturn(Optional.of(record));
         when(markdownRenderer.renderToHtml("# Raw markdown")).thenReturn("<p>HTML</p>");
-        when(queryPort.findPreviousPublishedChapter(3)).thenReturn(Optional.of(prev));
-        when(queryPort.findNextPublishedChapter(3)).thenReturn(Optional.of(next));
-        when(queryPort.findAllPublishedChaptersForToc()).thenReturn(toc);
+        when(navigationCachePort.getOrLoad(any())).thenReturn(toc);
 
         ReaderChapterDetailDTO result = useCase.execute(slug);
 
         assertThat(result).isNotNull();
         assertThat(result.tableOfContents()).containsExactlyElementsOf(toc);
-        assertThat(result.previousChapter()).isEqualTo(prev);
-        assertThat(result.nextChapter()).isEqualTo(next);
+        assertThat(result.previousChapter().chapterNumber()).isEqualTo(1);
+        assertThat(result.previousChapter().slug()).isEqualTo("chuong-1");
+        assertThat(result.nextChapter().chapterNumber()).isEqualTo(7);
+        assertThat(result.nextChapter().slug()).isEqualTo("chuong-7");
 
-        verify(queryPort).findAllPublishedChaptersForToc();
-        verify(queryPort).findPreviousPublishedChapter(3);
-        verify(queryPort).findNextPublishedChapter(3);
+        verify(navigationCachePort).getOrLoad(any());
     }
 }

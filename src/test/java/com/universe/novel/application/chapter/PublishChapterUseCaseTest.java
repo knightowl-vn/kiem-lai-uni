@@ -91,12 +91,16 @@ class PublishChapterUseCaseTest {
             synchronizePublishedChapterNarrationUseCase;
 
     @Mock
-    private PublicReaderChapterListInvalidationCoordinator
+    private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
             publicReaderChapterListInvalidationCoordinator;
 
     @Mock
-    private PublicNovelLandingInvalidationCoordinator
+    private com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator
             publicNovelLandingInvalidationCoordinator;
+
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator
+            publicReaderNavigationInvalidationCoordinator;
 
     private PublishChapterUseCase
             useCase;
@@ -111,7 +115,8 @@ class PublishChapterUseCaseTest {
                         chapterRevisionRecorder,
                         synchronizePublishedChapterNarrationUseCase,
                         publicReaderChapterListInvalidationCoordinator,
-                        publicNovelLandingInvalidationCoordinator
+                        publicNovelLandingInvalidationCoordinator,
+                        publicReaderNavigationInvalidationCoordinator
                 );
     }
 
@@ -259,7 +264,10 @@ class PublishChapterUseCaseTest {
                 VOLUME_ID
         );
 
-        verify(publicNovelLandingInvalidationCoordinator).invalidateAfterCommit();
+        verify(publicNovelLandingInvalidationCoordinator)
+                .invalidateAfterCommit();
+        verify(publicReaderNavigationInvalidationCoordinator)
+                .invalidateAfterCommit();
     }
 
     @Test
@@ -283,6 +291,7 @@ class PublishChapterUseCaseTest {
         verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
         verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
         verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
+        verify(publicReaderNavigationInvalidationCoordinator, never()).invalidateAfterCommit();
     }
 
     @Test
@@ -308,6 +317,7 @@ class PublishChapterUseCaseTest {
         verify(synchronizePublishedChapterNarrationUseCase, never()).execute(any());
         verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
         verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
+        verify(publicReaderNavigationInvalidationCoordinator, never()).invalidateAfterCommit();
     }
 
     @Test
@@ -367,6 +377,11 @@ class PublishChapterUseCaseTest {
 
         verify(
                 publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
+
+        verify(
+                publicReaderNavigationInvalidationCoordinator,
                 never()
         ).invalidateAfterCommit();
     }

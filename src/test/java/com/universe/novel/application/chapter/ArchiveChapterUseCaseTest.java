@@ -86,6 +86,10 @@ class ArchiveChapterUseCaseTest {
     private PublicNovelLandingInvalidationCoordinator
             publicNovelLandingInvalidationCoordinator;
 
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator
+            publicReaderNavigationInvalidationCoordinator;
+
     private ArchiveChapterUseCase
             useCase;
 
@@ -97,7 +101,8 @@ class ArchiveChapterUseCaseTest {
                         clockPort,
                         chapterRevisionRecorder,
                         publicReaderChapterListInvalidationCoordinator,
-                        publicNovelLandingInvalidationCoordinator
+                        publicNovelLandingInvalidationCoordinator,
+                        publicReaderNavigationInvalidationCoordinator
                 );
     }
 
@@ -227,6 +232,11 @@ class ArchiveChapterUseCaseTest {
                 publicNovelLandingInvalidationCoordinator,
                 never()
         ).invalidateAfterCommit();
+
+        verify(
+                publicReaderNavigationInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -339,6 +349,10 @@ class ArchiveChapterUseCaseTest {
         verify(
                 publicNovelLandingInvalidationCoordinator
         ).invalidateAfterCommit();
+
+        verify(
+                publicReaderNavigationInvalidationCoordinator
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -359,6 +373,7 @@ class ArchiveChapterUseCaseTest {
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
         verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
         verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
+        verify(publicReaderNavigationInvalidationCoordinator, never()).invalidateAfterCommit();
     }
 
     @Test

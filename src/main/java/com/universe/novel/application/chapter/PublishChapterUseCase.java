@@ -38,11 +38,14 @@ public class PublishChapterUseCase {
 
 	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
 
+	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
+
 	public PublishChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, VolumeRepositoryPort volumeRepositoryPort,
 			ClockPort clockPort, ChapterRevisionRecorder chapterRevisionRecorder,
 			SynchronizePublishedChapterNarrationUseCase synchronizePublishedChapterNarrationUseCase,
 			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
-			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator) {
+			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator) {
 		this.chapterRepositoryPort = chapterRepositoryPort;
 
 		this.volumeRepositoryPort = volumeRepositoryPort;
@@ -56,6 +59,8 @@ public class PublishChapterUseCase {
 		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
 
 		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
+
+		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
 	}
 
 	@Transactional
@@ -94,6 +99,7 @@ public class PublishChapterUseCase {
 		synchronizePublishedChapterNarrationUseCase.execute(chapterId);
 
 		publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+		publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
 
 		boolean isVolumePublished = parentVolume.getStatus() == VolumeStatus.PUBLISHED;
 		if (isVolumePublished) {
