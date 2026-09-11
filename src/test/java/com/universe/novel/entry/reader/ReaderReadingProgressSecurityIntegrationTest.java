@@ -3,8 +3,6 @@ package com.universe.novel.entry.reader;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.application.oauth.GoogleOAuthUserService;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.infrastructure.persistence.SpringDataUserJpaRepository;
 import com.universe.identity.infrastructure.persistence.UserJpaEntity;
@@ -30,12 +28,10 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -93,9 +89,6 @@ class ReaderReadingProgressSecurityIntegrationTest {
     private RecordReadingProgressUseCase recordReadingProgressUseCase;
 
     @MockBean
-    private UserIdentityContract userIdentityContract;
-
-    @MockBean
     private CurrentUserQueryPort currentUserQueryPort;
 
     @MockBean
@@ -141,45 +134,17 @@ class ReaderReadingProgressSecurityIntegrationTest {
     @DisplayName("POST progress by authenticated user with valid CSRF returns 204 No Content")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postProgressAuthenticatedWithCsrfShouldReturn204() throws Exception {
-        UserDTO user = new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
-
-        when(authenticatedEmailResolver.resolve(any()))
-                .thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL))
-                .thenReturn(Optional.of(user));
-
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/progress").with(csrf()))
                 .andExpect(status().isNoContent());
 
         verify(recordReadingProgressUseCase).execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_ID));
+        verify(springDataUserJpaRepository).findByEmail(USER_EMAIL);
     }
 
     @Test
     @DisplayName("POST progress when chapter is not found returns 404 Not Found")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postProgressWhenChapterNotFoundShouldReturn404() throws Exception {
-        UserDTO user = new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
-
-        when(authenticatedEmailResolver.resolve(any()))
-                .thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL))
-                .thenReturn(Optional.of(user));
         doThrow(new ChapterNotFoundException(CHAPTER_ID))
                 .when(recordReadingProgressUseCase)
                 .execute(any());

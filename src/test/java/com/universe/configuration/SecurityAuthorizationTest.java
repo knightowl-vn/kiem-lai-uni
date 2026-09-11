@@ -1,7 +1,11 @@
 package com.universe.configuration;
 
 import com.universe.identity.application.ports.CurrentUserQueryPort;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
@@ -43,6 +47,7 @@ import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.Instant;
 import java.util.List;
@@ -482,20 +487,9 @@ class SecurityAuthorizationTest {
     @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/bookmarks")
     void shouldAllowAuthenticatedUserToAccessBookmarksPage() throws Exception {
         UUID userId = UUID.randomUUID();
-        UserDTO user = new UserDTO(
-                userId,
-                "reader@universe.local",
-                "Reader",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
-        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
         when(listUserBookmarkedChaptersUseCase.execute(userId)).thenReturn(List.of());
 
-        mockMvc.perform(get("/novel/bookmarks"))
+        mockMvc.perform(get("/novel/bookmarks").with(requestIdentity(userId)))
                 .andExpect(status().isOk());
     }
 
@@ -504,21 +498,25 @@ class SecurityAuthorizationTest {
     @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/history")
     void shouldAllowAuthenticatedUserToAccessHistoryPage() throws Exception {
         UUID userId = UUID.randomUUID();
-        UserDTO user = new UserDTO(
+        when(listUserReadingHistoryUseCase.execute(userId)).thenReturn(List.of());
+
+        mockMvc.perform(get("/novel/history").with(requestIdentity(userId)))
+                .andExpect(status().isOk());
+    }
+
+    private RequestPostProcessor requestIdentity(UUID userId) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
                 userId,
                 "reader@universe.local",
                 "Reader",
                 null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
+                UserStatus.ACTIVE,
+                UserRole.USER
         );
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
-        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
-        when(listUserReadingHistoryUseCase.execute(userId)).thenReturn(List.of());
-
-        mockMvc.perform(get("/novel/history"))
-                .andExpect(status().isOk());
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
     }
 
     @Test

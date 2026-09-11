@@ -1,7 +1,9 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.novel.application.reader.GetContinueReadingUseCase;
 import com.universe.novel.application.reader.GetReaderNovelLandingUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
@@ -9,24 +11,20 @@ import com.universe.novel.contracts.dto.reader.ReaderContinueReadingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.core.Authentication;
 import org.springframework.ui.ExtendedModelMap;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,25 +49,30 @@ class ReaderNovelPageControllerTest {
     @Mock
     private GetContinueReadingUseCase getContinueReadingUseCase;
 
-    @Mock
-    private AuthenticatedEmailResolver authenticatedEmailResolver;
-
-    @Mock
-    private UserIdentityContract userIdentityContract;
-
-    @Mock
-    private Authentication authentication;
-
     private ReaderNovelPageController controller;
 
     @BeforeEach
     void setUp() {
         controller = new ReaderNovelPageController(
                 getReaderNovelLandingUseCase,
-                getContinueReadingUseCase,
-                authenticatedEmailResolver,
-                userIdentityContract
+                getContinueReadingUseCase
         );
+    }
+
+    private MockHttpServletRequest authenticatedRequest() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request,
+                new AuthenticatedRequestIdentity(
+                        USER_ID,
+                        USER_EMAIL,
+                        "Reader",
+                        null,
+                        UserStatus.ACTIVE,
+                        UserRole.USER
+                )
+        );
+        return request;
     }
 
     private ReaderNovelLandingDTO createSampleLanding() {
@@ -102,10 +105,9 @@ class ReaderNovelPageControllerTest {
     void shouldShowReaderNovelLandingPageForAnonymousUser() {
         ReaderNovelLandingDTO landing = createSampleLanding();
         when(getReaderNovelLandingUseCase.execute()).thenReturn(landing);
-        when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
 
         ExtendedModelMap model = new ExtendedModelMap();
-        String viewName = controller.landingPage(authentication, model);
+        String viewName = controller.landingPage(new MockHttpServletRequest(), model);
 
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("novel")).isEqualTo(landing.novel());
@@ -122,17 +124,12 @@ class ReaderNovelPageControllerTest {
     @DisplayName("Authenticated user without progress: renders landing page without continueReading attribute")
     void shouldShowReaderNovelLandingForAuthenticatedUserWithoutProgress() {
         ReaderNovelLandingDTO landing = createSampleLanding();
-        UserDTO user = new UserDTO(
-                USER_ID, USER_EMAIL, "Reader", null, "ACTIVE", "USER", Instant.now()
-        );
 
         when(getReaderNovelLandingUseCase.execute()).thenReturn(landing);
-        when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         when(getContinueReadingUseCase.execute(USER_ID)).thenReturn(Optional.empty());
 
         ExtendedModelMap model = new ExtendedModelMap();
-        String viewName = controller.landingPage(authentication, model);
+        String viewName = controller.landingPage(authenticatedRequest(), model);
 
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("continueReading")).isNull();
@@ -144,9 +141,6 @@ class ReaderNovelPageControllerTest {
     @DisplayName("Authenticated user with progress: renders landing page with continueReading DTO in model")
     void shouldShowReaderNovelLandingForAuthenticatedUserWithProgress() {
         ReaderNovelLandingDTO landing = createSampleLanding();
-        UserDTO user = new UserDTO(
-                USER_ID, USER_EMAIL, "Reader", null, "ACTIVE", "USER", Instant.now()
-        );
         ReaderContinueReadingDTO continueReading = new ReaderContinueReadingDTO(
                 CHAPTER_ID,
                 10,
@@ -156,12 +150,10 @@ class ReaderNovelPageControllerTest {
         );
 
         when(getReaderNovelLandingUseCase.execute()).thenReturn(landing);
-        when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         when(getContinueReadingUseCase.execute(USER_ID)).thenReturn(Optional.of(continueReading));
 
         ExtendedModelMap model = new ExtendedModelMap();
-        String viewName = controller.landingPage(authentication, model);
+        String viewName = controller.landingPage(authenticatedRequest(), model);
 
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("continueReading")).isEqualTo(continueReading);
@@ -173,17 +165,12 @@ class ReaderNovelPageControllerTest {
     @DisplayName("Authenticated user + unexpected GetContinueReadingUseCase failure: renders landing page gracefully with Start Reading and no continueReading in model")
     void shouldShowLandingPageWithStartReadingWhenGetContinueReadingFailsUnexpectedly() {
         ReaderNovelLandingDTO landing = createSampleLanding();
-        UserDTO user = new UserDTO(
-                USER_ID, USER_EMAIL, "Reader", null, "ACTIVE", "USER", Instant.now()
-        );
 
         when(getReaderNovelLandingUseCase.execute()).thenReturn(landing);
-        when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         when(getContinueReadingUseCase.execute(USER_ID)).thenThrow(new RuntimeException("Database timeout or unexpected error"));
 
         ExtendedModelMap model = new ExtendedModelMap();
-        String viewName = controller.landingPage(authentication, model);
+        String viewName = controller.landingPage(authenticatedRequest(), model);
 
         assertThat(viewName).isEqualTo("novel/index");
         assertThat(model.getAttribute("novel")).isEqualTo(landing.novel());

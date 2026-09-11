@@ -3,8 +3,6 @@ package com.universe.novel.entry.reader;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.application.oauth.GoogleOAuthUserService;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.infrastructure.persistence.SpringDataUserJpaRepository;
 import com.universe.identity.infrastructure.persistence.UserJpaEntity;
@@ -101,9 +99,6 @@ class ReaderReadingHistorySecurityIntegrationTest {
     private ListUserReadingHistoryUseCase listUserReadingHistoryUseCase;
 
     @MockBean
-    private UserIdentityContract userIdentityContract;
-
-    @MockBean
     private CurrentUserQueryPort currentUserQueryPort;
 
     @MockBean
@@ -122,18 +117,6 @@ class ReaderReadingHistorySecurityIntegrationTest {
 
         when(springDataUserJpaRepository.findByEmail(USER_EMAIL))
                 .thenReturn(Optional.of(userEntity));
-    }
-
-    private UserDTO createTestUser() {
-        return new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "History Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
     }
 
     @Test
@@ -161,23 +144,17 @@ class ReaderReadingHistorySecurityIntegrationTest {
     @DisplayName("3. POST history by authenticated user with valid CSRF returns 204 No Content")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postHistoryAuthenticatedWithCsrfShouldReturn204() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/history").with(csrf()))
                 .andExpect(status().isNoContent());
 
         verify(recordReadingHistoryUseCase).execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID));
+        verify(springDataUserJpaRepository).findByEmail(USER_EMAIL);
     }
 
     @Test
     @DisplayName("4. POST history when chapter is not found returns 404 Not Found")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postHistoryWhenChapterNotFoundShouldReturn404() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         doThrow(new ChapterNotFoundException(CHAPTER_ID))
                 .when(recordReadingHistoryUseCase)
                 .execute(any());
@@ -200,10 +177,6 @@ class ReaderReadingHistorySecurityIntegrationTest {
     @DisplayName("6. GET /novel/history authenticated renders history view with DTOs")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void getHistoryAuthenticatedShouldRenderView() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
         List<ReaderReadingHistoryDTO> list = List.of(
                 new ReaderReadingHistoryDTO(
                         CHAPTER_ID,
@@ -221,5 +194,7 @@ class ReaderReadingHistorySecurityIntegrationTest {
                 .andExpect(view().name("novel/reader/history"))
                 .andExpect(model().attribute("historyList", list))
                 .andExpect(model().attribute("pageTitle", "Lịch sử đọc"));
+
+        verify(springDataUserJpaRepository).findByEmail(USER_EMAIL);
     }
 }

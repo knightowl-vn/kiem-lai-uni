@@ -1,15 +1,15 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.novel.application.reader.GetReaderChapterDetailUseCase;
 import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,17 +32,9 @@ public class ReaderChapterPageController {
     private final IsChapterBookmarkedUseCase
             isChapterBookmarkedUseCase;
 
-    private final AuthenticatedEmailResolver
-            authenticatedEmailResolver;
-
-    private final UserIdentityContract
-            userIdentityContract;
-
     public ReaderChapterPageController(
             GetReaderChapterDetailUseCase getReaderChapterDetailUseCase,
-            IsChapterBookmarkedUseCase isChapterBookmarkedUseCase,
-            AuthenticatedEmailResolver authenticatedEmailResolver,
-            UserIdentityContract userIdentityContract
+            IsChapterBookmarkedUseCase isChapterBookmarkedUseCase
     ) {
         this.getReaderChapterDetailUseCase =
                 Objects.requireNonNull(
@@ -54,22 +46,12 @@ public class ReaderChapterPageController {
                         isChapterBookmarkedUseCase,
                         "IsChapterBookmarkedUseCase không được để trống."
                 );
-        this.authenticatedEmailResolver =
-                Objects.requireNonNull(
-                        authenticatedEmailResolver,
-                        "AuthenticatedEmailResolver không được để trống."
-                );
-        this.userIdentityContract =
-                Objects.requireNonNull(
-                        userIdentityContract,
-                        "UserIdentityContract không được để trống."
-                );
     }
 
     @GetMapping("/chapters/{chapterSlug}")
     public String chapterPage(
             @PathVariable String chapterSlug,
-            Authentication authentication,
+            HttpServletRequest request,
             Model model
     ) {
         ReaderChapterDetailDTO chapter =
@@ -91,19 +73,15 @@ public class ReaderChapterPageController {
         );
 
         boolean isBookmarked = false;
-        Optional<String> emailOpt =
-                authenticatedEmailResolver.resolve(authentication);
-        if (emailOpt.isPresent()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isPresent()) {
             try {
-                Optional<UserDTO> userOpt =
-                        userIdentityContract.findByEmail(emailOpt.get());
-                if (userOpt.isPresent()) {
-                    isBookmarked =
-                            isChapterBookmarkedUseCase.execute(
-                                    userOpt.get().id(),
-                                    chapter.id()
-                            );
-                }
+                isBookmarked =
+                        isChapterBookmarkedUseCase.execute(
+                                identityOptional.get().userId(),
+                                chapter.id()
+                        );
             } catch (Exception ex) {
                 log.warn(
                         "Không thể kiểm tra trạng thái bookmark cho chapterId={}: {}",

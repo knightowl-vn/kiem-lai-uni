@@ -3,8 +3,6 @@ package com.universe.novel.entry.reader;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.application.oauth.GoogleOAuthUserService;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.infrastructure.persistence.SpringDataUserJpaRepository;
 import com.universe.identity.infrastructure.persistence.UserJpaEntity;
@@ -107,9 +105,6 @@ class ReaderBookmarkSecurityIntegrationTest {
     private ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase;
 
     @MockBean
-    private UserIdentityContract userIdentityContract;
-
-    @MockBean
     private CurrentUserQueryPort currentUserQueryPort;
 
     @MockBean
@@ -128,18 +123,6 @@ class ReaderBookmarkSecurityIntegrationTest {
 
         when(springDataUserJpaRepository.findByEmail(USER_EMAIL))
                 .thenReturn(Optional.of(userEntity));
-    }
-
-    private UserDTO createTestUser() {
-        return new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
     }
 
     @Test
@@ -188,24 +171,17 @@ class ReaderBookmarkSecurityIntegrationTest {
     @DisplayName("5. POST bookmark by authenticated user with valid CSRF returns 204 No Content")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postBookmarkAuthenticatedWithCsrfShouldReturn204() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
         mockMvc.perform(post("/novel/chapters/" + CHAPTER_ID + "/bookmark").with(csrf()))
                 .andExpect(status().isNoContent());
 
         verify(bookmarkChapterUseCase).execute(new BookmarkChapterCommand(USER_ID, CHAPTER_ID));
+        verify(springDataUserJpaRepository).findByEmail(USER_EMAIL);
     }
 
     @Test
     @DisplayName("6. DELETE bookmark by authenticated user with valid CSRF returns 204 No Content")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void deleteBookmarkAuthenticatedWithCsrfShouldReturn204() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
         mockMvc.perform(delete("/novel/chapters/" + CHAPTER_ID + "/bookmark").with(csrf()))
                 .andExpect(status().isNoContent());
 
@@ -216,9 +192,6 @@ class ReaderBookmarkSecurityIntegrationTest {
     @DisplayName("7. POST bookmark when chapter is not found returns 404 Not Found")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postBookmarkWhenChapterNotFoundShouldReturn404() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         doThrow(new ChapterNotFoundException(CHAPTER_ID))
                 .when(bookmarkChapterUseCase)
                 .execute(any());
@@ -231,9 +204,6 @@ class ReaderBookmarkSecurityIntegrationTest {
     @DisplayName("8. POST bookmark when limit exceeded returns 409 Conflict")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void postBookmarkWhenLimitExceededShouldReturn409() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         doThrow(new com.universe.novel.application.exceptions.BookmarkLimitExceededException(USER_ID, 100))
                 .when(bookmarkChapterUseCase)
                 .execute(any());
@@ -245,8 +215,6 @@ class ReaderBookmarkSecurityIntegrationTest {
     @Test
     @DisplayName("9. GET /novel/bookmarks anonymous redirects to /login")
     void getBookmarksAnonymousShouldRedirectToLogin() throws Exception {
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
-
         mockMvc.perform(get("/novel/bookmarks"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrlPattern("**/login"));
@@ -258,10 +226,6 @@ class ReaderBookmarkSecurityIntegrationTest {
     @DisplayName("9. GET /novel/bookmarks authenticated renders bookmarks view with DTOs")
     @WithMockUser(username = USER_EMAIL, roles = {"USER"})
     void getBookmarksAuthenticatedShouldRenderView() throws Exception {
-        UserDTO user = createTestUser();
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
         List<ReaderBookmarkedChapterDTO> list = List.of(
                 new ReaderBookmarkedChapterDTO(
                         CHAPTER_ID,
