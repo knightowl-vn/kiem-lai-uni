@@ -1,7 +1,5 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.novel.application.exceptions.ChapterNarrationSegmentInvalidStateException;
-import com.universe.novel.application.exceptions.ChapterNarrationSegmentNotFoundException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateException;
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
@@ -10,16 +8,11 @@ import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybac
 import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase;
-import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
-import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
-import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus;
 import com.universe.novel.contracts.dto.narration.PrepareChapterNarrationPlaybackRequest;
-import com.universe.novel.contracts.dto.narration.PrepareReaderNarrationPlaybackRequest;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPrepareResponseDTO;
-import com.universe.novel.contracts.dto.narration.PublicReaderNarrationPlaybackDTO;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +31,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Public REST controller for passive chapter playback metadata and legacy on-demand segment preparation.
+ * Public REST controller for passive chapter playback metadata and chapter-level narration preparation.
  */
 @RestController
 @RequestMapping("/api/novel/chapters/{chapterId}/narration")
@@ -46,18 +39,13 @@ public class PublicNovelChapterNarrationPlaybackController {
 
     private static final Logger log = LoggerFactory.getLogger(PublicNovelChapterNarrationPlaybackController.class);
 
-    private final PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
     private final GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
     private final PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
 
     public PublicNovelChapterNarrationPlaybackController(
-            PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase,
             GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase,
             PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase
     ) {
-        this.preparePublicPlaybackUseCase = Objects.requireNonNull(
-                preparePublicPlaybackUseCase, "preparePublicPlaybackUseCase must not be null"
-        );
         this.getPublicPlaybackUseCase = Objects.requireNonNull(
                 getPublicPlaybackUseCase, "getPublicPlaybackUseCase must not be null"
         );
@@ -118,36 +106,6 @@ public class PublicNovelChapterNarrationPlaybackController {
         return ResponseEntity.ok(playback);
     }
 
-    /**
-     * POST /api/novel/chapters/{chapterId}/narration/segments/{segmentId}/prepare
-     *
-     * @param chapterId   identity of the published chapter
-     * @param segmentId   identity of the requested segment
-     * @param requestBody JSON payload containing public voiceKey
-     * @return playback preparation status and safe audio streaming URL
-     */
-    @PostMapping("/segments/{segmentId}/prepare")
-    public ResponseEntity<PublicReaderNarrationPlaybackDTO> prepareSegmentPlayback(
-            @PathVariable UUID chapterId,
-            @PathVariable UUID segmentId,
-            @RequestBody(required = false) PrepareReaderNarrationPlaybackRequest requestBody
-    ) {
-        if (chapterId == null || segmentId == null || requestBody == null || requestBody.voiceKey() == null || requestBody.voiceKey().isBlank()) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        PreparePublicReaderNarrationPlaybackResult result = preparePublicPlaybackUseCase.execute(
-                new PreparePublicReaderNarrationPlaybackCommand(
-                        chapterId,
-                        segmentId,
-                        requestBody.voiceKey()
-                )
-        );
-
-        PublicReaderNarrationPlaybackDTO responseDto = PublicReaderNarrationPlaybackDTO.from(result);
-        return ResponseEntity.ok(responseDto);
-    }
-
     @ExceptionHandler(ChapterNotFoundException.class)
     public ResponseEntity<Void> handleChapterNotFound() {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -158,18 +116,8 @@ public class PublicNovelChapterNarrationPlaybackController {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
-    @ExceptionHandler(ChapterNarrationSegmentNotFoundException.class)
-    public ResponseEntity<Void> handleSegmentNotFound() {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-    }
-
     @ExceptionHandler(ManagedVoiceInvalidStateException.class)
     public ResponseEntity<Void> handleVoiceInvalidState() {
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
-    }
-
-    @ExceptionHandler(ChapterNarrationSegmentInvalidStateException.class)
-    public ResponseEntity<Void> handleSegmentInvalidState() {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
     }
 

@@ -105,15 +105,13 @@ public class SecurityBeanConfig {
                                 "/media/assets/*/content",
                                 "/media/assets/*/variants/*",
                                 "/api/novel/narration/voices",
-                                "/api/novel/chapters/*/narration/manifest",
                                 "/api/novel/chapters/*/narration/playback"
                         )
                         .permitAll()
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.POST,
-                                "/api/novel/chapters/*/narration/prepare",
-                                "/api/novel/chapters/*/narration/segments/*/prepare"
+                                "/api/novel/chapters/*/narration/prepare"
                         )
                         .permitAll()
 

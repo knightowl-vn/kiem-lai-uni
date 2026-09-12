@@ -244,12 +244,12 @@ class PerformanceInstrumentationTest {
     }
 
     @Test
-    void voiceCatalogAndLegacyManifestAreBothMeasuredForFocusedComparison() throws Exception {
+    void voiceCatalogAndChapterPlaybackAreBothMeasuredForFocusedComparison() throws Exception {
         PerformanceServerTimingFilter filter = new PerformanceServerTimingFilter(
                 new SequenceNanoTime(0, 4_000_000, 10_000_000, 19_000_000)
         );
         MockHttpServletResponse catalogResponse = new MockHttpServletResponse();
-        MockHttpServletResponse manifestResponse = new MockHttpServletResponse();
+        MockHttpServletResponse playbackResponse = new MockHttpServletResponse();
 
         filter.doFilter(
                 new MockHttpServletRequest("GET", "/api/novel/narration/voices"),
@@ -259,15 +259,15 @@ class PerformanceInstrumentationTest {
         filter.doFilter(
                 new MockHttpServletRequest(
                         "GET",
-                        "/api/novel/chapters/00000000-0000-0000-0000-000000000001/narration/manifest"
+                        "/api/novel/chapters/00000000-0000-0000-0000-000000000001/narration/playback"
                 ),
-                manifestResponse,
-                (request, response) -> response.getWriter().write("{\"segments\":[]}")
+                playbackResponse,
+                (request, response) -> response.getWriter().write("{\"playback\":null}")
         );
 
         assertThat(catalogResponse.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
                 .startsWith("total;dur=4.000");
-        assertThat(manifestResponse.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
+        assertThat(playbackResponse.getHeader(PerformanceServerTimingFilter.SERVER_TIMING))
                 .startsWith("total;dur=9.000");
     }
 

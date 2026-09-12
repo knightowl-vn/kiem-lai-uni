@@ -106,7 +106,6 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
                 || path.equals("/novel")
                 || path.startsWith("/novel/")
                 || path.equals("/api/novel/narration/voices")
-                || isManifestPath(path)
                 || isPlaybackMetadataPath(path)
                 || isMediaContentPath(path));
     }
@@ -134,11 +133,6 @@ final class PerformanceServerTimingFilter extends OncePerRequestFilter {
     private boolean isPlaybackMetadataPath(String path) {
         return path.startsWith("/api/novel/chapters/")
                 && path.endsWith("/narration/playback");
-    }
-
-    private boolean isManifestPath(String path) {
-        return path.startsWith("/api/novel/chapters/")
-                && path.endsWith("/narration/manifest");
     }
 
     private boolean isMediaContentPath(String path) {

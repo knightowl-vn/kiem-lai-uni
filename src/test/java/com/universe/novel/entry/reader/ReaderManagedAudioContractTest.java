@@ -572,13 +572,9 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("136. Manifest controller sets no-store, no-cache, and Expires = 0 headers (MS-04.9H.7D7)")
-    void manifestControllerSetsNoStoreHeaders() throws Exception {
-        String controllerJava = read("src/main/java/com/universe/novel/entry/reader/PublicNovelChapterNarrationManifestController.java");
-        assertThat(controllerJava).contains("disableCaching(response);");
-        assertThat(controllerJava).contains("response.setHeader(\"Cache-Control\", \"no-store, no-cache, must-revalidate, max-age=0\");");
-        assertThat(controllerJava).contains("response.setHeader(\"Pragma\", \"no-cache\");");
-        assertThat(controllerJava).contains("response.setDateHeader(\"Expires\", 0);");
+    @DisplayName("136. Legacy manifest controller file does not exist (H.9I5D1A)")
+    void manifestControllerFileDoesNotExist() {
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/entry/reader/PublicNovelChapterNarrationManifestController.java"))).isFalse();
     }
 
     @Test
@@ -1184,6 +1180,65 @@ class ReaderManagedAudioContractTest {
         // Hardening: _handlePlayPause fast path must verify exact voiceKey
         String playPauseMethod = controllerMethod("_handlePlayPause() {", "_handlePrev() {");
         assertThat(playPauseMethod).contains("this.chapterEngine.metadata.voiceKey");
+    }
+
+    @Test
+    @DisplayName("155. H.9I5D1 Legacy Reader narration HTTP delivery surface retirement contract")
+    void h9i5d1LegacyDeliveryRetirementContract() throws Exception {
+        // 1. Reader production JS contains zero manifest, segment prepare, or legacy handler usage
+        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
+        String chapterEngineJs = chapterEngine();
+        String managedEngineJs = read("src/main/resources/static/js/novel/managed-audio-engine.js");
+
+        assertThat(controllerJs).doesNotContain(
+                "/narration/manifest",
+                "/narration/segments/",
+                "loadManifest",
+                "prepareSegmentPlayback"
+        );
+        assertThat(chapterEngineJs).doesNotContain(
+                "/narration/manifest",
+                "/narration/segments/",
+                "loadManifest",
+                "prepareSegmentPlayback"
+        );
+        assertThat(managedEngineJs).doesNotContain(
+                "/narration/manifest",
+                "/narration/segments/",
+                "loadManifest",
+                "prepareSegmentPlayback"
+        );
+
+        // 2. ManagedAudioEngine remains catalog-only
+        assertThat(managedEngineJs).doesNotContain("/prepare");
+        assertThat(managedEngineJs).doesNotContain("requestPlaybackPreparation");
+        assertThat(managedEngineJs).doesNotContain("/playback");
+
+        // 3. ChapterAudioEngine chapter-level prepare remains
+        assertThat(chapterEngineJs).contains("'/narration/prepare'");
+        assertThat(chapterEngineJs).contains("requestPlaybackPreparation(chapterId, voiceKey, options = {})");
+
+        // 4. PublicNovelChapterNarrationPlaybackController contains chapter-level /prepare and /playback, NO /segments/ or prepareSegmentPlayback
+        String playbackController = read("src/main/java/com/universe/novel/entry/reader/PublicNovelChapterNarrationPlaybackController.java");
+        assertThat(playbackController).contains("@PostMapping(\"/prepare\")");
+        assertThat(playbackController).contains("@GetMapping(\"/playback\")");
+        assertThat(playbackController).doesNotContain("/segments/");
+        assertThat(playbackController).doesNotContain("prepareSegmentPlayback");
+
+        // 5. PublicNovelChapterNarrationManifestController.java file does NOT exist
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/entry/reader/PublicNovelChapterNarrationManifestController.java"))).isFalse();
+
+        // 6. SecurityBeanConfig contains NO /api/novel/chapters/*/narration/manifest and still contains voices, playback, and prepare
+        String securityConfig = read("src/main/java/com/universe/configuration/SecurityBeanConfig.java");
+        assertThat(securityConfig).doesNotContain("/api/novel/chapters/*/narration/manifest");
+        assertThat(securityConfig).contains("/api/novel/narration/voices");
+        assertThat(securityConfig).contains("/api/novel/chapters/*/narration/playback");
+        assertThat(securityConfig).contains("/api/novel/chapters/*/narration/prepare");
+
+        // 7. PerformanceServerTimingFilter contains no manifest-only route handling
+        String perfFilter = read("src/main/java/com/universe/configuration/performance/PerformanceServerTimingFilter.java");
+        assertThat(perfFilter).doesNotContain("/narration/manifest");
+        assertThat(perfFilter).doesNotContain("isManifestPath");
     }
 
     private String chapterEngine() throws Exception {
