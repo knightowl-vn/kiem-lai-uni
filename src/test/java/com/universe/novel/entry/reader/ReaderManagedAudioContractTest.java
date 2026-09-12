@@ -1294,6 +1294,23 @@ class ReaderManagedAudioContractTest {
         assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationAction.java"))).isFalse();
     }
 
+    @Test
+    @DisplayName("158. H.9I5E1/E2 Chapter narration preparation infrastructure terminology contract")
+    void chapterPreparationInfrastructureContract() throws Exception {
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderNarrationContinuationConfig.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderChapterNarrationPreparationConfig.java"))).isTrue();
+
+        String dispatcher = read("src/main/java/com/universe/novel/application/narration/ReaderChapterNarrationPreparationDispatcher.java");
+        assertThat(dispatcher).contains("@Qualifier(\"readerChapterNarrationPreparationTaskExecutor\")");
+        assertThat(dispatcher).doesNotContain("readerNarrationContinuationTaskExecutor");
+
+        String config = read("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderChapterNarrationPreparationConfig.java");
+        assertThat(config).contains("readerChapterNarrationPreparationTaskExecutor");
+        assertThat(config).contains("reader-chapter-narration-prep-");
+        assertThat(config).doesNotContain("readerNarrationContinuationTaskExecutor");
+        assertThat(config).doesNotContain("reader-narration-cont-");
+    }
+
     private String chapterEngine() throws Exception {
         return read("src/main/resources/static/js/novel/chapter-audio-engine.js");
     }

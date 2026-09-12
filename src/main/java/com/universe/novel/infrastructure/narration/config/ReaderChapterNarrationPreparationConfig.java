@@ -26,7 +26,7 @@ public class ReaderChapterNarrationPreparationConfig {
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(4);
         executor.setQueueCapacity(50);
-        executor.setThreadNamePrefix("reader-narration-cont-");
+        executor.setThreadNamePrefix("reader-chapter-narration-prep-");
         // CRITICAL: Must reject/abort on saturation rather than executing on the caller thread
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         executor.initialize();

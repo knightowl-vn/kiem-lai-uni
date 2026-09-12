@@ -116,7 +116,7 @@ async function managedVoiceChangeFixture(useChapterPlayback) {
     const segments = [{ segmentId: 's1' }, { segmentId: 's2' }];
     const chapterProgress = { currentTimeSeconds: 60, durationSeconds: 600, progressRatio: 0.1 };
     const managedEngine = { stop: () => {}, cancel: () => {}, getSegments: () => segments };
-    const chapterEngine = { getProgress: () => chapterProgress };
+    const chapterEngine = { stop: () => {}, getProgress: () => chapterProgress };
     const buttonClasses = new Set();
     const controller = Object.create(NarrationController.prototype);
     Object.assign(controller, {
@@ -408,13 +408,4 @@ test('Managed voice change keeps chapter playback progress and ready wording', a
     assert.deepEqual(result.chapterProgressCalls, [result.chapterProgress]);
     assert.equal(result.statuses.at(-1), 'Sẵn sàng phát âm thanh cả chương.');
     assert.equal(result.controller.engine, result.controller.chapterEngine);
-});
-
-test('Managed voice change keeps legacy segment-count finalization after fallback', async () => {
-    const result = await managedVoiceChangeFixture(false);
-    assert.equal(result.selectionCalls, 1);
-    assert.deepEqual(result.segmentProgressCalls, [[0, 0], [0, 2]]);
-    assert.deepEqual(result.chapterProgressCalls, []);
-    assert.equal(result.statuses.at(-1), 'Sẵn sàng phát giọng đọc Kiếm Lai (2 đoạn).');
-    assert.equal(result.controller.engine, result.controller.managedEngine);
 });

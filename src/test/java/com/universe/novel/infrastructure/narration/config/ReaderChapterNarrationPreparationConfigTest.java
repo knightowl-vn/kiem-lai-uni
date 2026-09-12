@@ -24,7 +24,7 @@ class ReaderChapterNarrationPreparationConfigTest {
         assertThat(executor.getCorePoolSize()).isEqualTo(2);
         assertThat(executor.getMaxPoolSize()).isEqualTo(4);
         assertThat(executor.getQueueCapacity()).isEqualTo(50);
-        assertThat(executor.getThreadNamePrefix()).isEqualTo("reader-narration-cont-");
+        assertThat(executor.getThreadNamePrefix()).isEqualTo("reader-chapter-narration-prep-");
 
         ThreadPoolExecutor threadPoolExecutor = executor.getThreadPoolExecutor();
         assertThat(threadPoolExecutor.getRejectedExecutionHandler())
