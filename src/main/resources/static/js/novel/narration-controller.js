@@ -172,6 +172,10 @@
             this.managedPreparationTimeoutMs = (config && typeof config.managedPreparationTimeoutMs === 'number')
                 ? config.managedPreparationTimeoutMs
                 : 120000;
+            this.autoNextManagedGraceMs = (config && typeof config.autoNextManagedGraceMs === 'number')
+                ? config.autoNextManagedGraceMs
+                : 5000;
+            this._isTemporaryDeviceFallback = false;
 
             // Bound handlers for cleanup
             this._boundOnPlayPause = this._handlePlayPause.bind(this);
@@ -1955,6 +1959,9 @@
             this.engine = this.deviceEngine;
 
             // Preserve user's selected Managed preference for later chapters (do NOT overwrite savedVoicePreference)
+            if (this.savedVoicePreference && this.savedVoicePreference.type === 'managed') {
+                this._isTemporaryDeviceFallback = true;
+            }
 
             if (this.parser && typeof this.parser.parseChapterBody === 'function' && this.dom.body) {
                 this.chunks = this.parser.parseChapterBody(this.dom.body);
@@ -2522,8 +2529,16 @@
                     const startTime = Date.now();
 
                     while (isCurrent()) {
+                        const elapsed = Date.now() - startTime;
+                        const remainingMs = timeoutMs - elapsed;
+                        if (remainingMs <= 0) {
+                            this._handlePreparationFailure('TIMEOUT');
+                            return;
+                        }
+
+                        const waitMs = Math.min(pollInterval, remainingMs);
                         try {
-                            await this._wait(pollInterval, signal);
+                            await this._wait(waitMs, signal);
                         } catch (waitErr) {
                             if (waitErr && (waitErr.name === 'AbortError' || waitErr.message === 'The operation was aborted')) {
                                 return;
@@ -2902,6 +2917,7 @@
             this.isAutoplayContinuation = false;
             this._clearSavedResume();
             this._clearHighlight();
+            this._isTemporaryDeviceFallback = false;
 
             if (this.dom.player) {
                 this.dom.player.setAttribute('aria-busy', 'false');
@@ -3431,7 +3447,12 @@
             // Capture authoritative voice key and mode before any invalidation
             let continuationIntent = { mode: 'managed', voiceKey: null };
             if (this.engine === this.deviceEngine) {
-                continuationIntent = { mode: 'device', voiceKey: null };
+                if (this._isTemporaryDeviceFallback && this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey) {
+                    continuationIntent = { mode: 'managed', voiceKey: this.savedVoicePreference.voiceKey };
+                    this._isTemporaryDeviceFallback = false;
+                } else {
+                    continuationIntent = { mode: 'device', voiceKey: null };
+                }
             } else if (this.engine === this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
                 continuationIntent = { mode: 'managed', voiceKey: this.chapterEngine.getSelectedVoiceKey() };
             }
@@ -3849,9 +3870,15 @@
                     this.dom.voiceSelect.value = 'managed:' + requestedVoiceKey;
                 }
 
+                const transitionTimeoutMs = this.fallbackToDevice
+                    ? this.autoNextManagedGraceMs
+                    : this.managedPreparationTimeoutMs;
+
                 return this._ensureManagedPlaybackForIntent(requestedChapterId, requestedVoiceKey, {
                     preloadedPlaybackAvailability: preloadedPlaybackAvailability,
-                    preloadedPlaybackMetadata: preloadedChapterMetadata
+                    preloadedPlaybackMetadata: preloadedChapterMetadata,
+                    isAutoNext: true,
+                    timeoutMs: transitionTimeoutMs
                 });
             } else {
                 this.activeEngineType = 'device';
@@ -4159,6 +4186,7 @@
             this._hasUserExplicitlySelectedVoice = false;
             this._managedCatalogResolved = false;
             this._managedCatalogAuthoritative = false;
+            this._isTemporaryDeviceFallback = false;
             this._voiceSelectionSequenceId = 0;
             this.initialized = false;
         }

@@ -4928,6 +4928,7 @@ test('H.9I5C2B Auto Next Managed Chapter Preparation Tests', async (t) => {
         const env = createEnv();
         const ctrl = createCtrl(env);
         ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 15;
         ctrl.managedPreparationPollIntervalMs = 5;
         ctrl.managedPreparationTimeoutMs = 15;
         ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
@@ -5070,5 +5071,531 @@ test('H.9I5C2B Auto Next Managed Chapter Preparation Tests', async (t) => {
         assert.strictEqual(loadedMetadata, freshMeta, 'fresh READY probe metadata must be loaded');
         assert.strictEqual(ctrl.chapterEngine.metadata, freshMeta, 'chapterEngine metadata matches fresh metadata');
         assert.strictEqual(ctrl._playCalledCount(), 1, 'playback starts exactly once');
+    });
+});
+
+test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t) => {
+    function createAudioFactory() {
+        return class {
+            constructor() {
+                this.readyState = 4;
+                this.currentTime = 0;
+                this.duration = 100;
+                this.ended = false;
+                this._listeners = {};
+            }
+            addEventListener(e, cb) { if (!this._listeners[e]) this._listeners[e] = []; this._listeners[e].push(cb); }
+            removeEventListener(e, cb) { if (this._listeners[e]) this._listeners[e] = this._listeners[e].filter(l => l !== cb); }
+            emit(e) { if (this._listeners[e]) this._listeners[e].forEach(cb => cb()); }
+            play() { this.emit('play'); return Promise.resolve(); }
+            pause() { this.emit('pause'); }
+            load() { this.emit('canplay'); }
+        };
+    }
+
+    function createEnv() {
+        const fakeAudio = createAudioFactory();
+        const env = {
+            console,
+            setTimeout,
+            clearTimeout,
+            CustomEvent: class { constructor(t, d) { this.type = t; this.detail = d && d.detail; } },
+            window: {
+                location: { href: 'http://localhost/novel/chapters/1' },
+                history: { pushState: () => {} },
+                clearTimeout,
+                setTimeout: setTimeout,
+                addEventListener: () => {},
+                removeEventListener: () => {}
+            },
+            document: {
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                dispatchEvent: () => {},
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                createElement: () => ({ appendChild: () => {}, setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } }),
+                title: 'Chapter 1'
+            },
+            Audio: fakeAudio,
+            AbortController: class {
+                constructor() {
+                    const listeners = [];
+                    this.signal = {
+                        aborted: false,
+                        addEventListener: (event, cb) => { if (event === 'abort') listeners.push(cb); },
+                        removeEventListener: (event, cb) => {
+                            const idx = listeners.indexOf(cb);
+                            if (idx >= 0) listeners.splice(idx, 1);
+                        }
+                    };
+                    this._listeners = listeners;
+                }
+                abort() {
+                    this.signal.aborted = true;
+                    this._listeners.forEach(cb => cb());
+                }
+            },
+            Date: Date,
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        querySelector: () => null,
+                        querySelectorAll: () => [],
+                        getElementById: () => null,
+                        title: 'Chapter 2'
+                    };
+                }
+            },
+            fetch: async () => ({ ok: true, text: async () => '<html></html>' }),
+            localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+        };
+        env.fakeAudio = fakeAudio;
+        const engineSrc = fs.readFileSync('src/main/resources/static/js/novel/chapter-audio-engine.js', 'utf8');
+        vm.runInNewContext(engineSrc, env);
+        const controllerSrc = fs.readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        vm.runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    function createMockDom() {
+        const createEl = () => ({
+            disabled: false,
+            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+            setAttribute: () => {},
+            removeAttribute: () => {},
+            getAttribute: () => null,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            style: {},
+            innerHTML: '',
+            textContent: '',
+            appendChild: () => {},
+            querySelectorAll: () => [],
+            querySelector: () => null
+        });
+        return {
+            player: createEl(),
+            statusText: createEl(),
+            playPauseBtn: createEl(),
+            playIcon: createEl(),
+            pauseIcon: createEl(),
+            voiceSelect: { ...createEl(), value: 'managed:v1', options: [] },
+            speedSelect: createEl(),
+            body: createEl(),
+            timeDisplay: createEl(),
+            durationDisplay: createEl(),
+            prevBtn: createEl(),
+            nextBtn: createEl(),
+            rewindBtn: createEl(),
+            forwardBtn: createEl()
+        };
+    }
+
+    function createCtrl(env, opts = {}) {
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._env = env;
+        ctrl.autoNext = true;
+        ctrl.isUnloaded = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+        ctrl._voiceSelectionSequenceId = 1;
+        ctrl._nextChapterPreloadSequenceId = 1;
+        ctrl._autoNextTimer = null;
+        ctrl.managedPreparationPollIntervalMs = 5;
+        ctrl.managedPreparationTimeoutMs = 120000;
+        ctrl.config = {
+            waitFunction: (ms, signal) => new Promise((resolve, reject) => {
+                if (signal && signal.aborted) {
+                    const err = new Error('The operation was aborted');
+                    err.name = 'AbortError';
+                    return reject(err);
+                }
+                const timer = setTimeout(resolve, ms);
+                if (signal && signal.addEventListener) {
+                    signal.addEventListener('abort', () => {
+                        clearTimeout(timer);
+                        const err = new Error('The operation was aborted');
+                        err.name = 'AbortError';
+                        reject(err);
+                    });
+                }
+            })
+        };
+        ctrl.parser = { parseChapterBody: () => [{ text: 'prose' }] };
+
+        let playCalledCount = 0;
+        ctrl._playCalledCount = () => playCalledCount;
+
+        ctrl.chapterEngine = {
+            isSupported: () => true,
+            getState: () => 'PLAYING',
+            getSelectedVoiceKey: () => 'v1',
+            getCurrentChunkIndex: () => -1,
+            getCurrentChunk: () => null,
+            getSegments: () => [],
+            getProgress: () => ({ currentTimeSeconds: 0, durationSeconds: 100, progressRatio: 0 }),
+            loadPlayback: async (cId, vKey, meta) => {
+                ctrl.chapterEngine.metadata = meta || { chapterId: cId, voiceKey: vKey };
+                return ctrl.chapterEngine.metadata;
+            },
+            play: () => { playCalledCount++; return Promise.resolve(); },
+            pause: () => {},
+            stop: () => {},
+            destroy: () => {},
+            probePlaybackMetadata: async () => ({ status: 'unknown' }),
+            requestPlaybackPreparation: async () => ({ status: 'UNKNOWN' })
+        };
+        ctrl.managedEngine = {
+            isSupported: () => true,
+            loadVoiceCatalog: async () => ({ voices: [{ voiceKey: 'v1' }] }),
+            cancelVoiceCatalogLoad: () => {},
+            getVoices: () => [{ voiceKey: 'v1' }],
+            destroy: () => {}
+        };
+        ctrl.deviceEngine = {
+            isSupported: () => true,
+            play: () => Promise.resolve(),
+            loadChunks: () => {},
+            stop: () => {},
+            pause: () => {},
+            getState: () => 'STOPPED',
+            getCurrentChunkIndex: () => -1,
+            getSortedVoices: () => [{ voiceURI: 'dev-vi' }],
+            getVoices: () => [{ voiceURI: 'dev-vi' }],
+            selectedVoice: { voiceURI: 'dev-vi' }
+        };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl._updateChapterProgressDisplay = () => {};
+        ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._validateFetchedChapterDocument = () => ({
+            valid: true,
+            newChapterId: '2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: '<p>Next</p>' },
+            breadcrumbEl: { innerHTML: 'Next' },
+            headerEl: { innerHTML: 'Next' },
+            navTopEl: { innerHTML: 'Next' },
+            navBottomEl: { innerHTML: 'Next' }
+        });
+        ctrl.dom = createMockDom();
+        Object.assign(ctrl, opts);
+        return ctrl;
+    }
+
+    function createSnapshot(ctrl, overrides = {}) {
+        return {
+            sourceChapterId: '1',
+            nextUrl: '/next',
+            targetChapterId: '2',
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: Date.now(),
+            abortController: new (ctrl._env ? ctrl._env.AbortController : AbortController)(),
+            status: 'completed',
+            result: {
+                document: { querySelector: () => null, querySelectorAll: () => [], getElementById: () => null, title: 'Chapter 2' },
+                validation: {
+                    valid: true,
+                    newChapterId: '2',
+                    title: 'Chapter 2',
+                    bodyEl: { innerHTML: '<p>Next</p>' },
+                    breadcrumbEl: { innerHTML: 'Next' },
+                    headerEl: { innerHTML: 'Next' },
+                    navTopEl: { innerHTML: 'Next' },
+                    navBottomEl: { innerHTML: 'Next' }
+                }
+            },
+            playbackMetadata: null,
+            playbackAvailability: 'unknown',
+            ...overrides
+        };
+    }
+
+    await t.test('1. default autoNextManagedGraceMs === 5000 and config override supported', async () => {
+        const env = createEnv();
+        const defaultCtrl = new env.NarrationController.NarrationController({});
+        assert.strictEqual(defaultCtrl.autoNextManagedGraceMs, 5000, 'default autoNextManagedGraceMs must be 5000ms');
+
+        const customCtrl = new env.NarrationController.NarrationController({ autoNextManagedGraceMs: 3500 });
+        assert.strictEqual(customCtrl.autoNextManagedGraceMs, 3500, 'config override must be respected');
+    });
+
+    await t.test('2. custom managedPreparationTimeoutMs does NOT change default Auto Next grace', async () => {
+        const env = createEnv();
+        const ctrl = new env.NarrationController.NarrationController({ managedPreparationTimeoutMs: 60000 });
+        assert.strictEqual(ctrl.autoNextManagedGraceMs, 5000, 'autoNextManagedGraceMs remains 5000 despite custom managedPreparationTimeoutMs');
+
+        ctrl.managedPreparationTimeoutMs = 15000;
+        assert.strictEqual(ctrl.autoNextManagedGraceMs, 5000, 'mutating managedPreparationTimeoutMs does not alter autoNextManagedGraceMs');
+    });
+
+    await t.test('3. fallback ON uses Auto Next grace and POSTs /prepare exactly once', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 30;
+        ctrl.managedPreparationPollIntervalMs = 8;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        let postCount = 0;
+        let probeCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => {
+            postCount++;
+            return { status: 'BUILDING' };
+        };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            probeCount++;
+            return { status: 'unavailable' };
+        };
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 60));
+
+        assert.strictEqual(postCount, 1, 'POST /prepare must be called exactly once');
+        assert.ok(probeCount >= 1, 'at least one probe occurred during grace');
+        assert.strictEqual(devicePlayed, true, 'device TTS started after grace timeout');
+    });
+
+    await t.test('4. foreground polling stops after Auto Next grace and Device starts (bounded polling respects deadline)', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 35;
+        ctrl.managedPreparationPollIntervalMs = 20;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        const waitedIntervals = [];
+        ctrl.config = {
+            waitFunction: (ms, signal) => {
+                waitedIntervals.push(ms);
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+        };
+
+        let probeCount = 0;
+        let postCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { probeCount++; return { status: 'unavailable' }; };
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 70));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(ctrl.activeEngineType, 'device', 'switched to Device');
+        assert.strictEqual(ctrl.engine, ctrl.deviceEngine, 'deviceEngine authoritative');
+        assert.strictEqual(devicePlayed, true, 'Device TTS started');
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'Managed preference remains intact');
+        assert.strictEqual(postCount, 1, 'zero second POST /prepare occurs');
+
+        // Polling completely stops
+        const probeCountAtFallback = probeCount;
+        await new Promise(r => setTimeout(r, 40));
+        assert.strictEqual(probeCount, probeCountAtFallback, 'polling must stop once grace period expires and fallback occurs');
+
+        // Verify remaining deadline was respected and did not overshoot by full poll interval
+        assert.ok(waitedIntervals.length >= 2, 'at least two waits executed');
+        assert.strictEqual(waitedIntervals[0], 20, 'first wait is full poll interval');
+        assert.ok(waitedIntervals[1] <= 16, 'second wait clamped to remainingMs <= 15, not full 20ms');
+    });
+
+    await t.test('5. fallback OFF continues Managed polling beyond autoNextManagedGraceMs', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = false;
+        ctrl.autoNextManagedGraceMs = 20; // grace is 20ms
+        ctrl.managedPreparationTimeoutMs = 120; // timeout is 120ms
+        ctrl.managedPreparationPollIntervalMs = 8;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        let probeCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { probeCount++; return { status: 'unavailable' }; };
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        // Wait 45ms: past autoNextManagedGraceMs (20ms), but well before managedPreparationTimeoutMs (120ms)
+        await new Promise(r => setTimeout(r, 45));
+
+        assert.strictEqual(devicePlayed, false, 'Device fallback must NOT occur when fallback is disabled');
+        assert.strictEqual(ctrl.activeEngineType, 'managed', 'remains managed past grace duration');
+        assert.ok(probeCount >= 3, 'Managed polling continues past autoNextManagedGraceMs');
+
+        ctrl._cancelManagedPreparation();
+        await transPromise;
+    });
+
+    await t.test('6. fallback OFF can still become READY after the 5s-equivalent grace and then play Managed successfully', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = false;
+        ctrl.autoNextManagedGraceMs = 20; // grace would be 20ms
+        ctrl.managedPreparationTimeoutMs = 120;
+        ctrl.managedPreparationPollIntervalMs = 8;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        let probeCount = 0;
+        const readyMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'late-ready.mp3', cues: [] };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            probeCount++;
+            // Becomes READY on the 4th probe (well after 20ms grace)
+            if (probeCount >= 4) {
+                return { status: 'ready', metadata: readyMeta };
+            }
+            return { status: 'unavailable' };
+        };
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 60));
+
+        assert.strictEqual(devicePlayed, false, 'Device never played');
+        assert.strictEqual(ctrl.activeEngineType, 'managed', 'Managed remains active');
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'Managed playback succeeded once ready');
+        assert.strictEqual(ctrl.chapterEngine.metadata, readyMeta, 'loaded correct ready metadata');
+    });
+
+    await t.test('7. Manual Play still ignores autoNextManagedGraceMs and uses managedPreparationTimeoutMs', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 15; // short Auto Next grace
+        ctrl.managedPreparationTimeoutMs = 100; // manual Play timeout remains longer
+        ctrl.chapterId = '1';
+        ctrl.activeEngineType = 'managed';
+        ctrl.engine = ctrl.chapterEngine;
+
+        let probeCount = 0;
+        let prepCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { prepCount++; return { status: 'BUILDING' }; };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { probeCount++; return { status: 'unavailable' }; };
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        ctrl._handlePlayPause();
+        // Wait 35ms (longer than autoNextManagedGraceMs 15ms, but shorter than managedPreparationTimeoutMs 100ms)
+        await new Promise(r => setTimeout(r, 35));
+
+        assert.strictEqual(ctrl.activeEngineType, 'managed', 'manual Play is still in managed preparation after autoNextManagedGraceMs');
+        assert.strictEqual(devicePlayed, false, 'Device fallback not triggered prematurely for manual Play');
+        assert.strictEqual(prepCount, 1, 'exactly one preparation request');
+        assert.ok(probeCount >= 2, 'manual Play continues polling past autoNextManagedGraceMs');
+
+        ctrl._cancelManagedPreparation();
+    });
+
+    await t.test('8. abort/stale navigation still never triggers fallback', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 50;
+        ctrl.managedPreparationPollIntervalMs = 5;
+
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unavailable' });
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 15));
+
+        // User navigates away / cancels managed preparation during grace window
+        ctrl._cancelManagedPreparation();
+        await transPromise;
+        await new Promise(r => setTimeout(r, 60));
+
+        assert.strictEqual(devicePlayed, false, 'cancelled preparation must not trigger Device fallback');
+    });
+
+    await t.test('9. temporary Device fallback still preserves Managed preference and retries it on the next chapter', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.autoNextManagedGraceMs = 20;
+        ctrl.managedPreparationPollIntervalMs = 5;
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+
+        // Chapter 2: Managed BUILDING -> times out -> temporary Device fallback
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unavailable' });
+        let ch2DevicePlayed = false;
+        ctrl.deviceEngine.play = () => { ch2DevicePlayed = true; return Promise.resolve(); };
+
+        await ctrl._transitionToNextChapter('/chapter-2', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 50));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(ctrl.activeEngineType, 'device', 'Chapter 2 fell back to Device');
+        assert.strictEqual(ch2DevicePlayed, true);
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'Managed preference preserved');
+
+        // Chapter 3: has Managed audio READY!
+        const ch3ReadyMeta = { chapterId: '3', voiceKey: 'v1', audioUrl: 'ch3.mp3', cues: [] };
+        ctrl.chapterEngine.probePlaybackMetadata = async (cId) => {
+            if (String(cId) === '3') return { status: 'ready', metadata: ch3ReadyMeta };
+            return { status: 'unavailable' };
+        };
+        ctrl._validateFetchedChapterDocument = () => ({
+            valid: true,
+            newChapterId: '3',
+            title: 'Chapter 3',
+            bodyEl: { innerHTML: '<p>Ch3</p>' },
+            breadcrumbEl: { innerHTML: 'Ch3' },
+            headerEl: { innerHTML: 'Ch3' },
+            navTopEl: { innerHTML: 'Ch3' },
+            navBottomEl: { innerHTML: 'Ch3' }
+        });
+
+        // Trigger natural end of Chapter 2
+        ctrl._resolveNextChapterUrl = () => '/chapter-3';
+        env.window.setTimeout = (cb) => cb(); // instantaneous auto-next transition
+        ctrl._onEngineChapterEnd('device');
+        await new Promise(r => setTimeout(r, 30));
+
+        assert.strictEqual(ctrl.chapterId, '3', 'transitioned to Chapter 3');
+        assert.strictEqual(ctrl.activeEngineType, 'managed', 'retried preferred Managed first');
+        assert.strictEqual(ctrl.engine, ctrl.chapterEngine);
+        assert.strictEqual(ctrl.chapterEngine.metadata, ch3ReadyMeta, 'Chapter 3 loaded Managed audio');
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'Chapter 3 started Managed playback');
+    });
+
+    await t.test('10. Auto Next READY preload still starts Managed immediately (zero GET, zero POST)', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        const readyMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'ready.mp3', cues: [] };
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'ready', playbackMetadata: readyMeta });
+
+        let probeCount = 0;
+        let postCount = 0;
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { probeCount++; return { status: 'ready', metadata: readyMeta }; };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(probeCount, 0, 'zero GET for READY preload');
+        assert.strictEqual(postCount, 0, 'zero POST for READY preload');
+        assert.strictEqual(ctrl.activeEngineType, 'managed');
+        assert.strictEqual(ctrl.engine, ctrl.chapterEngine);
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'Managed playback started immediately');
     });
 });
