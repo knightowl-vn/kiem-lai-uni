@@ -206,6 +206,9 @@ class SecurityAuthorizationTest {
     private com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
 
     @MockBean
+    private com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
+
+    @MockBean
     private com.universe.novel.application.narration.GetPublicManagedVoiceCatalogUseCase getPublicManagedVoiceCatalogUseCase;
 
     @BeforeEach
@@ -571,6 +574,27 @@ class SecurityAuthorizationTest {
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access POST chapter narration prepare with CSRF")
+    void shouldAllowAnonymousAccessToChapterNarrationPrepare() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        String voiceKey = "kiemlai-male-01";
+        when(preparePublicChapterPlaybackUseCase.execute(any(
+                com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand.class
+        ))).thenReturn(new com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult(
+                chapterId,
+                voiceKey,
+                com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus.SCHEDULED
+        ));
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
+                .andExpect(status().isAccepted());
     }
 
     @Test

@@ -8,17 +8,23 @@ import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PrepareReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PrepareReaderNarrationSegmentOutcome;
 import com.universe.novel.application.narration.PrepareReaderNarrationSegmentResult;
+import com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus;
 import com.universe.novel.application.narration.ReaderNarrationContinuationDispatchStatus;
 import com.universe.novel.application.narration.ReaderNarrationPreparationAction;
+import com.universe.novel.contracts.dto.narration.PrepareChapterNarrationPlaybackRequest;
 import com.universe.novel.contracts.dto.narration.PrepareReaderNarrationPlaybackRequest;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPrepareResponseDTO;
 import com.universe.novel.contracts.dto.narration.PublicReaderNarrationPlaybackDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +40,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,13 +60,17 @@ class PublicNovelChapterNarrationPlaybackControllerTest {
     @Mock
     private GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
 
+    @Mock
+    private PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
+
     private PublicNovelChapterNarrationPlaybackController controller;
 
     @BeforeEach
     void setUp() {
         controller = new PublicNovelChapterNarrationPlaybackController(
                 preparePublicPlaybackUseCase,
-                getPublicPlaybackUseCase
+                getPublicPlaybackUseCase,
+                preparePublicChapterPlaybackUseCase
         );
     }
 
@@ -269,5 +280,90 @@ class PublicNovelChapterNarrationPlaybackControllerTest {
         assertThat(controller.handleIllegalState().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(controller.handleGenericException(new RuntimeException("secret")).getStatusCode())
                 .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @Test
+    @DisplayName("6. POST /prepare with SCHEDULED returns 202 Accepted and BUILDING availability")
+    void prepareChapterPlaybackScheduledReturnsAcceptedBuilding() {
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.SCHEDULED
+                ));
+
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response = controller.prepareChapterPlayback(
+                CHAPTER_ID,
+                new PrepareChapterNarrationPlaybackRequest(VOICE_KEY)
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().chapterId()).isEqualTo(CHAPTER_ID);
+        assertThat(response.getBody().voiceKey()).isEqualTo(VOICE_KEY);
+        assertThat(response.getBody().availability()).isEqualTo(PublicChapterNarrationPlaybackAvailability.BUILDING);
+    }
+
+    @Test
+    @DisplayName("7. POST /prepare with ALREADY_IN_FLIGHT returns 202 Accepted and BUILDING availability")
+    void prepareChapterPlaybackAlreadyInFlightReturnsAcceptedBuilding() {
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.ALREADY_IN_FLIGHT
+                ));
+
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response = controller.prepareChapterPlayback(
+                CHAPTER_ID,
+                new PrepareChapterNarrationPlaybackRequest(VOICE_KEY)
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().chapterId()).isEqualTo(CHAPTER_ID);
+        assertThat(response.getBody().voiceKey()).isEqualTo(VOICE_KEY);
+        assertThat(response.getBody().availability()).isEqualTo(PublicChapterNarrationPlaybackAvailability.BUILDING);
+    }
+
+    @Test
+    @DisplayName("8. POST /prepare with REJECTED returns 503 Service Unavailable")
+    void prepareChapterPlaybackRejectedReturnsServiceUnavailable() {
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.REJECTED
+                ));
+
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response = controller.prepareChapterPlayback(
+                CHAPTER_ID,
+                new PrepareChapterNarrationPlaybackRequest(VOICE_KEY)
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("9. POST /prepare with null or blank voiceKey returns 400 Bad Request")
+    void prepareChapterPlaybackInvalidRequestReturnsBadRequest() {
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response1 = controller.prepareChapterPlayback(
+                CHAPTER_ID,
+                null
+        );
+        assertThat(response1.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response2 = controller.prepareChapterPlayback(
+                CHAPTER_ID,
+                new PrepareChapterNarrationPlaybackRequest("   ")
+        );
+        assertThat(response2.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<PublicChapterNarrationPrepareResponseDTO> response3 = controller.prepareChapterPlayback(
+                null,
+                new PrepareChapterNarrationPlaybackRequest(VOICE_KEY)
+        );
+        assertThat(response3.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }

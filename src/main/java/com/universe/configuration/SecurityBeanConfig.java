@@ -112,6 +112,7 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.POST,
+                                "/api/novel/chapters/*/narration/prepare",
                                 "/api/novel/chapters/*/narration/segments/*/prepare"
                         )
                         .permitAll()

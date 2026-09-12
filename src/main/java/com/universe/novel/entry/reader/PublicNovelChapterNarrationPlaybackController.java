@@ -7,11 +7,18 @@ import com.universe.novel.application.exceptions.ManagedVoiceInvalidStateExcepti
 import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
+import com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus;
+import com.universe.novel.contracts.dto.narration.PrepareChapterNarrationPlaybackRequest;
 import com.universe.novel.contracts.dto.narration.PrepareReaderNarrationPlaybackRequest;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO;
+import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPrepareResponseDTO;
 import com.universe.novel.contracts.dto.narration.PublicReaderNarrationPlaybackDTO;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -41,16 +48,57 @@ public class PublicNovelChapterNarrationPlaybackController {
 
     private final PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase;
     private final GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+    private final PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
 
     public PublicNovelChapterNarrationPlaybackController(
             PreparePublicReaderNarrationPlaybackUseCase preparePublicPlaybackUseCase,
-            GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase
+            GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase,
+            PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase
     ) {
         this.preparePublicPlaybackUseCase = Objects.requireNonNull(
                 preparePublicPlaybackUseCase, "preparePublicPlaybackUseCase must not be null"
         );
         this.getPublicPlaybackUseCase = Objects.requireNonNull(
                 getPublicPlaybackUseCase, "getPublicPlaybackUseCase must not be null"
+        );
+        this.preparePublicChapterPlaybackUseCase = Objects.requireNonNull(
+                preparePublicChapterPlaybackUseCase, "preparePublicChapterPlaybackUseCase must not be null"
+        );
+    }
+
+    /**
+     * POST /api/novel/chapters/{chapterId}/narration/prepare
+     *
+     * @param chapterId   identity of the published chapter
+     * @param requestBody JSON payload containing public voiceKey
+     * @return 202 Accepted with BUILDING availability, or 503 Service Unavailable on executor rejection
+     */
+    @PostMapping("/prepare")
+    public ResponseEntity<PublicChapterNarrationPrepareResponseDTO> prepareChapterPlayback(
+            @PathVariable UUID chapterId,
+            @RequestBody(required = false) PrepareChapterNarrationPlaybackRequest requestBody
+    ) {
+        if (chapterId == null || requestBody == null || requestBody.voiceKey() == null || requestBody.voiceKey().isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        PreparePublicChapterNarrationPlaybackResult result = preparePublicChapterPlaybackUseCase.execute(
+                new PreparePublicChapterNarrationPlaybackCommand(
+                        chapterId,
+                        requestBody.voiceKey()
+                )
+        );
+
+        if (result.dispatchStatus() == ReaderChapterNarrationPreparationDispatchStatus.REJECTED) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(
+                new PublicChapterNarrationPrepareResponseDTO(
+                        result.chapterId(),
+                        result.voiceKey(),
+                        PublicChapterNarrationPlaybackAvailability.BUILDING
+                )
         );
     }
 

@@ -13,12 +13,16 @@ import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.narration.ChapterNarrationAudioHealthStatus;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery;
 import com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult;
+import com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackCommand;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PreparePublicReaderNarrationPlaybackUseCase;
 import com.universe.novel.application.narration.PrepareReaderNarrationPlaybackResult;
 import com.universe.novel.application.narration.PrepareReaderNarrationSegmentOutcome;
 import com.universe.novel.application.narration.PrepareReaderNarrationSegmentResult;
+import com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus;
 import com.universe.novel.application.narration.ReaderNarrationContinuationDispatchStatus;
 import com.universe.novel.application.narration.ReaderNarrationPreparationAction;
 import com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability;
@@ -84,6 +88,9 @@ class PublicNovelChapterNarrationPlaybackControllerMvcTest {
 
     @MockBean
     private GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+
+    @MockBean
+    private PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
 
     @MockBean
     private UserDetailsService userDetailsService;
@@ -452,6 +459,132 @@ class PublicNovelChapterNarrationPlaybackControllerMvcTest {
                         .param("voiceKey", VOICE_KEY))
                 .andExpect(status().isBadRequest())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store, no-cache, must-revalidate, max-age=0"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare returns 202 BUILDING when SCHEDULED")
+    void shouldAcceptChapterNarrationPreparationWhenScheduled() throws Exception {
+        when(preparePublicChapterPlaybackUseCase.execute(new PreparePublicChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_KEY)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.SCHEDULED
+                ));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"))
+                .andExpect(jsonPath("$.chapterId").value(CHAPTER_ID.toString()))
+                .andExpect(jsonPath("$.voiceKey").value(VOICE_KEY))
+                .andExpect(jsonPath("$.availability").value("BUILDING"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare returns 202 BUILDING when ALREADY_IN_FLIGHT")
+    void shouldAcceptChapterNarrationPreparationWhenAlreadyInFlight() throws Exception {
+        when(preparePublicChapterPlaybackUseCase.execute(new PreparePublicChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_KEY)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.ALREADY_IN_FLIGHT
+                ));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"))
+                .andExpect(jsonPath("$.chapterId").value(CHAPTER_ID.toString()))
+                .andExpect(jsonPath("$.voiceKey").value(VOICE_KEY))
+                .andExpect(jsonPath("$.availability").value("BUILDING"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare returns 503 Service Unavailable when REJECTED")
+    void shouldReturnServiceUnavailableWhenChapterNarrationPreparationRejected() throws Exception {
+        when(preparePublicChapterPlaybackUseCase.execute(new PreparePublicChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_KEY)))
+                .thenReturn(new PreparePublicChapterNarrationPlaybackResult(
+                        CHAPTER_ID,
+                        VOICE_KEY,
+                        ReaderChapterNarrationPreparationDispatchStatus.REJECTED
+                ));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare rejects anonymous request without CSRF token")
+    void shouldRejectChapterNarrationPreparationWithoutCsrf() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare returns 400 when voiceKey is blank")
+    void shouldReturnBadRequestWhenVoiceKeyBlank() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare maps missing chapter or voice to 404 with no-store headers")
+    void shouldReturnNotFoundWhenChapterOrVoiceNotFoundForPreparation() throws Exception {
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenThrow(new ChapterNotFoundException(CHAPTER_ID));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"));
+
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenThrow(new ManagedVoiceNotFoundException(VOICE_KEY));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("H.9I5B POST /prepare maps inactive voice to 400 with no-store headers")
+    void shouldReturnBadRequestWhenVoiceInactiveForPreparation() throws Exception {
+        when(preparePublicChapterPlaybackUseCase.execute(any(PreparePublicChapterNarrationPlaybackCommand.class)))
+                .thenThrow(new ManagedVoiceInvalidStateException("inactive"));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_ID + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\":\"" + VOICE_KEY + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, max-age=0, must-revalidate"));
     }
 
     private static PublicChapterNarrationPlaybackDTO playbackDto(
