@@ -24,7 +24,7 @@ import java.util.concurrent.RejectedExecutionException;
  * locking and generation/finalization checks ensure safety across JVM instances or concurrent Admin operations.
  * <p>
  * <strong>Rejection & Thread Safety:</strong>
- * Reuses the bounded {@code readerNarrationContinuationTaskExecutor}. Rejections immediately release the in-flight key.
+ * Reuses the bounded {@code readerChapterNarrationPreparationTaskExecutor}. Rejections immediately release the in-flight key.
  * Work is NEVER executed on the caller thread.
  */
 @Component
@@ -44,7 +44,7 @@ public class ReaderChapterNarrationPreparationDispatcher {
     private final ConcurrentMap<OperationKey, Boolean> inFlightKeys = new ConcurrentHashMap<>();
 
     public ReaderChapterNarrationPreparationDispatcher(
-            @Qualifier("readerNarrationContinuationTaskExecutor") TaskExecutor taskExecutor,
+            @Qualifier("readerChapterNarrationPreparationTaskExecutor") TaskExecutor taskExecutor,
             ReaderChapterNarrationPreparationWorker worker
     ) {
         this.taskExecutor = Objects.requireNonNull(taskExecutor, "taskExecutor must not be null");

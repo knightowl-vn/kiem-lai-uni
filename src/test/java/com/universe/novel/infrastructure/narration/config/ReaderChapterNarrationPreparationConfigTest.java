@@ -9,14 +9,14 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("ReaderNarrationContinuationConfig Unit Tests (MS-04.9H.7C2C3B)")
-class ReaderNarrationContinuationConfigTest {
+@DisplayName("ReaderChapterNarrationPreparationConfig Unit Tests (MS-04.9H.9, H.9I5E1)")
+class ReaderChapterNarrationPreparationConfigTest {
 
     @Test
     @DisplayName("Configures dedicated bounded TaskExecutor with AbortPolicy and without CallerRunsPolicy")
     void configuresDedicatedBoundedTaskExecutor() {
-        ReaderNarrationContinuationConfig config = new ReaderNarrationContinuationConfig();
-        TaskExecutor taskExecutor = config.readerNarrationContinuationTaskExecutor();
+        ReaderChapterNarrationPreparationConfig config = new ReaderChapterNarrationPreparationConfig();
+        TaskExecutor taskExecutor = config.readerChapterNarrationPreparationTaskExecutor();
 
         assertThat(taskExecutor).isInstanceOf(ThreadPoolTaskExecutor.class);
         ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) taskExecutor;

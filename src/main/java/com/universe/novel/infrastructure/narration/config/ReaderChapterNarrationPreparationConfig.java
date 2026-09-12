@@ -9,19 +9,19 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Infrastructure configuration providing a dedicated bounded {@link TaskExecutor}
- * for background reader narration continuation (MS-04.9H.7C2C3B).
+ * for background reader chapter narration preparation (MS-04.9H.9, H.9I5E1).
  * <p>
  * <strong>Safety Invariant:</strong>
  * Uses {@link ThreadPoolExecutor.AbortPolicy} to strictly reject surplus tasks when the queue is saturated,
- * ensuring the caller thread (HTTP request) NEVER executes background TTS/Media continuation work.
+ * ensuring the caller thread (HTTP request) NEVER executes background TTS/Media preparation work.
  */
 @Configuration
-public class ReaderNarrationContinuationConfig {
+public class ReaderChapterNarrationPreparationConfig {
 
-    public static final String EXECUTOR_BEAN_NAME = "readerNarrationContinuationTaskExecutor";
+    public static final String EXECUTOR_BEAN_NAME = "readerChapterNarrationPreparationTaskExecutor";
 
     @Bean(name = EXECUTOR_BEAN_NAME)
-    public TaskExecutor readerNarrationContinuationTaskExecutor() {
+    public TaskExecutor readerChapterNarrationPreparationTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(4);
