@@ -1718,13 +1718,13 @@ class ReaderManagedAudioContractTest {
     @DisplayName("150. Auto Next prefers active engine voiceKey over saved preference and requests on-demand preparation (MS-04.9H.7D8)")
     void autoNextPrefersActiveEngineVoiceKeyOverSavedPreference() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
         assertThat(transBody).contains("const activeEngineVoiceKey = (this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function')\n                    ? this.managedEngine.getSelectedVoiceKey()\n                    : null;");
         assertThat(transBody).contains("const requestedVoiceKey = (continuationIntent && continuationIntent.mode === 'managed' ? continuationIntent.voiceKey : null) || activeEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)\n                    ? this.savedVoicePreference.voiceKey\n                    : null);");
-        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey).then(manifest => {");
+        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, false, preloadedChapterMetadata).then(manifest => {");
         assertThat(transBody).contains("this.managedEngine.play(0);");
     }
 
@@ -1732,7 +1732,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("151. Auto Next null Managed voice authority fails safely without un-keyed default re-resolution (MS-04.9H.7D8)")
     void autoNextNullManagedVoiceFailsSafelyWithoutUnkeyedReResolution() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
@@ -1746,7 +1746,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("152. Auto Next failure isolates Chapter-A audio, disables play button, and keeps voice selector usable (MS-04.9H.7D8)")
     void autoNextFailureIsolatesChapterAAudioAndKeepsVoiceSelectorUsable() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
@@ -1773,7 +1773,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("154. Chapter transition immediately clears Chapter-A chunks and progress before loading Chapter-B (MS-04.9H.7D8)")
     void chapterTransitionImmediatelyClearsChapterAChunks() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int dispatchEvent = controllerJs.indexOf("document.dispatchEvent(new CustomEvent('kiemlai:chapter-changed'", transStart);
         String entryBody = controllerJs.substring(transStart, dispatchEvent);
 
@@ -1904,11 +1904,11 @@ class ReaderManagedAudioContractTest {
     @DisplayName("162. Fallback Policy: Auto Next on MISSING audio triggers on-demand generation for the same voice (MS-04.9H.7D8)")
     void autoNextMissingAudioTriggersOnDemandGenerationWithoutFallback() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
-        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey).then(manifest => {");
+        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, false, preloadedChapterMetadata).then(manifest => {");
         assertThat(transBody).contains("this.managedEngine.play(0);");
     }
 
@@ -1916,7 +1916,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("163. Fallback Policy: Definitive failure uses Device TTS only when fallbackToDevice is true and preserves saved preference (MS-04.9H.7D8)")
     void autoNextDefinitiveFailureUsesDeviceTtsOnlyWhenPolicyPermits() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
@@ -1932,7 +1932,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("164. Fallback Policy: Auto Next never automatically falls back to another Managed voice (MS-04.9H.7D8)")
     void autoNextNeverFallsBackToAnotherManagedVoiceAutomatically() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
@@ -2066,7 +2066,7 @@ class ReaderManagedAudioContractTest {
     @DisplayName("173. Device Fallback: Chapter B temporary fallback does NOT prevent Chapter C from retrying preferred Managed voice first (MS-04.9H.7D8)")
     void temporaryFallbackDoesNotPreventNextChapterRetryingManagedVoice() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {");
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
         int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
         String transBody = controllerJs.substring(transStart, transEnd);
 
@@ -2386,7 +2386,7 @@ class ReaderManagedAudioContractTest {
                 "voiceSequence === this._voiceSelectionSequenceId", "this.managedEngine.stop()", "this.managedEngine.cancel()");
         assertThat(controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {"))
                 .contains("this._invalidateChapterPlayback()");
-        assertThat(controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {", "_onEngineError(error, engineType) {"))
+        assertThat(controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {"))
                 .contains("this._invalidateChapterPlayback()");
         assertThat(controllerMethod("_handleUnload() {", "_handleStorageEvent(event) {"))
                 .contains("this._invalidateChapterPlayback()");
@@ -2441,14 +2441,14 @@ class ReaderManagedAudioContractTest {
     @Test
     @DisplayName("H.9H1: Next-chapter ChapterAudioEngine is actually started")
     void h9h1NextChapterChapterAudioEngineIsStarted() throws Exception {
-        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc", "_onEngineError(error, engineType) {");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
         assertThat(applyTransition).contains("} else if (this.engine === this.chapterEngine) {\n                            this.chapterEngine.play(0);\n                        }");
     }
 
     @Test
     @DisplayName("H.9H1: Existing legacy Managed and Device paths remain intact")
     void h9h1ExistingLegacyPathsRemainIntact() throws Exception {
-        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc", "_onEngineError(error, engineType) {");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
         assertThat(applyTransition).contains("this.managedEngine.play(0);");
         assertThat(applyTransition).contains("this.deviceEngine.play(0);");
     }

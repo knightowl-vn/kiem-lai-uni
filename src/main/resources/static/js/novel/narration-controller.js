@@ -1342,7 +1342,7 @@
             this._clearHighlight();
         }
 
-        async _selectManagedPlayback(chapterId, voiceKey, legacyOnly = false) {
+        async _selectManagedPlayback(chapterId, voiceKey, legacyOnly = false, preloadedChapterMetadata = null) {
             this._invalidateChapterPlayback();
             const selection = this._chapterSelectionId;
             const voiceSequence = this._voiceSelectionSequenceId;
@@ -1365,7 +1365,7 @@
 
             if (!legacyOnly && this.chapterEngine && this.chapterEngine.isSupported()) {
                 this.engine = this.activeEngine = this.chapterEngine;
-                const metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey);
+                const metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey, preloadedChapterMetadata);
                 assertCurrent();
                 if (metadata) {
                     this.chapterEngine.setRate(this.dom.rateSelect ? this.dom.rateSelect.value : this.managedEngine.rate);
@@ -2979,6 +2979,65 @@
         }
 
         /**
+         * Claims and validates the active next-chapter preload snapshot.
+         * @param {string} nextUrl
+         * @param {Object} continuationIntent
+         * @returns {Object|null}
+         * @private
+         */
+        _claimNextChapterPreload(nextUrl, continuationIntent) {
+            const snapshot = this._activeNextChapterPreload;
+            if (!snapshot) return null;
+
+            const cancelAndReturnNull = () => {
+                this._cancelNextChapterPreload();
+                return null;
+            };
+
+            if (snapshot.status !== 'completed' || !snapshot.result || !snapshot.result.document || !snapshot.result.validation || !snapshot.targetChapterId) {
+                return cancelAndReturnNull();
+            }
+            if (this._isPreloadStale(snapshot)) {
+                return cancelAndReturnNull();
+            }
+
+            if (snapshot.sourceChapterId !== this.chapterId) return cancelAndReturnNull();
+            if (snapshot.nextUrl !== nextUrl) return cancelAndReturnNull();
+            if (snapshot.mode !== 'managed') return cancelAndReturnNull();
+
+            if (!continuationIntent || continuationIntent.mode !== 'managed') return cancelAndReturnNull();
+            if (continuationIntent.voiceKey !== snapshot.voiceKey) return cancelAndReturnNull();
+
+            if (this.engine !== this.chapterEngine || this.activeEngineType !== 'managed') return cancelAndReturnNull();
+            if (this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function' && this.chapterEngine.getSelectedVoiceKey() !== snapshot.voiceKey) return cancelAndReturnNull();
+
+            if (snapshot.voiceSelectionSequence !== this._voiceSelectionSequenceId) return cancelAndReturnNull();
+            if (snapshot.preloadSequence !== this._nextChapterPreloadSequenceId) return cancelAndReturnNull();
+            if (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted) return cancelAndReturnNull();
+            if (snapshot.targetChapterId === snapshot.sourceChapterId) return cancelAndReturnNull();
+
+            const fetchedDoc = snapshot.result.document;
+            const validation = this._validateFetchedChapterDocument(fetchedDoc);
+            if (!validation.valid || !validation.newChapterId || validation.newChapterId !== snapshot.targetChapterId || validation.newChapterId === snapshot.sourceChapterId) {
+                return cancelAndReturnNull();
+            }
+
+            // Advance sequence to detach ownership
+            this._nextChapterPreloadSequenceId++;
+            this._activeNextChapterPreload = null;
+
+            snapshot.status = 'claimed';
+
+            return {
+                fetchedDoc: fetchedDoc,
+                nextUrl: nextUrl,
+                targetChapterId: snapshot.targetChapterId,
+                playbackMetadata: snapshot.playbackMetadata,
+                validation: validation
+            };
+        }
+
+        /**
          * Performs seamless in-page transition to the next chapter.
          * Fetches chapter HTML, validates fragments, updates DOM in-place, synchronizes history & events, and resumes narration.
          * @param {string} nextUrl
@@ -3002,39 +3061,51 @@
             this.isNavigatingToNext = true;
 
             try {
-                const response = await fetch(nextUrl, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/html,application/xhtml+xml,application/xml',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'X-Partial-Render': 'true'
-                    },
-                    signal: this._transitionAbortController.signal
-                });
+                const claimedPreload = this._claimNextChapterPreload(nextUrl, continuationIntent);
 
-                if (!response.ok) {
-                    throw new Error('HTTP status ' + response.status);
+                let fetchedDoc;
+                let validation;
+                let preloadedPlaybackMetadata = null;
+
+                if (claimedPreload) {
+                    fetchedDoc = claimedPreload.fetchedDoc;
+                    validation = claimedPreload.validation;
+                    preloadedPlaybackMetadata = claimedPreload.playbackMetadata;
+                } else {
+                    const response = await fetch(nextUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/html,application/xhtml+xml,application/xml',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-Partial-Render': 'true'
+                        },
+                        signal: this._transitionAbortController.signal
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('HTTP status ' + response.status);
+                    }
+
+                    const htmlText = await response.text();
+
+                    if (this.isUnloaded || !this.isNavigatingToNext || currentSequenceId !== this._transitionSequenceId) {
+                        return; // Stale or cancelled transition
+                    }
+
+                    if (typeof DOMParser === 'undefined') {
+                        throw new Error('DOMParser is not supported.');
+                    }
+
+                    const parser = new DOMParser();
+                    fetchedDoc = parser.parseFromString(htmlText, 'text/html');
+
+                    validation = this._validateFetchedChapterDocument(fetchedDoc);
+                    if (!validation.valid) {
+                        throw new Error('Validation failed: ' + validation.reason);
+                    }
                 }
 
-                const htmlText = await response.text();
-
-                if (this.isUnloaded || !this.isNavigatingToNext || currentSequenceId !== this._transitionSequenceId) {
-                    return; // Stale or cancelled transition
-                }
-
-                if (typeof DOMParser === 'undefined') {
-                    throw new Error('DOMParser is not supported.');
-                }
-
-                const parser = new DOMParser();
-                const fetchedDoc = parser.parseFromString(htmlText, 'text/html');
-
-                const validation = this._validateFetchedChapterDocument(fetchedDoc);
-                if (!validation.valid) {
-                    throw new Error('Validation failed: ' + validation.reason);
-                }
-
-                this._applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent);
+                this._applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedPlaybackMetadata);
             } catch (error) {
                 if (error && error.name === 'AbortError') {
                     return; // Intentional abort, no error state
@@ -3118,7 +3189,7 @@
          * @param {Object} validation
          * @private
          */
-        _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent) {
+        _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {
             this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
@@ -3356,7 +3427,7 @@
                     return;
                 }
 
-                this._selectManagedPlayback(requestedChapterId, requestedVoiceKey).then(manifest => {
+                this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, false, preloadedChapterMetadata).then(manifest => {
                     if (this.chapterId !== requestedChapterId) {
                         return;
                     }

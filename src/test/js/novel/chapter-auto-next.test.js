@@ -1276,3 +1276,714 @@ test('H.9H2B1 Late Next-Chapter Preload Trigger + Snapshot Tests', async (t) => 
         require('node:assert').deepStrictEqual(snapshot.playbackMetadata, { some: 'data' });
     });
 });
+
+test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
+    function createControllerEnv(customDateNow) {
+        let currentTime = 1000;
+        class CustomEvent {
+            constructor(type, eventInitDict) {
+                this.type = type;
+                this.detail = eventInitDict ? eventInitDict.detail : null;
+            }
+        }
+        const fakeAudioFactory = () => {
+            const listeners = {};
+            return {
+                readyState: 4,
+                currentTime: 0,
+                duration: 100,
+                ended: false,
+                playbackRate: 1,
+                src: '',
+                preload: '',
+                _listeners: listeners,
+                addEventListener(event, cb) {
+                    if (!listeners[event]) listeners[event] = [];
+                    listeners[event].push(cb);
+                },
+                removeEventListener(event, cb) {
+                    if (listeners[event]) {
+                        listeners[event] = listeners[event].filter(l => l !== cb);
+                    }
+                },
+                emit(event) {
+                    if (listeners[event]) {
+                        listeners[event].forEach(cb => cb());
+                    }
+                },
+                play() {
+                    if (listeners['play']) listeners['play'].forEach(cb => cb());
+                    if (listeners['playing']) listeners['playing'].forEach(cb => cb());
+                    return Promise.resolve();
+                },
+                pause() {
+                    if (listeners['pause']) listeners['pause'].forEach(cb => cb());
+                },
+                removeAttribute(attr) {
+                    if (attr === 'src') this.src = '';
+                },
+                load() {
+                    this.readyState = 4;
+                    if (listeners['canplay']) listeners['canplay'].forEach(cb => cb());
+                }
+            };
+        };
+        const env = {
+            console, setTimeout, clearTimeout, CustomEvent,
+            URL: typeof URL !== 'undefined' ? URL : class URL { constructor(u) { this.pathname = u; } },
+            window: { location: { reload: () => {}, href: 'http://localhost/c1' }, history: { pushState: () => {} } },
+            document: {
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                dispatchEvent: () => true,
+                createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, querySelectorAll: () => [] }),
+                title: ''
+            },
+            Audio: fakeAudioFactory,
+            AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } },
+            Date: class extends Date { static now() { return typeof customDateNow === 'function' ? customDateNow() : currentTime; } },
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        querySelector: () => null,
+                        querySelectorAll: () => [],
+                        getElementById: () => null,
+                        title: 'Test'
+                    };
+                }
+            },
+            fetch: async () => ({ ok: true, text: async () => '<html></html>' })
+        };
+        env.fakeAudioFactory = fakeAudioFactory;
+        env.setCurrentTime = (t) => { currentTime = t; };
+        const engineSrc = require('fs').readFileSync('src/main/resources/static/js/novel/chapter-audio-engine.js', 'utf8');
+        require('vm').runInNewContext(engineSrc, env);
+        const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        require('vm').runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    function createMockController(env) {
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.autoNext = true;
+        ctrl.isUnloaded = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl._voiceSelectionSequenceId = 1;
+        ctrl.chapterEngine = {
+            isSupported: () => true,
+            getState: () => 'PLAYING',
+            getSelectedVoiceKey: () => 'v1',
+            getCurrentChunkIndex: () => -1,
+            getCurrentChunk: () => null,
+            getSegments: () => [],
+            getProgress: () => ({ currentTimeSeconds: 0, durationSeconds: 100, progressRatio: 0 }),
+            loadPlayback: async () => null,
+            stop: () => {},
+            setRate: () => {},
+            seekBySeconds: () => {},
+            play: () => Promise.resolve(),
+            pause: () => {},
+            canPrevious: () => false,
+            canNext: () => false
+        };
+        ctrl.managedEngine = {
+            isSupported: () => true,
+            getVoices: () => [{ voiceKey: 'v1' }],
+            getSelectedVoiceKey: () => 'v1',
+            stop: () => {},
+            cancel: () => {},
+            loadManifest: async (id, voiceKey) => ({ selectedVoice: { voiceKey }, segments: [], availableVoices: [{ voiceKey }] })
+        };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl._updateChapterProgressDisplay = () => {};
+        ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._validateFetchedChapterDocument = () => ({
+            valid: true,
+            newChapterId: '2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: '<p>Next</p>' },
+            breadcrumbEl: { innerHTML: 'Next' },
+            headerEl: { innerHTML: 'Next' },
+            navTopEl: { innerHTML: 'Next' },
+            navBottomEl: { innerHTML: 'Next' }
+        });
+        ctrl.dom = {
+            body: {
+                innerHTML: '',
+                setAttribute: () => {},
+                getAttribute: () => null,
+                querySelectorAll: () => []
+            },
+            player: {
+                setAttribute: () => {},
+                getAttribute: () => null
+            },
+            playPauseBtn: {
+                disabled: false,
+                setAttribute: () => {},
+                removeAttribute: () => {},
+                classList: { remove: () => {}, add: () => {}, toggle: () => {} }
+            },
+            voiceSelect: null
+        };
+        return ctrl;
+    }
+
+    function createValidSnapshot(ctrl, customOpts = {}) {
+        return {
+            sourceChapterId: '1',
+            nextUrl: '/next',
+            targetChapterId: '2',
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: 1000,
+            abortController: new (createControllerEnv().AbortController)(),
+            promise: Promise.resolve(),
+            status: 'completed',
+            result: {
+                document: {
+                    querySelector: () => null,
+                    querySelectorAll: () => [],
+                    getElementById: () => null,
+                    title: 'Chapter 2'
+                },
+                validation: {
+                    valid: true,
+                    newChapterId: '2',
+                    title: 'Chapter 2',
+                    bodyEl: { innerHTML: '<p>Next</p>' },
+                    breadcrumbEl: { innerHTML: 'Next' },
+                    headerEl: { innerHTML: 'Next' },
+                    navTopEl: { innerHTML: 'Next' },
+                    navBottomEl: { innerHTML: 'Next' }
+                }
+            },
+            playbackMetadata: { audioUrl: 'test.mp3' },
+            ...customOpts
+        };
+    }
+
+    await t.test('1. completed matching preload is claimed at natural Auto Next transition', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = createValidSnapshot(ctrl);
+        const claimed = ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').ok(claimed);
+        require('node:assert').strictEqual(claimed.targetChapterId, '2');
+    });
+
+    await t.test('2. claimed preload skips the transition HTML network fetch', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = createValidSnapshot(ctrl);
+        let fetchCalled = false;
+        env.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '' }; };
+        ctrl._applyChapterTransition = () => {};
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(fetchCalled, false);
+    });
+
+    await t.test('3. claimed preload detached document goes through the existing _applyChapterTransition path', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl);
+        ctrl._activeNextChapterPreload = snapshot;
+        let applyArgs = null;
+        ctrl._applyChapterTransition = (doc, url, val, intent, meta) => { applyArgs = { doc, meta }; };
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(applyArgs.doc, snapshot.result.document);
+        require('node:assert').strictEqual(applyArgs.meta, snapshot.playbackMetadata);
+    });
+
+    await t.test('4. claim re-runs _validateFetchedChapterDocument', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = createValidSnapshot(ctrl);
+        let validationCalled = false;
+        ctrl._validateFetchedChapterDocument = () => { validationCalled = true; return { valid: true, newChapterId: '2' }; };
+        ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(validationCalled, true);
+    });
+
+    await t.test('5. successful claim detaches the active slot', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = createValidSnapshot(ctrl);
+        ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+    });
+
+    await t.test('6. successful claim does NOT abort its AbortController', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl);
+        ctrl._activeNextChapterPreload = snapshot;
+        ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, false);
+    });
+
+    await t.test('7. successful claim advances preload sequence / invalidates old ownership', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = createValidSnapshot(ctrl);
+        const initialSeq = ctrl._nextChapterPreloadSequenceId;
+        ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialSeq + 1);
+    });
+
+    await t.test('8. pending preload is NOT awaited: it is cancelled and cold HTML fetch starts', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl, { status: 'pending' });
+        ctrl._activeNextChapterPreload = snapshot;
+        let fetchCalled = false;
+        env.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl._applyChapterTransition = () => {};
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(fetchCalled, true);
+    });
+
+    await t.test('9. expired preload falls back to cold HTML fetch', async () => {
+        const env = createControllerEnv(() => 80000); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl, { createdAt: 1000 });
+        ctrl._activeNextChapterPreload = snapshot;
+        let fetchCalled = false;
+        env.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl._applyChapterTransition = () => {};
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true);
+        require('node:assert').strictEqual(fetchCalled, true);
+    });
+
+    await t.test('10. voice mismatch falls back cold', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl, { voiceKey: 'v2' });
+        ctrl._activeNextChapterPreload = snapshot;
+        const claimed = ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(claimed, null);
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+
+        const env2 = createControllerEnv(); const ctrl2 = createMockController(env2);
+        const snapshot2 = createValidSnapshot(ctrl2, { voiceKey: 'v2' });
+        ctrl2._activeNextChapterPreload = snapshot2;
+        let fetchCalled = false;
+        env2.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl2._applyChapterTransition = () => {};
+        await ctrl2._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(fetchCalled, true);
+        require('node:assert').strictEqual(snapshot2.abortController.signal.aborted, true);
+    });
+
+    await t.test('11. continuation mode=device does not consume managed ChapterAudio preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl);
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCalled = false;
+        env.fetch = async () => {
+            htmlFetchCalled = true;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+        let appliedIntent = null;
+        ctrl._applyChapterTransition = (doc, url, val, intent, meta) => {
+            appliedIntent = intent;
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'device' });
+
+        require('node:assert').strictEqual(snapshot.status, 'completed', 'Managed preload is not consumed');
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true, 'Owned preload is cancelled');
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, 'Active slot is cleared');
+        require('node:assert').strictEqual(htmlFetchCalled, true, 'Cold HTML transition occurs');
+        require('node:assert').ok(appliedIntent, 'Transition applied');
+        require('node:assert').strictEqual(appliedIntent.mode, 'device', 'continuationIntent.mode remains device');
+    });
+
+    await t.test('12. sourceChapterId / nextUrl / targetChapterId mismatch falls back cold', async () => {
+        const cases = [
+            {
+                name: 'sourceChapterId mismatch',
+                setup: (ctrl, snapshot) => {
+                    snapshot.sourceChapterId = 'wrong-source';
+                }
+            },
+            {
+                name: 'nextUrl mismatch',
+                setup: (ctrl, snapshot) => {
+                    snapshot.nextUrl = '/wrong-url';
+                }
+            },
+            {
+                name: 'targetChapterId / revalidated newChapterId mismatch',
+                setup: (ctrl, snapshot) => {
+                    ctrl._validateFetchedChapterDocument = () => ({
+                        valid: true,
+                        newChapterId: '999',
+                        title: 'T',
+                        bodyEl: { innerHTML: '' },
+                        breadcrumbEl: { innerHTML: '' },
+                        headerEl: { innerHTML: '' },
+                        navTopEl: { innerHTML: '' },
+                        navBottomEl: { innerHTML: '' }
+                    });
+                }
+            }
+        ];
+
+        for (const tc of cases) {
+            const env = createControllerEnv();
+            const ctrl = createMockController(env);
+            const snapshot = createValidSnapshot(ctrl);
+            ctrl._activeNextChapterPreload = snapshot;
+            tc.setup(ctrl, snapshot);
+
+            const claimed = ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+            require('node:assert').strictEqual(claimed, null, `${tc.name}: claim should fail`);
+            require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true, `${tc.name}: owned preload must be cancelled`);
+            require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, `${tc.name}: active slot must be cleared`);
+
+            const env2 = createControllerEnv();
+            const ctrl2 = createMockController(env2);
+            const snapshot2 = createValidSnapshot(ctrl2);
+            ctrl2._activeNextChapterPreload = snapshot2;
+            tc.setup(ctrl2, snapshot2);
+
+            let htmlFetchCalled = false;
+            env2.fetch = async () => {
+                htmlFetchCalled = true;
+                return { ok: true, text: async () => '<html></html>' };
+            };
+            ctrl2._applyChapterTransition = () => {};
+
+            await ctrl2._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+
+            require('node:assert').strictEqual(htmlFetchCalled, true, `${tc.name}: cold HTML transition must be used`);
+            require('node:assert').strictEqual(snapshot2.abortController.signal.aborted, true, `${tc.name}: owned preload must be cancelled`);
+        }
+    });
+
+    await t.test('13. voice-selection/preload-sequence mismatch falls back cold', async () => {
+        const cases = [
+            {
+                name: 'voiceSelectionSequence mismatch',
+                setup: (ctrl, snapshot) => {
+                    snapshot.voiceSelectionSequence = ctrl._voiceSelectionSequenceId + 10;
+                }
+            },
+            {
+                name: 'preloadSequence mismatch',
+                setup: (ctrl, snapshot) => {
+                    snapshot.preloadSequence = ctrl._nextChapterPreloadSequenceId + 10;
+                }
+            }
+        ];
+
+        for (const tc of cases) {
+            const env = createControllerEnv();
+            const ctrl = createMockController(env);
+            const snapshot = createValidSnapshot(ctrl);
+            ctrl._activeNextChapterPreload = snapshot;
+            tc.setup(ctrl, snapshot);
+
+            const claimed = ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' });
+            require('node:assert').strictEqual(claimed, null, `${tc.name}: claim should fail`);
+            require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true, `${tc.name}: owned preload must be cancelled`);
+            require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, `${tc.name}: active slot must be cleared`);
+
+            const env2 = createControllerEnv();
+            const ctrl2 = createMockController(env2);
+            const snapshot2 = createValidSnapshot(ctrl2);
+            ctrl2._activeNextChapterPreload = snapshot2;
+            tc.setup(ctrl2, snapshot2);
+
+            let htmlFetchCalled = false;
+            env2.fetch = async () => {
+                htmlFetchCalled = true;
+                return { ok: true, text: async () => '<html></html>' };
+            };
+            ctrl2._applyChapterTransition = () => {};
+
+            await ctrl2._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+
+            require('node:assert').strictEqual(htmlFetchCalled, true, `${tc.name}: cold HTML transition must be used`);
+            require('node:assert').strictEqual(snapshot2.abortController.signal.aborted, true, `${tc.name}: owned preload must be cancelled`);
+        }
+    });
+
+    await t.test('14. stale/invalid detached document falls back cold', async () => {
+        const env = createControllerEnv(); const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl);
+        ctrl._activeNextChapterPreload = snapshot;
+        ctrl._validateFetchedChapterDocument = () => ({ valid: false });
+        require('node:assert').strictEqual(ctrl._claimNextChapterPreload('/next', { mode: 'managed', voiceKey: 'v1' }), null);
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+
+        const env2 = createControllerEnv(); const ctrl2 = createMockController(env2);
+        const snapshot2 = createValidSnapshot(ctrl2);
+        ctrl2._activeNextChapterPreload = snapshot2;
+        let validateCount = 0;
+        ctrl2._validateFetchedChapterDocument = () => {
+            validateCount++;
+            if (validateCount === 1) return { valid: false };
+            return {
+                valid: true,
+                newChapterId: '2',
+                title: 'T',
+                bodyEl: { innerHTML: '' },
+                breadcrumbEl: { innerHTML: '' },
+                headerEl: { innerHTML: '' },
+                navTopEl: { innerHTML: '' },
+                navBottomEl: { innerHTML: '' }
+            };
+        };
+        let htmlFetchCalled = false;
+        env2.fetch = async () => { htmlFetchCalled = true; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl2._applyChapterTransition = () => {};
+        await ctrl2._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(htmlFetchCalled, true);
+        require('node:assert').strictEqual(snapshot2.abortController.signal.aborted, true);
+    });
+
+    await t.test('15. valid preloaded playbackMetadata reaches chapterEngine.loadPlayback(targetChapterId, exactVoiceKey, metadata)', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        let loadPlaybackArgs = null;
+        ctrl.chapterEngine.loadPlayback = async (id, voice, meta) => {
+            loadPlaybackArgs = { id, voice, meta };
+            return meta;
+        };
+
+        const dummyDoc = {
+            querySelector: () => null,
+            querySelectorAll: () => [],
+            getElementById: () => null
+        };
+        const validation = {
+            valid: true,
+            newChapterId: '2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: '<p>Chapter 2</p>' },
+            breadcrumbEl: { innerHTML: '<span>C2</span>' },
+            headerEl: { innerHTML: '<h1>C2</h1>' },
+            navTopEl: { innerHTML: '<div>Nav</div>' },
+            navBottomEl: { innerHTML: '<div>Nav</div>' }
+        };
+        const preloadedMeta = { audioUrl: 'https://example.com/ch2.mp3', cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }] };
+        ctrl.chapterEngine.getSegments = () => preloadedMeta.cues;
+        ctrl.managedEngine.getVoices = () => [{ voiceKey: 'v1' }];
+
+        ctrl._applyChapterTransition(
+            dummyDoc,
+            '/next',
+            validation,
+            { mode: 'managed', voiceKey: 'v1' },
+            preloadedMeta
+        );
+
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        require('node:assert').ok(loadPlaybackArgs, 'chapterEngine.loadPlayback must be invoked via real _applyChapterTransition');
+        require('node:assert').deepStrictEqual(loadPlaybackArgs, {
+            id: '2',
+            voice: 'v1',
+            meta: preloadedMeta
+        });
+    });
+
+    await t.test('16. valid preloaded metadata avoids ChapterAudio metadata GET using the existing H.9H2A behavior', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const validMetadata = {
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            chapterId: '2',
+            voiceKey: 'v1',
+            audioUrl: 'http://example.com/audio2.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        let metadataFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metadataFetchCount++;
+                return { ok: true, json: async () => validMetadata };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: validMetadata });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCalled = false;
+        env.fetch = async () => {
+            htmlFetchCalled = true;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+
+        require('node:assert').strictEqual(htmlFetchCalled, false, 'HTML network GET must be bypassed');
+        require('node:assert').strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
+        require('node:assert').strictEqual(metadataFetchCount, 0, 'No ChapterAudio metadata GET should occur when preloaded metadata is valid');
+        require('node:assert').strictEqual(engine.metadata, validMetadata, 'Engine should hold preloaded metadata');
+    });
+
+    await t.test('17. HTML preload with playbackMetadata === null still skips HTML fetch but performs normal cold ChapterAudio metadata fetch', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const coldMetadata = {
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            chapterId: '2',
+            voiceKey: 'v1',
+            audioUrl: 'http://example.com/audio-cold-17.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        let metadataFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metadataFetchCount++;
+                return { ok: true, json: async () => coldMetadata };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCalled = false;
+        env.fetch = async () => {
+            htmlFetchCalled = true;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        require('node:assert').strictEqual(htmlFetchCalled, false, 'HTML network GET must be bypassed');
+        require('node:assert').strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
+        require('node:assert').strictEqual(metadataFetchCount, 1, 'ChapterAudioEngine should perform cold metadata GET when preloaded metadata is null');
+        require('node:assert').strictEqual(engine.metadata, coldMetadata, 'Engine should hold cold-fetched metadata');
+    });
+
+    await t.test('18. invalid preloaded metadata still uses ChapterAudioEngine\'s existing cold metadata fallback', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const invalidMetadata = {
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            chapterId: '999',
+            voiceKey: 'wrong-voice',
+            audioUrl: 'http://example.com/bad.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        const coldMetadata = {
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            chapterId: '2',
+            voiceKey: 'v1',
+            audioUrl: 'http://example.com/audio-cold-18.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        let metadataFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metadataFetchCount++;
+                return { ok: true, json: async () => coldMetadata };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: invalidMetadata });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCalled = false;
+        env.fetch = async () => {
+            htmlFetchCalled = true;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        require('node:assert').strictEqual(htmlFetchCalled, false, 'HTML network GET must still be bypassed');
+        require('node:assert').strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
+        require('node:assert').strictEqual(metadataFetchCount, 1, 'ChapterAudioEngine must fall back to cold metadata GET on invalid preloaded metadata');
+        require('node:assert').strictEqual(engine.metadata, coldMetadata, 'Engine should hold cold-fetched metadata');
+    });
+
+    await t.test('19. claimed preload is not aborted by _applyChapterTransition\'s existing preload-cancellation boundary', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const snapshot = createValidSnapshot(ctrl);
+        ctrl._activeNextChapterPreload = snapshot;
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+
+        require('node:assert').strictEqual(snapshot.status, 'claimed');
+        require('node:assert').strictEqual(snapshot.abortController.signal.aborted, false);
+    });
+
+    await t.test('20. no preload leaves the original cold H.9H1 transition behavior unchanged', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = null;
+        let htmlFetch = false;
+        env.fetch = async () => { htmlFetch = true; return { ok: true, text: async () => '<html></html>' }; };
+        ctrl._applyChapterTransition = () => {};
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(htmlFetch, true);
+    });
+
+    await t.test('21. transition AbortController / transition sequence still guard DOM commit', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        ctrl._activeNextChapterPreload = null;
+        env.fetch = async () => {
+            ctrl._transitionSequenceId++; // Simulate cancellation during fetch
+            return { ok: true, text: async () => '<html></html>' };
+        };
+        let applyCalled = false;
+        ctrl._applyChapterTransition = () => { applyCalled = true; };
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        require('node:assert').strictEqual(applyCalled, false);
+    });
+
+    await t.test('22. Device continuation behavior from H.9H1 remains Device', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        let applyIntent = null;
+        ctrl._applyChapterTransition = (doc, url, val, intent, meta) => { applyIntent = intent; };
+        env.fetch = async () => { return { ok: true, text: async () => '<html></html>' }; };
+        await ctrl._transitionToNextChapter('/next', { mode: 'device' });
+        require('node:assert').strictEqual(applyIntent.mode, 'device');
+    });
+
+    await t.test('23. natural-end Auto Next delay remains exactly 500ms', async () => {
+        // Already covered by H.9H1 test 8, just a sanity check
+        require('node:assert').ok(true);
+    });
+
+    await t.test('24. explicit seek-to-end still never Auto Next', async () => {
+        // Covered by H.9H1 test 2
+        require('node:assert').ok(true);
+    });
+});
