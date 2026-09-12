@@ -378,8 +378,6 @@ class ReaderManagedAudioContractTest {
     @DisplayName("28. Manifest or audio load failure displays safe Vietnamese feedback without raw internals")
     void failureDisplaysSafeVietnameseFeedback() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).contains("Không thể tải giọng đọc Kiếm Lai. Vui lòng chọn giọng khác.");
-        assertThat(controllerJs).contains("Không thể phát âm thanh giọng đọc Kiếm Lai. Vui lòng thử lại hoặc chọn Giọng thiết bị.");
         assertThat(controllerJs).doesNotContain("Throwable");
         assertThat(controllerJs).doesNotContain("s3Key");
         assertThat(controllerJs).doesNotContain("providerVoiceId");
@@ -1155,17 +1153,10 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("109. Failed Managed voice load shows safe Vietnamese feedback without raw exceptions (MS-04.9H.7D3)")
-    void failedManagedVoiceLoadShowsSafeFeedbackWithoutRawExceptions() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int methodStart = controllerJs.indexOf("async _handleVoiceChange() {");
-        int methodEnd = controllerJs.indexOf("_handleRateChange() {", methodStart);
-        String methodBody = controllerJs.substring(methodStart, methodEnd);
-
-        assertThat(methodBody).contains("this._setStatusMessage('Không thể tải giọng đọc Kiếm Lai. Vui lòng chọn giọng khác.');");
-        assertThat(methodBody).doesNotContain("e.message");
-        assertThat(methodBody).doesNotContain("e.stack");
-        assertThat(methodBody).doesNotContain("e.toString");
+    @DisplayName("H.9I2: Failed Managed voice load invokes unavailable policy")
+    void failedManagedVoiceLoadInvokesUnavailablePolicy() throws Exception {
+        String voiceChange = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
+        assertThat(voiceChange).contains("} catch (e) {", "if (e.name === 'AbortError') return", "this._handleManagedUnavailable();");
     }
 
     @Test
@@ -1310,21 +1301,11 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("121. Failed Managed voice manifest fetch isolates state, keeps Play disabled, and shows notice (MS-04.9H.7D3A)")
-    void failedManagedVoiceManifestFetchIsolatesStateAndKeepsPlayDisabled() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int methodStart = controllerJs.indexOf("async _handleVoiceChange() {");
-        int methodEnd = controllerJs.indexOf("_handleRateChange() {", methodStart);
-        String methodBody = controllerJs.substring(methodStart, methodEnd);
-
-        assertThat(methodBody).contains("this._setStatusMessage('Không thể tải giọng đọc Kiếm Lai. Vui lòng chọn giọng khác.');");
-        int catchStart = methodBody.indexOf("} catch (e) {");
-        String catchBlock = methodBody.substring(catchStart);
-
-        assertThat(catchBlock).contains("this.chunks = [];");
-        assertThat(catchBlock).contains("this._updateProgressDisplay(0, 0);");
-        assertThat(catchBlock).contains("this.dom.playPauseBtn.disabled = true;");
-        assertThat(catchBlock).contains("this.dom.playPauseBtn.setAttribute('aria-disabled', 'true');");
+    @DisplayName("H.9I2: Failed Managed voice isolates state and invokes unavailable policy")
+    void failedManagedVoiceIsolatesStateAndInvokesUnavailablePolicy() throws Exception {
+        String voiceChange = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
+        assertThat(voiceChange).contains("} catch (e) {", "this._handleManagedUnavailable();");
+        assertThat(voiceChange).doesNotContain(".play(");
     }
 
     @Test
@@ -1715,48 +1696,27 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("150. Auto Next prefers active engine voiceKey over saved preference and requests on-demand preparation (MS-04.9H.7D8)")
+    @DisplayName("H.9I2: Auto Next prefers active engine voiceKey over saved preference")
     void autoNextPrefersActiveEngineVoiceKeyOverSavedPreference() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
-        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
-        String transBody = controllerJs.substring(transStart, transEnd);
-
-        assertThat(transBody).contains("const activeEngineVoiceKey = (this.managedEngine && typeof this.managedEngine.getSelectedVoiceKey === 'function')\n                    ? this.managedEngine.getSelectedVoiceKey()\n                    : null;");
-        assertThat(transBody).contains("const requestedVoiceKey = (continuationIntent && continuationIntent.mode === 'managed' ? continuationIntent.voiceKey : null) || activeEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)\n                    ? this.savedVoicePreference.voiceKey\n                    : null);");
-        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, false, preloadedChapterMetadata).then(manifest => {");
-        assertThat(transBody).contains("this.managedEngine.play(0);");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
+        assertThat(applyTransition).contains("const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)");
+        assertThat(applyTransition).contains("? this.savedVoicePreference.voiceKey");
+        assertThat(applyTransition).contains(": null);");
     }
 
     @Test
-    @DisplayName("151. Auto Next null Managed voice authority fails safely without un-keyed default re-resolution (MS-04.9H.7D8)")
+    @DisplayName("H.9I2: Auto Next null Managed Voice fails safely without unkeyed re-resolution")
     void autoNextNullManagedVoiceFailsSafelyWithoutUnkeyedReResolution() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
-        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
-        String transBody = controllerJs.substring(transStart, transEnd);
-
-        assertThat(transBody).contains("if (!requestedVoiceKey) {");
-        assertThat(transBody).contains("handleManagedFailure();");
-        assertThat(transBody).contains("this._setStatusMessage('Không thể tải giọng đọc Kiếm Lai cho chương mới. Vui lòng chọn giọng khác hoặc sử dụng Giọng thiết bị.');");
-        assertThat(transBody).doesNotContain("defManaged");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
+        assertThat(applyTransition).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey", "this._handleManagedUnavailable()");
+        assertThat(applyTransition).doesNotContain("await this.managedEngine.loadManifest(requestedChapterId, null)");
     }
 
     @Test
-    @DisplayName("152. Auto Next failure isolates Chapter-A audio, disables play button, and keeps voice selector usable (MS-04.9H.7D8)")
+    @DisplayName("H.9I2: Auto Next failure invokes unavailable policy")
     void autoNextFailureIsolatesChapterAAudioAndKeepsVoiceSelectorUsable() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
-        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
-        String transBody = controllerJs.substring(transStart, transEnd);
-
-        assertThat(transBody).contains("if (this.managedEngine && typeof this.managedEngine.setManifest === 'function') {\n                        this.managedEngine.setManifest(null);\n                    }");
-        assertThat(transBody).contains("this.chunks = [];");
-        assertThat(transBody).contains("this._updateProgressDisplay(0, 0);");
-        assertThat(transBody).contains("this._setStatusMessage('Không thể tải giọng đọc Kiếm Lai cho chương mới. Vui lòng chọn giọng khác hoặc sử dụng Giọng thiết bị.');");
-        assertThat(transBody).contains("this.dom.playPauseBtn.disabled = true;");
-        assertThat(transBody).contains("if (this.dom.voiceSelect) {\n                        this.dom.voiceSelect.disabled = false;\n                    }");
-        assertThat(transBody).contains("this._updateNavButtons();");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
+        assertThat(applyTransition).contains("this._handleManagedUnavailable()");
     }
 
     @Test
@@ -1901,31 +1861,17 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("162. Fallback Policy: Auto Next on MISSING audio triggers on-demand generation for the same voice (MS-04.9H.7D8)")
+    @DisplayName("H.9I2: Auto Next missing audio triggers unavailable policy without fallback")
     void autoNextMissingAudioTriggersOnDemandGenerationWithoutFallback() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
-        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
-        String transBody = controllerJs.substring(transStart, transEnd);
-
-        assertThat(transBody).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, false, preloadedChapterMetadata).then(manifest => {");
-        assertThat(transBody).contains("this.managedEngine.play(0);");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
+        assertThat(applyTransition).contains("handleManagedFailure()");
     }
 
     @Test
-    @DisplayName("163. Fallback Policy: Definitive failure uses Device TTS only when fallbackToDevice is true and preserves saved preference (MS-04.9H.7D8)")
+    @DisplayName("H.9I2: Auto Next definitive failure delegates to unavailable policy")
     void autoNextDefinitiveFailureUsesDeviceTtsOnlyWhenPolicyPermits() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {");
-        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
-        String transBody = controllerJs.substring(transStart, transEnd);
-
-        assertThat(transBody).contains("if (this.fallbackToDevice && this.deviceEngine && this.deviceEngine.isSupported()) {");
-        assertThat(transBody).contains("this.activeEngineType = 'device';");
-        assertThat(transBody).contains("this.activeEngine = this.deviceEngine;");
-        assertThat(transBody).contains("this.engine = this.deviceEngine;");
-        assertThat(transBody).contains("this._setStatusMessage('Giọng Kiếm Lai không khả dụng, đã tự động chuyển sang Giọng thiết bị.');");
-        assertThat(transBody).doesNotContain("this.savedVoicePreference = null;");
+        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
+        assertThat(applyTransition).contains("this._handleManagedUnavailable()");
     }
 
     @Test
@@ -2285,15 +2231,12 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    void h9gLoadsPublicChapterPlaybackBeforeLegacyFallback() throws Exception {
+    void h9gLoadsPublicChapterPlaybackWithoutLegacyFallback() throws Exception {
         String engine = chapterEngine();
         assertThat(engine).contains("'/narration/playback?voiceKey=' + encodeURIComponent(voiceKey)",
                 "method: 'GET', cache: 'no-store', signal: controller.signal");
         String selection = controllerMethod("async _selectManagedPlayback(", "_onChapterCueChange(index, cue) {");
-        assertThat(selection.indexOf("await this.chapterEngine.loadPlayback(chapterId, voiceKey)"))
-                .isLessThan(selection.indexOf("await this.managedEngine.loadManifest(chapterId, voiceKey)"));
-        assertThat(selection).contains("manifest.selectedVoice.voiceKey !== voiceKey", "assertCurrent();");
-        assertThat(selection).doesNotContain(".play(", "/prepare", "buildPlayback");
+        assertThat(selection).doesNotContain(".play(", "/prepare", "buildPlayback", "this.managedEngine.loadManifest");
     }
 
     @Test
@@ -2320,7 +2263,7 @@ class ReaderManagedAudioContractTest {
 
     @Test
     void h9gCueHooksClearHighlightInGapsWithoutInventingTextMapping() throws Exception {
-        String hooks = controllerMethod("_onChapterCueChange(index, cue) {", "async _offerLegacyChapterFallback() {");
+        String hooks = controllerMethod("_onChapterCueChange(index, cue) {", "_handleManagedUnavailable() {");
         assertThat(hooks).contains("this._clearHighlight()", "if (!cue)",
                 "this._updateChapterProgressDisplay(this.chapterEngine.getProgress())", "this._onEngineChunkStart(index,",
                 "this._resolveChapterCueElements(cue.segmentId)", "_syncChapterHighlight(ensureVisible = false)");
@@ -2404,11 +2347,35 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    void h9gAudioFailureOffersSameVoiceLegacyPlaybackWithoutAutoplay() throws Exception {
-        String fallback = controllerMethod("async _offerLegacyChapterFallback() {", "setFollowMode(enabled, persist = true) {");
-        assertThat(fallback).contains("this.chapterEngine.getSelectedVoiceKey()",
-                "await this._selectManagedPlayback(chapterId, voiceKey, true)", "error.name !== 'AbortError'");
-        assertThat(fallback).doesNotContain(".play(", "_fallbackToDeviceTts", "defaultVoice", "[0]");
+    @DisplayName("H.9I2A: Managed unavailable policy delegates to Device or enters safe stopped state without legacy manifest mutation")
+    void h9i2ManagedUnavailablePolicy() throws Exception {
+        String fallback = controllerMethod("_handleManagedUnavailable() {", "setFollowMode(enabled, persist = true) {");
+        assertThat(fallback).contains(
+                "this._fallbackToDeviceTts(",
+                "this._cancelPendingAutoNext();",
+                "this._cancelNextChapterPreload();",
+                "this._invalidateChapterPlayback();",
+                "this.chunks = [];",
+                "this.dom.playPauseBtn.disabled = true");
+        assertThat(fallback).doesNotContain(
+                ".play(",
+                "await this._selectManagedPlayback",
+                "setManifest",
+                "loadManifest",
+                "prepareSegmentPlayback");
+    }
+
+    @Test
+    @DisplayName("H.9I2A: ChapterAudio onError callback has authoritative engine guard")
+    void h9i2ChapterAudioOnErrorAuthorityGuard() throws Exception {
+        String initBlock = controllerMethod("this.chapterEngine = config.chapterEngine", "this.activeEngineType = 'device';");
+        assertThat(initBlock).contains("onError: (error) => this._onChapterAudioError(error)");
+
+        String onErrorHandler = controllerMethod("_onChapterAudioError(error) {", "_handleManagedUnavailable() {");
+        assertThat(onErrorHandler).contains("this.engine !== this.chapterEngine",
+                "this.activeEngineType !== 'managed'",
+                "this.isUnloaded",
+                "this._handleManagedUnavailable();");
     }
 
     @Test
@@ -2442,14 +2409,14 @@ class ReaderManagedAudioContractTest {
     @DisplayName("H.9H1: Next-chapter ChapterAudioEngine is actually started")
     void h9h1NextChapterChapterAudioEngineIsStarted() throws Exception {
         String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
-        assertThat(applyTransition).contains("} else if (this.engine === this.chapterEngine) {\n                            this.chapterEngine.play(0);\n                        }");
+        assertThat(applyTransition).contains("if (this.engine === this.chapterEngine) {\n                            this.chapterEngine.play(0);\n                        }");
     }
 
     @Test
-    @DisplayName("H.9H1: Existing legacy Managed and Device paths remain intact")
-    void h9h1ExistingLegacyPathsRemainIntact() throws Exception {
+    @DisplayName("H.9I2: Existing legacy Managed path removed, Device path remains intact")
+    void h9i2ExistingLegacyManagedPathRemoved() throws Exception {
         String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {", "_onEngineError(error, engineType) {");
-        assertThat(applyTransition).contains("this.managedEngine.play(0);");
+        assertThat(applyTransition).doesNotContain("this.managedEngine.play(0);");
         assertThat(applyTransition).contains("this.deviceEngine.play(0);");
     }
 
@@ -2459,7 +2426,7 @@ class ReaderManagedAudioContractTest {
 
     @Test
     void h9gFollowModeUsesExactTokenMembershipAndOneWeightedBlock() throws Exception {
-        String hooks = controllerMethod("_resolveChapterCueElements(segmentId) {", "async _offerLegacyChapterFallback() {");
+        String hooks = controllerMethod("_resolveChapterCueElements(segmentId) {", "_handleManagedUnavailable() {");
         assertThat(hooks).contains("querySelectorAll('[data-narration-segment-ids]')",
                 "split(/\\s+/).includes(segmentId)", "this._normalizedVisibleTextLength(element)",
                 "localMillis / cueDuration", "ratio * totalWeight", "targetWeight < cumulativeWeight",
@@ -2477,7 +2444,7 @@ class ReaderManagedAudioContractTest {
                 .contains("this._syncChapterHighlight(true)");
         assertThat(controllerMethod("_syncNavigationAndProgress() {", "async _handleVoiceChange() {"))
                 .contains("this._syncChapterHighlight()");
-        assertThat(controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "async _offerLegacyChapterFallback() {"))
+        assertThat(controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "_handleManagedUnavailable() {"))
                 .contains("this.chapterEngine.getCurrentChunk()", "!this.followMode", "!cue", "this._clearHighlight()",
                         "state !== 'PLAYING' && state !== 'PAUSED'", "changed || ensureVisible")
                 .doesNotContain("getState() === 'PLAYING'");
@@ -2488,7 +2455,7 @@ class ReaderManagedAudioContractTest {
         String state = controllerMethod("_onEngineStateChange(newState, prevState, engineType) {", "_onEngineBlocked(segIndex, seg, engineType, playbackDto) {");
         assertThat(state).contains("if (this.chapterEngine && this.engine === this.chapterEngine) this._syncChapterHighlight();");
         assertThat(state).doesNotContain(".play(", ".load(", "/prepare", "fetch(");
-        String highlight = controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "async _offerLegacyChapterFallback() {");
+        String highlight = controllerMethod("_syncChapterHighlight(ensureVisible = false) {", "_handleManagedUnavailable() {");
         assertThat(highlight.indexOf("state !== 'PLAYING' && state !== 'PAUSED'"))
                 .isLessThan(highlight.indexOf("this._resolveChapterCueElements(cue.segmentId)"));
     }

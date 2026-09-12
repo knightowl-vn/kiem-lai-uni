@@ -624,7 +624,7 @@ test('H.9H2A Passive Preload Tests', async (t) => {
         require('node:assert').strictEqual(controller._activeNextChapterPreload, null);
     });
 
-    await t.test('12. ChapterAudio to legacy Managed fallback cancels preload, aborts controller, and increments sequence', async () => {
+    await t.test('12. ChapterAudio to managed unavailable cancels preload, aborts controller, and increments sequence', async () => {
         function createControllerEnv() {
             const env = {
                 console, setTimeout, clearTimeout, window: { location: { reload: () => {} } },
@@ -658,7 +658,8 @@ test('H.9H2A Passive Preload Tests', async (t) => {
         };
         const initialPreloadSeq = controller._nextChapterPreloadSequenceId;
 
-        await controller._offerLegacyChapterFallback();
+        // Simulate ChapterAudio failing and transitioning to unavailable policy
+        controller._handleManagedUnavailable();
 
         require('node:assert').strictEqual(preloadAc.signal.aborted, true, 'preload AbortController should be aborted');
         require('node:assert').strictEqual(controller._activeNextChapterPreload, null, 'preload slot should be cleared to null');
@@ -823,12 +824,13 @@ test('H.9H2B1 Late Next-Chapter Preload Trigger + Snapshot Tests', async (t) => 
         require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
     });
 
-    await t.test('7. legacy Managed engine does not preload', async () => {
+    await t.test('7. non-ChapterAudio engine does not preload', async () => {
         const env = createControllerEnv();
         const ctrl = new env.NarrationController.NarrationController({});
         ctrl.autoNext = true; ctrl.isUnloaded = false; ctrl.activeEngineType = 'managed';
         ctrl.chapterEngine = { getState: () => 'PLAYING', getSelectedVoiceKey: () => 'v1', getCurrentChunk: () => null };
-        ctrl.engine = ctrl.managedEngine = {}; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
+        // Set an unknown engine
+        ctrl.engine = { isFake: true }; ctrl._updateChapterProgressDisplay = () => {}; ctrl._syncChapterHighlight = () => {};
         ctrl._resolveNextChapterUrl = () => '/next';
 
         ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
@@ -2604,29 +2606,32 @@ test('H.9H3A Navigation & Engine Cancellation Authority Tests', async (t) => {
         require('node:assert').strictEqual(stopCalled, false);
     });
 
-    await t.test('13. _offerLegacyChapterFallback proves pending Auto Next is synchronously cancelled through _selectManagedPlayback', async () => {
+    await t.test('13. _selectManagedPlayback proves pending Auto Next is synchronously cancelled', async () => {
         const { env } = createControllerEnv();
         const ctrl = new env.NarrationController.NarrationController({});
         ctrl.chapterId = 'chap-1';
-        ctrl.engine = ctrl.chapterEngine = { getSelectedVoiceKey: () => 'v1', stop: () => {} };
+        ctrl.engine = ctrl.chapterEngine = {
+            getSelectedVoiceKey: () => 'v1',
+            stop: () => {},
+            isSupported: () => true,
+            loadPlayback: async () => {
+                require('node:assert').strictEqual(cancelCalled, true, 'Cancel must have occurred synchronously before await loadPlayback');
+                return null;
+            }
+        };
         ctrl.activeEngineType = 'managed';
         ctrl.isUnloaded = false;
 
         let cancelCalled = false;
         ctrl._cancelPendingAutoNext = () => { cancelCalled = true; };
 
-        ctrl.managedEngine = {
-            stop: () => {},
-            cancel: () => {},
-            getVoices: () => [],
-            loadManifest: async () => {
-                // Must be true BEFORE loadManifest is awaited
-                require('node:assert').strictEqual(cancelCalled, true, 'Cancel must have occurred synchronously before await loadManifest');
-                return { segments: [] };
-            }
-        };
+        ctrl.managedEngine = { stop: () => {}, cancel: () => {} };
 
-        await ctrl._offerLegacyChapterFallback();
+        try {
+            await ctrl._selectManagedPlayback('chap-1', 'v1', null);
+        } catch (err) {
+            // Expected to throw because loadPlayback returns null
+        }
         require('node:assert').strictEqual(cancelCalled, true);
     });
 
@@ -2696,5 +2701,367 @@ test('H.9H3A Navigation & Engine Cancellation Authority Tests', async (t) => {
         require('node:assert').deepStrictEqual(appliedMetadata, { chapterId: 'chap-2', voiceKey: 'v1' });
         require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, 'Active preload slot must be detached upon claim');
         require('node:assert').strictEqual(preloadAc.signal.aborted, false, 'Claimed preload AbortController must NOT be aborted');
+    });
+});
+
+test('H.9I2A ChapterAudio Unavailable Authority & Fallback Tests', async (t) => {
+    function createControllerEnv(customEnv = {}) {
+        let docClickCb = null;
+        let currentTime = 1000;
+        const defaultWindow = {
+            location: { reload: () => {}, href: 'http://localhost/c1' },
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            clearTimeout: clearTimeout,
+            setTimeout: setTimeout
+        };
+        const env = {
+            console,
+            setTimeout,
+            clearTimeout,
+            Date: class extends Date { static now() { return currentTime; } },
+            window: customEnv.window ? Object.assign({}, defaultWindow, customEnv.window) : defaultWindow,
+            document: {
+                querySelector: () => null,
+                getElementById: () => null,
+                createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, textContent: '', value: '' }),
+                addEventListener: (event, cb) => {
+                    if (event === 'click') docClickCb = cb;
+                },
+                removeEventListener: () => {},
+                dispatchEvent: () => {}
+            },
+            AbortController: class {
+                constructor() { this.signal = { aborted: false }; }
+                abort() { this.signal.aborted = true; }
+            },
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        title: 'Test Doc',
+                        querySelector: () => null,
+                        getElementById: () => null
+                    };
+                }
+            },
+            fetch: customEnv.fetch || (async () => ({ ok: true, text: async () => '<html></html>' })),
+            CustomEvent: class {}
+        };
+        const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        require('vm').runInNewContext(controllerSrc, env);
+        return { env, getDocClickCb: () => docClickCb };
+    }
+
+    function createMockDom() {
+        const createBtn = () => ({
+            disabled: false,
+            setAttribute: () => {},
+            removeAttribute: () => {},
+            classList: { add: () => {}, remove: () => {}, toggle: () => {} }
+        });
+        return {
+            body: { setAttribute: () => {}, querySelectorAll: () => [], innerHTML: '' },
+            player: { setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } },
+            playPauseBtn: createBtn(),
+            playIcon: { style: {} },
+            pauseIcon: { style: {} },
+            voiceSelect: { value: '', disabled: false, querySelectorAll: () => [], appendChild: () => {}, innerHTML: '' },
+            prevBtn: createBtn(),
+            nextBtn: createBtn(),
+            rewindBtn: createBtn(),
+            forwardBtn: createBtn(),
+            progressBar: { setAttribute: () => {}, getBoundingClientRect: () => ({ width: 100, left: 0 }) },
+            progressFill: { style: {} },
+            progressCurrent: {},
+            progressTotal: {},
+            statusText: { setAttribute: () => {} }
+        };
+    }
+
+    await t.test('A. ChapterAudio unavailable + fallback OFF: cancels authorities, stops ChapterAudio, leaves Play disabled, preserves preference', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.chapterId = 'chap-1';
+        ctrl.fallbackToDevice = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'voice-pref' };
+
+        let chapterEngineStopped = false;
+        ctrl.chapterEngine = {
+            stop: () => { chapterEngineStopped = true; },
+            getSelectedVoiceKey: () => 'voice-pref'
+        };
+        ctrl.engine = ctrl.chapterEngine;
+
+        let loadManifestCalled = false;
+        let setManifestCalled = false;
+        let managedPlayCalled = false;
+        ctrl.managedEngine = {
+            loadManifest: () => { loadManifestCalled = true; },
+            setManifest: () => { setManifestCalled = true; },
+            play: () => { managedPlayCalled = true; },
+            stop: () => {},
+            cancel: () => {},
+            getVoices: () => []
+        };
+
+        const transAc = new env.AbortController();
+        ctrl._transitionAbortController = transAc;
+        ctrl._autoNextTimeoutId = 12345;
+        const initialTransSeq = ctrl._transitionSequenceId = 10;
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 20;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 30;
+
+        let playPauseAriaDisabled = null;
+        let playPauseIsPlaying = true;
+
+        ctrl.dom = createMockDom();
+        ctrl.dom.playPauseBtn.setAttribute = (k, v) => { if (k === 'aria-disabled') playPauseAriaDisabled = v; };
+        ctrl.dom.playPauseBtn.classList.remove = (cls) => { if (cls === 'is-playing') playPauseIsPlaying = false; };
+        ctrl.dom.voiceSelect.disabled = true;
+
+        ctrl._setStatusMessage = () => {};
+        ctrl.chunks = [{ text: 'sentence 1' }, { text: 'sentence 2' }];
+
+        ctrl._handleManagedUnavailable();
+
+        // Assertions:
+        assert.strictEqual(loadManifestCalled, false, 'must not call managedEngine.loadManifest');
+        assert.strictEqual(setManifestCalled, false, 'must not call managedEngine.setManifest');
+        assert.strictEqual(managedPlayCalled, false, 'must not call managedEngine.play');
+        assert.strictEqual(ctrl._autoNextTimeoutId, null, 'autoNext timeout must be cleared');
+        assert.strictEqual(transAc.signal.aborted, true, 'transition controller must be aborted');
+        assert.strictEqual(ctrl._transitionAbortController, null, 'transition controller must be null');
+        assert.strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1, 'transition sequence must increment');
+        assert.strictEqual(preloadAc.signal.aborted, true, 'preload controller must be aborted');
+        assert.strictEqual(ctrl._activeNextChapterPreload, null, 'preload slot must be cleared');
+        assert.strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1, 'preload sequence must increment');
+        assert.strictEqual(chapterEngineStopped, true, 'chapterEngine.stop must be called');
+        assert.strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1, 'chapterSelectionId must increment');
+        assert.strictEqual(ctrl.chunks.length, 0, 'chunks must be cleared');
+        assert.strictEqual(ctrl.dom.playPauseBtn.disabled, true, 'playPauseBtn must be disabled');
+        assert.strictEqual(playPauseAriaDisabled, 'true', 'playPauseBtn aria-disabled must be true');
+        assert.strictEqual(playPauseIsPlaying, false, 'is-playing class must be removed');
+        assert.strictEqual(ctrl.dom.voiceSelect.disabled, false, 'voiceSelect must remain usable');
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'voice-pref' }, 'durable preference must remain intact');
+    });
+
+    await t.test('B. ChapterAudio unavailable + fallback ON: delegates to Device TTS, reads DOM, preserves durable preference', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.chapterId = 'chap-1';
+        ctrl.fallbackToDevice = true;
+        ctrl.activeEngineType = 'managed';
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'voice-pref' };
+
+        let devicePlayStartedWith = null;
+        let deviceChunksLoaded = null;
+        ctrl.deviceEngine = {
+            isSupported: () => true,
+            play: (idx) => { devicePlayStartedWith = idx; },
+            loadChunks: (chs, idx) => { deviceChunksLoaded = chs; },
+            getSortedVoices: () => [{ voiceURI: 'dev-vi', name: 'Dev Vi', lang: 'vi-VN' }],
+            getVoices: () => [{ voiceURI: 'dev-vi', name: 'Dev Vi', lang: 'vi-VN' }],
+            selectedVoice: { voiceURI: 'dev-vi', name: 'Dev Vi' },
+            getCurrentChunkIndex: () => 0,
+            stop: () => {}
+        };
+
+        let loadManifestCalled = false;
+        let setManifestCalled = false;
+        let managedPlayCalled = false;
+        ctrl.managedEngine = {
+            loadManifest: () => { loadManifestCalled = true; },
+            setManifest: () => { setManifestCalled = true; },
+            play: () => { managedPlayCalled = true; },
+            stop: () => {},
+            cancel: () => {},
+            getVoices: () => []
+        };
+
+        const mockBodyChunks = [{ text: 'Parsed from DOM', element: {} }];
+        ctrl.parser = {
+            parseChapterBody: () => mockBodyChunks
+        };
+        ctrl.dom = createMockDom();
+        ctrl._setStatusMessage = () => {};
+
+        ctrl._handleManagedUnavailable();
+
+        assert.strictEqual(ctrl.activeEngineType, 'device', 'activeEngineType must become device');
+        assert.strictEqual(ctrl.engine, ctrl.deviceEngine, 'engine must become deviceEngine');
+        assert.strictEqual(devicePlayStartedWith, 0, 'deviceEngine.play(0) must be called');
+        assert.deepStrictEqual(deviceChunksLoaded, mockBodyChunks, 'deviceEngine must load DOM chunks');
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'voice-pref' }, 'durable preference must remain managed');
+        assert.strictEqual(loadManifestCalled, false, 'must not call loadManifest');
+        assert.strictEqual(setManifestCalled, false, 'must not call setManifest');
+        assert.strictEqual(managedPlayCalled, false, 'must not call managed play');
+    });
+
+    await t.test('C. stale ChapterAudio onError ignored after Device fallback, explicit Device selection, or unload', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+
+        let unavailableCalled = false;
+        ctrl._handleManagedUnavailable = () => { unavailableCalled = true; };
+
+        ctrl.chapterEngine = { isSupported: () => true };
+
+        // 1. After Device fallback / Device active
+        ctrl.engine = ctrl.deviceEngine = { isSupported: () => true };
+        ctrl.activeEngineType = 'device';
+        ctrl.isUnloaded = false;
+        ctrl._onChapterAudioError(new Error('late error'));
+        assert.strictEqual(unavailableCalled, false, 'late error must be ignored when activeEngineType is device');
+
+        // 2. When unloaded
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl.activeEngineType = 'managed';
+        ctrl.isUnloaded = true;
+        ctrl._onChapterAudioError(new Error('late error'));
+        assert.strictEqual(unavailableCalled, false, 'late error must be ignored when isUnloaded is true');
+
+        // 3. When engine is another engine (e.g. managedEngine or null)
+        ctrl.isUnloaded = false;
+        ctrl.engine = ctrl.managedEngine = {};
+        ctrl.activeEngineType = 'managed';
+        ctrl._onChapterAudioError(new Error('late error'));
+        assert.strictEqual(unavailableCalled, false, 'late error must be ignored when engine !== chapterEngine');
+    });
+
+    await t.test('D. current authoritative ChapterAudio onError follows unavailable policy', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        let unavailableCalled = false;
+        ctrl._handleManagedUnavailable = () => { unavailableCalled = true; };
+
+        ctrl.chapterEngine = { isSupported: () => true };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl.activeEngineType = 'managed';
+        ctrl.isUnloaded = false;
+
+        ctrl._onChapterAudioError(new Error('authoritative playback error'));
+        assert.strictEqual(unavailableCalled, true, 'authoritative error must invoke unavailable policy');
+    });
+
+    await t.test('E. Auto Next transition when Chapter B is unavailable: fallback OFF stops safely, fallback ON plays Device B without legacy segment playback', async () => {
+        const { env } = createControllerEnv();
+
+        // Subcase 1: fallback OFF
+        {
+            const ctrl = new env.NarrationController.NarrationController({});
+            ctrl.chapterId = 'chap-1';
+            ctrl.fallbackToDevice = false;
+            ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+            ctrl.activeEngineType = 'managed';
+
+            let loadManifestCalled = false;
+            ctrl.managedEngine = {
+                loadManifest: () => { loadManifestCalled = true; },
+                setManifest: () => {},
+                play: () => { throw new Error('should not call legacy play'); },
+                stop: () => {},
+                cancel: () => {},
+                getSelectedVoiceKey: () => 'v1',
+                getVoices: () => []
+            };
+            ctrl.chapterEngine = {
+                isSupported: () => true,
+                getSelectedVoiceKey: () => 'v1',
+                loadPlayback: async () => { throw new Error('ChapterAudio unavailable'); },
+                stop: () => {}
+            };
+            ctrl.engine = ctrl.chapterEngine;
+
+            ctrl.dom = createMockDom();
+            ctrl.dom.voiceSelect.value = 'managed:v1';
+            ctrl._setStatusMessage = () => {};
+
+            const validation = {
+                newChapterId: 'chap-2',
+                title: 'Chapter 2',
+                bodyEl: { innerHTML: '<p>Chapter 2 prose</p>' }
+            };
+
+            const mockDoc = { getElementById: () => null, querySelector: () => null };
+            ctrl._applyChapterTransition(mockDoc, '/novel/chapters/chap-2', validation, { mode: 'managed', voiceKey: 'v1' });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            assert.strictEqual(ctrl.chapterId, 'chap-2', 'transition should commit chapterId chap-2');
+            assert.strictEqual(ctrl.dom.playPauseBtn.disabled, true, 'playPauseBtn must be disabled on chap-2');
+            assert.strictEqual(loadManifestCalled, false, 'must not call legacy loadManifest');
+            assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable preference remains managed');
+        }
+
+        // Subcase 2: fallback ON
+        {
+            const ctrl = new env.NarrationController.NarrationController({});
+            ctrl.chapterId = 'chap-1';
+            ctrl.fallbackToDevice = true;
+            ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+            ctrl.activeEngineType = 'managed';
+
+            let devicePlayedWith = null;
+            ctrl.deviceEngine = {
+                isSupported: () => true,
+                play: (idx) => { devicePlayedWith = idx; },
+                loadChunks: () => {},
+                getCurrentChunkIndex: () => 0,
+                getSortedVoices: () => [{ voiceURI: 'dev-vi' }],
+                getVoices: () => [{ voiceURI: 'dev-vi' }],
+                selectedVoice: { voiceURI: 'dev-vi' },
+                stop: () => {}
+            };
+
+            let loadManifestCalled = false;
+            ctrl.managedEngine = {
+                loadManifest: () => { loadManifestCalled = true; },
+                setManifest: () => {},
+                play: () => { throw new Error('should not call legacy play'); },
+                stop: () => {},
+                cancel: () => {},
+                getSelectedVoiceKey: () => 'v1',
+                getVoices: () => []
+            };
+            ctrl.chapterEngine = {
+                isSupported: () => true,
+                getSelectedVoiceKey: () => 'v1',
+                loadPlayback: async () => { throw new Error('ChapterAudio unavailable'); },
+                stop: () => {}
+            };
+            ctrl.engine = ctrl.chapterEngine;
+
+            const chap2BodyChunks = [{ text: 'Chap 2 prose line 1' }];
+            ctrl.parser = {
+                parseChapterBody: () => chap2BodyChunks
+            };
+
+            ctrl.dom = createMockDom();
+            ctrl.dom.voiceSelect.value = 'managed:v1';
+            ctrl._setStatusMessage = () => {};
+
+            const validation = {
+                newChapterId: 'chap-2',
+                title: 'Chapter 2',
+                bodyEl: { innerHTML: '<p>Chapter 2 prose</p>' }
+            };
+
+            const mockDoc = { getElementById: () => null, querySelector: () => null };
+            ctrl._applyChapterTransition(mockDoc, '/novel/chapters/chap-2', validation, { mode: 'managed', voiceKey: 'v1' });
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            assert.strictEqual(ctrl.chapterId, 'chap-2', 'transition should commit chapterId chap-2');
+            assert.strictEqual(ctrl.activeEngineType, 'device', 'activeEngineType should become device on chap-2');
+            assert.strictEqual(ctrl.engine, ctrl.deviceEngine, 'engine should become deviceEngine');
+            assert.strictEqual(devicePlayedWith, 0, 'deviceEngine.play(0) should be called');
+            assert.strictEqual(loadManifestCalled, false, 'must not call legacy loadManifest');
+            assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable preference remains managed');
+        }
     });
 });
