@@ -69,10 +69,21 @@
         }
 
         /**
-         * Passively fetches chapter playback metadata without mutating active playback state.
-         * Used for next-chapter preload foundation.
+         * Passively probes chapter playback metadata without mutating active playback state.
+         * Distinguishes 'ready', 'unavailable', and 'unknown'.
+         *
+         * @param {string|number} chapterId
+         * @param {string} voiceKey
+         * @param {Object} [options]
+         * @param {AbortSignal} [options.signal]
+         * @returns {Promise<{ status: 'ready', metadata: Object } | { status: 'unavailable', metadata: Object } | { status: 'unknown' }>}
          */
-        async fetchPlaybackMetadata(chapterId, voiceKey, options = {}) {
+        async probePlaybackMetadata(chapterId, voiceKey, options = {}) {
+            if (options && options.signal && options.signal.aborted) {
+                const abortErr = new Error('The operation was aborted');
+                abortErr.name = 'AbortError';
+                throw abortErr;
+            }
             try {
                 const response = await this.fetchFunction(buildPlaybackUrl(chapterId, voiceKey), {
                     method: 'GET',
@@ -80,13 +91,57 @@
                     signal: options.signal,
                     headers: { Accept: 'application/json' }
                 });
-                if (!response.ok) return null;
+                if (!response.ok) {
+                    return { status: 'unknown' };
+                }
                 const metadata = await response.json();
-                if (String(metadata.chapterId) !== String(chapterId) || metadata.voiceKey !== voiceKey) return null;
-                if (!isChapterPlayable(metadata)) return null;
-                return metadata;
+                if (!metadata || typeof metadata !== 'object') {
+                    return { status: 'unknown' };
+                }
+                if (String(metadata.chapterId) !== String(chapterId) || metadata.voiceKey !== voiceKey) {
+                    return { status: 'unknown' };
+                }
+
+                if (metadata.availability === 'READY') {
+                    if (isChapterPlayable(metadata)) {
+                        return { status: 'ready', metadata: metadata };
+                    }
+                    if (metadata.freshness === 'STALE_CONTENT' && metadata.playable === false) {
+                        return { status: 'unavailable', metadata: metadata };
+                    }
+                    return { status: 'unknown' };
+                }
+
+                if (metadata.availability === 'MISSING' || metadata.availability === 'FAILED') {
+                    if (metadata.playable === false) {
+                        return { status: 'unavailable', metadata: metadata };
+                    }
+                    return { status: 'unknown' };
+                }
+
+                if (metadata.availability === 'BUILDING') {
+                    return { status: 'unknown' };
+                }
+
+                return { status: 'unknown' };
             } catch (error) {
-                if (error && error.name === 'AbortError') return null;
+                if (error && (error.name === 'AbortError' || error.message === 'The operation was aborted')) {
+                    throw error;
+                }
+                return { status: 'unknown' };
+            }
+        }
+
+        /**
+         * Passively fetches chapter playback metadata without mutating active playback state.
+         * Used for next-chapter preload foundation.
+         */
+        async fetchPlaybackMetadata(chapterId, voiceKey, options = {}) {
+            try {
+                const result = await this.probePlaybackMetadata(chapterId, voiceKey, options);
+                return (result && result.status === 'ready') ? result.metadata : null;
+            } catch (error) {
+                if (error && (error.name === 'AbortError' || error.message === 'The operation was aborted')) return null;
                 throw error;
             }
         }

@@ -1466,6 +1466,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
                 }
             },
             playbackMetadata: { audioUrl: 'test.mp3' },
+            playbackAvailability: 'ready',
             ...customOpts
         };
     }
@@ -1836,7 +1837,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         require('node:assert').strictEqual(engine.metadata, validMetadata, 'Engine should hold preloaded metadata');
     });
 
-    await t.test('17. HTML preload with playbackMetadata === null still skips HTML fetch but performs normal cold ChapterAudio metadata fetch', async () => {
+    await t.test('17a. HTML preload with playbackAvailability === "unknown" still skips HTML fetch but performs normal cold ChapterAudio metadata fetch', async () => {
         const env = createControllerEnv();
         const ctrl = createMockController(env);
         const coldMetadata = {
@@ -1861,7 +1862,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         ctrl.chapterEngine = engine;
         ctrl.engine = engine;
 
-        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null });
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unknown' });
         ctrl._activeNextChapterPreload = snapshot;
 
         let htmlFetchCalled = false;
@@ -1875,8 +1876,42 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
 
         require('node:assert').strictEqual(htmlFetchCalled, false, 'HTML network GET must be bypassed');
         require('node:assert').strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
-        require('node:assert').strictEqual(metadataFetchCount, 1, 'ChapterAudioEngine should perform cold metadata GET when preloaded metadata is null');
+        require('node:assert').strictEqual(metadataFetchCount, 1, 'ChapterAudioEngine should perform cold metadata GET when preloaded availability is unknown');
         require('node:assert').strictEqual(engine.metadata, coldMetadata, 'Engine should hold cold-fetched metadata');
+    });
+
+    await t.test('17b. HTML preload with playbackAvailability === "unavailable" skips HTML fetch and performs ZERO cold ChapterAudio metadata fetch', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        let metadataFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metadataFetchCount++;
+                return { ok: false };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+        ctrl.fallbackToDevice = false;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unavailable' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCalled = false;
+        env.fetch = async () => {
+            htmlFetchCalled = true;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        require('node:assert').strictEqual(htmlFetchCalled, false, 'HTML network GET must be bypassed');
+        require('node:assert').strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
+        require('node:assert').strictEqual(metadataFetchCount, 0, 'ZERO metadata GET should be issued when availability is unavailable');
+        require('node:assert').strictEqual(ctrl.dom.playPauseBtn.disabled, true, 'Play button must be disabled when fallback is OFF');
     });
 
     await t.test('18. invalid preloaded metadata still uses ChapterAudioEngine\'s existing cold metadata fallback', async () => {
@@ -3063,5 +3098,727 @@ test('H.9I2A ChapterAudio Unavailable Authority & Fallback Tests', async (t) => 
             assert.strictEqual(loadManifestCalled, false, 'must not call legacy loadManifest');
             assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable preference remains managed');
         }
+    });
+});
+
+test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) => {
+    const assert = require('node:assert');
+    const { ChapterAudioEngine } = require('../../../main/resources/static/js/novel/chapter-audio-engine.js');
+
+    function createMockDom() {
+        const createBtn = () => ({
+            disabled: false,
+            setAttribute: () => {},
+            removeAttribute: () => {},
+            classList: { add: () => {}, remove: () => {}, toggle: () => {} }
+        });
+        return {
+            body: { setAttribute: () => {}, querySelectorAll: () => [], innerHTML: '' },
+            player: { setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } },
+            playPauseBtn: createBtn(),
+            playIcon: { style: {} },
+            pauseIcon: { style: {} },
+            voiceSelect: { value: 'managed:v1', disabled: false, querySelectorAll: () => [], appendChild: () => {}, innerHTML: '', options: [] },
+            prevBtn: createBtn(),
+            nextBtn: createBtn(),
+            rewindBtn: createBtn(),
+            forwardBtn: createBtn(),
+            progressBar: { setAttribute: () => {}, getBoundingClientRect: () => ({ width: 100, left: 0 }) },
+            progressFill: { style: {} },
+            progressCurrent: { textContent: '' },
+            progressTotal: { textContent: '' },
+            statusText: { setAttribute: () => {} }
+        };
+    }
+
+    function createControllerEnv(customDateNow) {
+        let currentTime = 1000;
+        class CustomEvent {
+            constructor(type, eventInitDict) {
+                this.type = type;
+                this.detail = eventInitDict ? eventInitDict.detail : null;
+            }
+        }
+        const fakeAudioFactory = () => {
+            const listeners = {};
+            return {
+                readyState: 4,
+                currentTime: 0,
+                duration: 100,
+                ended: false,
+                playbackRate: 1,
+                src: '',
+                preload: '',
+                _listeners: listeners,
+                addEventListener(event, cb) {
+                    if (!listeners[event]) listeners[event] = [];
+                    listeners[event].push(cb);
+                },
+                removeEventListener(event, cb) {
+                    if (listeners[event]) {
+                        listeners[event] = listeners[event].filter(l => l !== cb);
+                    }
+                },
+                emit(event) {
+                    if (listeners[event]) {
+                        listeners[event].forEach(cb => cb());
+                    }
+                },
+                play() {
+                    if (listeners['play']) listeners['play'].forEach(cb => cb());
+                    if (listeners['playing']) listeners['playing'].forEach(cb => cb());
+                    return Promise.resolve();
+                },
+                pause() {
+                    if (listeners['pause']) listeners['pause'].forEach(cb => cb());
+                },
+                removeAttribute(attr) {
+                    if (attr === 'src') this.src = '';
+                },
+                load() {
+                    this.readyState = 4;
+                    if (listeners['canplay']) listeners['canplay'].forEach(cb => cb());
+                }
+            };
+        };
+        const env = {
+            console, setTimeout, clearTimeout, CustomEvent,
+            URL: typeof URL !== 'undefined' ? URL : class URL { constructor(u) { this.pathname = u; } },
+            window: { location: { reload: () => {}, href: 'http://localhost/c1' }, history: { pushState: () => {} } },
+            document: {
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                dispatchEvent: () => true,
+                createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, querySelectorAll: () => [], textContent: '', value: '' }),
+                title: ''
+            },
+            Audio: fakeAudioFactory,
+            AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } },
+            Date: class extends Date { static now() { return typeof customDateNow === 'function' ? customDateNow() : currentTime; } },
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        querySelector: () => null,
+                        querySelectorAll: () => [],
+                        getElementById: () => null,
+                        title: 'Test'
+                    };
+                }
+            },
+            fetch: async () => ({ ok: true, text: async () => '<html></html>' })
+        };
+        env.fakeAudioFactory = fakeAudioFactory;
+        env.setCurrentTime = (t) => { currentTime = t; };
+        const engineSrc = require('fs').readFileSync('src/main/resources/static/js/novel/chapter-audio-engine.js', 'utf8');
+        require('vm').runInNewContext(engineSrc, env);
+        const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        require('vm').runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    function createMockController(env) {
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._env = env;
+        ctrl.autoNext = true;
+        ctrl.isUnloaded = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+        ctrl._voiceSelectionSequenceId = 1;
+        ctrl._nextChapterPreloadSequenceId = 1;
+        ctrl.chapterEngine = {
+            isSupported: () => true,
+            getState: () => 'PLAYING',
+            getSelectedVoiceKey: () => 'v1',
+            getCurrentChunkIndex: () => -1,
+            getCurrentChunk: () => null,
+            getSegments: () => [],
+            getProgress: () => ({ currentTimeSeconds: 0, durationSeconds: 100, progressRatio: 0 }),
+            loadPlayback: async () => null,
+            stop: () => {},
+            setRate: () => {},
+            seekBySeconds: () => {},
+            play: () => Promise.resolve(),
+            pause: () => {},
+            canPrevious: () => false,
+            canNext: () => false
+        };
+        ctrl.managedEngine = {
+            isSupported: () => true,
+            getVoices: () => [{ voiceKey: 'v1' }],
+            getSelectedVoiceKey: () => 'v1',
+            stop: () => {},
+            cancel: () => {},
+            loadManifest: async (id, voiceKey) => ({ selectedVoice: { voiceKey }, segments: [], availableVoices: [{ voiceKey }] })
+        };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl._updateChapterProgressDisplay = () => {};
+        ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._validateFetchedChapterDocument = () => ({
+            valid: true,
+            newChapterId: '2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: '<p>Next</p>' },
+            breadcrumbEl: { innerHTML: 'Next' },
+            headerEl: { innerHTML: 'Next' },
+            navTopEl: { innerHTML: 'Next' },
+            navBottomEl: { innerHTML: 'Next' }
+        });
+        ctrl.dom = createMockDom();
+        return ctrl;
+    }
+
+    function createValidSnapshot(ctrl, customOpts = {}) {
+        return {
+            sourceChapterId: '1',
+            nextUrl: '/next',
+            targetChapterId: '2',
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: 1000,
+            abortController: new (ctrl._env ? ctrl._env.AbortController : AbortController)(),
+            promise: Promise.resolve(),
+            status: 'completed',
+            result: {
+                document: {
+                    querySelector: () => null,
+                    querySelectorAll: () => [],
+                    getElementById: () => null,
+                    title: 'Chapter 2'
+                },
+                validation: {
+                    valid: true,
+                    newChapterId: '2',
+                    title: 'Chapter 2',
+                    bodyEl: { innerHTML: '<p>Next</p>' },
+                    breadcrumbEl: { innerHTML: 'Next' },
+                    headerEl: { innerHTML: 'Next' },
+                    navTopEl: { innerHTML: 'Next' },
+                    navBottomEl: { innerHTML: 'Next' }
+                }
+            },
+            playbackMetadata: { audioUrl: 'test.mp3' },
+            playbackAvailability: 'ready',
+            ...customOpts
+        };
+    }
+
+    await t.test('1a. READY CURRENT playable returns ready with metadata without mutating active Chapter A', async () => {
+        let stopCalled = false;
+        const validMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            audioUrl: 'http://example.com/ch2.mp3',
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async (url) => {
+                assert.ok(url.includes('/chapters/2/narration/playback?voiceKey=v1'));
+                return { ok: true, json: async () => validMeta };
+            }
+        });
+        engine.state = 'PLAYING';
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        engine.cues = [{ cueOrdinal: 0, startMillis: 0, endMillis: 500 }];
+        engine._activeCueIndex = 0;
+        engine.stop = () => { stopCalled = true; };
+
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+
+        assert.strictEqual(result.status, 'ready');
+        assert.deepStrictEqual(result.metadata, validMeta);
+        assert.strictEqual(stopCalled, false, 'probe must never call this.stop()');
+        assert.strictEqual(engine.state, 'PLAYING', 'active Chapter A state must remain PLAYING');
+        assert.strictEqual(engine.metadata.chapterId, '1', 'Chapter A metadata must remain unmodified');
+        assert.strictEqual(engine.cues[0].endMillis, 500, 'Chapter A cues must remain unmodified');
+    });
+
+    await t.test('1b. READY STALE_VOICE playable returns ready with metadata', async () => {
+        const staleVoiceMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            playable: true,
+            freshness: 'STALE_VOICE',
+            audioUrl: 'http://example.com/ch2-stale-voice.mp3',
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => staleVoiceMeta })
+        });
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+        assert.strictEqual(result.status, 'ready');
+        assert.deepStrictEqual(result.metadata, staleVoiceMeta);
+    });
+
+    await t.test('2a. MISSING with playable=false returns unavailable', async () => {
+        const missingMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'MISSING',
+            freshness: null,
+            playable: false,
+            audioUrl: null,
+            cues: []
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => missingMeta })
+        });
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+        assert.strictEqual(result.status, 'unavailable');
+        assert.deepStrictEqual(result.metadata, missingMeta);
+    });
+
+    await t.test('2b. FAILED with playable=false returns unavailable', async () => {
+        const failedMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'FAILED',
+            freshness: null,
+            playable: false,
+            audioUrl: null,
+            cues: []
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => failedMeta })
+        });
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+        assert.strictEqual(result.status, 'unavailable');
+        assert.deepStrictEqual(result.metadata, failedMeta);
+    });
+
+    await t.test('2c. READY STALE_CONTENT with playable=false returns unavailable', async () => {
+        const staleContentMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            freshness: 'STALE_CONTENT',
+            playable: false,
+            audioUrl: null,
+            cues: []
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => staleContentMeta })
+        });
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+        assert.strictEqual(result.status, 'unavailable');
+        assert.deepStrictEqual(result.metadata, staleContentMeta);
+    });
+
+    await t.test('3a. BUILDING returns unknown to preserve cold retry at transition', async () => {
+        const buildingMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'BUILDING',
+            freshness: null,
+            playable: false,
+            audioUrl: null,
+            cues: []
+        };
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => buildingMeta })
+        });
+        const result = await engine.probePlaybackMetadata('2', 'v1');
+        assert.strictEqual(result.status, 'unknown');
+    });
+
+    await t.test('3b. Identity-matching but structurally incomplete or inconsistent payload returns unknown', async () => {
+        const incomplete1 = { chapterId: '2', voiceKey: 'v1' };
+        const incomplete2 = { chapterId: '2', voiceKey: 'v1', availability: 'READY', playable: true, freshness: 'CURRENT', audioUrl: null, cues: [] };
+        const inconsistent1 = { chapterId: '2', voiceKey: 'v1', availability: 'READY', playable: false, freshness: 'CURRENT' };
+        const inconsistent2 = { chapterId: '2', voiceKey: 'v1', availability: 'MISSING', playable: true };
+
+        for (const payload of [incomplete1, incomplete2, inconsistent1, inconsistent2]) {
+            const engine = new ChapterAudioEngine({
+                fetchFunction: async () => ({ ok: true, json: async () => payload })
+            });
+            const result = await engine.probePlaybackMetadata('2', 'v1');
+            assert.strictEqual(result.status, 'unknown', 'payload ' + JSON.stringify(payload) + ' must return unknown');
+        }
+    });
+
+    await t.test('3c. Unknown availability value returns unknown', async () => {
+        for (const badAvailability of ['PENDING', 'PROCESSING', 'UNKNOWN', 'INVALID', null, 123]) {
+            const engine = new ChapterAudioEngine({
+                fetchFunction: async () => ({
+                    ok: true,
+                    json: async () => ({ chapterId: '2', voiceKey: 'v1', availability: badAvailability, playable: false })
+                })
+            });
+            const result = await engine.probePlaybackMetadata('2', 'v1');
+            assert.strictEqual(result.status, 'unknown', 'bad availability ' + badAvailability + ' must return unknown');
+        }
+    });
+
+    await t.test('4a. chapterId mismatch returns unknown', async () => {
+        const engineWrongChap = new ChapterAudioEngine({
+            fetchFunction: async () => ({
+                ok: true,
+                json: async () => ({ chapterId: '999', voiceKey: 'v1', availability: 'MISSING', playable: false })
+            })
+        });
+        assert.deepStrictEqual(await engineWrongChap.probePlaybackMetadata('2', 'v1'), { status: 'unknown' });
+    });
+
+    await t.test('4b. voiceKey mismatch returns unknown', async () => {
+        const engineWrongVoice = new ChapterAudioEngine({
+            fetchFunction: async () => ({
+                ok: true,
+                json: async () => ({ chapterId: '2', voiceKey: 'wrong_voice', availability: 'MISSING', playable: false })
+            })
+        });
+        assert.deepStrictEqual(await engineWrongVoice.probePlaybackMetadata('2', 'v1'), { status: 'unknown' });
+    });
+
+    await t.test('4c. Network failure, non-2xx response, or JSON parse error returns unknown', async () => {
+        const engine500 = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: false, status: 500 })
+        });
+        assert.deepStrictEqual(await engine500.probePlaybackMetadata('2', 'v1'), { status: 'unknown' });
+
+        const engineNetErr = new ChapterAudioEngine({
+            fetchFunction: async () => { throw new Error('Network error'); }
+        });
+        assert.deepStrictEqual(await engineNetErr.probePlaybackMetadata('2', 'v1'), { status: 'unknown' });
+
+        const engineJsonErr = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => { throw new SyntaxError('Unexpected token'); } })
+        });
+        assert.deepStrictEqual(await engineJsonErr.probePlaybackMetadata('2', 'v1'), { status: 'unknown' });
+    });
+
+    await t.test('5. AbortError propagates cancellation and never returns unavailable or unknown', async () => {
+        const ac = new AbortController();
+        ac.abort();
+        const engine = new ChapterAudioEngine({
+            fetchFunction: async () => ({ ok: true, json: async () => ({ chapterId: '2', voiceKey: 'v1', availability: 'MISSING', playable: false }) })
+        });
+        let threwAbort = false;
+        try {
+            await engine.probePlaybackMetadata('2', 'v1', { signal: ac.signal });
+        } catch (e) {
+            threwAbort = (e && e.name === 'AbortError');
+        }
+        assert.strictEqual(threwAbort, true, 'probe with aborted signal must throw AbortError');
+    });
+
+    await t.test('6. Completed matching READY snapshot reuses metadata without duplicate GETs', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const validMetadata = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            audioUrl: 'http://example.com/audio2.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        let metaFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metaFetchCount++;
+                return { ok: true, json: async () => validMetadata };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: validMetadata, playbackAvailability: 'ready' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 0, 'HTML GET must be bypassed');
+        assert.strictEqual(metaFetchCount, 0, 'Playback metadata GET must be bypassed');
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition must commit');
+        assert.strictEqual(engine.metadata, validMetadata, 'Engine should hold preloaded metadata');
+    });
+
+    await t.test('7a. Completed matching UNAVAILABLE snapshot with fallback OFF: stops safely, ZERO metadata GET', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        ctrl.fallbackToDevice = false;
+        let metaFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metaFetchCount++;
+                return { ok: false };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unavailable' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 0, 'HTML GET must be bypassed');
+        assert.strictEqual(metaFetchCount, 0, 'ZERO metadata GET should be issued when availability is unavailable');
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM must commit');
+        assert.strictEqual(ctrl.dom.playPauseBtn.disabled, true, 'Play button must be disabled');
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable Managed preference preserved');
+    });
+
+    await t.test('7b. Completed matching UNAVAILABLE snapshot with fallback ON: Device reads Chapter B, ZERO metadata GET', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        ctrl.fallbackToDevice = true;
+
+        let devicePlayed = false;
+        ctrl.deviceEngine = {
+            isSupported: () => true,
+            play: () => { devicePlayed = true; },
+            loadChunks: () => {},
+            getCurrentChunkIndex: () => 0,
+            getSortedVoices: () => [{ voiceURI: 'dev-vi' }],
+            getVoices: () => [{ voiceURI: 'dev-vi' }],
+            selectedVoice: { voiceURI: 'dev-vi' },
+            stop: () => {}
+        };
+        ctrl.parser = { parseChapterBody: () => [{ text: 'prose' }] };
+
+        let metaFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metaFetchCount++;
+                return { ok: false };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unavailable' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 0, 'HTML GET must be bypassed');
+        assert.strictEqual(metaFetchCount, 0, 'ZERO metadata GET should be issued');
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM must commit');
+        assert.strictEqual(ctrl.activeEngineType, 'device', 'Engine switched to Device TTS');
+        assert.strictEqual(devicePlayed, true, 'Device TTS must play Chapter B');
+        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable preference preserved');
+    });
+
+    await t.test('8. Completed matching UNKNOWN snapshot allows exactly one cold metadata GET', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+        const coldMeta = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            audioUrl: 'http://example.com/cold.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        let metaFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metaFetchCount++;
+                return { ok: true, json: async () => coldMeta };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unknown' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 0, 'HTML GET was preloaded and reused');
+        assert.strictEqual(metaFetchCount, 1, 'Exactly one cold metadata GET was permitted for UNKNOWN');
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM transition committed');
+        assert.strictEqual(engine.metadata, coldMeta, 'Engine loaded cold metadata');
+    });
+
+    await t.test('9. Expired or mismatched negative snapshot is never trusted', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+
+        let metaFetchCount = 0;
+        const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
+            audioFactory: env.fakeAudioFactory,
+            fetchFunction: async () => {
+                metaFetchCount++;
+                return { ok: false };
+            }
+        });
+        engine.metadata = { chapterId: '1', voiceKey: 'v1' };
+        ctrl.chapterEngine = engine;
+        ctrl.engine = engine;
+
+        // Expired snapshot (> 60s in env time where currentTime = 1000)
+        const expiredSnapshot = createValidSnapshot(ctrl, {
+            createdAt: -70000,
+            playbackMetadata: null,
+            playbackAvailability: 'unavailable'
+        });
+        ctrl._activeNextChapterPreload = expiredSnapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return {
+                ok: true,
+                text: async () => '<div class="novel-reader-chapter-body" data-chapter-id="2"><p>B</p></div>' +
+                    '<title>Ch 2</title><div class="novel-chapter-breadcrumb"></div><div class="novel-chapter-header"></div>' +
+                    '<div class="novel-chapter-nav--top"></div><div class="novel-chapter-nav--bottom"></div>'
+            };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 1, 'Expired snapshot must force cold HTML fetch');
+        assert.strictEqual(metaFetchCount, 1, 'Expired snapshot must force cold metadata GET');
+    });
+
+    await t.test('10. Pending preload remains never-awaited at chapter transition', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+
+        let resolvePreloadPromise;
+        const pendingPromise = new Promise(resolve => { resolvePreloadPromise = resolve; });
+
+        const pendingSnapshot = createValidSnapshot(ctrl, {
+            status: 'pending',
+            promise: pendingPromise
+        });
+        ctrl._activeNextChapterPreload = pendingSnapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return {
+                ok: true,
+                text: async () => '<div class="novel-reader-chapter-body" data-chapter-id="2"><p>B</p></div>' +
+                    '<title>Ch 2</title><div class="novel-chapter-breadcrumb"></div><div class="novel-chapter-header"></div>' +
+                    '<div class="novel-chapter-nav--top"></div><div class="novel-chapter-nav--bottom"></div>'
+            };
+        };
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 1, 'Pending preload must not be awaited; cold HTML fetch started immediately');
+        assert.strictEqual(pendingSnapshot.abortController.signal.aborted, true, 'Pending preload must be cancelled');
+
+        resolvePreloadPromise();
+        await transPromise;
+    });
+
+    await t.test('11. Device continuation never consumes Managed preload', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+
+        const validMetadata = {
+            chapterId: '2',
+            voiceKey: 'v1',
+            availability: 'READY',
+            playable: true,
+            freshness: 'CURRENT',
+            audioUrl: 'http://example.com/audio2.mp3',
+            durationMillis: 60000,
+            cues: [{ cueOrdinal: 0, startMillis: 0, endMillis: 1000 }]
+        };
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: validMetadata, playbackAvailability: 'ready' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return {
+                ok: true,
+                text: async () => '<div class="novel-reader-chapter-body" data-chapter-id="2"><p>B</p></div>' +
+                    '<title>Ch 2</title><div class="novel-chapter-breadcrumb"></div><div class="novel-chapter-header"></div>' +
+                    '<div class="novel-chapter-nav--top"></div><div class="novel-chapter-nav--bottom"></div>'
+            };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'device' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(htmlFetchCount, 1, 'Device continuation must ignore Managed preload and perform cold HTML fetch');
+        assert.strictEqual(ctrl.activeEngineType, 'device');
+    });
+
+    await t.test('12. No /prepare and no legacy Managed manifest/play path appears', async () => {
+        const env = createControllerEnv();
+        const ctrl = createMockController(env);
+
+        let legacyManifestCalled = false;
+        let legacyPlayCalled = false;
+        ctrl.managedEngine = {
+            loadManifest: () => { legacyManifestCalled = true; },
+            setManifest: () => {},
+            play: () => { legacyPlayCalled = true; },
+            stop: () => {},
+            cancel: () => {},
+            getSelectedVoiceKey: () => 'v1',
+            getVoices: () => []
+        };
+        const snapshot = createValidSnapshot(ctrl, { playbackMetadata: null, playbackAvailability: 'unavailable' });
+        ctrl._activeNextChapterPreload = snapshot;
+
+        env.fetch = async (url) => {
+            assert.ok(!url.includes('/prepare'), 'Must not call /prepare');
+            assert.ok(!url.includes('/manifest'), 'Must not call /manifest');
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        assert.strictEqual(legacyManifestCalled, false, 'No legacy loadManifest should be called');
+        assert.strictEqual(legacyPlayCalled, false, 'No legacy play should be called');
     });
 });

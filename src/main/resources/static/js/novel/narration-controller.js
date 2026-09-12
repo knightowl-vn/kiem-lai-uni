@@ -1490,7 +1490,8 @@
                 promise: null,
                 status: 'pending',
                 result: null,
-                playbackMetadata: null
+                playbackMetadata: null,
+                playbackAvailability: 'unknown'
             };
 
             this._activeNextChapterPreload = snapshot;
@@ -1560,7 +1561,38 @@
                     return;
                 }
 
-                if (typeof this.chapterEngine.fetchPlaybackMetadata === 'function') {
+                if (this.chapterEngine && typeof this.chapterEngine.probePlaybackMetadata === 'function') {
+                    try {
+                        const metaOpts = {};
+                        if (snapshot.abortController) {
+                            metaOpts.signal = snapshot.abortController.signal;
+                        }
+                        const probe = await this.chapterEngine.probePlaybackMetadata(snapshot.targetChapterId, snapshot.voiceKey, metaOpts);
+                        if (this._isPreloadStale(snapshot)) {
+                            const status = (snapshot.abortController && snapshot.abortController.signal && snapshot.abortController.signal.aborted)
+                                ? 'aborted' : 'stale';
+                            this._discardPreloadIfOwned(snapshot, status);
+                            return;
+                        }
+                        if (probe && probe.status === 'ready') {
+                            snapshot.playbackAvailability = 'ready';
+                            snapshot.playbackMetadata = probe.metadata || null;
+                        } else if (probe && probe.status === 'unavailable') {
+                            snapshot.playbackAvailability = 'unavailable';
+                            snapshot.playbackMetadata = null;
+                        } else {
+                            snapshot.playbackAvailability = 'unknown';
+                            snapshot.playbackMetadata = null;
+                        }
+                    } catch (metaErr) {
+                        if (metaErr && (metaErr.name === 'AbortError' || metaErr.message === 'The operation was aborted')) {
+                            throw metaErr;
+                        } else {
+                            snapshot.playbackAvailability = 'unknown';
+                            snapshot.playbackMetadata = null;
+                        }
+                    }
+                } else if (this.chapterEngine && typeof this.chapterEngine.fetchPlaybackMetadata === 'function') {
                     try {
                         const metaOpts = {};
                         if (snapshot.abortController) {
@@ -1573,11 +1605,18 @@
                             this._discardPreloadIfOwned(snapshot, status);
                             return;
                         }
-                        snapshot.playbackMetadata = metadata;
+                        if (metadata) {
+                            snapshot.playbackAvailability = 'ready';
+                            snapshot.playbackMetadata = metadata;
+                        } else {
+                            snapshot.playbackAvailability = 'unknown';
+                            snapshot.playbackMetadata = null;
+                        }
                     } catch (metaErr) {
                         if (metaErr && (metaErr.name === 'AbortError' || metaErr.message === 'The operation was aborted')) {
                             throw metaErr;
                         } else {
+                            snapshot.playbackAvailability = 'unknown';
                             snapshot.playbackMetadata = null;
                         }
                     }
@@ -3072,6 +3111,8 @@
                 nextUrl: nextUrl,
                 targetChapterId: snapshot.targetChapterId,
                 playbackMetadata: snapshot.playbackMetadata,
+                playbackAvailability: snapshot.playbackAvailability || (snapshot.playbackMetadata ? 'ready' : 'unknown'),
+                voiceKey: snapshot.voiceKey,
                 validation: validation
             };
         }
@@ -3105,11 +3146,13 @@
                 let fetchedDoc;
                 let validation;
                 let preloadedPlaybackMetadata = null;
+                let preloadedPlaybackAvailability = 'unknown';
 
                 if (claimedPreload) {
                     fetchedDoc = claimedPreload.fetchedDoc;
                     validation = claimedPreload.validation;
                     preloadedPlaybackMetadata = claimedPreload.playbackMetadata;
+                    preloadedPlaybackAvailability = claimedPreload.playbackAvailability || 'unknown';
                 } else {
                     const response = await fetch(nextUrl, {
                         method: 'GET',
@@ -3144,7 +3187,7 @@
                     }
                 }
 
-                this._applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedPlaybackMetadata);
+                this._applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedPlaybackMetadata, preloadedPlaybackAvailability);
             } catch (error) {
                 if (error && error.name === 'AbortError') {
                     return; // Intentional abort, no error state
@@ -3228,7 +3271,7 @@
          * @param {Object} validation
          * @private
          */
-        _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null) {
+        _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {
             this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
@@ -3391,6 +3434,11 @@
                 };
 
                 if (!requestedVoiceKey) {
+                    handleManagedFailure();
+                    return;
+                }
+
+                if (preloadedPlaybackAvailability === 'unavailable') {
                     handleManagedFailure();
                     return;
                 }
