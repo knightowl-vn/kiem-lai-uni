@@ -1272,6 +1272,28 @@ class ReaderManagedAudioContractTest {
         assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/ReaderNarrationPreparationDecisionPlannerTest.java"))).isFalse();
     }
 
+    @Test
+    @DisplayName("157. H.9I5D2B2 Legacy continuation pipeline production files do not exist")
+    void h9i5d2b2LegacyContinuationFilesDoNotExist() {
+        // Exactly 16 production continuation files deleted in B2
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationDispatcher.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationWorker.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationCommand.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationDispatchStatus.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/BuildReaderNarrationContinuationPlanUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/BuildReaderNarrationContinuationPlanCommand.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationPlanner.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationPlan.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationPlanItem.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationSegmentSnapshot.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ExecuteReaderNarrationContinuationUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ExecuteReaderNarrationContinuationResult.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationItemResult.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationItemOutcome.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationExecutionStatus.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationContinuationAction.java"))).isFalse();
+    }
+
     private String chapterEngine() throws Exception {
         return read("src/main/resources/static/js/novel/chapter-audio-engine.js");
     }
