@@ -1241,6 +1241,37 @@ class ReaderManagedAudioContractTest {
         assertThat(perfFilter).doesNotContain("isManifestPath");
     }
 
+    @Test
+    @DisplayName("156. H.9I5D2B1 Legacy manifest and immediate segment preparation files do not exist")
+    void h9i5d2b1LegacyPreparationFilesDoNotExist() {
+        // 18 production files deleted in B1
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/GetPublicChapterNarrationManifestUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/GetPublicChapterNarrationManifestQuery.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/contracts/dto/narration/PublicChapterNarrationManifestDTO.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/contracts/dto/narration/PublicNarrationSegmentDTO.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PreparePublicReaderNarrationPlaybackUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PreparePublicReaderNarrationPlaybackCommand.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PreparePublicReaderNarrationPlaybackResult.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationPlaybackUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationPlaybackResult.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationSegmentUseCase.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationSegmentCommand.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationSegmentResult.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/PrepareReaderNarrationSegmentOutcome.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationPreparationDecisionPlanner.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationPreparationDecision.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/application/narration/ReaderNarrationPreparationAction.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/contracts/dto/narration/PrepareReaderNarrationPlaybackRequest.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/contracts/dto/narration/PublicReaderNarrationPlaybackDTO.java"))).isFalse();
+
+        // 5 test files deleted in B1
+        assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/GetPublicChapterNarrationManifestUseCaseTest.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/PreparePublicReaderNarrationPlaybackUseCaseTest.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/PrepareReaderNarrationPlaybackUseCaseTest.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/PrepareReaderNarrationSegmentUseCaseTest.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/test/java/com/universe/novel/application/narration/ReaderNarrationPreparationDecisionPlannerTest.java"))).isFalse();
+    }
+
     private String chapterEngine() throws Exception {
         return read("src/main/resources/static/js/novel/chapter-audio-engine.js");
     }
