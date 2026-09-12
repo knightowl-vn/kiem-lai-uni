@@ -436,10 +436,10 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I2: Failed Managed voice load invokes unavailable policy")
+    @DisplayName("H.9I5C2A: Failed Managed playback intent invokes unavailable policy")
     void failedManagedVoiceLoadInvokesUnavailablePolicy() throws Exception {
-        String voiceChange = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
-        assertThat(voiceChange).contains("} catch (e) {", "if (e.name === 'AbortError') return", "this._handleManagedUnavailable();");
+        String prepareMethod = controllerMethod("_ensureManagedPlaybackForIntent(chapterId, voiceKey", "_handlePlayPause() {");
+        assertThat(prepareMethod).contains("this._handleManagedUnavailable();");
     }
 
     @Test
@@ -502,10 +502,10 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I2: Failed Managed voice isolates state and invokes unavailable policy")
+    @DisplayName("H.9I5C2A: Failed Managed voice isolates state and leaves Play available for on-demand preparation")
     void failedManagedVoiceIsolatesStateAndInvokesUnavailablePolicy() throws Exception {
         String voiceChange = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
-        assertThat(voiceChange).contains("} catch (e) {", "this._handleManagedUnavailable();");
+        assertThat(voiceChange).contains("} catch (e) {", "Nhấn Phát để chuẩn bị giọng đọc");
         assertThat(voiceChange).doesNotContain(".play(");
     }
 
@@ -1131,8 +1131,8 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I5C1: ChapterAudioEngine owns chapter-level prepare transport; ManagedAudioEngine remains catalog-only")
-    void h9i5c1ChapterAudioPreparationTransportContract() throws Exception {
+    @DisplayName("H.9I5C2A: ChapterAudioEngine owns prepare transport; NarrationController orchestrates on user play intent")
+    void h9i5c2aManualManagedPreparationOrchestrationContract() throws Exception {
         String chapterJs = chapterEngine();
         assertThat(chapterJs).contains("function buildPrepareUrl(chapterId)");
         assertThat(chapterJs).contains("'/narration/prepare'");
@@ -1145,7 +1145,30 @@ class ReaderManagedAudioContractTest {
         assertThat(managedJs).doesNotContain("requestPlaybackPreparation");
 
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        assertThat(controllerJs).doesNotContain("requestPlaybackPreparation");
+        String prepMethod = controllerMethod("_ensureManagedPlaybackForIntent(chapterId, voiceKey", "_handlePlayPause() {");
+        assertThat(prepMethod).contains("this.chapterEngine.requestPlaybackPreparation(chapterId, voiceKey");
+
+        // Forbidden entry points must NOT call requestPlaybackPreparation
+        String activateMethod = controllerMethod("_activateEngine(type, identifier) {", "_invalidateChapterPlayback() {");
+        assertThat(activateMethod).doesNotContain("requestPlaybackPreparation");
+
+        String voiceChangeMethod = controllerMethod("async _handleVoiceChange() {", "_handleRateChange() {");
+        assertThat(voiceChangeMethod).doesNotContain("requestPlaybackPreparation");
+
+        String preloadMethod = controllerMethod("_checkAndTriggerNextChapterPreload(progress) {", "_isPreloadStale(snapshot) {");
+        assertThat(preloadMethod).doesNotContain("requestPlaybackPreparation");
+
+        String initMethod = controllerMethod("init() {", "_queryDomElements() {");
+        assertThat(initMethod).doesNotContain("requestPlaybackPreparation");
+
+        int transStart = controllerJs.indexOf("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {");
+        int transEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transStart);
+        String transMethod = controllerJs.substring(transStart, transEnd);
+        assertThat(transMethod).doesNotContain("requestPlaybackPreparation");
+
+        // Hardening: _handlePlayPause fast path must verify exact voiceKey
+        String playPauseMethod = controllerMethod("_handlePlayPause() {", "_handlePrev() {");
+        assertThat(playPauseMethod).contains("this.chapterEngine.metadata.voiceKey");
     }
 
     private String chapterEngine() throws Exception {

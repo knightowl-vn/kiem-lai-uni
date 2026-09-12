@@ -162,6 +162,16 @@
             this._transitionSequenceId = 0;
             this._voiceSelectionSequenceId = 0;
             this._chapterSelectionId = 0;
+            this._preparationSequenceId = 0;
+            this._preparationAbortController = null;
+            this._activePreparationPromise = null;
+            this._activePreparationKey = null;
+            this.managedPreparationPollIntervalMs = (config && typeof config.managedPreparationPollIntervalMs === 'number')
+                ? config.managedPreparationPollIntervalMs
+                : 2000;
+            this.managedPreparationTimeoutMs = (config && typeof config.managedPreparationTimeoutMs === 'number')
+                ? config.managedPreparationTimeoutMs
+                : 120000;
 
             // Bound handlers for cleanup
             this._boundOnPlayPause = this._handlePlayPause.bind(this);
@@ -1334,8 +1344,29 @@
                     this._syncNavigationAndProgress();
                 }).catch(err => {
                     if (err.name === 'AbortError' || this.chapterId !== requestedChapterId) return;
-                    console.warn('[NarrationController] Error activating managed voice:', err);
-                    this._handleManagedUnavailable();
+                    if (this.activeEngineType !== 'managed') return;
+                    const currentSelectedKey = this.savedVoicePreference && this.savedVoicePreference.type === 'managed'
+                        ? this.savedVoicePreference.voiceKey
+                        : null;
+                    if (currentSelectedKey && currentSelectedKey !== identifier) return;
+                    if (this.dom && this.dom.voiceSelect && this.dom.voiceSelect.value !== ('managed:' + identifier)) return;
+
+                    // Audio missing at activation -> leave Managed selected, ChapterAudioEngine as authority, Play enabled
+                    this.chunks = [];
+                    this._updateProgressDisplay(0, 0);
+                    this._updateNavButtons();
+                    if (this.dom && this.dom.playPauseBtn) {
+                        this.dom.playPauseBtn.disabled = false;
+                        this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                        this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                        this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                        this.dom.playPauseBtn.classList.remove('is-playing');
+                    }
+                    if (this.dom && this.dom.playIcon && this.dom.pauseIcon) {
+                        this.dom.playIcon.style.display = '';
+                        this.dom.pauseIcon.style.display = 'none';
+                    }
+                    this._setStatusMessage('Nhấn Phát để chuẩn bị giọng đọc.');
                 });
             } else if (this.deviceEngine) {
                 this._cancelNextChapterPreload();
@@ -1361,6 +1392,7 @@
 
         _invalidateChapterPlayback() {
             ++this._chapterSelectionId;
+            this._cancelManagedPreparation();
             if (this.chapterEngine) this.chapterEngine.stop();
             this._clearHighlight();
         }
@@ -2169,6 +2201,414 @@
         }
 
         /**
+         * Resolves the currently selected or preferred Managed voice key.
+         * @returns {string|null}
+         * @private
+         */
+        _resolveSelectedManagedVoiceKey() {
+            if (this.dom && this.dom.voiceSelect && this.dom.voiceSelect.value && this.dom.voiceSelect.value.startsWith('managed:')) {
+                return this.dom.voiceSelect.value.substring('managed:'.length);
+            }
+            if (this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey) {
+                return this.savedVoicePreference.voiceKey;
+            }
+            if (this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
+                const k = this.chapterEngine.getSelectedVoiceKey();
+                if (k) return k;
+            }
+            return null;
+        }
+
+        /**
+         * Cancels any in-flight Managed preparation / bounded polling flow.
+         * @private
+         */
+        _cancelManagedPreparation() {
+            this._preparationSequenceId++;
+            if (this._preparationAbortController) {
+                try {
+                    this._preparationAbortController.abort();
+                } catch (ignored) {}
+                this._preparationAbortController = null;
+            }
+            this._activePreparationPromise = null;
+            this._activePreparationKey = null;
+            this._clearPreparingUi();
+        }
+
+        /**
+         * Clears preparing UI attributes and active promise references.
+         * @private
+         */
+        _clearPreparingUi() {
+            if (this.dom && this.dom.player) {
+                this.dom.player.setAttribute('aria-busy', 'false');
+            }
+            if (this.dom && this.dom.statusText) {
+                this.dom.statusText.setAttribute('aria-busy', 'false');
+            }
+            this._activePreparationPromise = null;
+            this._activePreparationKey = null;
+        }
+
+        /**
+         * One-shot abortable wait for bounded polling.
+         * @param {number} ms
+         * @param {AbortSignal} signal
+         * @returns {Promise<void>}
+         * @private
+         */
+        _wait(ms, signal) {
+            if (this.config && typeof this.config.waitFunction === 'function') {
+                return this.config.waitFunction(ms, signal);
+            }
+            return new Promise((resolve, reject) => {
+                if (signal && signal.aborted) {
+                    const err = new Error('The operation was aborted');
+                    err.name = 'AbortError';
+                    return reject(err);
+                }
+                let timer = null;
+                const onAbort = () => {
+                    if (timer !== null) clearTimeout(timer);
+                    const err = new Error('The operation was aborted');
+                    err.name = 'AbortError';
+                    reject(err);
+                };
+                timer = setTimeout(() => {
+                    if (signal) signal.removeEventListener('abort', onAbort);
+                    resolve();
+                }, ms);
+                if (signal) {
+                    signal.addEventListener('abort', onAbort, { once: true });
+                }
+            });
+        }
+
+        /**
+         * Successfully finishes on-demand Managed preparation:
+         * loads ChapterAudio, applies rate, syncs nav/progress, clears preparing UI,
+         * and starts playback exactly once.
+         * @param {Function} isCurrent
+         * @private
+         */
+        _finishPreparationSuccess(isCurrent) {
+            if (!isCurrent()) return;
+
+            this.activeEngineType = 'managed';
+            this.engine = this.chapterEngine;
+            this.activeEngine = this.chapterEngine;
+
+            const currentRate = this.dom && this.dom.rateSelect ? parseFloat(this.dom.rateSelect.value) || 1.0 : 1.0;
+            if (typeof this.chapterEngine.setRate === 'function') {
+                this.chapterEngine.setRate(currentRate);
+            }
+
+            this.chunks = (typeof this.chapterEngine.getSegments === 'function')
+                ? this.chapterEngine.getSegments()
+                : [];
+
+            if (typeof this.chapterEngine.seekBySeconds === 'function') {
+                this.chapterEngine.seekBySeconds(0);
+            }
+
+            if (typeof this.chapterEngine.getProgress === 'function') {
+                this._updateChapterProgressDisplay(this.chapterEngine.getProgress());
+            } else {
+                this._updateProgressDisplay(0, this.chunks.length);
+            }
+
+            this._updateNavButtons();
+            this._clearPreparingUi();
+
+            if (this.dom && this.dom.playPauseBtn) {
+                this.dom.playPauseBtn.disabled = false;
+                this.dom.playPauseBtn.removeAttribute('aria-disabled');
+            }
+
+            this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.');
+
+            if (isCurrent()) {
+                if (typeof this.chapterEngine.play === 'function') {
+                    try {
+                        const p = this.chapterEngine.play(0);
+                        if (p && typeof p.catch === 'function') {
+                            p.catch(() => {});
+                        }
+                    } catch (playErr) {
+                        console.warn('[NarrationController] Play error:', playErr);
+                    }
+                }
+            }
+        }
+
+        /**
+         * Handles preparation failure according to the transient vs definitive failure policy.
+         * Transient failures (REJECTED, UNKNOWN, TIMEOUT) remain retryable when Device fallback is OFF.
+         * Definitive failure (UNAVAILABLE) invokes the definitive unavailable policy.
+         * @param {string} status - 'REJECTED' | 'UNKNOWN' | 'TIMEOUT' | 'UNAVAILABLE'
+         * @private
+         */
+        _handlePreparationFailure(status) {
+            if (status === 'REJECTED' || status === 'UNKNOWN' || status === 'TIMEOUT') {
+                if (this.fallbackToDevice && this.deviceEngine && this.deviceEngine.isSupported()) {
+                    const handled = this._fallbackToDeviceTts('Giọng Kiếm Lai không khả dụng, đã tự động chuyển sang Giọng thiết bị.');
+                    if (handled !== false) return;
+                }
+                // Device fallback is OFF or unavailable -> keep Managed selected and retryable
+                this.activeEngineType = 'managed';
+                this.activeEngine = this.chapterEngine;
+                this.engine = this.chapterEngine;
+                this.chunks = [];
+                this._updateProgressDisplay(0, 0);
+                this._updateNavButtons();
+                this._clearPreparingUi();
+                if (this.dom && this.dom.playPauseBtn) {
+                    this.dom.playPauseBtn.disabled = false;
+                    this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                    this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                    this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                    this.dom.playPauseBtn.classList.remove('is-playing');
+                }
+                if (this.dom && this.dom.playIcon && this.dom.pauseIcon) {
+                    this.dom.playIcon.style.display = '';
+                    this.dom.pauseIcon.style.display = 'none';
+                }
+                this._setStatusMessage('Chưa thể phát âm thanh. Nhấn Phát để thử lại.');
+                return;
+            }
+
+            this._clearPreparingUi();
+            this._handleManagedUnavailable();
+        }
+
+        /**
+         * Ensures Managed playback is available for a genuine user Play intent.
+         * Probes passively first; if unavailable, POSTs /prepare and polls until ready or timeout.
+         * @param {string|number} chapterId
+         * @param {string} voiceKey
+         * @param {Object} [options]
+         * @returns {Promise<void>}
+         * @private
+         */
+        _ensureManagedPlaybackForIntent(chapterId, voiceKey, options = {}) {
+            if (!this.chapterEngine || typeof this.chapterEngine.isSupported !== 'function' || !this.chapterEngine.isSupported()) {
+                this._handleManagedUnavailable();
+                return Promise.resolve();
+            }
+
+            if (!chapterId || !voiceKey) {
+                this._handleManagedUnavailable();
+                return Promise.resolve();
+            }
+
+            // Coalesce duplicate in-flight intent for the exact same chapter + voice
+            const prepKey = `${chapterId}:::${voiceKey}`;
+            if (this._activePreparationPromise && this._activePreparationKey === prepKey) {
+                return this._activePreparationPromise;
+            }
+
+            // Cancel any previous intent
+            this._cancelManagedPreparation();
+
+            const preparationSequence = ++this._preparationSequenceId;
+            const chapterSelection = this._chapterSelectionId;
+            const voiceSequence = this._voiceSelectionSequenceId;
+            const abortController = new AbortController();
+            this._preparationAbortController = abortController;
+            this._activePreparationKey = prepKey;
+            const signal = abortController.signal;
+
+            const isCurrent = () => {
+                return !this.isUnloaded &&
+                    this.activeEngineType === 'managed' &&
+                    this.chapterId === chapterId &&
+                    this._chapterSelectionId === chapterSelection &&
+                    this._voiceSelectionSequenceId === voiceSequence &&
+                    this._preparationSequenceId === preparationSequence &&
+                    !signal.aborted;
+            };
+
+            if (this.dom && this.dom.player) {
+                this.dom.player.setAttribute('aria-busy', 'true');
+            }
+            if (this.dom && this.dom.statusText) {
+                this.dom.statusText.setAttribute('aria-busy', 'true');
+            }
+            if (this.dom && this.dom.playPauseBtn) {
+                this.dom.playPauseBtn.disabled = true;
+                this.dom.playPauseBtn.setAttribute('aria-disabled', 'true');
+            }
+            this._setStatusMessage('Đang chuẩn bị giọng đọc Kiếm Lai...');
+
+            const prepPromise = (async () => {
+                try {
+                    // Step 1: Passive probe
+                    let probeResult;
+                    try {
+                        probeResult = await this.chapterEngine.probePlaybackMetadata(chapterId, voiceKey, { signal });
+                    } catch (err) {
+                        if (err && (err.name === 'AbortError' || err.message === 'The operation was aborted')) {
+                            return;
+                        }
+                        probeResult = { status: 'unknown' };
+                    }
+
+                    if (!isCurrent()) return;
+
+                    // Step 2: Passive probe is ready -> fast path
+                    if (probeResult && probeResult.status === 'ready') {
+                        let metadata;
+                        try {
+                            metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey, probeResult.metadata);
+                        } catch (loadErr) {
+                            if (loadErr && (loadErr.name === 'AbortError' || loadErr.message === 'The operation was aborted')) {
+                                return;
+                            }
+                            if (!isCurrent()) return;
+                            this._handlePreparationFailure('UNKNOWN');
+                            return;
+                        }
+                        if (!isCurrent()) return;
+                        if (metadata) {
+                            this._finishPreparationSuccess(isCurrent);
+                            return;
+                        }
+                        this._handlePreparationFailure('UNKNOWN');
+                        return;
+                    }
+
+                    // Step 3: Unavailable / Unknown -> request preparation POST
+                    let prepResult;
+                    try {
+                        prepResult = await this.chapterEngine.requestPlaybackPreparation(chapterId, voiceKey, { signal });
+                    } catch (prepErr) {
+                        if (prepErr && (prepErr.name === 'AbortError' || prepErr.message === 'The operation was aborted')) {
+                            return;
+                        }
+                        if (!isCurrent()) return;
+                        this._handlePreparationFailure('UNKNOWN');
+                        return;
+                    }
+
+                    if (!isCurrent()) return;
+
+                    if (!prepResult || prepResult.status !== 'BUILDING') {
+                        const outcome = (prepResult && prepResult.status === 'REJECTED')
+                            ? 'REJECTED'
+                            : ((prepResult && prepResult.status === 'UNAVAILABLE') ? 'UNAVAILABLE' : 'UNKNOWN');
+                        this._handlePreparationFailure(outcome);
+                        return;
+                    }
+
+                    // Step 4: Accepted BUILDING -> Bounded passive polling
+                    const pollInterval = (options && typeof options.pollIntervalMs === 'number')
+                        ? options.pollIntervalMs
+                        : (this.managedPreparationPollIntervalMs || 2000);
+                    const timeoutMs = (options && typeof options.timeoutMs === 'number')
+                        ? options.timeoutMs
+                        : (this.managedPreparationTimeoutMs || 120000);
+                    const startTime = Date.now();
+
+                    while (isCurrent()) {
+                        try {
+                            await this._wait(pollInterval, signal);
+                        } catch (waitErr) {
+                            if (waitErr && (waitErr.name === 'AbortError' || waitErr.message === 'The operation was aborted')) {
+                                return;
+                            }
+                            throw waitErr;
+                        }
+
+                        if (!isCurrent()) return;
+
+                        if (Date.now() - startTime >= timeoutMs) {
+                            this._handlePreparationFailure('TIMEOUT');
+                            return;
+                        }
+
+                        let pollProbe;
+                        try {
+                            pollProbe = await this.chapterEngine.probePlaybackMetadata(chapterId, voiceKey, { signal });
+                        } catch (pollErr) {
+                            if (pollErr && (pollErr.name === 'AbortError' || pollErr.message === 'The operation was aborted')) {
+                                return;
+                            }
+                            pollProbe = { status: 'unknown' };
+                        }
+
+                        if (!isCurrent()) return;
+
+                        if (pollProbe && pollProbe.status === 'ready') {
+                            let metadata;
+                            try {
+                                metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey, pollProbe.metadata);
+                            } catch (loadErr) {
+                                if (loadErr && (loadErr.name === 'AbortError' || loadErr.message === 'The operation was aborted')) {
+                                    return;
+                                }
+                                if (!isCurrent()) return;
+                                this._handlePreparationFailure('UNKNOWN');
+                                return;
+                            }
+
+                            if (!isCurrent()) return;
+
+                            if (metadata) {
+                                this._finishPreparationSuccess(isCurrent);
+                                return;
+                            } else {
+                                this._handlePreparationFailure('UNKNOWN');
+                                return;
+                            }
+                        }
+
+                        // Unavailable or unknown -> keep polling until timeout
+                        if (Date.now() - startTime >= timeoutMs) {
+                            this._handlePreparationFailure('TIMEOUT');
+                            return;
+                        }
+                    }
+                } finally {
+                    const ownsPreparation = this._preparationSequenceId === preparationSequence;
+
+                    if (ownsPreparation) {
+                        this._clearPreparingUi();
+
+                        // If aborted/cancelled while still owning the UI, restore Play state silently
+                        if (signal.aborted && !this.isUnloaded) {
+                            if (this.dom && this.dom.playPauseBtn) {
+                                this.dom.playPauseBtn.disabled = false;
+                                this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                                this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                                this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                                this.dom.playPauseBtn.classList.remove('is-playing');
+                            }
+                            if (this.dom && this.dom.playIcon && this.dom.pauseIcon) {
+                                this.dom.playIcon.style.display = '';
+                                this.dom.pauseIcon.style.display = 'none';
+                            }
+                            if (this.dom && this.dom.statusText && this.dom.statusText.textContent === 'Đang chuẩn bị giọng đọc Kiếm Lai...') {
+                                this._setStatusMessage('Nhấn Phát để chuẩn bị giọng đọc.');
+                            }
+                        }
+                    }
+
+                    if (this._activePreparationPromise === prepPromise) {
+                        this._activePreparationPromise = null;
+                        this._activePreparationKey = null;
+                    }
+                    if (this._preparationAbortController === abortController) {
+                        this._preparationAbortController = null;
+                    }
+                }
+            })();
+
+            this._activePreparationPromise = prepPromise;
+            return prepPromise;
+        }
+
+        /**
          * Handles Play/Pause button click.
          * If natural completion occurred, restarts from chunk 0.
          * @private
@@ -2176,6 +2616,25 @@
         _handlePlayPause() {
             this._cancelPendingAutoNext();
             this.isAutoplayContinuation = false;
+
+            if (this._activePreparationPromise) {
+                return this._activePreparationPromise;
+            }
+
+            if (this.activeEngineType === 'managed' && this.chapterEngine) {
+                const selectedVoiceKey = this._resolveSelectedManagedVoiceKey();
+                const isLoadedAndPlayable = this.chunks.length > 0 &&
+                    this.engine === this.chapterEngine &&
+                    Boolean(
+                        selectedVoiceKey &&
+                        this.chapterEngine.metadata &&
+                        String(this.chapterEngine.metadata.chapterId) === String(this.chapterId) &&
+                        String(this.chapterEngine.metadata.voiceKey) === String(selectedVoiceKey)
+                    );
+                if (!isLoadedAndPlayable) {
+                    return this._ensureManagedPlaybackForIntent(this.chapterId, selectedVoiceKey);
+                }
+            }
 
             if (!this.engine || this.chunks.length === 0) {
                 return;
@@ -2493,12 +2952,8 @@
                         }
                         this._updateNavButtons();
                         if (this.dom.playPauseBtn) {
-                            this.dom.playPauseBtn.disabled = (this.chunks.length === 0);
-                            if (this.chunks.length > 0) {
-                                this.dom.playPauseBtn.removeAttribute('aria-disabled');
-                            } else {
-                                this.dom.playPauseBtn.setAttribute('aria-disabled', 'true');
-                            }
+                            this.dom.playPauseBtn.disabled = false;
+                            this.dom.playPauseBtn.removeAttribute('aria-disabled');
                         }
                         this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.');
                     } catch (e) {
@@ -2508,8 +2963,32 @@
                             this.dom.voiceSelect.value !== voiceVal) {
                             return;
                         }
-                        this._handleManagedUnavailable();
+                        // Missing audio on selection -> leave in safe "needs preparation" state
+                        this.chunks = [];
+                        this._updateProgressDisplay(0, 0);
+                        this._updateNavButtons();
+                        if (this.dom.playPauseBtn) {
+                            this.dom.playPauseBtn.disabled = false;
+                            this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                            this.dom.playPauseBtn.setAttribute('aria-label', 'Phát giọng đọc');
+                            this.dom.playPauseBtn.title = 'Phát giọng đọc';
+                            this.dom.playPauseBtn.classList.remove('is-playing');
+                        }
+                        if (this.dom.playIcon && this.dom.pauseIcon) {
+                            this.dom.playIcon.style.display = '';
+                            this.dom.pauseIcon.style.display = 'none';
+                        }
+                        this._setStatusMessage('Nhấn Phát để chuẩn bị giọng đọc.');
                     }
+                } else {
+                    this.chunks = [];
+                    this._updateProgressDisplay(0, 0);
+                    this._updateNavButtons();
+                    if (this.dom.playPauseBtn) {
+                        this.dom.playPauseBtn.disabled = false;
+                        this.dom.playPauseBtn.removeAttribute('aria-disabled');
+                    }
+                    this._setStatusMessage('Nhấn Phát để chuẩn bị giọng đọc.');
                 }
             } else {
                 let voiceIdentifier = voiceVal;
@@ -2577,6 +3056,7 @@
                 return;
             }
             this.isUnloaded = true;
+            this._cancelManagedPreparation();
             this._cancelNextChapterPreload();
             this._cancelPendingAutoNext();
 
