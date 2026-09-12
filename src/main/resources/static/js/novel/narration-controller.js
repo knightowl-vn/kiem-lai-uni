@@ -1171,7 +1171,7 @@
             this.dom.voiceSelect.innerHTML = '';
 
             // Group 1: Giọng Kiếm Lai (Managed Voices)
-            if (mVoices.length > 0) {
+            if (mVoices.length > 0 && typeof document !== 'undefined' && typeof document.createElement === 'function') {
                 const managedGroup = document.createElement('optgroup');
                 managedGroup.label = 'Giọng Kiếm Lai';
                 for (let i = 0; i < mVoices.length; i++) {
@@ -1185,7 +1185,7 @@
             }
 
             // Group 2: Thiết bị (Device Voices)
-            if (viVoices.length > 0) {
+            if (viVoices.length > 0 && typeof document !== 'undefined' && typeof document.createElement === 'function') {
                 const deviceGroup = document.createElement('optgroup');
                 deviceGroup.label = 'Thiết bị';
                 for (let i = 0; i < viVoices.length; i++) {
@@ -1205,7 +1205,7 @@
                     ? this.chapterEngine.getSelectedVoiceKey()
                     : ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed') ? this.savedVoicePreference.voiceKey : null);
                 const targetVal = currentSelectedValue || (this.activeEngineType === 'managed' && activeManagedVoiceKey ? ('managed:' + activeManagedVoiceKey) : null);
-                if (targetVal) {
+                if (targetVal && this.dom.voiceSelect.options) {
                     for (let i = 0; i < this.dom.voiceSelect.options.length; i++) {
                         if (this.dom.voiceSelect.options[i].value === targetVal) {
                             this.dom.voiceSelect.selectedIndex = i;
@@ -1393,7 +1393,9 @@
         _invalidateChapterPlayback() {
             ++this._chapterSelectionId;
             this._cancelManagedPreparation();
-            if (this.chapterEngine) this.chapterEngine.stop();
+            if (this.chapterEngine && typeof this.chapterEngine.stop === 'function') {
+                this.chapterEngine.stop();
+            }
             this._clearHighlight();
         }
 
@@ -2241,10 +2243,10 @@
          * @private
          */
         _clearPreparingUi() {
-            if (this.dom && this.dom.player) {
+            if (this.dom && this.dom.player && typeof this.dom.player.setAttribute === 'function') {
                 this.dom.player.setAttribute('aria-busy', 'false');
             }
-            if (this.dom && this.dom.statusText) {
+            if (this.dom && this.dom.statusText && typeof this.dom.statusText.setAttribute === 'function') {
                 this.dom.statusText.setAttribute('aria-busy', 'false');
             }
             this._activePreparationPromise = null;
@@ -2417,7 +2419,7 @@
             const abortController = new AbortController();
             this._preparationAbortController = abortController;
             this._activePreparationKey = prepKey;
-            const signal = abortController.signal;
+            const signal = (abortController && abortController.signal) ? abortController.signal : { aborted: false };
 
             const isCurrent = () => {
                 return !this.isUnloaded &&
@@ -2429,10 +2431,10 @@
                     !signal.aborted;
             };
 
-            if (this.dom && this.dom.player) {
+            if (this.dom && this.dom.player && typeof this.dom.player.setAttribute === 'function') {
                 this.dom.player.setAttribute('aria-busy', 'true');
             }
-            if (this.dom && this.dom.statusText) {
+            if (this.dom && this.dom.statusText && typeof this.dom.statusText.setAttribute === 'function') {
                 this.dom.statusText.setAttribute('aria-busy', 'true');
             }
             if (this.dom && this.dom.playPauseBtn) {
@@ -2443,15 +2445,24 @@
 
             const prepPromise = (async () => {
                 try {
-                    // Step 1: Passive probe
+                    const seedAvailability = options && options.preloadedPlaybackAvailability;
+                    const seedMetadata = options && options.preloadedPlaybackMetadata;
+
+                    // Step 1: Passive probe or seeded availability
                     let probeResult;
-                    try {
-                        probeResult = await this.chapterEngine.probePlaybackMetadata(chapterId, voiceKey, { signal });
-                    } catch (err) {
-                        if (err && (err.name === 'AbortError' || err.message === 'The operation was aborted')) {
-                            return;
+                    if (seedAvailability === 'ready' && seedMetadata) {
+                        probeResult = { status: 'ready', metadata: seedMetadata };
+                    } else if (seedAvailability === 'unavailable') {
+                        probeResult = { status: 'unavailable' };
+                    } else {
+                        try {
+                            probeResult = await this.chapterEngine.probePlaybackMetadata(chapterId, voiceKey, { signal });
+                        } catch (err) {
+                            if (err && (err.name === 'AbortError' || err.message === 'The operation was aborted')) {
+                                return;
+                            }
+                            probeResult = { status: 'unknown' };
                         }
-                        probeResult = { status: 'unknown' };
                     }
 
                     if (!isCurrent()) return;
@@ -2594,7 +2605,7 @@
                         }
                     }
 
-                    if (this._activePreparationPromise === prepPromise) {
+                    if (this._preparationSequenceId === preparationSequence) {
                         this._activePreparationPromise = null;
                         this._activePreparationKey = null;
                     }
@@ -3806,102 +3817,41 @@
                 const activeEngineVoiceKey = (this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function')
                     ? this.chapterEngine.getSelectedVoiceKey()
                     : null;
-                const requestedVoiceKey = (continuationIntent && continuationIntent.mode === 'managed' ? continuationIntent.voiceKey : null) || activeEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
+                let currentEngineVoiceKey = activeEngineVoiceKey;
+                const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
                     ? this.savedVoicePreference.voiceKey
                     : null);
-                const requestedVoiceSequence = this._voiceSelectionSequenceId;
+                const requestedVoiceKey = (continuationIntent && continuationIntent.mode === 'managed' && continuationIntent.voiceKey)
+                    ? continuationIntent.voiceKey
+                    : currentSelectedKey;
 
                 this.activeEngineType = 'managed';
                 this.activeEngine = this.chapterEngine;
                 this.engine = this.chapterEngine;
 
-                const handleManagedFailure = () => {
+                if (!requestedVoiceKey || typeof requestedVoiceKey !== 'string' || requestedVoiceKey.trim() === '') {
                     this._handleManagedUnavailable();
-                };
-
-                if (!requestedVoiceKey) {
-                    handleManagedFailure();
                     return;
                 }
 
-                if (preloadedPlaybackAvailability === 'unavailable') {
-                    handleManagedFailure();
-                    return;
+                const availableVoices = (this.managedEngine && typeof this.managedEngine.getVoices === 'function')
+                    ? this.managedEngine.getVoices()
+                    : (this._cachedManagedVoices || []);
+                if (Array.isArray(availableVoices) && availableVoices.length > 0) {
+                    this._cachedManagedVoices = availableVoices;
+                }
+                const deviceVoices = (this.deviceEngine && typeof this.deviceEngine.getSortedVoices === 'function')
+                    ? this.deviceEngine.getSortedVoices()
+                    : (this.deviceEngine && typeof this.deviceEngine.getVoices === 'function' ? this.deviceEngine.getVoices() : []);
+                this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
+
+                if (this.dom.voiceSelect) {
+                    this.dom.voiceSelect.value = 'managed:' + requestedVoiceKey;
                 }
 
-                this._selectManagedPlayback(requestedChapterId, requestedVoiceKey, preloadedChapterMetadata).then(playbackResult => {
-                    if (this.chapterId !== requestedChapterId) {
-                        return;
-                    }
-                    if (this.activeEngineType !== 'managed') {
-                        return;
-                    }
-                    if (this._voiceSelectionSequenceId !== requestedVoiceSequence) {
-                        return;
-                    }
-                    let currentEngineVoiceKey = null;
-                    if (this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
-                        currentEngineVoiceKey = this.chapterEngine.getSelectedVoiceKey();
-                    }
-                    const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
-                        ? this.savedVoicePreference.voiceKey
-                        : null);
-                    if (currentSelectedKey !== requestedVoiceKey) {
-                        return;
-                    }
-                    if (this.dom.voiceSelect && requestedVoiceKey && this.dom.voiceSelect.value && this.dom.voiceSelect.value !== ('managed:' + requestedVoiceKey)) {
-                        return;
-                    }
-
-                    const availableVoices = (playbackResult && Array.isArray(playbackResult.availableVoices))
-                        ? playbackResult.availableVoices
-                        : (this.managedEngine ? this.managedEngine.getVoices() : []);
-                    if (Array.isArray(availableVoices) && availableVoices.length > 0) {
-                        this._cachedManagedVoices = availableVoices;
-                    }
-                    const deviceVoices = (this.deviceEngine && this.deviceEngine.getSortedVoices)
-                        ? this.deviceEngine.getSortedVoices()
-                        : (this.deviceEngine ? this.deviceEngine.getVoices() : []);
-                    this._populateVoiceDropdown(deviceVoices, availableVoices, { skipActivation: true });
-
-                    this.chunks = (playbackResult && Array.isArray(playbackResult.segments))
-                            ? playbackResult.segments
-                            : (this.chapterEngine && typeof this.chapterEngine.getSegments === 'function' ? this.chapterEngine.getSegments() : []);
-                    if (this.chunks.length === 0) {
-                        handleManagedFailure();
-                    } else {
-                        this._updateProgressDisplay(0, this.chunks.length);
-                        this._updateNavButtons();
-                        this._setStatusMessage('Sẵn sàng phát âm thanh cả chương.');
-                        if (this.dom.playPauseBtn) {
-                            this.dom.playPauseBtn.disabled = false;
-                            this.dom.playPauseBtn.removeAttribute('aria-disabled');
-                        }
-                        if (this.engine === this.chapterEngine) {
-                            this.chapterEngine.play(0);
-                        }
-                    }
-                }).catch(err => {
-                    if (this.chapterId !== requestedChapterId ||
-                        this.activeEngineType !== 'managed' ||
-                        this._voiceSelectionSequenceId !== requestedVoiceSequence) {
-                        return;
-                    }
-                    let currentEngineVoiceKey = null;
-                    if (this.chapterEngine && typeof this.chapterEngine.getSelectedVoiceKey === 'function') {
-                        currentEngineVoiceKey = this.chapterEngine.getSelectedVoiceKey();
-                    }
-                    const currentSelectedKey = currentEngineVoiceKey || ((this.savedVoicePreference && this.savedVoicePreference.type === 'managed' && this.savedVoicePreference.voiceKey)
-                        ? this.savedVoicePreference.voiceKey
-                        : null);
-                    if (currentSelectedKey !== requestedVoiceKey) {
-                        return;
-                    }
-                    if (err && err.name === 'AbortError') {
-                        return;
-                    }
-                    console.warn('[NarrationController] Error loading next chapter playback:', err);
-                    handleManagedFailure();
+                return this._ensureManagedPlaybackForIntent(requestedChapterId, requestedVoiceKey, {
+                    preloadedPlaybackAvailability: preloadedPlaybackAvailability,
+                    preloadedPlaybackMetadata: preloadedChapterMetadata
                 });
             } else {
                 this.activeEngineType = 'device';

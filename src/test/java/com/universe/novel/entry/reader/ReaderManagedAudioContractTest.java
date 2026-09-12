@@ -541,13 +541,10 @@ class ReaderManagedAudioContractTest {
     @Test
     @DisplayName("129. Auto-next stale AbortError cannot overwrite new voice status or show error (MS-04.9H.7D3A2)")
     void autoNextStaleAbortErrorCannotOverwriteStatusOrShowError() throws Exception {
-        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
-        int transitionStart = controllerJs.indexOf("_applyChapterTransition(");
-        int transitionEnd = controllerJs.indexOf("_onEngineError(error, engineType) {", transitionStart);
-        String transitionBody = controllerJs.substring(transitionStart, transitionEnd);
+        String ensureMethod = controllerMethod("_ensureManagedPlaybackForIntent(chapterId, voiceKey", "_handlePlayPause() {");
 
-        assertThat(transitionBody).contains("if (err && err.name === 'AbortError') {\n                        return;\n                    }");
-        assertThat(transitionBody).contains("if (this.chapterId !== requestedChapterId ||\n                        this.activeEngineType !== 'managed' ||\n                        this._voiceSelectionSequenceId !== requestedVoiceSequence) {\n                        return;\n                    }");
+        assertThat(ensureMethod).contains("if (err && (err.name === 'AbortError' || err.message === 'The operation was aborted')) {\n                                return;\n                            }");
+        assertThat(ensureMethod).contains("if (!isCurrent()) return;");
     }
 
     @Test
@@ -654,10 +651,10 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I2: Auto Next null Managed Voice fails safely without unkeyed re-resolution")
+    @DisplayName("H.9I5C2B: Auto Next null Managed Voice fails safely without unkeyed re-resolution")
     void autoNextNullManagedVoiceFailsSafelyWithoutUnkeyedReResolution() throws Exception {
         String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {", "_onEngineError(error, engineType) {");
-        assertThat(applyTransition).contains("this._selectManagedPlayback(requestedChapterId, requestedVoiceKey", "this._handleManagedUnavailable()");
+        assertThat(applyTransition).contains("this._handleManagedUnavailable()");
         assertThat(applyTransition).doesNotContain("await this.managedEngine.loadManifest(requestedChapterId, null)");
     }
 
@@ -693,10 +690,10 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I2: Auto Next missing audio triggers unavailable policy without fallback")
+    @DisplayName("H.9I5C2B: Auto Next missing audio triggers on-demand generation without fallback")
     void autoNextMissingAudioTriggersOnDemandGenerationWithoutFallback() throws Exception {
         String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {", "_onEngineError(error, engineType) {");
-        assertThat(applyTransition).contains("handleManagedFailure()");
+        assertThat(applyTransition).contains("this._ensureManagedPlaybackForIntent(");
     }
 
     @Test
@@ -943,8 +940,8 @@ class ReaderManagedAudioContractTest {
     @Test
     @DisplayName("H.9H1: Next-chapter ChapterAudioEngine is actually started")
     void h9h1NextChapterChapterAudioEngineIsStarted() throws Exception {
-        String applyTransition = controllerMethod("_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {", "_onEngineError(error, engineType) {");
-        assertThat(applyTransition).contains("if (this.engine === this.chapterEngine) {\n                            this.chapterEngine.play(0);\n                        }");
+        String successMethod = controllerMethod("_finishPreparationSuccess(isCurrent) {", "_handlePreparationFailure(");
+        assertThat(successMethod).contains("this.chapterEngine.play(0)");
     }
 
     @Test
@@ -1028,8 +1025,8 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("H.9I3: NarrationController records playbackAvailability during preload and negative availability bypasses _selectManagedPlayback")
-    void h9i3PreloadRecordsPlaybackAvailabilityAndNegativeReuseBypassesColdFetch() throws Exception {
+    @DisplayName("H.9I5C2B: NarrationController records playbackAvailability during preload and negative availability routes to shared preparation after commit")
+    void h9i5c2bPreloadRecordsPlaybackAvailabilityAndNegativeReuseEntersPreparation() throws Exception {
         String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
         assertThat(controllerJs).contains("playbackAvailability: 'unknown'");
         assertThat(controllerJs).contains("chapterEngine.probePlaybackMetadata(");
@@ -1037,16 +1034,34 @@ class ReaderManagedAudioContractTest {
         assertThat(controllerJs).contains("snapshot.playbackAvailability = 'unavailable';");
         assertThat(controllerJs).contains("snapshot.playbackAvailability = 'unknown';");
 
+        // Preload itself stays probe-only and contains zero requestPlaybackPreparation
+        String preloadMethod = controllerMethod("_executeNextChapterPreload(snapshot) {", "_isPreloadStale(snapshot) {");
+        assertThat(preloadMethod).doesNotContain("requestPlaybackPreparation");
+        assertThat(preloadMethod).contains("probePlaybackMetadata");
+
         String applyTransition = controllerMethod(
                 "_applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {",
                 "_onEngineError(error, engineType) {"
         );
-        assertThat(applyTransition).contains("if (preloadedPlaybackAvailability === 'unavailable') {");
-        assertThat(applyTransition).contains("handleManagedFailure();");
-        int negativeCheck = applyTransition.indexOf("if (preloadedPlaybackAvailability === 'unavailable') {");
-        int selectManaged = applyTransition.indexOf("this._selectManagedPlayback(");
-        assertThat(negativeCheck).isGreaterThan(0);
-        assertThat(selectManaged).isGreaterThan(negativeCheck);
+
+        // Chapter B commit must occur before preparation invocation
+        int commitChapter = applyTransition.indexOf("this.chapterId = newChapterId;");
+        int prepCall = applyTransition.indexOf("this._ensureManagedPlaybackForIntent(");
+        assertThat(commitChapter).isGreaterThan(0);
+        assertThat(prepCall).isGreaterThan(commitChapter);
+
+        // Preload availability & metadata passed to shared preparation helper
+        assertThat(applyTransition).contains("preloadedPlaybackAvailability: preloadedPlaybackAvailability");
+        assertThat(applyTransition).contains("preloadedPlaybackMetadata: preloadedChapterMetadata");
+
+        // Old immediate failure on unavailable preload is replaced by preparation flow
+        assertThat(applyTransition).doesNotContain("if (preloadedPlaybackAvailability === 'unavailable') {\n                    handleManagedFailure();");
+
+        // Shared preparation helper owns requestPlaybackPreparation and handles seeded availability
+        String ensureMethod = controllerMethod("_ensureManagedPlaybackForIntent(chapterId, voiceKey", "_handlePlayPause() {");
+        assertThat(ensureMethod).contains("this.chapterEngine.requestPlaybackPreparation(chapterId, voiceKey");
+        assertThat(ensureMethod).contains("seedAvailability === 'unavailable'");
+        assertThat(ensureMethod).contains("seedAvailability === 'ready'");
     }
 
     @Test

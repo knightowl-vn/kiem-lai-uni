@@ -833,16 +833,26 @@ describe('MS-04.9H.9 — H.9I5C2A Manual Managed Play On-Demand Preparation Test
         assert.strictEqual(prepareCalled, 0, 'Preload must never call requestPlaybackPreparation');
     });
 
-    test('21. Auto Next still does NOT invoke requestPlaybackPreparation in H.9I5C2A', async () => {
+    test('21. H.9I5C2B: Committed Auto Next continuation invokes requestPlaybackPreparation when playback is unavailable', async () => {
         const env = createControllerEnv();
         let prepareCalled = 0;
+        let prepareChapterId = null;
+        let prepareVoiceKey = null;
 
         const ctrl = new env.NarrationController.NarrationController({
             chapterId: 'ch-1',
+            managedPreparationPollIntervalMs: 5,
+            managedPreparationTimeoutMs: 15,
             chapterEngine: {
                 isSupported: () => true,
                 loadPlayback: async () => { throw new Error('ChapterAudio unavailable'); },
-                requestPlaybackPreparation: async () => { prepareCalled++; return { status: 'BUILDING' }; },
+                requestPlaybackPreparation: async (ch, vk) => {
+                    prepareCalled++;
+                    prepareChapterId = ch;
+                    prepareVoiceKey = vk;
+                    return { status: 'BUILDING' };
+                },
+                probePlaybackMetadata: async () => ({ status: 'unavailable' }),
                 stop: () => {},
                 getSelectedVoiceKey: () => 'voice-1'
             }
@@ -862,7 +872,9 @@ describe('MS-04.9H.9 — H.9I5C2A Manual Managed Play On-Demand Preparation Test
 
         await new Promise(r => setTimeout(r, 50));
 
-        assert.strictEqual(prepareCalled, 0, 'Auto Next in H.9I5C2A must not invoke requestPlaybackPreparation');
+        assert.strictEqual(prepareCalled, 1, 'Committed Auto Next continuation must invoke requestPlaybackPreparation');
+        assert.strictEqual(prepareChapterId, 'ch-2', 'Preparation must target committed Chapter B');
+        assert.strictEqual(prepareVoiceKey, 'voice-1', 'Preparation must preserve exact Chapter A voiceKey');
     });
 
     test('22. H.9I5C2A1: timeout + fallback OFF leaves Play enabled, busy cleared, keeps Managed pref, and retry succeeds when ready', async () => {

@@ -291,7 +291,10 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
         let playCalled = false;
 
         controller.chapterEngine = {
+            isSupported: () => true,
             getSelectedVoiceKey: () => 'voice-B',
+            probePlaybackMetadata: async () => ({ status: 'ready', metadata: { durationMillis: 1000 } }),
+            loadPlayback: async () => ({ durationMillis: 1000 }),
             play: () => { playCalled = true; },
             stop: () => {}
         };
@@ -321,7 +324,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
             title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
-        }, '/url', {}, { mode: 'managed', voiceKey: 'voice-B' }); // request voice-B
+        }, '/url', { newChapterId: '456', title: 'Doc', bodyEl: { innerHTML: '' } }, { mode: 'managed', voiceKey: 'voice-B' }); // request voice-B
 
         assert.strictEqual(playCalled, true, "ChapterAudioEngine.play(0) should be invoked when it is authoritative");
     });
@@ -367,7 +370,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
             title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
-        }, '/url', { newChapterId: '456', bodyEl: {} }, capturedIntent);
+        }, '/url', { newChapterId: '456', title: 'Doc', bodyEl: { innerHTML: '<p>hello</p>' } }, capturedIntent);
 
         assert.strictEqual(selectManagedCalled, false, 'should bypass managed retry');
         assert.strictEqual(controller.activeEngineType, 'device');
@@ -1782,7 +1785,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
             '/next',
             validation,
             { mode: 'managed', voiceKey: 'v1' },
-            preloadedMeta
+            preloadedMeta, 'ready'
         );
 
         await new Promise(resolve => setTimeout(resolve, 10));
@@ -1886,11 +1889,13 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         let metadataFetchCount = 0;
         const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
             audioFactory: env.fakeAudioFactory,
-            fetchFunction: async () => {
-                metadataFetchCount++;
+            fetchFunction: async (url, opts) => {
+                const method = (opts && opts.method) || 'GET';
+                if (method === 'GET') metadataFetchCount++;
                 return { ok: false };
             }
         });
+        engine.requestPlaybackPreparation = async () => ({ status: 'UNAVAILABLE' });
         engine.metadata = { chapterId: '1', voiceKey: 'v1' };
         ctrl.chapterEngine = engine;
         ctrl.engine = engine;
@@ -3007,6 +3012,8 @@ test('H.9I2A ChapterAudio Unavailable Authority & Fallback Tests', async (t) => 
             ctrl.chapterEngine = {
                 isSupported: () => true,
                 getSelectedVoiceKey: () => 'v1',
+                probePlaybackMetadata: async () => ({ status: 'unavailable' }),
+                requestPlaybackPreparation: async () => ({ status: 'UNAVAILABLE' }),
                 loadPlayback: async () => { throw new Error('ChapterAudio unavailable'); },
                 stop: () => {}
             };
@@ -3558,8 +3565,9 @@ test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) =
         let metaFetchCount = 0;
         const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
             audioFactory: env.fakeAudioFactory,
-            fetchFunction: async () => {
-                metaFetchCount++;
+            fetchFunction: async (url, opts) => {
+                const method = (opts && opts.method) || 'GET';
+                if (method === 'GET') metaFetchCount++;
                 return { ok: false };
             }
         });
@@ -3582,7 +3590,7 @@ test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) =
         assert.strictEqual(htmlFetchCount, 0, 'HTML GET must be bypassed');
         assert.strictEqual(metaFetchCount, 0, 'ZERO metadata GET should be issued when availability is unavailable');
         assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM must commit');
-        assert.strictEqual(ctrl.dom.playPauseBtn.disabled, true, 'Play button must be disabled');
+        assert.strictEqual(ctrl.dom.playPauseBtn.disabled, false, 'Play button must remain enabled and retryable under C2A1 failure policy');
         assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'durable Managed preference preserved');
     });
 
@@ -3607,8 +3615,9 @@ test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) =
         let metaFetchCount = 0;
         const engine = new env.ChapterAudioEngine.ChapterAudioEngine({
             audioFactory: env.fakeAudioFactory,
-            fetchFunction: async () => {
-                metaFetchCount++;
+            fetchFunction: async (url, opts) => {
+                const method = (opts && opts.method) || 'GET';
+                if (method === 'GET') metaFetchCount++;
                 return { ok: false };
             }
         });
@@ -4367,5 +4376,699 @@ test('H.9I4 Shrink ManagedAudioEngine to Voice Catalog Only Tests', async (t) =>
             assert.strictEqual(ctrl.savedVoicePreference, null);
             assert.strictEqual(savePreferencesCalled, true, '_savePreferences must be called when authoritative catalog confirms absence');
         });
+    });
+});
+
+test('H.9I5C2B Auto Next Managed Chapter Preparation Tests', async (t) => {
+    function createAudioFactory() {
+        return class {
+            constructor() {
+                this.readyState = 4;
+                this.currentTime = 0;
+                this.duration = 100;
+                this.ended = false;
+                this._listeners = {};
+            }
+            addEventListener(e, cb) { if (!this._listeners[e]) this._listeners[e] = []; this._listeners[e].push(cb); }
+            removeEventListener(e, cb) { if (this._listeners[e]) this._listeners[e] = this._listeners[e].filter(l => l !== cb); }
+            emit(e) { if (this._listeners[e]) this._listeners[e].forEach(cb => cb()); }
+            play() { this.emit('play'); return Promise.resolve(); }
+            pause() { this.emit('pause'); }
+            load() { this.emit('canplay'); }
+        };
+    }
+
+    function createEnv() {
+        let currentTime = 1000;
+        const fakeAudio = createAudioFactory();
+        const env = {
+            console,
+            setTimeout,
+            clearTimeout,
+            CustomEvent: class { constructor(t, d) { this.type = t; this.detail = d && d.detail; } },
+            window: {
+                location: { href: 'http://localhost/novel/chapters/1' },
+                history: { pushState: () => {} },
+                clearTimeout,
+                setTimeout: setTimeout,
+                addEventListener: () => {},
+                removeEventListener: () => {}
+            },
+            document: {
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                dispatchEvent: () => {},
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                createElement: () => ({ appendChild: () => {}, setAttribute: () => {}, classList: { add: () => {}, remove: () => {} } }),
+                title: 'Chapter 1'
+            },
+            Audio: fakeAudio,
+            AbortController: class {
+                constructor() {
+                    const listeners = [];
+                    this.signal = {
+                        aborted: false,
+                        addEventListener: (event, cb) => { if (event === 'abort') listeners.push(cb); },
+                        removeEventListener: (event, cb) => {
+                            const idx = listeners.indexOf(cb);
+                            if (idx >= 0) listeners.splice(idx, 1);
+                        }
+                    };
+                    this._listeners = listeners;
+                }
+                abort() {
+                    this.signal.aborted = true;
+                    this._listeners.forEach(cb => cb());
+                }
+            },
+            Date: Date,
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        querySelector: () => null,
+                        querySelectorAll: () => [],
+                        getElementById: () => null,
+                        title: 'Chapter 2'
+                    };
+                }
+            },
+            fetch: async () => ({ ok: true, text: async () => '<html></html>' }),
+            localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+        };
+        env.fakeAudio = fakeAudio;
+        env.setCurrentTime = (t) => { currentTime = t; };
+        const engineSrc = fs.readFileSync('src/main/resources/static/js/novel/chapter-audio-engine.js', 'utf8');
+        vm.runInNewContext(engineSrc, env);
+        const controllerSrc = fs.readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        vm.runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    function createMockDom() {
+        const createEl = () => ({
+            disabled: false,
+            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+            setAttribute: () => {},
+            removeAttribute: () => {},
+            getAttribute: () => null,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            style: {},
+            innerHTML: '',
+            textContent: '',
+            appendChild: () => {},
+            querySelectorAll: () => [],
+            querySelector: () => null
+        });
+        return {
+            player: createEl(),
+            statusText: createEl(),
+            playPauseBtn: createEl(),
+            playIcon: createEl(),
+            pauseIcon: createEl(),
+            voiceSelect: { ...createEl(), value: 'managed:v1', options: [] },
+            speedSelect: createEl(),
+            body: createEl(),
+            timeDisplay: createEl(),
+            durationDisplay: createEl(),
+            prevBtn: createEl(),
+            nextBtn: createEl(),
+            rewindBtn: createEl(),
+            forwardBtn: createEl()
+        };
+    }
+
+    function createCtrl(env, opts = {}) {
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._env = env;
+        ctrl.autoNext = true;
+        ctrl.isUnloaded = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl.chapterId = '1';
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'v1' };
+        ctrl._voiceSelectionSequenceId = 1;
+        ctrl._nextChapterPreloadSequenceId = 1;
+        ctrl._autoNextTimer = null;
+        ctrl.managedPreparationPollIntervalMs = 5;
+        ctrl.managedPreparationTimeoutMs = 100;
+        ctrl.config = {
+            waitFunction: (ms, signal) => new Promise((resolve, reject) => {
+                if (signal && signal.aborted) {
+                    const err = new Error('The operation was aborted');
+                    err.name = 'AbortError';
+                    return reject(err);
+                }
+                const timer = setTimeout(resolve, ms);
+                if (signal && signal.addEventListener) {
+                    signal.addEventListener('abort', () => {
+                        clearTimeout(timer);
+                        const err = new Error('The operation was aborted');
+                        err.name = 'AbortError';
+                        reject(err);
+                    });
+                }
+            })
+        };
+        ctrl.parser = { parseChapterBody: () => [{ text: 'prose' }] };
+
+        let playCalledCount = 0;
+        ctrl._playCalledCount = () => playCalledCount;
+
+        ctrl.chapterEngine = {
+            isSupported: () => true,
+            getState: () => 'PLAYING',
+            getSelectedVoiceKey: () => 'v1',
+            getCurrentChunkIndex: () => -1,
+            getCurrentChunk: () => null,
+            getSegments: () => [],
+            getProgress: () => ({ currentTimeSeconds: 0, durationSeconds: 100, progressRatio: 0 }),
+            loadPlayback: async (cId, vKey, meta) => {
+                ctrl.chapterEngine.metadata = meta || { chapterId: cId, voiceKey: vKey };
+                return ctrl.chapterEngine.metadata;
+            },
+            stop: () => {},
+            setRate: () => {},
+            seekBySeconds: () => {},
+            seekToRatio: () => {},
+            play: () => { playCalledCount++; return Promise.resolve(); },
+            pause: () => {},
+            canPrevious: () => false,
+            canNext: () => false,
+            probePlaybackMetadata: async () => ({ status: 'unknown' }),
+            requestPlaybackPreparation: async () => ({ status: 'UNKNOWN' })
+        };
+        ctrl.managedEngine = {
+            isSupported: () => true,
+            loadVoiceCatalog: async () => ({ voices: [{ voiceKey: 'v1' }] }),
+            cancelVoiceCatalogLoad: () => {},
+            getVoices: () => [{ voiceKey: 'v1' }],
+            destroy: () => {}
+        };
+        ctrl.deviceEngine = {
+            isSupported: () => true,
+            play: () => Promise.resolve(),
+            loadChunks: () => {},
+            stop: () => {},
+            pause: () => {},
+            getState: () => 'STOPPED',
+            getCurrentChunkIndex: () => -1,
+            getSortedVoices: () => [{ voiceURI: 'dev-vi' }],
+            getVoices: () => [{ voiceURI: 'dev-vi' }],
+            selectedVoice: { voiceURI: 'dev-vi' }
+        };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl._updateChapterProgressDisplay = () => {};
+        ctrl._syncChapterHighlight = () => {};
+        ctrl._resolveNextChapterUrl = () => '/next';
+        ctrl._validateFetchedChapterDocument = () => ({
+            valid: true,
+            newChapterId: '2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: '<p>Next</p>' },
+            breadcrumbEl: { innerHTML: 'Next' },
+            headerEl: { innerHTML: 'Next' },
+            navTopEl: { innerHTML: 'Next' },
+            navBottomEl: { innerHTML: 'Next' }
+        });
+        ctrl.dom = createMockDom();
+        Object.assign(ctrl, opts);
+        return ctrl;
+    }
+
+    function createSnapshot(ctrl, overrides = {}) {
+        return {
+            sourceChapterId: '1',
+            nextUrl: '/next',
+            targetChapterId: '2',
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: ctrl._voiceSelectionSequenceId,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            createdAt: Date.now(),
+            abortController: new (ctrl._env ? ctrl._env.AbortController : AbortController)(),
+            promise: Promise.resolve(),
+            status: 'completed',
+            result: {
+                document: { querySelector: () => null, querySelectorAll: () => [], getElementById: () => null, title: 'Chapter 2' },
+                validation: {
+                    valid: true,
+                    newChapterId: '2',
+                    title: 'Chapter 2',
+                    bodyEl: { innerHTML: '<p>Next</p>' },
+                    breadcrumbEl: { innerHTML: 'Next' },
+                    headerEl: { innerHTML: 'Next' },
+                    navTopEl: { innerHTML: 'Next' },
+                    navBottomEl: { innerHTML: 'Next' }
+                }
+            },
+            playbackMetadata: { audioUrl: 'ready.mp3', cues: [] },
+            playbackAvailability: 'ready',
+            ...overrides
+        };
+    }
+
+    await t.test('1. natural-end Auto Next delay remains exactly 500ms', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        let scheduledDelay = null;
+        const origSetTimeout = env.window.setTimeout;
+        env.window.setTimeout = (fn, ms) => {
+            scheduledDelay = ms;
+            return origSetTimeout(fn, ms);
+        };
+        ctrl._onEngineChapterEnd('managed');
+        assert.strictEqual(scheduledDelay, 500, 'natural-end delay must be exactly 500ms');
+        ctrl._cancelPendingAutoNext();
+    });
+
+    await t.test('2. READY completed preload: B commits, exact voiceKey preserved, zero GET, zero POST, play B once', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        const readyMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'ready.mp3', cues: [] };
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'ready', playbackMetadata: readyMeta });
+
+        let getCount = 0;
+        let postCount = 0;
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { getCount++; return { status: 'ready', metadata: readyMeta }; };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM committed');
+        assert.strictEqual(getCount, 0, 'zero GET for READY preload');
+        assert.strictEqual(postCount, 0, 'zero POST for READY preload');
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'play called exactly once');
+        assert.strictEqual(ctrl.chapterEngine.metadata, readyMeta, 'reused preloaded metadata');
+    });
+
+    await t.test('3. UNAVAILABLE completed preload: B commits before POST, zero duplicate GET, exactly one POST for B + voiceKey, BUILDING polls, READY plays once', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        let getCount = 0;
+        let postCount = 0;
+        let committedBeforePost = false;
+        const polledMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'polled.mp3', cues: [] };
+
+        ctrl.chapterEngine.requestPlaybackPreparation = async (cId, vKey) => {
+            postCount++;
+            if (ctrl.chapterId === '2' && cId === '2' && vKey === 'v1') committedBeforePost = true;
+            return { status: 'BUILDING' };
+        };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            getCount++;
+            return { status: 'ready', metadata: polledMeta };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 40));
+
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter B committed');
+        assert.strictEqual(committedBeforePost, true, 'Chapter B committed before preparation POST started');
+        assert.strictEqual(postCount, 1, 'exactly one POST issued for Chapter B');
+        assert.strictEqual(getCount, 1, 'polling probe occurred');
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'Chapter B played once ready');
+        assert.strictEqual(ctrl.chapterEngine.metadata, polledMeta);
+    });
+
+    await t.test('4. requestPlaybackPreparation observes ctrl.chapterId === "2"', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
+
+        let observedChapterId = null;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => {
+            observedChapterId = ctrl.chapterId;
+            return { status: 'BUILDING' };
+        };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'ready', metadata: {} });
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 30));
+
+        assert.strictEqual(observedChapterId, '2', 'preparation transport must observe updated chapterId');
+    });
+
+    await t.test('5. UNKNOWN preload: cold probe occurs, READY => zero POST', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unknown', playbackMetadata: null });
+
+        let probeCount = 0;
+        let postCount = 0;
+        const coldMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'cold.mp3', cues: [] };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            probeCount++;
+            return { status: 'ready', metadata: coldMeta };
+        };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => {
+            postCount++;
+            return { status: 'BUILDING' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(probeCount, 1, 'exactly one cold probe GET');
+        assert.strictEqual(postCount, 0, 'zero POST when cold probe is READY');
+        assert.strictEqual(ctrl._playCalledCount(), 1);
+    });
+
+    await t.test('6. UNKNOWN -> cold unavailable: exactly one POST, poll -> READY -> play', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unknown', playbackMetadata: null });
+
+        let probeCount = 0;
+        let postCount = 0;
+        const builtMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'built.mp3', cues: [] };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            probeCount++;
+            if (probeCount === 1) return { status: 'unavailable' };
+            return { status: 'ready', metadata: builtMeta };
+        };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => {
+            postCount++;
+            return { status: 'BUILDING' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 40));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(postCount, 1, 'exactly one POST');
+        assert.strictEqual(probeCount, 2, 'cold probe + 1 poll probe');
+        assert.strictEqual(ctrl._playCalledCount(), 1);
+    });
+
+    await t.test('7. pending preload never awaited at chapter transition', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        let pendingResolved = false;
+        let timer;
+        const pendingPromise = new Promise(resolve => {
+            timer = setTimeout(() => { pendingResolved = true; resolve(); }, 1000);
+        });
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { status: 'pending', promise: pendingPromise });
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        clearTimeout(timer);
+
+        assert.strictEqual(pendingResolved, false, 'must not await pending preload at transition');
+        assert.strictEqual(ctrl.chapterId, '2', 'cold transition completes immediately');
+    });
+
+    await t.test('8. stale/expired/wrong preload not reused', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        // Expired snapshot (> 60s)
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { createdAt: Date.now() - 70000 });
+
+        let htmlFetchCount = 0;
+        env.fetch = async () => {
+            htmlFetchCount++;
+            return { ok: true, text: async () => '<html></html>' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(htmlFetchCount, 1, 'expired preload forces cold HTML fetch');
+    });
+
+    await t.test('9. exact Chapter A voiceKey continues to B', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.managedPreparationTimeoutMs = 20;
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'voice-custom' };
+        ctrl.chapterEngine.getSelectedVoiceKey = () => 'voice-custom';
+
+        let prepVoiceKey = null;
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unavailable' });
+        ctrl.chapterEngine.requestPlaybackPreparation = async (cId, vKey) => {
+            prepVoiceKey = vKey;
+            return { status: 'BUILDING' };
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'voice-custom' });
+        await new Promise(r => setTimeout(r, 30));
+
+        assert.strictEqual(prepVoiceKey, 'voice-custom', 'exact voiceKey must continue to B');
+    });
+
+    await t.test('10. no other Managed default voice selected', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { voiceKey: 'voice-custom', playbackAvailability: 'ready', playbackMetadata: { audioUrl: 'custom.mp3' } });
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'voice-custom' };
+        ctrl.chapterEngine.getSelectedVoiceKey = () => 'voice-custom';
+        ctrl.managedEngine.getVoices = () => [{ voiceKey: 'voice-default' }, { voiceKey: 'voice-custom' }];
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'voice-custom' });
+
+        assert.strictEqual(ctrl.dom.voiceSelect.value, 'managed:voice-custom', 'dropdown keeps exact continuation voice');
+    });
+
+    await t.test('11. voice change during POST/poll aborts/prevents stale load', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.managedPreparationTimeoutMs = 20;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        let pollResolve;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = () => new Promise(resolve => { pollResolve = resolve; });
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        // User changes voice while polling
+        ctrl._voiceSelectionSequenceId++;
+
+        // Stale poll resolves
+        if (typeof pollResolve === 'function') {
+            pollResolve({ status: 'ready', metadata: { chapterId: '2', voiceKey: 'v1', audioUrl: 'stale.mp3' } });
+        }
+        await transPromise;
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(ctrl._playCalledCount(), 0, 'stale voice resolution must not play');
+    });
+
+    await t.test('12. chapter navigation/unload/destroy aborts/prevents stale load', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.managedPreparationTimeoutMs = 20;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        let pollResolve;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = () => new Promise(resolve => { pollResolve = resolve; });
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Destroy controller while polling
+        ctrl.destroy();
+
+        if (typeof pollResolve === 'function') {
+            pollResolve({ status: 'ready', metadata: { chapterId: '2', voiceKey: 'v1', audioUrl: 'stale.mp3' } });
+        }
+        await transPromise;
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(ctrl._playCalledCount(), 0, 'destroyed controller must not play');
+    });
+
+    await t.test('13. AbortError causes zero fallback', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        const abortErr = new Error('The operation was aborted');
+        abortErr.name = 'AbortError';
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { throw abortErr; };
+
+        let devicePlayCalled = false;
+        ctrl.deviceEngine.play = () => { devicePlayCalled = true; };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(devicePlayCalled, false, 'AbortError must cause zero fallback');
+        assert.strictEqual(ctrl.activeEngineType, 'managed', 'engine remains managed');
+    });
+
+    await t.test('14. timeout + fallback OFF leaves B retryable with Play enabled', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = false;
+        ctrl.managedPreparationPollIntervalMs = 5;
+        ctrl.managedPreparationTimeoutMs = 15;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unknown' });
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 50));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(ctrl.activeEngineType, 'managed');
+        assert.strictEqual(ctrl.dom.playPauseBtn.disabled, false, 'Play button must remain enabled and retryable');
+    });
+
+    await t.test('15. fallback ON plays Device', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.fallbackToDevice = true;
+        ctrl.managedPreparationPollIntervalMs = 5;
+        ctrl.managedPreparationTimeoutMs = 15;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => ({ status: 'BUILDING' });
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unknown' });
+
+        let devicePlayed = false;
+        ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 50));
+
+        assert.strictEqual(ctrl.chapterId, '2');
+        assert.strictEqual(ctrl.activeEngineType, 'device', 'switched to Device');
+        assert.strictEqual(devicePlayed, true, 'Device engine played Chapter B');
+    });
+
+    await t.test('16. Play during same preparation coalesces without duplicate POST/poll', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.managedPreparationTimeoutMs = 50;
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable' });
+
+        let prepCount = 0;
+        let pollResolve;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { prepCount++; return { status: 'BUILDING' }; };
+        ctrl.chapterEngine.probePlaybackMetadata = () => new Promise(resolve => { pollResolve = resolve; });
+
+        const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Click Play while preparation is in flight
+        const playPromise = ctrl._handlePlayPause();
+        assert.strictEqual(prepCount, 1, 'zero duplicate POST issued');
+        assert.strictEqual(playPromise, ctrl._activePreparationPromise, 'play promise coalesced on active preparation');
+
+        if (typeof pollResolve === 'function') {
+            pollResolve({ status: 'ready', metadata: { audioUrl: 'audio.mp3' } });
+        }
+        await transPromise;
+    });
+
+    await t.test('17. Device Auto Next performs zero Managed preparation', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.activeEngineType = 'device';
+        ctrl.engine = ctrl.deviceEngine;
+
+        let getCount = 0;
+        let postCount = 0;
+        ctrl.chapterEngine.probePlaybackMetadata = async () => { getCount++; return { status: 'ready' }; };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'device' });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(getCount, 0, 'zero Managed probe GET');
+        assert.strictEqual(postCount, 0, 'zero Managed prepare POST');
+        assert.strictEqual(ctrl.activeEngineType, 'device');
+    });
+
+    await t.test('18. speculative preload performs zero POST', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+
+        let postCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+        ctrl.chapterEngine.probePlaybackMetadata = async () => ({ status: 'unavailable' });
+
+        ctrl._onChapterProgress({ currentTimeSeconds: 75, durationSeconds: 100, progressRatio: 0.75 });
+
+        assert.strictEqual(postCount, 0, 'speculative preload must never POST');
+    });
+
+    await t.test('19. explicit seek-to-end performs zero Auto Next', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl.chapterEngine.seekToRatio(1);
+        ctrl._handleProgressBarKeydown({ key: 'End', preventDefault: () => {} });
+        assert.strictEqual(ctrl._autoNextTimeoutId, null, 'no auto-next timer scheduled');
+    });
+
+    await t.test('20. seek-near-end + natural completion may enter preparation', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._onChapterProgress({ currentTimeSeconds: 95, durationSeconds: 100, progressRatio: 0.95 });
+        ctrl._onEngineChapterEnd('managed');
+        assert.ok(ctrl._autoNextTimeoutId !== null, 'auto-next timer scheduled on natural completion');
+        ctrl._cancelPendingAutoNext();
+    });
+
+    await t.test('21. no next chapter performs zero POST', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        ctrl._resolveNextChapterUrl = () => null;
+
+        let postCount = 0;
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => { postCount++; return { status: 'BUILDING' }; };
+
+        ctrl._onEngineChapterEnd('managed');
+
+        assert.strictEqual(ctrl.isCompleted, true, 'chapter marked completed');
+        assert.strictEqual(ctrl._autoNextTimeoutId, null, 'no timer scheduled');
+        assert.strictEqual(postCount, 0, 'zero POST when no next chapter exists');
+    });
+
+    await t.test('22. UNKNOWN + non-null stale metadata performs cold probe, ignores stale metadata, uses fresh READY probe metadata, 0 POST, plays once', async () => {
+        const env = createEnv();
+        const ctrl = createCtrl(env);
+        const staleMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'stale.mp3', cues: [] };
+        const freshMeta = { chapterId: '2', voiceKey: 'v1', audioUrl: 'fresh.mp3', cues: [] };
+        ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unknown', playbackMetadata: staleMeta });
+
+        let probeCount = 0;
+        let postCount = 0;
+        let loadedMetadata = null;
+
+        ctrl.chapterEngine.probePlaybackMetadata = async () => {
+            probeCount++;
+            return { status: 'ready', metadata: freshMeta };
+        };
+        ctrl.chapterEngine.requestPlaybackPreparation = async () => {
+            postCount++;
+            return { status: 'BUILDING' };
+        };
+        const origLoadPlayback = ctrl.chapterEngine.loadPlayback;
+        ctrl.chapterEngine.loadPlayback = async (cId, vKey, meta) => {
+            loadedMetadata = meta;
+            return origLoadPlayback(cId, vKey, meta);
+        };
+
+        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+        await new Promise(r => setTimeout(r, 40));
+
+        assert.strictEqual(ctrl.chapterId, '2', 'Chapter 2 DOM committed');
+        assert.strictEqual(probeCount, 1, 'cold probe occurred exactly once for UNKNOWN availability');
+        assert.strictEqual(postCount, 0, 'zero POST issued when fresh probe succeeds with ready');
+        assert.notStrictEqual(loadedMetadata, staleMeta, 'stale seed metadata must NOT be loaded');
+        assert.strictEqual(loadedMetadata, freshMeta, 'fresh READY probe metadata must be loaded');
+        assert.strictEqual(ctrl.chapterEngine.metadata, freshMeta, 'chapterEngine metadata matches fresh metadata');
+        assert.strictEqual(ctrl._playCalledCount(), 1, 'playback starts exactly once');
     });
 });
