@@ -798,7 +798,7 @@ class ReaderManagedAudioContractTest {
         assertThat(synchronization).contains("millis >= cue.startMillis && millis < cue.endMillis",
                 "this._activeCueIndex = index", "this.cues[index] || null");
         assertThat(synchronization).doesNotContain(".play(", ".pause(", ".load(", ".src", "fetch", "new Audio");
-        assertThat(engine).doesNotContain("/prepare", "Range", "arrayBuffer", "startMillis =", "endMillis =");
+        assertThat(engine).doesNotContain("/segments/", "Range", "arrayBuffer", "startMillis =", "endMillis =");
     }
 
     @Test
@@ -1128,6 +1128,24 @@ class ReaderManagedAudioContractTest {
         assertThat(transMethod).contains("this.activeEngineType = 'managed';");
         assertThat(transMethod).contains("this.activeEngine = this.chapterEngine;");
         assertThat(transMethod).contains("this.engine = this.chapterEngine;");
+    }
+
+    @Test
+    @DisplayName("H.9I5C1: ChapterAudioEngine owns chapter-level prepare transport; ManagedAudioEngine remains catalog-only")
+    void h9i5c1ChapterAudioPreparationTransportContract() throws Exception {
+        String chapterJs = chapterEngine();
+        assertThat(chapterJs).contains("function buildPrepareUrl(chapterId)");
+        assertThat(chapterJs).contains("'/narration/prepare'");
+        assertThat(chapterJs).contains("async requestPlaybackPreparation(chapterId, voiceKey, options = {})");
+        assertThat(chapterJs).doesNotContain("/segments/");
+        assertThat(chapterJs).doesNotContain("/manifest");
+
+        String managedJs = read("src/main/resources/static/js/novel/managed-audio-engine.js");
+        assertThat(managedJs).doesNotContain("/prepare");
+        assertThat(managedJs).doesNotContain("requestPlaybackPreparation");
+
+        String controllerJs = read("src/main/resources/static/js/novel/narration-controller.js");
+        assertThat(controllerJs).doesNotContain("requestPlaybackPreparation");
     }
 
     private String chapterEngine() throws Exception {

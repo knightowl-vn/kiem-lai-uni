@@ -14,6 +14,33 @@
             '/narration/playback?voiceKey=' + encodeURIComponent(voiceKey);
     }
 
+    function buildPrepareUrl(chapterId) {
+        return '/api/novel/chapters/' + encodeURIComponent(String(chapterId)) +
+            '/narration/prepare';
+    }
+
+    function resolveCsrfToken(doc) {
+        if (!doc || typeof doc.querySelector !== 'function') return null;
+        const metaToken = doc.querySelector('meta[name="_csrf"]');
+        const metaHeader = doc.querySelector('meta[name="_csrf_header"]');
+        if (metaToken && metaHeader) {
+            const token = metaToken.getAttribute('content');
+            const header = metaHeader.getAttribute('content');
+            if (token && header) {
+                return { header, token };
+            }
+        }
+        const fallback = doc.querySelector('[data-csrf-token][data-csrf-header]');
+        if (fallback) {
+            const token = fallback.getAttribute('data-csrf-token');
+            const header = fallback.getAttribute('data-csrf-header');
+            if (token && header) {
+                return { header, token };
+            }
+        }
+        return null;
+    }
+
     function isChapterPlayable(metadata) {
         return Boolean(metadata && metadata.availability === 'READY' && metadata.playable === true &&
             (metadata.freshness === 'CURRENT' || metadata.freshness === 'STALE_VOICE') &&
@@ -143,6 +170,118 @@
             } catch (error) {
                 if (error && (error.name === 'AbortError' || error.message === 'The operation was aborted')) return null;
                 throw error;
+            }
+        }
+
+        buildPrepareUrl(chapterId) {
+            return buildPrepareUrl(chapterId);
+        }
+
+        buildPlaybackUrl(chapterId, voiceKey) {
+            return buildPlaybackUrl(chapterId, voiceKey);
+        }
+
+        _resolveCsrf(options = {}) {
+            if (options && options.csrfHeader && options.csrfToken) {
+                return { header: options.csrfHeader, token: options.csrfToken };
+            }
+            if (this.options && this.options.csrfHeader && this.options.csrfToken) {
+                return { header: this.options.csrfHeader, token: this.options.csrfToken };
+            }
+            const doc = (options && options.document) || (this.options && this.options.document) ||
+                (typeof document !== 'undefined' ? document : null);
+            return resolveCsrfToken(doc);
+        }
+
+        /**
+         * Passively requests chapter narration playback preparation without mutating active playback state.
+         *
+         * @param {string|number} chapterId
+         * @param {string} voiceKey
+         * @param {Object} [options]
+         * @param {AbortSignal} [options.signal]
+         * @param {Function} [options.fetchFunction]
+         * @param {Document} [options.document]
+         * @param {string} [options.csrfHeader]
+         * @param {string} [options.csrfToken]
+         * @returns {Promise<{ status: 'BUILDING', response?: Object } | { status: 'REJECTED' } | { status: 'UNAVAILABLE' } | { status: 'UNKNOWN' }>}
+         */
+        async requestPlaybackPreparation(chapterId, voiceKey, options = {}) {
+            if (options && options.signal && options.signal.aborted) {
+                const abortErr = new Error('The operation was aborted');
+                abortErr.name = 'AbortError';
+                throw abortErr;
+            }
+
+            if (chapterId === null || chapterId === undefined || String(chapterId).trim() === '') {
+                return { status: 'UNKNOWN' };
+            }
+
+            if (typeof voiceKey !== 'string' || voiceKey.trim() === '') {
+                return { status: 'UNKNOWN' };
+            }
+
+            const fetchFn = (options && options.fetchFunction) || this.fetchFunction ||
+                (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+            if (!fetchFn) {
+                return { status: 'UNKNOWN' };
+            }
+
+            const csrf = this._resolveCsrf(options);
+            if (!csrf || !csrf.token || !csrf.header) {
+                return { status: 'UNKNOWN' };
+            }
+
+            try {
+                const url = buildPrepareUrl(chapterId);
+                const headers = {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    [csrf.header]: csrf.token
+                };
+
+                const response = await fetchFn(url, {
+                    method: 'POST',
+                    cache: 'no-store',
+                    headers: headers,
+                    body: JSON.stringify({ voiceKey: voiceKey }),
+                    signal: options.signal
+                });
+
+                if (response.status === 202) {
+                    const payload = await response.json();
+                    if (!payload || typeof payload !== 'object') {
+                        return { status: 'UNKNOWN' };
+                    }
+                    if (String(payload.chapterId) !== String(chapterId)) {
+                        return { status: 'UNKNOWN' };
+                    }
+                    if (payload.voiceKey !== voiceKey) {
+                        return { status: 'UNKNOWN' };
+                    }
+                    if (payload.availability !== 'BUILDING') {
+                        return { status: 'UNKNOWN' };
+                    }
+                    return {
+                        status: 'BUILDING',
+                        response: payload
+                    };
+                }
+
+                if (response.status === 503) {
+                    return { status: 'REJECTED' };
+                }
+
+                if (response.status === 400 || response.status === 404) {
+                    return { status: 'UNAVAILABLE' };
+                }
+
+                return { status: 'UNKNOWN' };
+            } catch (error) {
+                if (error && (error.name === 'AbortError' || error.message === 'The operation was aborted')) {
+                    throw error;
+                }
+                return { status: 'UNKNOWN' };
             }
         }
 
@@ -379,5 +518,10 @@
         destroy() { this.stop(); }
     }
 
-    return { ChapterAudioEngine, buildPlaybackUrl, isChapterPlayable };
+    ChapterAudioEngine.buildPlaybackUrl = buildPlaybackUrl;
+    ChapterAudioEngine.buildPrepareUrl = buildPrepareUrl;
+    ChapterAudioEngine.resolveCsrfToken = resolveCsrfToken;
+    ChapterAudioEngine.isChapterPlayable = isChapterPlayable;
+
+    return { ChapterAudioEngine, buildPlaybackUrl, buildPrepareUrl, resolveCsrfToken, isChapterPlayable };
 });
