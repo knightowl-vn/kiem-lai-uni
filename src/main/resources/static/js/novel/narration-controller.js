@@ -608,6 +608,22 @@
                     this.closeSettings();
                 }
             }
+
+            if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) {
+                const anchor = target.closest('a[href]');
+                if (anchor) {
+                    const targetAttr = anchor.getAttribute('target');
+                    if (!targetAttr || targetAttr !== '_blank') {
+                        if (anchor.classList.contains('novel-chapter-nav-btn--prev') ||
+                            anchor.classList.contains('novel-chapter-nav-btn--next') ||
+                            anchor.classList.contains('novel-toc-link')) {
+                            this._cancelPendingAutoNext();
+                            this._cancelNextChapterPreload();
+                            this._invalidateChapterPlayback();
+                        }
+                    }
+                }
+            }
         }
 
         /**
@@ -942,7 +958,9 @@
          * @private
          */
         _handlePopState(event) {
+            this._cancelPendingAutoNext();
             this._cancelNextChapterPreload();
+            this._invalidateChapterPlayback();
             if (typeof window !== 'undefined' && window.location) {
                 window.location.reload();
             }
@@ -1837,6 +1855,7 @@
                 return false;
             }
 
+            this._cancelPendingAutoNext();
             this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             if (this.managedEngine) {

@@ -1987,3 +1987,714 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         require('node:assert').ok(true);
     });
 });
+
+
+test('H.9H3A Navigation & Engine Cancellation Authority Tests', async (t) => {
+    function createControllerEnv(customEnv = {}) {
+        let docClickCb = null;
+        let currentTime = 1000;
+        const defaultWindow = {
+            location: { reload: () => {}, href: 'http://localhost/c1' },
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            clearTimeout: clearTimeout,
+            setTimeout: setTimeout
+        };
+        const env = {
+            console,
+            setTimeout,
+            clearTimeout,
+            Date: class extends Date { static now() { return currentTime; } },
+            window: customEnv.window ? Object.assign({}, defaultWindow, customEnv.window) : defaultWindow,
+            document: {
+                querySelector: () => null,
+                getElementById: () => null,
+                addEventListener: (event, cb) => {
+                    if (event === 'click') docClickCb = cb;
+                },
+                removeEventListener: () => {}
+            },
+            AbortController: class {
+                constructor() { this.signal = { aborted: false }; }
+                abort() { this.signal.aborted = true; }
+            },
+            DOMParser: class {
+                parseFromString() {
+                    return {
+                        title: 'Test Doc',
+                        querySelector: () => null,
+                        getElementById: () => null
+                    };
+                }
+            },
+            fetch: customEnv.fetch || (async () => ({ ok: true, text: async () => '<html></html>' })),
+            CustomEvent: class {}
+        };
+        const controllerSrc = require('fs').readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        require('vm').runInNewContext(controllerSrc, env);
+        return { env, getDocClickCb: () => docClickCb };
+    }
+
+    function createMockAnchor(className, targetAttr = null) {
+        return {
+            tagName: 'A',
+            classList: {
+                contains: (cls) => cls === className
+            },
+            getAttribute: (attr) => {
+                if (attr === 'target') return targetAttr;
+                if (attr === 'href') return '/novel/chapters/chap-2';
+                return null;
+            }
+        };
+    }
+
+    function createClickEvent(target, overrides = {}) {
+        let preventDefaultCalled = false;
+        const evt = {
+            target,
+            button: overrides.button !== undefined ? overrides.button : 0,
+            ctrlKey: Boolean(overrides.ctrlKey),
+            metaKey: Boolean(overrides.metaKey),
+            shiftKey: Boolean(overrides.shiftKey),
+            altKey: Boolean(overrides.altKey),
+            preventDefault: () => { preventDefaultCalled = true; }
+        };
+        return { evt, wasPreventDefaultCalled: () => preventDefaultCalled };
+    }
+
+    await t.test('1. Automatic Device fallback with pending 500ms Auto Next cancels timer and advances sequence', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.fallbackToDevice = true;
+        ctrl.deviceEngine = { isSupported: () => true, stop: () => {}, getSortedVoices: () => [], play: () => {}, loadChunks: () => {} };
+        ctrl.managedEngine = { stop: () => {}, cancel: () => {}, getVoices: () => [] };
+
+        let timeoutCleared = false;
+        env.clearTimeout = () => { timeoutCleared = true; };
+        ctrl._autoNextTimeoutId = 123;
+        ctrl.isNavigatingToNext = true;
+        const initialSeq = ctrl._transitionSequenceId;
+
+        ctrl._fallbackToDeviceTts();
+
+        require('node:assert').strictEqual(timeoutCleared, true);
+        require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialSeq + 1);
+    });
+
+    await t.test('2. Automatic Device fallback with active transition aborts fetch, cancels preload, and rejects stale transition commit', async () => {
+        let deferredResolve;
+        const deferredPromise = new Promise((resolve) => { deferredResolve = resolve; });
+
+        const { env } = createControllerEnv({
+            fetch: async () => deferredPromise
+        });
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.fallbackToDevice = true;
+        ctrl.deviceEngine = { isSupported: () => true, stop: () => {}, getSortedVoices: () => [], play: () => {}, loadChunks: () => {} };
+        ctrl.managedEngine = { stop: () => {}, cancel: () => {}, getVoices: () => [] };
+        ctrl.savedVoicePreference = { type: 'managed', voiceKey: 'voice-pref-1' };
+
+        let applyCalled = false;
+        ctrl._applyChapterTransition = () => { applyCalled = true; };
+
+        // 1. Actually start cold transition to next chapter
+        const transitionPromise = ctrl._transitionToNextChapter('/next-chapter-url', { mode: 'managed', voiceKey: 'voice-pref-1' });
+
+        // 2. Verify transition is active
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, true);
+        require('node:assert').ok(ctrl._transitionAbortController);
+        const transitionAc = ctrl._transitionAbortController;
+        const activeTransitionSeq = ctrl._transitionSequenceId;
+        require('node:assert').strictEqual(transitionAc.signal.aborted, false);
+
+        // Preload is active while transition fetch is in flight
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const activePreloadSeq = ctrl._nextChapterPreloadSequenceId;
+
+        // 3. Invoke automatic Device fallback while transition fetch is still pending
+        ctrl._fallbackToDeviceTts();
+
+        // 4. Assert cancellation and authority transfer
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, null);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, activeTransitionSeq + 1);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, activePreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl.activeEngineType, 'device');
+        require('node:assert').strictEqual(ctrl.engine, ctrl.deviceEngine);
+        require('node:assert').strictEqual(ctrl.savedVoicePreference.type, 'managed');
+        require('node:assert').strictEqual(ctrl.savedVoicePreference.voiceKey, 'voice-pref-1');
+
+        // 5. Release the old deferred fetch response afterward
+        deferredResolve({
+            ok: true,
+            status: 200,
+            text: async () => '<html><body><div class="novel-reader-chapter-body" data-chapter-id="999">Late Body</div></body></html>'
+        });
+
+        await transitionPromise;
+
+        // 6. Prove _applyChapterTransition is NEVER called by that stale transition
+        require('node:assert').strictEqual(applyCalled, false);
+    });
+
+    await t.test('3. popstate while Auto Next timer is pending cancels timer and authority before reload', async () => {
+        let reloadCalled = false;
+        const { env } = createControllerEnv({
+            window: {
+                location: { reload: () => { reloadCalled = true; } }
+            }
+        });
+        const ctrl = new env.NarrationController.NarrationController({});
+
+        let timeoutCleared = false;
+        env.clearTimeout = () => { timeoutCleared = true; };
+        ctrl._autoNextTimeoutId = 123;
+        ctrl.isNavigatingToNext = true;
+        const initialTransSeq = ctrl._transitionSequenceId;
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId;
+        const initialSelectionId = ctrl._chapterSelectionId;
+
+        ctrl._handlePopState();
+
+        require('node:assert').strictEqual(timeoutCleared, true);
+        require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1);
+        require('node:assert').strictEqual(reloadCalled, true);
+    });
+
+    await t.test('4. popstate while transition fetch is pending aborts fetch, cancels preload, stops chapter audio, and blocks stale commit', async () => {
+        let deferredResolve;
+        const deferredPromise = new Promise((resolve) => { deferredResolve = resolve; });
+
+        let reloadCalled = false;
+        const { env } = createControllerEnv({
+            fetch: async () => deferredPromise,
+            window: {
+                location: { reload: () => { reloadCalled = true; } }
+            }
+        });
+        const ctrl = new env.NarrationController.NarrationController({});
+
+        let chapterAudioStopCalled = false;
+        ctrl.chapterEngine = {
+            stop: () => { chapterAudioStopCalled = true; }
+        };
+        ctrl.engine = ctrl.chapterEngine;
+
+        let applyCalled = false;
+        ctrl._applyChapterTransition = () => { applyCalled = true; };
+
+        // 1. Start transition with deferred fetch
+        const transitionPromise = ctrl._transitionToNextChapter('/next-url', { mode: 'managed', voiceKey: 'v1' });
+
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, true);
+        require('node:assert').ok(ctrl._transitionAbortController);
+        const transitionAc = ctrl._transitionAbortController;
+        const activeTransitionSeq = ctrl._transitionSequenceId;
+
+        // Preload is active while transition fetch is in flight
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const activePreloadSeq = ctrl._nextChapterPreloadSequenceId;
+        const initialSelectionId = ctrl._chapterSelectionId;
+
+        // 2. Invoke popstate while transition fetch is pending
+        ctrl._handlePopState();
+
+        // 3. Assert full synchronous cancellation
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, null);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, activeTransitionSeq + 1);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, activePreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1);
+        require('node:assert').strictEqual(chapterAudioStopCalled, true);
+        require('node:assert').strictEqual(reloadCalled, true);
+
+        // 4. Release the old fetch afterward
+        deferredResolve({
+            ok: true,
+            status: 200,
+            text: async () => '<html><body><div class="novel-reader-chapter-body" data-chapter-id="999">Late</div></body></html>'
+        });
+
+        await transitionPromise;
+
+        // 5. Prove stale _applyChapterTransition is never called
+        require('node:assert').strictEqual(applyCalled, false);
+    });
+
+    await t.test('5. normal same-tab Previous/Next chapter click cancels all narration authority without preventDefault', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        for (const navClass of ['novel-chapter-nav-btn--prev', 'novel-chapter-nav-btn--next']) {
+            let timeoutCleared = false;
+            env.clearTimeout = () => { timeoutCleared = true; };
+            ctrl._autoNextTimeoutId = 456;
+            ctrl.isNavigatingToNext = true;
+
+            const transitionAc = new env.AbortController();
+            ctrl._transitionAbortController = transitionAc;
+            const initialTransSeq = ctrl._transitionSequenceId = 10;
+
+            const preloadAc = new env.AbortController();
+            ctrl._activeNextChapterPreload = { abortController: preloadAc };
+            const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 20;
+
+            const initialSelectionId = ctrl._chapterSelectionId = 30;
+            let chapterStopCalled = false;
+            ctrl.chapterEngine = { stop: () => { chapterStopCalled = true; } };
+            ctrl.engine = ctrl.chapterEngine;
+
+            const anchor = createMockAnchor(navClass);
+            anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+            const { evt, wasPreventDefaultCalled } = createClickEvent(anchor);
+
+            docClick(evt);
+
+            require('node:assert').strictEqual(timeoutCleared, true, `timeout must be cleared for ${navClass}`);
+            require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null, `autoNextTimeoutId must be null for ${navClass}`);
+            require('node:assert').strictEqual(ctrl.isNavigatingToNext, false, `isNavigatingToNext must be false for ${navClass}`);
+
+            require('node:assert').strictEqual(transitionAc.signal.aborted, true, `transition must be aborted for ${navClass}`);
+            require('node:assert').strictEqual(ctrl._transitionAbortController, null, `transitionAbortController must be null for ${navClass}`);
+            require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1, `transitionSequenceId must increment for ${navClass}`);
+
+            require('node:assert').strictEqual(preloadAc.signal.aborted, true, `preload must be aborted for ${navClass}`);
+            require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, `active preload slot must be cleared for ${navClass}`);
+            require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1, `preloadSequenceId must increment for ${navClass}`);
+
+            require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1, `chapterSelectionId must increment for ${navClass}`);
+            require('node:assert').strictEqual(chapterStopCalled, true, `chapterEngine.stop must be called for ${navClass}`);
+            require('node:assert').strictEqual(wasPreventDefaultCalled(), false, `preventDefault must NOT be called for ${navClass}`);
+        }
+    });
+
+    await t.test('6. TOC .novel-toc-link chapter click cancels all narration authority without preventDefault', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        let timeoutCleared = false;
+        env.clearTimeout = () => { timeoutCleared = true; };
+        ctrl._autoNextTimeoutId = 789;
+        ctrl.isNavigatingToNext = true;
+
+        const transitionAc = new env.AbortController();
+        ctrl._transitionAbortController = transitionAc;
+        const initialTransSeq = ctrl._transitionSequenceId = 15;
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 25;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 35;
+        let chapterStopCalled = false;
+        ctrl.chapterEngine = { stop: () => { chapterStopCalled = true; } };
+        ctrl.engine = ctrl.chapterEngine;
+
+        const anchor = createMockAnchor('novel-toc-link');
+        anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+        const { evt, wasPreventDefaultCalled } = createClickEvent(anchor);
+
+        docClick(evt);
+
+        require('node:assert').strictEqual(timeoutCleared, true);
+        require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, null);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1);
+        require('node:assert').strictEqual(chapterStopCalled, true);
+        require('node:assert').strictEqual(wasPreventDefaultCalled(), false);
+    });
+
+    await t.test('7. nested element inside a qualifying chapter anchor resolves anchor and cancels all authority', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        let timeoutCleared = false;
+        env.clearTimeout = () => { timeoutCleared = true; };
+        ctrl._autoNextTimeoutId = 888;
+        ctrl.isNavigatingToNext = true;
+
+        const transitionAc = new env.AbortController();
+        ctrl._transitionAbortController = transitionAc;
+        const initialTransSeq = ctrl._transitionSequenceId = 50;
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 60;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 70;
+        let chapterStopCalled = false;
+        ctrl.chapterEngine = { stop: () => { chapterStopCalled = true; } };
+        ctrl.engine = ctrl.chapterEngine;
+
+        const parentAnchor = createMockAnchor('novel-chapter-nav-btn--prev');
+        const nestedSpan = {
+            tagName: 'SPAN',
+            closest: (sel) => sel === 'a[href]' ? parentAnchor : null
+        };
+        const { evt, wasPreventDefaultCalled } = createClickEvent(nestedSpan);
+
+        docClick(evt);
+
+        require('node:assert').strictEqual(timeoutCleared, true);
+        require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, null);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1);
+        require('node:assert').strictEqual(chapterStopCalled, true);
+        require('node:assert').strictEqual(wasPreventDefaultCalled(), false);
+    });
+
+    await t.test('8. delegated handling works for dynamically inserted chapter links without rebinding', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+
+        // 1. Bind document listeners once during initialization
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+        require('node:assert').strictEqual(typeof docClick, 'function', 'Document click listener must be bound');
+
+        // 2. Only AFTER binding, construct a newly created / dynamically rendered anchor
+        const dynamicAnchor = createMockAnchor('novel-chapter-nav-btn--next');
+        dynamicAnchor.closest = (sel) => sel === 'a[href]' ? dynamicAnchor : null;
+
+        // 3. Set up authority state to cancel
+        let timeoutCleared = false;
+        env.clearTimeout = () => { timeoutCleared = true; };
+        ctrl._autoNextTimeoutId = 999;
+        ctrl.isNavigatingToNext = true;
+
+        const transitionAc = new env.AbortController();
+        ctrl._transitionAbortController = transitionAc;
+        const initialTransSeq = ctrl._transitionSequenceId = 100;
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = { abortController: preloadAc };
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 100;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 100;
+        let chapterStopCalled = false;
+        ctrl.chapterEngine = { stop: () => { chapterStopCalled = true; } };
+        ctrl.engine = ctrl.chapterEngine;
+
+        const { evt, wasPreventDefaultCalled } = createClickEvent(dynamicAnchor);
+
+        // 4. Dispatch using the original delegated listener (no rebinding!)
+        docClick(evt);
+
+        // 5. Prove full cancellation triggered
+        require('node:assert').strictEqual(timeoutCleared, true);
+        require('node:assert').strictEqual(ctrl._autoNextTimeoutId, null);
+        require('node:assert').strictEqual(ctrl.isNavigatingToNext, false);
+
+        require('node:assert').strictEqual(transitionAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, null);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq + 1);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, true);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq + 1);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId + 1);
+        require('node:assert').strictEqual(chapterStopCalled, true);
+        require('node:assert').strictEqual(wasPreventDefaultCalled(), false);
+    });
+
+    await t.test('9. Ctrl/Cmd/Shift/Alt click does NOT cancel current narration authority', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        const anchor = createMockAnchor('novel-chapter-nav-btn--next');
+        anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+
+        for (const mod of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }]) {
+            const transitionAc = new env.AbortController();
+            ctrl._transitionAbortController = transitionAc;
+            const initialTransSeq = ctrl._transitionSequenceId = 200;
+
+            const preloadAc = new env.AbortController();
+            const preloadSlot = { abortController: preloadAc };
+            ctrl._activeNextChapterPreload = preloadSlot;
+            const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 300;
+
+            const initialSelectionId = ctrl._chapterSelectionId = 400;
+            let stopCalled = false;
+            ctrl.chapterEngine = { stop: () => { stopCalled = true; } };
+            ctrl.engine = ctrl.chapterEngine;
+
+            const { evt } = createClickEvent(anchor, mod);
+            docClick(evt);
+
+            require('node:assert').strictEqual(transitionAc.signal.aborted, false);
+            require('node:assert').strictEqual(ctrl._transitionAbortController, transitionAc);
+            require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq);
+
+            require('node:assert').strictEqual(preloadAc.signal.aborted, false);
+            require('node:assert').strictEqual(ctrl._activeNextChapterPreload, preloadSlot);
+            require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq);
+
+            require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId);
+            require('node:assert').strictEqual(stopCalled, false);
+        }
+    });
+
+    await t.test('10. middle/right click does NOT cancel current narration authority', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        const anchor = createMockAnchor('novel-chapter-nav-btn--next');
+        anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+
+        for (const button of [1, 2]) {
+            const transitionAc = new env.AbortController();
+            ctrl._transitionAbortController = transitionAc;
+            const initialTransSeq = ctrl._transitionSequenceId = 210;
+
+            const preloadAc = new env.AbortController();
+            const preloadSlot = { abortController: preloadAc };
+            ctrl._activeNextChapterPreload = preloadSlot;
+            const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 310;
+
+            const initialSelectionId = ctrl._chapterSelectionId = 410;
+            let stopCalled = false;
+            ctrl.chapterEngine = { stop: () => { stopCalled = true; } };
+            ctrl.engine = ctrl.chapterEngine;
+
+            const { evt } = createClickEvent(anchor, { button });
+            docClick(evt);
+
+            require('node:assert').strictEqual(transitionAc.signal.aborted, false);
+            require('node:assert').strictEqual(ctrl._transitionAbortController, transitionAc);
+            require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq);
+
+            require('node:assert').strictEqual(preloadAc.signal.aborted, false);
+            require('node:assert').strictEqual(ctrl._activeNextChapterPreload, preloadSlot);
+            require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq);
+
+            require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId);
+            require('node:assert').strictEqual(stopCalled, false);
+        }
+    });
+
+    await t.test('11. target="_blank" chapter link does NOT cancel current narration authority', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        const anchor = createMockAnchor('novel-chapter-nav-btn--next', '_blank');
+        anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+
+        const transitionAc = new env.AbortController();
+        ctrl._transitionAbortController = transitionAc;
+        const initialTransSeq = ctrl._transitionSequenceId = 220;
+
+        const preloadAc = new env.AbortController();
+        const preloadSlot = { abortController: preloadAc };
+        ctrl._activeNextChapterPreload = preloadSlot;
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 320;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 420;
+        let stopCalled = false;
+        ctrl.chapterEngine = { stop: () => { stopCalled = true; } };
+        ctrl.engine = ctrl.chapterEngine;
+
+        const { evt } = createClickEvent(anchor);
+        docClick(evt);
+
+        require('node:assert').strictEqual(transitionAc.signal.aborted, false);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, transitionAc);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, false);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, preloadSlot);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId);
+        require('node:assert').strictEqual(stopCalled, false);
+    });
+
+    await t.test('12. unrelated anchor click does NOT cancel narration authority', async () => {
+        const { env, getDocClickCb } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl._bindEventListeners();
+        const docClick = getDocClickCb();
+
+        const anchor = createMockAnchor('unrelated-navbar-link');
+        anchor.closest = (sel) => sel === 'a[href]' ? anchor : null;
+
+        const transitionAc = new env.AbortController();
+        ctrl._transitionAbortController = transitionAc;
+        const initialTransSeq = ctrl._transitionSequenceId = 230;
+
+        const preloadAc = new env.AbortController();
+        const preloadSlot = { abortController: preloadAc };
+        ctrl._activeNextChapterPreload = preloadSlot;
+        const initialPreloadSeq = ctrl._nextChapterPreloadSequenceId = 330;
+
+        const initialSelectionId = ctrl._chapterSelectionId = 430;
+        let stopCalled = false;
+        ctrl.chapterEngine = { stop: () => { stopCalled = true; } };
+        ctrl.engine = ctrl.chapterEngine;
+
+        const { evt } = createClickEvent(anchor);
+        docClick(evt);
+
+        require('node:assert').strictEqual(transitionAc.signal.aborted, false);
+        require('node:assert').strictEqual(ctrl._transitionAbortController, transitionAc);
+        require('node:assert').strictEqual(ctrl._transitionSequenceId, initialTransSeq);
+
+        require('node:assert').strictEqual(preloadAc.signal.aborted, false);
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, preloadSlot);
+        require('node:assert').strictEqual(ctrl._nextChapterPreloadSequenceId, initialPreloadSeq);
+
+        require('node:assert').strictEqual(ctrl._chapterSelectionId, initialSelectionId);
+        require('node:assert').strictEqual(stopCalled, false);
+    });
+
+    await t.test('13. _offerLegacyChapterFallback proves pending Auto Next is synchronously cancelled through _selectManagedPlayback', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.chapterId = 'chap-1';
+        ctrl.engine = ctrl.chapterEngine = { getSelectedVoiceKey: () => 'v1', stop: () => {} };
+        ctrl.activeEngineType = 'managed';
+        ctrl.isUnloaded = false;
+
+        let cancelCalled = false;
+        ctrl._cancelPendingAutoNext = () => { cancelCalled = true; };
+
+        ctrl.managedEngine = {
+            stop: () => {},
+            cancel: () => {},
+            getVoices: () => [],
+            loadManifest: async () => {
+                // Must be true BEFORE loadManifest is awaited
+                require('node:assert').strictEqual(cancelCalled, true, 'Cancel must have occurred synchronously before await loadManifest');
+                return { segments: [] };
+            }
+        };
+
+        await ctrl._offerLegacyChapterFallback();
+        require('node:assert').strictEqual(cancelCalled, true);
+    });
+
+    await t.test('14. Existing claimed-preload synchronous transition behavior claims valid completed preload and skips fetch', async () => {
+        const { env } = createControllerEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        ctrl.chapterId = 'chap-1';
+        ctrl.autoNext = true;
+        ctrl.isUnloaded = false;
+        ctrl.activeEngineType = 'managed';
+        ctrl._voiceSelectionSequenceId = 1;
+        ctrl._resolveNextChapterUrl = () => '/next-url';
+        ctrl.chapterEngine = {
+            getSelectedVoiceKey: () => 'v1',
+            loadPlayback: async () => {},
+            play: () => Promise.resolve(),
+            stop: () => {}
+        };
+        ctrl.engine = ctrl.chapterEngine;
+        ctrl.dom = {
+            player: { setAttribute: () => {} },
+            body: { setAttribute: () => {}, querySelectorAll: () => [] }
+        };
+
+        const validDoc = { title: 'Chapter 2' };
+        const validValidation = {
+            valid: true,
+            newChapterId: 'chap-2',
+            title: 'Chapter 2',
+            bodyEl: { innerHTML: 'Chapter 2 body' }
+        };
+        ctrl._validateFetchedChapterDocument = () => validValidation;
+
+        let fetchCalled = false;
+        env.fetch = async () => { fetchCalled = true; return { ok: true, text: async () => '<html></html>' }; };
+
+        const preloadAc = new env.AbortController();
+        ctrl._activeNextChapterPreload = {
+            createdAt: 1000,
+            sourceChapterId: 'chap-1',
+            targetChapterId: 'chap-2',
+            nextUrl: '/next-url',
+            mode: 'managed',
+            voiceKey: 'v1',
+            voiceSelectionSequence: 1,
+            preloadSequence: ctrl._nextChapterPreloadSequenceId,
+            status: 'completed',
+            abortController: preloadAc,
+            result: {
+                document: validDoc,
+                validation: validValidation
+            },
+            playbackMetadata: { chapterId: 'chap-2', voiceKey: 'v1' }
+        };
+
+        let appliedDoc = null;
+        let appliedMetadata = null;
+        ctrl._applyChapterTransition = (doc, url, val, intent, meta) => {
+            appliedDoc = doc;
+            appliedMetadata = meta;
+        };
+
+        await ctrl._transitionToNextChapter('/next-url', { mode: 'managed', voiceKey: 'v1' });
+
+        require('node:assert').strictEqual(fetchCalled, false, 'Valid preloaded snapshot must skip HTML network fetch');
+        require('node:assert').strictEqual(appliedDoc, validDoc, 'Preloaded detached document must be passed to transition application');
+        require('node:assert').deepStrictEqual(appliedMetadata, { chapterId: 'chap-2', voiceKey: 'v1' });
+        require('node:assert').strictEqual(ctrl._activeNextChapterPreload, null, 'Active preload slot must be detached upon claim');
+        require('node:assert').strictEqual(preloadAc.signal.aborted, false, 'Claimed preload AbortController must NOT be aborted');
+    });
+});
