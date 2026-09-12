@@ -5,6 +5,7 @@ import com.universe.novel.domain.narration.ChapterNarrationAudioFailure;
 import com.universe.novel.domain.narration.NarrationAudioFailureStage;
 import com.universe.novel.domain.narration.NarrationAudioOperation;
 import com.universe.test.TestDatabaseSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,22 +55,34 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
     private static final UUID VOICE_ID = UUID.fromString("60000000-0000-0000-0000-000000000301");
 
     @BeforeEach
-    void cleanAndSeedData() {
-        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio_failures WHERE segment_id = ?",
-                SEGMENT_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio WHERE segment_id = ?",
-                SEGMENT_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapter_narration_segments WHERE chapter_id = ?",
-                CHAPTER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_managed_voices WHERE id = ?",
-                VOICE_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id = ?",
-                CHAPTER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ?",
-                VOLUME_ID.toString());
-        jdbcTemplate.update("DELETE FROM identity_users WHERE id = ?",
-                USER_ID.toString());
+    void setUp() {
+        cleanupDatabase();
+        seedData();
+    }
 
+    @AfterEach
+    void tearDown() {
+        cleanupDatabase();
+    }
+
+    private void cleanupDatabase() {
+        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio_failures WHERE segment_id = ? OR managed_voice_id = ? OR segment_id IN (SELECT id FROM novel_chapter_narration_segments WHERE chapter_id = ? OR chapter_id IN (SELECT id FROM novel_chapters WHERE chapter_number = 9971))",
+                SEGMENT_ID.toString(), VOICE_ID.toString(), CHAPTER_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio WHERE segment_id = ? OR managed_voice_id = ? OR segment_id IN (SELECT id FROM novel_chapter_narration_segments WHERE chapter_id = ? OR chapter_id IN (SELECT id FROM novel_chapters WHERE chapter_number = 9971))",
+                SEGMENT_ID.toString(), VOICE_ID.toString(), CHAPTER_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapter_narration_segments WHERE id = ? OR chapter_id = ? OR chapter_id IN (SELECT id FROM novel_chapters WHERE chapter_number = 9971)",
+                SEGMENT_ID.toString(), CHAPTER_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_managed_voices WHERE id = ? OR voice_key = 'voice-failure-01'",
+                VOICE_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id = ? OR chapter_number = 9971 OR volume_id = ? OR volume_id IN (SELECT id FROM novel_volumes WHERE sort_order = 9970)",
+                CHAPTER_ID.toString(), VOLUME_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = 9970",
+                VOLUME_ID.toString());
+        jdbcTemplate.update("DELETE FROM identity_users WHERE id = ? OR email = 'failure-int@universe.local'",
+                USER_ID.toString());
+    }
+
+    private void seedData() {
         Instant now = Instant.now();
 
         // 1. User
@@ -111,7 +124,7 @@ class ChapterNarrationAudioFailureJpaPersistenceIntegrationTest {
         // 5. Managed Voice
         jdbcTemplate.update(
                 "INSERT INTO novel_managed_voices (id, voice_key, display_name, provider_voice_id, status, display_order, is_default, synthesis_revision, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'voice-failure-01', 'Giọng Failure 1', 'provider-fail-01', 'ACTIVE', 1, TRUE, 1, 0, ?, ?)",
+                        "VALUES (?, 'voice-failure-01', 'Giọng Failure 1', 'provider-fail-01', 'ACTIVE', 1, FALSE, 1, 0, ?, ?)",
                 VOICE_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
     }

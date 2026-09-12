@@ -120,14 +120,18 @@ class HandoffRetiredNarrationAudioCleanupTransactionalAtomicityIntegrationTest {
     private void cleanupDatabase() {
         jdbcTemplate.update("DELETE FROM novel_narration_media_cleanup_tasks WHERE media_asset_id IN (?, ?)",
                 MEDIA_ASSET_1_ID.toString(), MEDIA_ASSET_2_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio WHERE id IN (?, ?, ?)",
-                AUDIO_RETIRED_ID.toString(), AUDIO_CURRENT_ID.toString(), AUDIO_OTHER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapter_narration_segments WHERE id IN (?, ?, ?)",
-                SEGMENT_RETIRED_ID.toString(), SEGMENT_CURRENT_ID.toString(), SEGMENT_OTHER_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_managed_voices WHERE id = ?", VOICE_ID.toString());
-        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id = ? OR chapter_number = ?", CHAPTER_ID.toString(), CHAPTER_NUMBER);
+        jdbcTemplate.update("DELETE FROM novel_chapter_narration_audio WHERE id IN (?, ?, ?) OR segment_id IN (?, ?, ?) OR managed_voice_id = ?",
+                AUDIO_RETIRED_ID.toString(), AUDIO_CURRENT_ID.toString(), AUDIO_OTHER_ID.toString(),
+                SEGMENT_RETIRED_ID.toString(), SEGMENT_CURRENT_ID.toString(), SEGMENT_OTHER_ID.toString(),
+                VOICE_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapter_narration_segments WHERE id IN (?, ?, ?) OR chapter_id = ? OR chapter_id IN (SELECT id FROM novel_chapters WHERE chapter_number = ?)",
+                SEGMENT_RETIRED_ID.toString(), SEGMENT_CURRENT_ID.toString(), SEGMENT_OTHER_ID.toString(),
+                CHAPTER_ID.toString(), CHAPTER_NUMBER);
+        jdbcTemplate.update("DELETE FROM novel_managed_voices WHERE id = ? OR voice_key = 'voice-handoff'", VOICE_ID.toString());
+        jdbcTemplate.update("DELETE FROM novel_chapters WHERE id = ? OR chapter_number = ? OR volume_id = ? OR volume_id IN (SELECT id FROM novel_volumes WHERE sort_order = ?)",
+                CHAPTER_ID.toString(), CHAPTER_NUMBER, VOLUME_ID.toString(), VOLUME_SORT_ORDER);
         jdbcTemplate.update("DELETE FROM novel_volumes WHERE id = ? OR sort_order = ?", VOLUME_ID.toString(), VOLUME_SORT_ORDER);
-        jdbcTemplate.update("DELETE FROM identity_users WHERE id = ?", ADMIN_ID.toString());
+        jdbcTemplate.update("DELETE FROM identity_users WHERE id = ? OR email = 'handoff-admin@universe.local'", ADMIN_ID.toString());
     }
 
     private void seedBaseData() {
@@ -162,7 +166,7 @@ class HandoffRetiredNarrationAudioCleanupTransactionalAtomicityIntegrationTest {
         // 4. Managed Voice (ACTIVE)
         jdbcTemplate.update(
                 "INSERT INTO novel_managed_voices (id, voice_key, display_name, provider_voice_id, status, display_order, is_default, synthesis_revision, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'voice-handoff', 'Giọng Handoff', 'provider-handoff', 'ACTIVE', 1, 1, 1, 0, ?, ?)",
+                        "VALUES (?, 'voice-handoff', 'Giọng Handoff', 'provider-handoff', 'ACTIVE', 1, 0, 1, 0, ?, ?)",
                 VOICE_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
     }
