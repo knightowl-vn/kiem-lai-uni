@@ -13,6 +13,11 @@
        th:classappend="${activeSubMenu == 'volumes'} ? ' is-active' : ''">
         <span>Quyển & Chương</span>
     </a>
+    <a th:href="@{/admin/novel/narration/voices}"
+       class="novel-admin-subnav-link"
+       th:classappend="${activeSubMenu == 'voices'} ? ' is-active' : ''">
+        <span>Giọng đọc</span>
+    </a>
 </nav>
 
 </body>

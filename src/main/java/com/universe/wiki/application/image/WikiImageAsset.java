@@ -8,8 +8,30 @@ public record WikiImageAsset(
         String contentHash,
         String url,
         String publicId,
+        UUID mediaAssetId,
         String sourceContentType,
         long sizeBytes,
         Instant createdAt
 ) {
+
+    public WikiImageAsset(
+            UUID id,
+            String contentHash,
+            String url,
+            String publicId,
+            String sourceContentType,
+            long sizeBytes,
+            Instant createdAt
+    ) {
+        this(
+                id,
+                contentHash,
+                url,
+                publicId,
+                null,
+                sourceContentType,
+                sizeBytes,
+                createdAt
+        );
+    }
 }

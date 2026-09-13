@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tạo giọng đọc | Kiếm Lai Universe</title>
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+</head>
+
+<body>
+	<div class="admin-layout">
+
+		<div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+		<main class="admin-main">
+
+			<div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+			<section class="dashboard-content">
+
+				<div class="novel-admin-create-heading">
+					<div>
+						<a th:href="@{/admin/novel/narration/voices}" class="novel-admin-back-link">
+							← Quay lại danh sách
+						</a>
+						<span class="novel-admin-eyebrow">NOVEL MODULE</span>
+						<h2>Tạo giọng đọc mới</h2>
+						<p>Định danh giọng đọc KiemLai và liên kết với voice ID từ TTS Provider.</p>
+					</div>
+				</div>
+
+				<section class="novel-admin-form-panel">
+
+					<div th:if="${providerWarning != null}"
+						class="novel-admin-warning-message" th:text="${providerWarning}">
+						Cảnh báo kết nối TTS Provider.
+					</div>
+
+					<div th:if="${errorMessage != null}"
+						class="novel-admin-form-error" th:text="${errorMessage}">
+						Có lỗi xảy ra.
+					</div>
+
+					<div class="novel-admin-create-note">
+						<strong>Lưu ý về Voice Key</strong>
+						<p>Voice Key là định danh bền vững (ví dụ: <code>kiemlai-male-north-01</code>) được hệ thống sử dụng xuyên suốt và <strong>không thể thay đổi</strong> sau khi tạo.</p>
+					</div>
+
+					<form method="post" th:action="@{/admin/novel/narration/voices}"
+						th:object="${form}" class="novel-admin-form">
+
+						<div class="novel-admin-form-grid">
+
+							<!-- VOICE KEY -->
+							<div class="novel-admin-form-group">
+								<label for="voiceKey">Mã giọng đọc (Voice Key) <span class="novel-admin-required">*</span></label>
+								<input id="voiceKey" type="text" th:field="*{voiceKey}"
+									placeholder="Ví dụ: kiemlai-male-north-01" required autocomplete="off">
+								<small>Mã duy nhất từ 2-100 ký tự (chữ cái, chữ số, '-', '_'). Không thể sửa sau khi tạo.</small>
+							</div>
+
+							<!-- DISPLAY NAME -->
+							<div class="novel-admin-form-group">
+								<label for="displayName">Tên hiển thị <span class="novel-admin-required">*</span></label>
+								<input id="displayName" type="text" th:field="*{displayName}"
+									placeholder="Ví dụ: Anh Khôi" required autocomplete="off">
+								<small>Tên giọng đọc hiển thị cho độc giả trong giao diện.</small>
+							</div>
+
+							<!-- PROVIDER VOICE ID -->
+							<div class="novel-admin-form-group" th:if="${providerVoices != null and !#lists.isEmpty(providerVoices)}">
+								<label for="providerVoiceSelect">Provider Voice ID <span class="novel-admin-required">*</span></label>
+								<select id="providerVoiceSelect" th:field="*{providerVoiceId}" required>
+									<option value="">-- Chọn giọng đọc từ Provider --</option>
+									<option th:each="pv : ${providerVoices}" th:value="${pv.voiceId}"
+										th:text="|${pv.label} (${pv.voiceId})|">vi-VN-1</option>
+								</select>
+								<small>Chọn voice ID từ hệ thống TTS Provider đã kết nối.</small>
+							</div>
+
+							<div class="novel-admin-form-group" th:if="${providerVoices == null or #lists.isEmpty(providerVoices)}">
+								<label for="providerVoiceInput">Provider Voice ID <span class="novel-admin-required">*</span></label>
+								<input id="providerVoiceInput" type="text" th:field="*{providerVoiceId}"
+									placeholder="Ví dụ: vi-VN-1" required autocomplete="off">
+								<small>Nhập thủ công voice ID tương ứng trên TTS Provider.</small>
+							</div>
+
+						</div>
+
+						<!-- DEFAULT VOICE -->
+						<div class="novel-admin-form-group" style="margin-top: 16px;">
+							<label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600;">
+								<input type="checkbox" th:field="*{defaultVoice}" style="width: auto; height: auto;">
+								<span>Đặt làm giọng đọc mặc định</span>
+							</label>
+							<small style="display: block; margin-top: 4px;">Giọng đọc mặc định sẽ được chọn tự động cho độc giả chưa cấu hình tùy chọn.</small>
+						</div>
+
+						<!-- ACTIONS -->
+						<div class="novel-admin-form-actions">
+							<a th:href="@{/admin/novel/narration/voices}"
+								class="novel-admin-secondary-button">Hủy</a>
+							<button type="submit" class="novel-admin-primary-button">Tạo giọng đọc</button>
+						</div>
+
+					</form>
+				</section>
+			</section>
+		</main>
+	</div>
+</body>
+</html>

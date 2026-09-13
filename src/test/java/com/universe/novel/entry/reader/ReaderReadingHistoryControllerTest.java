@@ -1,13 +1,14 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.ListUserReadingHistoryUseCase;
 import com.universe.novel.application.reader.RecordReadingHistoryCommand;
 import com.universe.novel.application.reader.RecordReadingHistoryUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderReadingHistoryDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,13 +19,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.ui.Model;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,37 +51,30 @@ class ReaderReadingHistoryControllerTest {
     @Mock
     private ListUserReadingHistoryUseCase listUserReadingHistoryUseCase;
 
-    @Mock
-    private AuthenticatedEmailResolver authenticatedEmailResolver;
-
-    @Mock
-    private UserIdentityContract userIdentityContract;
-
-    @Mock
-    private Authentication authentication;
-
     private ReaderReadingHistoryController controller;
 
     @BeforeEach
     void setUp() {
         controller = new ReaderReadingHistoryController(
                 recordReadingHistoryUseCase,
-                listUserReadingHistoryUseCase,
-                authenticatedEmailResolver,
-                userIdentityContract
+                listUserReadingHistoryUseCase
         );
     }
 
-    private UserDTO createTestUser() {
-        return new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
+    private MockHttpServletRequest authenticatedRequest() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request,
+                new AuthenticatedRequestIdentity(
+                        USER_ID,
+                        USER_EMAIL,
+                        "Reader User",
+                        null,
+                        UserStatus.ACTIVE,
+                        UserRole.USER
+                )
         );
+        return request;
     }
 
     @Nested
@@ -91,9 +84,10 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Returns 401 Unauthorized for anonymous requests")
         void shouldReturn401WhenAnonymous() {
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
-
-            ResponseEntity<Void> response = controller.recordHistory(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.recordHistory(
+                    CHAPTER_ID,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             verifyNoInteractions(recordReadingHistoryUseCase);
@@ -102,7 +96,10 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Returns 400 Bad Request when chapterId is null")
         void shouldReturn400WhenChapterIdNull() {
-            ResponseEntity<Void> response = controller.recordHistory(null, authentication);
+            ResponseEntity<Void> response = controller.recordHistory(
+                    null,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             verifyNoInteractions(recordReadingHistoryUseCase);
@@ -111,11 +108,10 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Records history and returns 204 No Content for authenticated reader")
         void shouldRecordHistoryAndReturn204() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
-            ResponseEntity<Void> response = controller.recordHistory(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.recordHistory(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
@@ -131,14 +127,14 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Returns 404 Not Found when chapter is not found or not published")
         void shouldReturn404WhenChapterNotFound() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
             doThrow(new ChapterNotFoundException(CHAPTER_ID))
                     .when(recordReadingHistoryUseCase)
                     .execute(any());
 
-            ResponseEntity<Void> response = controller.recordHistory(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.recordHistory(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         }
@@ -151,10 +147,11 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Redirects to /login when unauthenticated")
         void shouldRedirectToLoginWhenAnonymous() {
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
-
             Model model = new ConcurrentModel();
-            String view = controller.historyPage(authentication, model);
+            String view = controller.historyPage(
+                    new MockHttpServletRequest(),
+                    model
+            );
 
             assertThat(view).isEqualTo("redirect:/login");
             verifyNoInteractions(listUserReadingHistoryUseCase);
@@ -163,10 +160,6 @@ class ReaderReadingHistoryControllerTest {
         @Test
         @DisplayName("Renders history list page for authenticated reader")
         void shouldRenderHistoryListPage() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
             List<ReaderReadingHistoryDTO> list = List.of(
                     new ReaderReadingHistoryDTO(
                             CHAPTER_ID,
@@ -180,7 +173,7 @@ class ReaderReadingHistoryControllerTest {
             when(listUserReadingHistoryUseCase.execute(USER_ID)).thenReturn(list);
 
             Model model = new ConcurrentModel();
-            String view = controller.historyPage(authentication, model);
+            String view = controller.historyPage(authenticatedRequest(), model);
 
             assertThat(view).isEqualTo("novel/reader/history");
             assertThat(model.getAttribute("historyList")).isSameAs(list);

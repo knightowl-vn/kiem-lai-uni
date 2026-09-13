@@ -25,6 +25,8 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(detail).contains("th:href=\"@{/admin/novel/chapters/{id}/revisions(id=${chapter.id})}\"");
 		assertThat(detail).contains("Quản lý liên kết Wiki");
 		assertThat(detail).contains("th:href=\"@{/admin/novel/chapters/{id}/wiki-references(id=${chapter.id})}\"");
+		assertThat(detail).contains("Quản lý giọng đọc");
+		assertThat(detail).contains("th:href=\"@{/admin/novel/chapters/{id}/narration(id=${chapter.id})}\"");
 
 		assertThat(detail).doesNotContain("novel-admin-detail-actions");
 		assertThat(detail).doesNotContain("Chỉnh sửa");
@@ -35,6 +37,66 @@ class AdminNovelChapterTemplateContractTest {
 		assertThat(detail).doesNotContain("/chapters/{id}/edit");
 		assertThat(detail).doesNotContain("Reorder");
 		assertThat(detail).doesNotContain("targetSortOrder");
+	}
+
+	@Test
+	@DisplayName("Chapter Narration page hiển thị stats summary, voice selector, segments table, và failure diagnostics contract")
+	void chapterNarrationPageHasStructureAndVoiceSelectorContract() throws Exception {
+		String page = read("src/main/resources/templates/admin/novel/chapter-narration.html");
+
+		// Navigation & Header
+		assertThat(page).contains("Quản lý giọng đọc & Thuyết minh");
+		assertThat(page).contains("Quay lại chi tiết chương");
+		assertThat(page).contains("th:href=\"@{/admin/novel/chapters/{id}(id=${chapter.id})}\"");
+
+		// Stats Summary
+		assertThat(page).contains("TỔNG PHÂN ĐOẠN");
+		assertThat(page).contains("ĐÃ SẴN SÀNG (READY)");
+		assertThat(page).contains("CẦN CẬP NHẬT (OUTDATED)");
+		assertThat(page).contains("CHƯA CÓ AUDIO (MISSING)");
+		assertThat(page).contains("LỖI PHÁT SINH (FAILED)");
+
+		// Flash Alerts
+		assertThat(page).contains("th:if=\"${successMessage != null}\"");
+		assertThat(page).contains("th:if=\"${errorMessage != null}\"");
+
+		// Voice Selector Form
+		assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{id}/narration(id=${chapter.id})}\"");
+		assertThat(page).contains("name=\"voiceId\"");
+		assertThat(page).contains("novelAdminNarrationVoiceSelect");
+
+		// Table Columns
+		assertThat(page).contains("Thứ tự");
+		assertThat(page).contains("Nội dung phân đoạn");
+		assertThat(page).contains("Số ký tự");
+		assertThat(page).contains("Trạng thái Audio");
+		assertThat(page).contains("Revision");
+		assertThat(page).contains("Chẩn đoán lỗi");
+		assertThat(page).contains("Thao tác");
+
+		// Badges & Diagnostics
+		assertThat(page).contains("is-active");
+		assertThat(page).contains("is-draft");
+		assertThat(page).contains("is-disabled");
+		assertThat(page).contains("is-archived");
+		assertThat(page).contains("segment.failureDiagnostics.errorMessage");
+		assertThat(page).contains("segment.failureDiagnostics.operation");
+		assertThat(page).contains("segment.failureDiagnostics.stage");
+
+		// Provider Voice ID must NOT be rendered in narration overview (MS-04.9H.6A1)
+		assertThat(page).doesNotContain("Provider Voice ID");
+		assertThat(page).doesNotContain("providerVoiceId");
+
+		// Generate & Regenerate Action Forms (MS-04.9H.6B, MS-04.9H.6B1)
+		assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/generate(");
+		assertThat(page).contains("th:action=\"@{/admin/novel/chapters/{chapterId}/narration/segments/{segmentId}/regenerate(");
+		assertThat(page).contains("name=\"managedVoiceId\"");
+		assertThat(page).contains("Tạo Audio");
+		assertThat(page).contains("Thử lại");
+		assertThat(page).contains("Tái tạo Audio");
+		assertThat(page).contains("✓ Sẵn sàng");
+		assertThat(page).contains("Giọng đọc bị tắt");
+		assertThat(page).contains("Các thao tác tạo và tái tạo audio tạm thời bị vô hiệu hóa");
 	}
 
 	@Test

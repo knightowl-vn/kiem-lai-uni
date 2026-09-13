@@ -1,54 +1,27 @@
 package com.universe.novel.application.reader;
 
-import com.universe.novel.application.ports.ReaderNovelLandingQueryPort;
-import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
+import com.universe.novel.application.ports.PublicNovelLandingCachePort;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
-import com.universe.novel.contracts.dto.reader.ReaderNovelOverviewDTO;
-import com.universe.novel.contracts.dto.reader.ReaderVolumeListItemDTO;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.util.Objects;
 
 @Service
 public class GetReaderNovelLandingUseCase {
 
-    private final ReaderNovelLandingQueryPort
-            readerNovelLandingQueryPort;
+    private final PublicNovelLandingCachePort cachePort;
+    private final PublicNovelLandingLoader loader;
 
     public GetReaderNovelLandingUseCase(
-            ReaderNovelLandingQueryPort readerNovelLandingQueryPort
+            PublicNovelLandingCachePort cachePort,
+            PublicNovelLandingLoader loader
     ) {
-        this.readerNovelLandingQueryPort =
-                readerNovelLandingQueryPort;
+        this.cachePort = Objects.requireNonNull(cachePort, "cachePort must not be null");
+        this.loader = Objects.requireNonNull(loader, "loader must not be null");
     }
 
-    @Transactional(readOnly = true)
     public ReaderNovelLandingDTO execute() {
-
-        ReaderNovelOverviewDTO novel =
-                readerNovelLandingQueryPort
-                        .findNovelOverview()
-                        .orElseThrow(
-                                () -> new IllegalStateException(
-                                        "Không tìm thấy thông tin tiểu thuyết."
-                                )
-                        );
-
-        List<ReaderVolumeListItemDTO> volumes =
-                readerNovelLandingQueryPort
-                        .findPublishedVolumes();
-
-        ReaderChapterNavigationDTO firstChapter =
-                readerNovelLandingQueryPort
-                        .findFirstPublishedChapter()
-                        .orElse(null);
-
-        return new ReaderNovelLandingDTO(
-                novel,
-                volumes,
-                firstChapter
-        );
+        return cachePort.getOrLoad(loader::load);
     }
 }

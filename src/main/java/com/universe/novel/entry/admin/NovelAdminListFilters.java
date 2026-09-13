@@ -39,4 +39,24 @@ final class NovelAdminListFilters {
 
 		return safeTitle.contains(needle) || safeSlug.contains(needle);
 	}
+
+	static boolean matchesVoice(String keyword, String status, String displayName, String voiceKey, String providerVoiceId, String actualStatus) {
+		String normalizedKeyword = normalizeKeyword(keyword);
+		String normalizedStatus = normalizeStatus(status);
+
+		if (!normalizedStatus.isEmpty() && !normalizedStatus.equalsIgnoreCase(actualStatus)) {
+			return false;
+		}
+
+		if (normalizedKeyword.isEmpty()) {
+			return true;
+		}
+
+		String needle = normalizedKeyword.toLowerCase();
+		String safeDisplayName = displayName == null ? "" : displayName.toLowerCase();
+		String safeVoiceKey = voiceKey == null ? "" : voiceKey.toLowerCase();
+		String safeProviderVoiceId = providerVoiceId == null ? "" : providerVoiceId.toLowerCase();
+
+		return safeDisplayName.contains(needle) || safeVoiceKey.contains(needle) || safeProviderVoiceId.contains(needle);
+	}
 }

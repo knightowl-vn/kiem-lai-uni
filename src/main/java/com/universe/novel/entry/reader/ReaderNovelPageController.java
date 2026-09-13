@@ -1,16 +1,16 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.novel.application.reader.GetContinueReadingUseCase;
 import com.universe.novel.application.reader.GetReaderNovelLandingUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderContinueReadingDTO;
 import com.universe.novel.contracts.dto.reader.ReaderNovelLandingDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,17 +32,9 @@ public class ReaderNovelPageController {
     private final GetContinueReadingUseCase
             getContinueReadingUseCase;
 
-    private final AuthenticatedEmailResolver
-            authenticatedEmailResolver;
-
-    private final UserIdentityContract
-            userIdentityContract;
-
     public ReaderNovelPageController(
             GetReaderNovelLandingUseCase getReaderNovelLandingUseCase,
-            GetContinueReadingUseCase getContinueReadingUseCase,
-            AuthenticatedEmailResolver authenticatedEmailResolver,
-            UserIdentityContract userIdentityContract
+            GetContinueReadingUseCase getContinueReadingUseCase
     ) {
         this.getReaderNovelLandingUseCase = Objects.requireNonNull(
                 getReaderNovelLandingUseCase,
@@ -52,19 +44,11 @@ public class ReaderNovelPageController {
                 getContinueReadingUseCase,
                 "GetContinueReadingUseCase không được để trống."
         );
-        this.authenticatedEmailResolver = Objects.requireNonNull(
-                authenticatedEmailResolver,
-                "AuthenticatedEmailResolver không được để trống."
-        );
-        this.userIdentityContract = Objects.requireNonNull(
-                userIdentityContract,
-                "UserIdentityContract không được để trống."
-        );
     }
 
     @GetMapping
     public String landingPage(
-            Authentication authentication,
+            HttpServletRequest request,
             Model model
     ) {
         ReaderNovelLandingDTO landing =
@@ -90,29 +74,25 @@ public class ReaderNovelPageController {
                 landing.novel().title()
         );
 
-        Optional<String> emailOpt =
-                authenticatedEmailResolver.resolve(authentication);
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
 
-        if (emailOpt.isPresent()) {
+        if (identityOptional.isPresent()) {
+            AuthenticatedRequestIdentity identity = identityOptional.get();
             try {
-                Optional<UserDTO> userOpt =
-                        userIdentityContract.findByEmail(emailOpt.get());
+                Optional<ReaderContinueReadingDTO> continueReadingOpt =
+                        getContinueReadingUseCase.execute(identity.userId());
 
-                if (userOpt.isPresent()) {
-                    Optional<ReaderContinueReadingDTO> continueReadingOpt =
-                            getContinueReadingUseCase.execute(userOpt.get().id());
-
-                    continueReadingOpt.ifPresent(continueReading ->
-                            model.addAttribute(
-                                    "continueReading",
-                                    continueReading
-                            )
-                    );
-                }
+                continueReadingOpt.ifPresent(continueReading ->
+                        model.addAttribute(
+                                "continueReading",
+                                continueReading
+                        )
+                );
             } catch (Exception exception) {
                 log.warn(
                         "Không thể tải thông tin Đọc tiếp cho người dùng [{}]: {}",
-                        emailOpt.get(),
+                        identity.normalizedEmail(),
                         exception.getMessage(),
                         exception
                 );

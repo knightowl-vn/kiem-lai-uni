@@ -1,7 +1,11 @@
 package com.universe.configuration;
 
 import com.universe.identity.application.ports.CurrentUserQueryPort;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
@@ -43,13 +47,17 @@ import org.springframework.security.test.context.support.WithAnonymousUser;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -74,6 +82,13 @@ import com.universe.novel.entry.reader.ReaderBookmarkController;
 import com.universe.novel.entry.reader.ReaderReadingHistoryController;
 import com.universe.novel.entry.reader.ReaderReadingProgressController;
 import com.universe.novel.entry.reader.ReaderWikiLookupController;
+import com.universe.media.entry.delivery.MediaDeliveryController;
+import com.universe.media.application.asset.GetMediaAssetContentMetadataResult;
+import com.universe.media.application.asset.GetMediaAssetContentUseCase;
+import com.universe.media.application.asset.GetMediaAssetContentQuery;
+import com.universe.media.application.asset.GetMediaAssetContentResult;
+import com.universe.media.application.variant.GetMediaImageVariantContentQuery;
+import com.universe.media.application.variant.GetMediaImageVariantContentUseCase;
 
 @WebMvcTest(controllers = {
         ReaderNovelPageController.class,
@@ -85,7 +100,10 @@ import com.universe.novel.entry.reader.ReaderWikiLookupController;
         ReaderWikiLookupController.class,
         AdminNovelVolumePageController.class,
         AdminNovelProfilePageController.class,
-        AdminNovelProfileCommandController.class
+        AdminNovelProfileCommandController.class,
+        MediaDeliveryController.class,
+        com.universe.novel.entry.reader.PublicNovelManagedVoiceCatalogController.class,
+        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -175,6 +193,22 @@ class SecurityAuthorizationTest {
     @MockBean
     private CurrentUserQueryPort currentUserQueryPort;
 
+    @MockBean
+    private GetMediaAssetContentUseCase getMediaAssetContentUseCase;
+
+    @MockBean
+    private GetMediaImageVariantContentUseCase getMediaImageVariantContentUseCase;
+
+
+    @MockBean
+    private com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackUseCase getPublicPlaybackUseCase;
+
+    @MockBean
+    private com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackUseCase preparePublicChapterPlaybackUseCase;
+
+    @MockBean
+    private com.universe.novel.application.narration.GetPublicManagedVoiceCatalogUseCase getPublicManagedVoiceCatalogUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -184,6 +218,75 @@ class SecurityAuthorizationTest {
             chain.doFilter(request, response);
             return null;
         }).when(accountStatusFilter).doFilter(any(), any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh (anonymous) có thể truy cập GET /media/assets/{assetId}/content")
+    void shouldAllowAnonymousAccessToMediaAssetContentEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        byte[] payload = new byte[]{1, 2, 3};
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                assetId,
+                1,
+                payload.length,
+                "image/webp",
+                "dummyhash"
+        );
+
+        when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(assetId)))
+                .thenReturn(metadata);
+        when(getMediaAssetContentUseCase.open(metadata))
+                .thenReturn(new java.io.ByteArrayInputStream(payload));
+
+        mockMvc.perform(get("/media/assets/" + assetId + "/content"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous users can access HEAD /media/assets/{assetId}/content without opening binary storage")
+    void shouldAllowAnonymousHeadAccessToMediaAssetContentEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                assetId,
+                1,
+                3,
+                "audio/mpeg",
+                "dummyhash"
+        );
+        when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(assetId)))
+                .thenReturn(metadata);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request(
+                        org.springframework.http.HttpMethod.HEAD,
+                        "/media/assets/{assetId}/content",
+                        assetId
+                ))
+                .andExpect(status().isOk());
+
+        verify(getMediaAssetContentUseCase, never()).open(any());
+        verify(getMediaAssetContentUseCase, never()).openRange(any(), anyLong(), anyLong());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh (anonymous) có thể truy cập GET /media/assets/{assetId}/variants/{variantKey}")
+    void shouldAllowAnonymousAccessToMediaImageVariantEndpoint() throws Exception {
+        UUID assetId = UUID.randomUUID();
+        byte[] payload = new byte[]{4, 5, 6};
+        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+                new java.io.ByteArrayInputStream(payload),
+                payload.length,
+                "image/webp",
+                "dummyhash"
+        );
+
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(assetId, "w300")))
+                .thenReturn(result);
+
+        mockMvc.perform(get("/media/assets/" + assetId + "/variants/w300"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -385,20 +488,9 @@ class SecurityAuthorizationTest {
     @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/bookmarks")
     void shouldAllowAuthenticatedUserToAccessBookmarksPage() throws Exception {
         UUID userId = UUID.randomUUID();
-        UserDTO user = new UserDTO(
-                userId,
-                "reader@universe.local",
-                "Reader",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
-        );
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
-        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
         when(listUserBookmarkedChaptersUseCase.execute(userId)).thenReturn(List.of());
 
-        mockMvc.perform(get("/novel/bookmarks"))
+        mockMvc.perform(get("/novel/bookmarks").with(requestIdentity(userId)))
                 .andExpect(status().isOk());
     }
 
@@ -407,21 +499,25 @@ class SecurityAuthorizationTest {
     @DisplayName("Người dùng đã đăng nhập (USER) được phép truy cập /novel/history")
     void shouldAllowAuthenticatedUserToAccessHistoryPage() throws Exception {
         UUID userId = UUID.randomUUID();
-        UserDTO user = new UserDTO(
+        when(listUserReadingHistoryUseCase.execute(userId)).thenReturn(List.of());
+
+        mockMvc.perform(get("/novel/history").with(requestIdentity(userId)))
+                .andExpect(status().isOk());
+    }
+
+    private RequestPostProcessor requestIdentity(UUID userId) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
                 userId,
                 "reader@universe.local",
                 "Reader",
                 null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
+                UserStatus.ACTIVE,
+                UserRole.USER
         );
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(java.util.Optional.of("reader@universe.local"));
-        when(userIdentityContract.findByEmail("reader@universe.local")).thenReturn(java.util.Optional.of(user));
-        when(listUserReadingHistoryUseCase.execute(userId)).thenReturn(List.of());
-
-        mockMvc.perform(get("/novel/history"))
-                .andExpect(status().isOk());
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
     }
 
     @Test
@@ -433,5 +529,95 @@ class SecurityAuthorizationTest {
 
         mockMvc.perform(get("/novel/api/wiki/lookup").param("q", "kiem-lai"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập POST /segments/{segmentId}/prepare đã bị thu hồi (chuyển hướng sang /login)")
+    void shouldDenyAnonymousAccessToLegacySegmentPrepareEndpoint() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        UUID segmentId = UUID.randomUUID();
+        String voiceKey = "kiemlai-male-01";
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/segments/" + segmentId + "/prepare")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access POST chapter narration prepare with CSRF")
+    void shouldAllowAnonymousAccessToChapterNarrationPrepare() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        String voiceKey = "kiemlai-male-01";
+        when(preparePublicChapterPlaybackUseCase.execute(any(
+                com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackCommand.class
+        ))).thenReturn(new com.universe.novel.application.narration.PreparePublicChapterNarrationPlaybackResult(
+                chapterId,
+                voiceKey,
+                com.universe.novel.application.narration.ReaderChapterNarrationPreparationDispatchStatus.SCHEDULED
+        ));
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/prepare")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"" + voiceKey + "\"}"))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access GET chapter narration playback metadata")
+    void shouldAllowAnonymousAccessToNarrationPlaybackMetadata() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO result =
+                new com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackDTO(
+                        chapterId,
+                        null,
+                        com.universe.novel.contracts.dto.narration.PublicChapterNarrationPlaybackAvailability.MISSING,
+                        null,
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of()
+                );
+        when(getPublicPlaybackUseCase.execute(any(
+                com.universe.novel.application.narration.GetPublicChapterNarrationPlaybackQuery.class
+        ))).thenReturn(result);
+
+        mockMvc.perform(get("/api/novel/chapters/" + chapterId + "/narration/playback"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous Reader can access the public Managed voice catalog")
+    void shouldAllowAnonymousAccessToManagedVoiceCatalog() throws Exception {
+        when(getPublicManagedVoiceCatalogUseCase.execute(any(
+                com.universe.novel.application.narration.GetPublicManagedVoiceCatalogQuery.class
+        ))).thenReturn(new com.universe.novel.contracts.dto.narration.PublicManagedVoiceCatalogDTO(List.of()));
+
+        mockMvc.perform(get("/api/novel/narration/voices"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập POST /playback alias không hợp lệ")
+    void shouldRedirectAnonymousWhenAccessingInvalidPlaybackAlias() throws Exception {
+        UUID chapterId = UUID.randomUUID();
+        UUID segmentId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/novel/chapters/" + chapterId + "/narration/segments/" + segmentId + "/playback")
+                        .with(csrf())
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"voiceKey\": \"kiemlai-male-01\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
     }
 }

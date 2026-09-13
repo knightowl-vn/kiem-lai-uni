@@ -3,6 +3,7 @@ package com.universe.novel.application.chapter;
 import com.universe.novel.application.chapter.revision.ChapterRevisionRecorder;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.contracts.dto.ChapterDTO;
 import com.universe.novel.domain.Chapter;
 import com.universe.novel.domain.ChapterStatus;
@@ -77,6 +78,22 @@ class ArchiveChapterUseCaseTest {
     private ChapterRevisionRecorder
             chapterRevisionRecorder;
 
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator
+            publicReaderChapterListInvalidationCoordinator;
+
+    @Mock
+    private PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator
+            publicReaderNavigationInvalidationCoordinator;
+
+    @Mock
+    private com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator
+            renderedChapterInvalidationCoordinator;
+
     private ArchiveChapterUseCase
             useCase;
 
@@ -86,7 +103,11 @@ class ArchiveChapterUseCaseTest {
                 new ArchiveChapterUseCase(
                         chapterRepositoryPort,
                         clockPort,
-                        chapterRevisionRecorder
+                        chapterRevisionRecorder,
+                        publicReaderChapterListInvalidationCoordinator,
+                        publicNovelLandingInvalidationCoordinator,
+                        publicReaderNavigationInvalidationCoordinator,
+                        renderedChapterInvalidationCoordinator
                 );
     }
 
@@ -204,6 +225,28 @@ class ArchiveChapterUseCaseTest {
                 OTHER_ADMIN_ID,
                 null
         );
+
+        verify(
+                publicReaderChapterListInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(
+                any()
+        );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
+
+        verify(
+                publicReaderNavigationInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
+
+        verify(
+                renderedChapterInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(any());
     }
 
     @Test
@@ -306,6 +349,24 @@ class ArchiveChapterUseCaseTest {
                 OTHER_ADMIN_ID,
                 null
         );
+
+        verify(
+                publicReaderChapterListInvalidationCoordinator
+        ).invalidateAfterCommit(
+                VOLUME_ID
+        );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator
+        ).invalidateAfterCommit();
+
+        verify(
+                publicReaderNavigationInvalidationCoordinator
+        ).invalidateAfterCommit();
+
+        verify(
+                renderedChapterInvalidationCoordinator
+        ).invalidateAfterCommit("chuong-mot");
     }
 
     @Test
@@ -324,6 +385,29 @@ class ArchiveChapterUseCaseTest {
                 .hasMessage("Database error");
 
         verify(chapterRevisionRecorder, never()).record(any(), any(), any(), any());
+        verify(publicReaderChapterListInvalidationCoordinator, never()).invalidateAfterCommit(any());
+        verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
+        verify(publicReaderNavigationInvalidationCoordinator, never()).invalidateAfterCommit();
+        verify(renderedChapterInvalidationCoordinator, never()).invalidateAfterCommit(any());
+    }
+
+    @Test
+    @DisplayName(
+            "Không invalidate cache khi lưu Chapter PUBLISHED thất bại lúc archive"
+    )
+    void shouldNotInvalidateWhenPublishedArchiveSaveFails() {
+        Chapter chapter = createDraftChapter();
+        chapter.publish(ADMIN_ID, CREATED_AT.plusSeconds(60));
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(chapter));
+        when(clockPort.now()).thenReturn(ARCHIVED_AT);
+        when(chapterRepositoryPort.save(chapter, 2L)).thenThrow(new RuntimeException("Database error"));
+
+        assertThatThrownBy(() -> useCase.execute(new ArchiveChapterCommand(CHAPTER_ID, OTHER_ADMIN_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error");
+
+        verify(renderedChapterInvalidationCoordinator, never()).invalidateAfterCommit(any());
     }
 
     @Test
@@ -401,6 +485,16 @@ class ArchiveChapterUseCaseTest {
                 any(Chapter.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
+
+        verify(
+                renderedChapterInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(any());
     }
 
     @Test
@@ -442,6 +536,16 @@ class ArchiveChapterUseCaseTest {
                 any(Chapter.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
+
+        verify(
+                renderedChapterInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit(any());
     }
 
     @Test

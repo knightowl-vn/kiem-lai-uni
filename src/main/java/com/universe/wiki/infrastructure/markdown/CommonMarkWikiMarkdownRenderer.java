@@ -1,8 +1,11 @@
 package com.universe.wiki.infrastructure.markdown;
 
+import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
 import com.universe.wiki.application.article.render.RenderedWikiContent;
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.application.article.render.WikiTocItem;
+import com.universe.wiki.application.image.WikiImageVariantPolicy;
+
 
 import org.commonmark.Extension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
@@ -35,7 +38,10 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+
 
 @Component
 public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
@@ -859,21 +865,29 @@ public class CommonMarkWikiMarkdownRenderer implements WikiMarkdownRenderer {
 
 				String title = image.getTitle();
 
-				if (title == null || !title.startsWith("wiki:")) {
-					return;
+				if (title != null && title.startsWith("wiki:")) {
+					/*
+					 * Size/layout nằm trên figure, img chỉ cần class để Preview biết đây là ảnh có
+					 * thể chỉnh.
+					 */
+					attributes.put("class", "wiki-content-image");
+
+					/*
+					 * Không hiện metadata Wiki dưới dạng browser tooltip.
+					 */
+					attributes.remove("title");
 				}
 
-				/*
-				 * Size/layout nằm trên figure, img chỉ cần class để Preview biết đây là ảnh có
-				 * thể chỉnh.
-				 */
-				attributes.put("class", "wiki-content-image");
-
-				/*
-				 * Không hiện metadata Wiki dưới dạng browser tooltip.
-				 */
-				attributes.remove("title");
+				String destination = image.getDestination();
+				Optional<UUID> assetIdOpt = MediaDeliveryUrlSupport.parseContentAssetId(destination);
+				if (assetIdOpt.isPresent()) {
+					UUID assetId = assetIdOpt.get();
+					attributes.put("src", MediaDeliveryUrlSupport.variantUrl(assetId, WikiImageVariantPolicy.TARGET_WIDTH));
+					attributes.put("data-fallback-url", MediaDeliveryUrlSupport.contentUrl(assetId));
+					attributes.put("onerror", "this.onerror=null;this.src=this.dataset.fallbackUrl;");
+				}
 			}
+
 		}
 	}
-}
+}

@@ -1,11 +1,14 @@
 package com.universe.wiki.application.image;
 
+import com.universe.media.contracts.dto.MediaAssetDetailDTO;
+import com.universe.media.contracts.dto.MediaAssetStatusDTO;
+import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.time.ClockPort;
 
 import com.universe.wiki.application.ports
-        .WikiImageRepositoryPort;
+        .LegacyWikiImageStoragePort;
 import com.universe.wiki.application.ports
-        .WikiImageStoragePort;
+        .WikiImageRepositoryPort;
 
 import org.springframework.stereotype.Service;
 
@@ -13,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 public class CleanupOrphanWikiImagesUseCase {
@@ -30,8 +34,11 @@ public class CleanupOrphanWikiImagesUseCase {
     private final WikiImageRepositoryPort
             imageRepositoryPort;
 
-    private final WikiImageStoragePort
-            imageStoragePort;
+    private final LegacyWikiImageStoragePort
+            legacyImageStoragePort;
+
+    private final MediaContract
+            mediaContract;
 
     private final ClockPort
             clockPort;
@@ -39,7 +46,8 @@ public class CleanupOrphanWikiImagesUseCase {
 
     public CleanupOrphanWikiImagesUseCase(
             WikiImageRepositoryPort imageRepositoryPort,
-            WikiImageStoragePort imageStoragePort,
+            LegacyWikiImageStoragePort legacyImageStoragePort,
+            MediaContract mediaContract,
             ClockPort clockPort
     ) {
         this.imageRepositoryPort =
@@ -49,10 +57,17 @@ public class CleanupOrphanWikiImagesUseCase {
                                 + "không được để trống."
                 );
 
-        this.imageStoragePort =
+        this.legacyImageStoragePort =
                 Objects.requireNonNull(
-                        imageStoragePort,
-                        "WikiImageStoragePort "
+                        legacyImageStoragePort,
+                        "LegacyWikiImageStoragePort "
+                                + "không được để trống."
+                );
+
+        this.mediaContract =
+                Objects.requireNonNull(
+                        mediaContract,
+                        "MediaContract "
                                 + "không được để trống."
                 );
 
@@ -111,30 +126,76 @@ public class CleanupOrphanWikiImagesUseCase {
                 candidates
         ) {
             try {
+                if (candidate.mediaAssetId() != null) {
+                    /*
+                     * Media-backed retry-safe cleanup:
+                     * 1. Kiểm tra trạng thái lifecycle của Media asset
+                     * 2. Nếu ACTIVE hoặc ARCHIVED: gọi MediaContract.delete rồi xóa DB metadata
+                     * 3. Nếu đã DELETED: không gọi delete lại (retry-safe), trực tiếp xóa DB metadata
+                     * 4. Nếu không tìm thấy: coi như lỗi, giữ nguyên DB metadata
+                     */
+                    Optional<MediaAssetDetailDTO> maybeDetail =
+                            mediaContract
+                                    .getAssetDetail(
+                                            candidate.mediaAssetId()
+                                    );
 
-                /*
-                 * QUAN TRỌNG:
-                 *
-                 * Cloudinary trước.
-                 * DB sau.
-                 */
-                imageStoragePort
-                        .delete(
-                                candidate.publicId()
-                        );
+                    if (maybeDetail.isEmpty()) {
+                        failed++;
+                    } else {
+                        MediaAssetStatusDTO status =
+                                maybeDetail.get().status();
 
+                        if (status == MediaAssetStatusDTO.ACTIVE
+                                || status == MediaAssetStatusDTO.ARCHIVED) {
+                            mediaContract
+                                    .delete(
+                                            candidate.mediaAssetId()
+                                    );
 
-                /*
-                 * Chỉ khi Cloudinary đã xóa
-                 * hoặc báo asset không tồn tại
-                 * thì mới xóa metadata DB.
-                 */
-                imageRepositoryPort
-                        .deleteById(
-                                candidate.id()
-                        );
+                            imageRepositoryPort
+                                    .deleteById(
+                                            candidate.id()
+                                    );
 
-                deleted++;
+                            deleted++;
+                        } else if (status == MediaAssetStatusDTO.DELETED) {
+                            imageRepositoryPort
+                                    .deleteById(
+                                            candidate.id()
+                                    );
+
+                            deleted++;
+                        } else {
+                            failed++;
+                        }
+                    }
+                } else if (candidate.publicId() != null && !candidate.publicId().isBlank()) {
+                    /*
+                     * Legacy Cloudinary:
+                     * 1. Yêu cầu publicId hợp lệ không rỗng
+                     * 2. Xóa storage Cloudinary trước
+                     * 3. Xóa metadata DB sau
+                     */
+                    legacyImageStoragePort
+                            .delete(
+                                    candidate.publicId()
+                            );
+
+                    imageRepositoryPort
+                            .deleteById(
+                                    candidate.id()
+                            );
+
+                    deleted++;
+                } else {
+                    /*
+                     * Bản ghi chuyển tiếp không hợp lệ:
+                     * mediaAssetId == null và publicId null/blank.
+                     * Coi là candidate thất bại, không xóa metadata DB.
+                     */
+                    failed++;
+                }
 
             } catch (
                     RuntimeException exception

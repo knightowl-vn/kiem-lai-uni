@@ -4,6 +4,7 @@ import com.universe.novel.application.ports.NovelProfileRepositoryPort;
 import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
 
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -37,6 +38,49 @@ public class NovelProfilePersistenceAdapter
     }
 
     @Override
+    @Transactional
+    public NovelProfileDTO update(
+            String slug,
+            String title,
+            String author,
+            String description,
+            String coverImageUrl,
+            UUID coverMediaAssetId,
+            String status,
+            Instant updatedAt
+    ) {
+        NovelProfileJpaEntity entity =
+                novelProfileRepository
+                        .findBySlug(
+                                slug
+                        )
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Không tìm thấy hồ sơ tiểu thuyết với slug: "
+                                        + slug
+                        ));
+
+        entity.update(
+                title,
+                author,
+                description,
+                coverImageUrl,
+                coverMediaAssetId != null ? coverMediaAssetId.toString() : null,
+                status,
+                updatedAt
+        );
+
+        NovelProfileJpaEntity savedEntity =
+                novelProfileRepository.save(
+                        entity
+                );
+
+        return toDTO(
+                savedEntity
+        );
+    }
+
+    @Override
+    @Transactional
     public NovelProfileDTO update(
             String slug,
             String title,
@@ -78,6 +122,10 @@ public class NovelProfilePersistenceAdapter
     private NovelProfileDTO toDTO(
             NovelProfileJpaEntity entity
     ) {
+        UUID coverMediaAssetId = entity.getCoverMediaAssetId() != null
+                ? UUID.fromString(entity.getCoverMediaAssetId())
+                : null;
+
         return new NovelProfileDTO(
                 UUID.fromString(
                         entity.getId()
@@ -87,6 +135,7 @@ public class NovelProfilePersistenceAdapter
                 entity.getAuthor(),
                 entity.getDescription(),
                 entity.getCoverImageUrl(),
+                coverMediaAssetId,
                 entity.getStatus(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()

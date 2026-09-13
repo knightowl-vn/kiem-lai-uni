@@ -13,8 +13,9 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.universe.identity.infrastructure.persistence.SpringDataUserJpaRepository;
-import com.universe.identity.infrastructure.persistence.UserJpaEntity;
+import com.universe.identity.application.ports.AuthenticatedRequestIdentityQueryPort;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserStatus;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -24,12 +25,12 @@ import java.util.Optional;
 public class AccountStatusFilter
         extends OncePerRequestFilter {
 
-    private final SpringDataUserJpaRepository userRepository;
+    private final AuthenticatedRequestIdentityQueryPort identityQueryPort;
 
     public AccountStatusFilter(
-            SpringDataUserJpaRepository userRepository
+            AuthenticatedRequestIdentityQueryPort identityQueryPort
     ) {
-        this.userRepository = userRepository;
+        this.identityQueryPort = identityQueryPort;
     }
 
     @Override
@@ -61,13 +62,13 @@ public class AccountStatusFilter
             return;
         }
 
-        Optional<UserJpaEntity> userOptional =
-                userRepository.findByEmail(
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                identityQueryPort.findByEmail(
                         email.trim()
                                 .toLowerCase(Locale.ROOT)
                 );
 
-        if (userOptional.isEmpty()) {
+        if (identityOptional.isEmpty()) {
             invalidateAuthentication(
                     request,
                     response
@@ -81,20 +82,17 @@ public class AccountStatusFilter
             return;
         }
 
-        UserJpaEntity user =
-                userOptional.get();
+        AuthenticatedRequestIdentity identity = identityOptional.get();
+        UserStatus status = identity.status();
 
-        String status =
-                user.getStatus();
-
-        if (!"ACTIVE".equalsIgnoreCase(status)) {
+        if (status != UserStatus.ACTIVE) {
             invalidateAuthentication(
                     request,
                     response
             );
 
             String loginParameter =
-                    "BLOCKED".equalsIgnoreCase(status)
+                    status == UserStatus.BLOCKED
                             ? "blocked"
                             : "disabled";
 
@@ -109,8 +107,7 @@ public class AccountStatusFilter
         
         String expectedAuthority =
                 "ROLE_"
-                        + user.getRole()
-                                .name();
+                        + identity.role().name();
 
         boolean authorityMatches =
                 authentication
@@ -135,6 +132,11 @@ public class AccountStatusFilter
 
             return;
         }
+
+        AuthenticatedRequestIdentityAccessor.attach(
+                request,
+                identity
+        );
 
         filterChain.doFilter(request, response);
     }

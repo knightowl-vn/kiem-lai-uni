@@ -18,85 +18,67 @@ import java.util.UUID;
 @Service
 public class ArchiveChapterUseCase {
 
-    private final ChapterRepositoryPort
-            chapterRepositoryPort;
+	private final ChapterRepositoryPort chapterRepositoryPort;
 
-    private final ClockPort
-            clockPort;
+	private final ClockPort clockPort;
 
-    private final ChapterRevisionRecorder
-            chapterRevisionRecorder;
+	private final ChapterRevisionRecorder chapterRevisionRecorder;
 
-    public ArchiveChapterUseCase(
-            ChapterRepositoryPort chapterRepositoryPort,
-            ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder
-    ) {
-        this.chapterRepositoryPort =
-                chapterRepositoryPort;
+	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
+	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
 
-        this.clockPort =
-                clockPort;
+	private final com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
 
-        this.chapterRevisionRecorder =
-                chapterRevisionRecorder;
-    }
+	public ArchiveChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
+			ChapterRevisionRecorder chapterRevisionRecorder,
+			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator) {
+		this.chapterRepositoryPort = chapterRepositoryPort;
 
-    @Transactional
-    public ChapterDTO execute(
-            ArchiveChapterCommand command
-    ) {
-        Objects.requireNonNull(
-                command,
-                "Archive chapter command không được để trống."
-        );
+		this.clockPort = clockPort;
 
-        UUID chapterId =
-                Objects.requireNonNull(
-                        command.chapterId(),
-                        "Chapter ID không được để trống."
-                );
+		this.chapterRevisionRecorder = chapterRevisionRecorder;
 
-        Chapter chapter =
-                chapterRepositoryPort
-                        .findById(
-                                chapterId
-                        )
-                        .orElseThrow(() ->
-                                new ChapterNotFoundException(
-                                        chapterId
-                                )
-                        );
+		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
+		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
+		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
+		this.renderedChapterInvalidationCoordinator = renderedChapterInvalidationCoordinator;
+	}
 
-        /*
-         * Lấy version trước khi Domain mutate.
-         */
-        long expectedVersion =
-                chapter.getAggregateVersion();
+	@Transactional
+	public ChapterDTO execute(ArchiveChapterCommand command) {
+		Objects.requireNonNull(command, "Archive chapter command không được để trống.");
 
-        Instant now =
-                clockPort.now();
+		UUID chapterId = Objects.requireNonNull(command.chapterId(), "Chapter ID không được để trống.");
 
-        chapter.archive(
-                command.actorId(),
-                now
-        );
+		Chapter chapter = chapterRepositoryPort.findById(chapterId)
+				.orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        Chapter savedChapter =
-                chapterRepositoryPort.save(
-                        chapter,
-                        expectedVersion
-                );
+		/*
+		 * Lấy version trước khi Domain mutate.
+		 */
+		long expectedVersion = chapter.getAggregateVersion();
 
-        chapterRevisionRecorder.record(
-                savedChapter,
-                ChapterRevisionChangeType.ARCHIVE,
-                command.actorId(),
-                null
-        );
+		boolean wasPublished = (chapter.getStatus() == com.universe.novel.domain.ChapterStatus.PUBLISHED);
 
-        return ChapterDTOMapper.toDTO(
-                savedChapter
-        );
-    }
+		Instant now = clockPort.now();
+
+		chapter.archive(command.actorId(), now);
+
+		Chapter savedChapter = chapterRepositoryPort.save(chapter, expectedVersion);
+
+		chapterRevisionRecorder.record(savedChapter, ChapterRevisionChangeType.ARCHIVE, command.actorId(), null);
+
+		if (wasPublished) {
+			publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+			publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
+			publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
+			renderedChapterInvalidationCoordinator.invalidateAfterCommit(savedChapter.getSlug().value());
+		}
+
+		return ChapterDTOMapper.toDTO(savedChapter);
+	}
 }

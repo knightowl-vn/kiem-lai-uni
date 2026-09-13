@@ -3,6 +3,7 @@ package com.universe.novel.application.volume;
 import com.universe.novel.application.exceptions.VolumeHasPublishedChaptersException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.domain.Slug;
@@ -54,11 +55,14 @@ class ArchiveVolumeUseCaseTest {
 	@Mock
 	private ClockPort clockPort;
 
+	@Mock
+	private PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
+
 	private ArchiveVolumeUseCase useCase;
 
 	@BeforeEach
 	void setUp() {
-		useCase = new ArchiveVolumeUseCase(volumeRepositoryPort, chapterRepositoryPort, clockPort);
+		useCase = new ArchiveVolumeUseCase(volumeRepositoryPort, chapterRepositoryPort, clockPort, publicNovelLandingInvalidationCoordinator);
 	}
 
 	@Test
@@ -100,6 +104,8 @@ class ArchiveVolumeUseCaseTest {
 		verify(chapterRepositoryPort).existsPublishedByVolumeId(VOLUME_ID);
 
 		verify(volumeRepositoryPort).save(volume, 1L);
+
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
@@ -131,6 +137,8 @@ class ArchiveVolumeUseCaseTest {
 		assertThat(result.aggregateVersion()).isEqualTo(3L);
 
 		verify(volumeRepositoryPort).save(volume, 2L);
+
+		verify(publicNovelLandingInvalidationCoordinator).invalidateAfterCommit();
 	}
 
 	@Test
@@ -165,6 +173,8 @@ class ArchiveVolumeUseCaseTest {
 		verify(clockPort, never()).now();
 
 		verify(volumeRepositoryPort, never()).save(any(Volume.class), anyLong());
+
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
@@ -181,6 +191,8 @@ class ArchiveVolumeUseCaseTest {
 		verify(clockPort, never()).now();
 
 		verify(volumeRepositoryPort, never()).save(any(Volume.class), anyLong());
+
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test
@@ -207,6 +219,8 @@ class ArchiveVolumeUseCaseTest {
 		assertThat(volume.getAggregateVersion()).isEqualTo(versionBefore);
 
 		verify(volumeRepositoryPort, never()).save(any(Volume.class), anyLong());
+
+		verify(publicNovelLandingInvalidationCoordinator, never()).invalidateAfterCommit();
 	}
 
 	@Test

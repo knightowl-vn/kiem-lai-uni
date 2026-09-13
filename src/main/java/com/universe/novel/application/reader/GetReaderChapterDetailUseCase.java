@@ -1,109 +1,96 @@
 package com.universe.novel.application.reader;
 
-import com.universe.novel.application.chapter.render.NovelMarkdownRenderer;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
-import com.universe.novel.application.ports.ReaderChapterDetailQueryPort;
-import com.universe.novel.application.ports.ReaderChapterDetailQueryPort.ReaderChapterRecord;
+import com.universe.novel.application.ports.PublicReaderNavigationIndexCachePort;
+import com.universe.novel.application.ports.PublicReaderRenderedChapterCachePort;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
+import com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
-import com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO;
 
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 @Service
-@Transactional(readOnly = true)
 public class GetReaderChapterDetailUseCase {
+	private final PublicReaderRenderedChapterCachePort renderedChapterCachePort;
+	private final PublicReaderRenderedChapterLoader renderedChapterLoader;
+	private final PublicReaderNavigationIndexCachePort navigationCachePort;
+	private final PublicReaderNavigationIndexLoader navigationIndexLoader;
 
-    private final ReaderChapterDetailQueryPort
-            readerChapterDetailQueryPort;
+	public GetReaderChapterDetailUseCase(
+			PublicReaderRenderedChapterCachePort renderedChapterCachePort,
+			PublicReaderRenderedChapterLoader renderedChapterLoader,
+			PublicReaderNavigationIndexCachePort navigationCachePort,
+			PublicReaderNavigationIndexLoader navigationIndexLoader) {
+		this.renderedChapterCachePort = Objects.requireNonNull(renderedChapterCachePort, "renderedChapterCachePort");
+		this.renderedChapterLoader = Objects.requireNonNull(renderedChapterLoader, "renderedChapterLoader");
+		this.navigationCachePort = Objects.requireNonNull(navigationCachePort, "navigationCachePort");
+		this.navigationIndexLoader = Objects.requireNonNull(navigationIndexLoader, "navigationIndexLoader");
+	}
 
-    private final NovelMarkdownRenderer
-            novelMarkdownRenderer;
+	public ReaderChapterDetailDTO execute(String chapterSlug) {
+		if (chapterSlug == null || chapterSlug.isBlank()) {
+			throw new ChapterNotFoundException(chapterSlug);
+		}
 
-    public GetReaderChapterDetailUseCase(
-            ReaderChapterDetailQueryPort readerChapterDetailQueryPort,
-            NovelMarkdownRenderer novelMarkdownRenderer
-    ) {
-        this.readerChapterDetailQueryPort =
-                Objects.requireNonNull(
-                        readerChapterDetailQueryPort,
-                        "ReaderChapterDetailQueryPort không được để trống."
-                );
+		String normalizedSlug = chapterSlug.trim().toLowerCase(Locale.ROOT);
 
-        this.novelMarkdownRenderer =
-                Objects.requireNonNull(
-                        novelMarkdownRenderer,
-                        "NovelMarkdownRenderer không được để trống."
-                );
-    }
+		ReaderChapterRenderedSnapshotDTO snapshot = renderedChapterCachePort.getOrLoad(
+				normalizedSlug,
+				() -> renderedChapterLoader.load(normalizedSlug)
+		);
 
-    public ReaderChapterDetailDTO execute(
-            String chapterSlug
-    ) {
-        if (chapterSlug == null || chapterSlug.isBlank()) {
-            throw new ChapterNotFoundException(
-                    chapterSlug
-            );
-        }
+		int currentChapterNumber = snapshot.chapterNumber();
+		List<ReaderChapterTocItemDTO> tableOfContents = navigationCachePort
+				.getOrLoad(navigationIndexLoader::load);
 
-        String normalizedSlug =
-                chapterSlug.trim().toLowerCase();
+		int index = indexOfChapterNumber(tableOfContents, currentChapterNumber);
+		if (index == -1) {
+			navigationCachePort.invalidate();
+			tableOfContents = navigationCachePort
+					.getOrLoad(navigationIndexLoader::load);
+			index = indexOfChapterNumber(tableOfContents, currentChapterNumber);
+		}
 
-        ReaderChapterRecord chapterRecord =
-                readerChapterDetailQueryPort
-                        .findPublishedChapterBySlug(
-                                normalizedSlug
-                        )
-                        .orElseThrow(() -> new ChapterNotFoundException(
-                                normalizedSlug
-                        ));
+		ReaderChapterNavigationDTO previousChapter = null;
+		ReaderChapterNavigationDTO nextChapter = null;
 
-        String contentHtml =
-                novelMarkdownRenderer.renderToHtml(
-                        chapterRecord.rawContent()
-                );
+		if (index != -1) {
+			if (index > 0) {
+				ReaderChapterTocItemDTO prevItem = tableOfContents.get(index - 1);
+				previousChapter = new ReaderChapterNavigationDTO(prevItem.chapterNumber(), prevItem.title(),
+						prevItem.slug());
+			}
+			if (index < tableOfContents.size() - 1) {
+				ReaderChapterTocItemDTO nextItem = tableOfContents.get(index + 1);
+				nextChapter = new ReaderChapterNavigationDTO(nextItem.chapterNumber(), nextItem.title(),
+						nextItem.slug());
+			}
+		}
 
-        ReaderChapterNavigationDTO previousChapter =
-                readerChapterDetailQueryPort
-                        .findPreviousPublishedChapter(
-                                chapterRecord.chapterNumber()
-                        )
-                        .orElse(null);
+		return new ReaderChapterDetailDTO(
+				snapshot.id(),
+				snapshot.chapterNumber(),
+				snapshot.title(),
+				snapshot.slug(),
+				snapshot.contentHtml(),
+				snapshot.volume(),
+				previousChapter,
+				nextChapter,
+				tableOfContents
+		);
+	}
 
-        ReaderChapterNavigationDTO nextChapter =
-                readerChapterDetailQueryPort
-                        .findNextPublishedChapter(
-                                chapterRecord.chapterNumber()
-                        )
-                        .orElse(null);
-
-        List<ReaderChapterTocItemDTO> tableOfContents =
-                readerChapterDetailQueryPort
-                        .findAllPublishedChaptersForToc();
-
-        ReaderVolumeSummaryDTO volume =
-                new ReaderVolumeSummaryDTO(
-                        chapterRecord.volumeId(),
-                        chapterRecord.volumeTitle(),
-                        chapterRecord.volumeSlug(),
-                        chapterRecord.volumeSortOrder()
-                );
-
-        return new ReaderChapterDetailDTO(
-                chapterRecord.id(),
-                chapterRecord.chapterNumber(),
-                chapterRecord.title(),
-                chapterRecord.slug(),
-                contentHtml,
-                volume,
-                previousChapter,
-                nextChapter,
-                tableOfContents
-        );
-    }
+	private int indexOfChapterNumber(List<ReaderChapterTocItemDTO> toc, int chapterNumber) {
+		for (int i = 0; i < toc.size(); i++) {
+			if (toc.get(i).chapterNumber() == chapterNumber) {
+				return i;
+			}
+		}
+		return -1;
+	}
 }

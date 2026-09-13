@@ -1,7 +1,9 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.GetReaderChapterDetailUseCase;
 import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
@@ -9,7 +11,6 @@ import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterNavigationDTO;
 import com.universe.novel.contracts.dto.reader.ReaderChapterTocItemDTO;
 import com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,11 +18,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.core.Authentication;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,15 +55,6 @@ class ReaderChapterPageControllerTest {
     @Mock
     private IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
 
-    @Mock
-    private AuthenticatedEmailResolver authenticatedEmailResolver;
-
-    @Mock
-    private UserIdentityContract userIdentityContract;
-
-    @Mock
-    private Authentication authentication;
-
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -71,9 +62,7 @@ class ReaderChapterPageControllerTest {
         ReaderChapterPageController controller =
                 new ReaderChapterPageController(
                         getReaderChapterDetailUseCase,
-                        isChapterBookmarkedUseCase,
-                        authenticatedEmailResolver,
-                        userIdentityContract
+                        isChapterBookmarkedUseCase
                 );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
@@ -120,16 +109,19 @@ class ReaderChapterPageControllerTest {
         );
     }
 
-    private UserDTO createTestUser() {
-        return new UserDTO(
+    private RequestPostProcessor authenticatedIdentity() {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
                 USER_ID,
                 USER_EMAIL,
                 "Reader User",
                 null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
+                UserStatus.ACTIVE,
+                UserRole.USER
         );
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
     }
 
     @Test
@@ -139,7 +131,6 @@ class ReaderChapterPageControllerTest {
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.empty());
 
         mockMvc.perform(get("/novel/chapters/" + slug))
                 .andExpect(status().isOk())
@@ -157,14 +148,11 @@ class ReaderChapterPageControllerTest {
     void shouldPopulateIsBookmarkedTrueWhenAuthenticatedAndBookmarked() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
-        UserDTO user = createTestUser();
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID)).thenReturn(true);
 
-        mockMvc.perform(get("/novel/chapters/" + slug).principal(authentication))
+        mockMvc.perform(get("/novel/chapters/" + slug).with(authenticatedIdentity()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))
@@ -178,15 +166,12 @@ class ReaderChapterPageControllerTest {
     void shouldDegradeIsBookmarkedFalseWhenBookmarkLookupFails() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
-        UserDTO user = createTestUser();
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
-        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of(USER_EMAIL));
-        when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
         when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID))
                 .thenThrow(new RuntimeException("Bookmark service transient error"));
 
-        mockMvc.perform(get("/novel/chapters/" + slug).principal(authentication))
+        mockMvc.perform(get("/novel/chapters/" + slug).with(authenticatedIdentity()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))

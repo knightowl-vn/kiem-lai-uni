@@ -18,82 +18,68 @@ import java.util.UUID;
 @Service
 public class UnpublishChapterUseCase {
 
-    private final ChapterRepositoryPort
-            chapterRepositoryPort;
+	private final ChapterRepositoryPort chapterRepositoryPort;
 
-    private final ClockPort
-            clockPort;
+	private final ClockPort clockPort;
 
-    private final ChapterRevisionRecorder
-            chapterRevisionRecorder;
+	private final ChapterRevisionRecorder chapterRevisionRecorder;
 
-    public UnpublishChapterUseCase(
-            ChapterRepositoryPort chapterRepositoryPort,
-            ClockPort clockPort,
-            ChapterRevisionRecorder chapterRevisionRecorder
-    ) {
-        this.chapterRepositoryPort =
-                chapterRepositoryPort;
+	private final com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator;
 
-        this.clockPort =
-                clockPort;
+	private final com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator;
 
-        this.chapterRevisionRecorder =
-                chapterRevisionRecorder;
-    }
+	private final com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator;
 
-    @Transactional
-    public ChapterDTO execute(
-            UnpublishChapterCommand command
-    ) {
-        Objects.requireNonNull(
-                command,
-                "Unpublish chapter command không được để trống."
-        );
+	private final com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator;
 
-        UUID chapterId =
-                Objects.requireNonNull(
-                        command.chapterId(),
-                        "Chapter ID không được để trống."
-                );
+	public UnpublishChapterUseCase(ChapterRepositoryPort chapterRepositoryPort, ClockPort clockPort,
+			ChapterRevisionRecorder chapterRevisionRecorder,
+			com.universe.novel.application.reader.PublicReaderChapterListInvalidationCoordinator publicReaderChapterListInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderNavigationInvalidationCoordinator publicReaderNavigationInvalidationCoordinator,
+			com.universe.novel.application.reader.PublicReaderRenderedChapterInvalidationCoordinator renderedChapterInvalidationCoordinator) {
+		this.chapterRepositoryPort = chapterRepositoryPort;
 
-        Chapter chapter =
-                chapterRepositoryPort
-                        .findById(
-                                chapterId
-                        )
-                        .orElseThrow(() ->
-                                new ChapterNotFoundException(
-                                        chapterId
-                                )
-                        );
+		this.clockPort = clockPort;
 
-        long expectedVersion =
-                chapter.getAggregateVersion();
+		this.chapterRevisionRecorder = chapterRevisionRecorder;
 
-        Instant now =
-                clockPort.now();
+		this.publicReaderChapterListInvalidationCoordinator = publicReaderChapterListInvalidationCoordinator;
 
-        chapter.unpublish(
-                command.actorId(),
-                now
-        );
+		this.publicNovelLandingInvalidationCoordinator = publicNovelLandingInvalidationCoordinator;
 
-        Chapter savedChapter =
-                chapterRepositoryPort.save(
-                        chapter,
-                        expectedVersion
-                );
+		this.publicReaderNavigationInvalidationCoordinator = publicReaderNavigationInvalidationCoordinator;
 
-        chapterRevisionRecorder.record(
-                savedChapter,
-                ChapterRevisionChangeType.UNPUBLISH,
-                command.actorId(),
-                null
-        );
+		this.renderedChapterInvalidationCoordinator = renderedChapterInvalidationCoordinator;
+	}
 
-        return ChapterDTOMapper.toDTO(
-                savedChapter
-        );
-    }
+	@Transactional
+	public ChapterDTO execute(UnpublishChapterCommand command) {
+		Objects.requireNonNull(command, "Unpublish chapter command không được để trống.");
+
+		UUID chapterId = Objects.requireNonNull(command.chapterId(), "Chapter ID không được để trống.");
+
+		Chapter chapter = chapterRepositoryPort.findById(chapterId)
+				.orElseThrow(() -> new ChapterNotFoundException(chapterId));
+
+		long expectedVersion = chapter.getAggregateVersion();
+
+		Instant now = clockPort.now();
+
+		chapter.unpublish(command.actorId(), now);
+
+		Chapter savedChapter = chapterRepositoryPort.save(chapter, expectedVersion);
+
+		chapterRevisionRecorder.record(savedChapter, ChapterRevisionChangeType.UNPUBLISH, command.actorId(), null);
+
+		publicReaderChapterListInvalidationCoordinator.invalidateAfterCommit(savedChapter.getVolumeId());
+
+		publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
+
+		publicReaderNavigationInvalidationCoordinator.invalidateAfterCommit();
+
+		renderedChapterInvalidationCoordinator.invalidateAfterCommit(savedChapter.getSlug().value());
+
+		return ChapterDTOMapper.toDTO(savedChapter);
+	}
 }
