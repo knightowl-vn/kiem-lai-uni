@@ -62,6 +62,12 @@ public class CaffeinePublicNovelLandingCache implements PublicNovelLandingCacheP
             }
 
             try {
+                VersionedLanding cachedAfterCas = dataCache.getIfPresent(CANONICAL_KEY);
+                if (cachedAfterCas != null && cachedAfterCas.generation() == requestedGeneration) {
+                    newLoad.result().complete(cachedAfterCas.landing());
+                    return cachedAfterCas.landing();
+                }
+
                 ReaderNovelLandingDTO rawLoaded = Objects.requireNonNull(
                         loader.get(),
                         "landing loader result must not be null"

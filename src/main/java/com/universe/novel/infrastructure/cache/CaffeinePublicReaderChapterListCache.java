@@ -58,6 +58,13 @@ public class CaffeinePublicReaderChapterListCache implements PublicReaderChapter
 			}
 
 			try {
+				VersionedChapterList cachedAfterCas = dataCache.getIfPresent(volumeId);
+				if (cachedAfterCas != null && cachedAfterCas.state() == state
+						&& cachedAfterCas.generation() == requestedGeneration) {
+					newLoad.result().complete(cachedAfterCas.chapters());
+					return cachedAfterCas.chapters();
+				}
+
 				List<ReaderChapterListItemDTO> rawLoaded = Objects.requireNonNull(loader.get(),
 						"chapter list loader result must not be null");
 
