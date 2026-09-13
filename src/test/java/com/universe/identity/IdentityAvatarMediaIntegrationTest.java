@@ -25,6 +25,7 @@ import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
+import com.universe.media.application.asset.RasterContentSignatureValidator;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -64,7 +65,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -114,16 +114,36 @@ import static org.mockito.Mockito.mock;
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
         com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
         com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,
+        RasterContentSignatureValidator.class,
         MediaFacade.class,
         IdentityAvatarMediaIntegrationTest.TestConfig.class
 })
 class IdentityAvatarMediaIntegrationTest {
 
+    private static byte[] createPngBytes(int width, int height, java.awt.Color color) {
+        try {
+            java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(
+                    width,
+                    height,
+                    java.awt.image.BufferedImage.TYPE_INT_RGB
+            );
+            java.awt.Graphics2D g = img.createGraphics();
+            g.setColor(color);
+            g.fillRect(0, 0, width, height);
+            g.dispose();
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            javax.imageio.ImageIO.write(img, "png", baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static final byte[] AVATAR_IMAGE_BYTES_V1 =
-            "PNG_AVATAR_IMAGE_PAYLOAD_V1_SAMPLE_DATA".getBytes(StandardCharsets.UTF_8);
+            createPngBytes(100, 100, java.awt.Color.BLUE);
 
     private static final byte[] AVATAR_IMAGE_BYTES_V2 =
-            "PNG_AVATAR_IMAGE_PAYLOAD_V2_REPLACEMENT_DATA".getBytes(StandardCharsets.UTF_8);
+            createPngBytes(200, 200, java.awt.Color.GREEN);
 
     private static Path tempStorageDir;
     private static final List<Path> createdTempDirs = new CopyOnWriteArrayList<>();

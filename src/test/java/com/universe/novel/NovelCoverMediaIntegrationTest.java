@@ -10,6 +10,7 @@ import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
+import com.universe.media.application.asset.RasterContentSignatureValidator;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -104,6 +105,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         UploadMediaAssetVersionUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
+        RasterContentSignatureValidator.class,
         MediaFacade.class,
         NovelCoverMediaIntegrationTest.TestConfig.class
 })
