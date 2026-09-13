@@ -6,6 +6,7 @@ import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.stereotype.Service;
 
+import java.io.InputStream;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -18,10 +19,12 @@ public class UploadMediaAssetVersionUseCase {
 
     private final BinaryStoragePort binaryStoragePort;
     private final RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
+    private final RasterContentSignatureValidator rasterContentSignatureValidator;
 
     public UploadMediaAssetVersionUseCase(
             BinaryStoragePort binaryStoragePort,
-            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase
+            RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
+            RasterContentSignatureValidator rasterContentSignatureValidator
     ) {
         this.binaryStoragePort = Objects.requireNonNull(
                 binaryStoragePort,
@@ -31,6 +34,10 @@ public class UploadMediaAssetVersionUseCase {
                 registerMediaAssetVersionUseCase,
                 "RegisterMediaAssetVersionUseCase cannot be null."
         );
+        this.rasterContentSignatureValidator = Objects.requireNonNull(
+                rasterContentSignatureValidator,
+                "RasterContentSignatureValidator cannot be null."
+        );
     }
 
     public UploadMediaAssetVersionResult execute(
@@ -39,11 +46,16 @@ public class UploadMediaAssetVersionUseCase {
         Objects.requireNonNull(command, "UploadMediaAssetVersionCommand cannot be null.");
 
         MimeType mimeType = MimeType.of(command.mimeType());
+        InputStream validatedContent = rasterContentSignatureValidator.validateAndPrepareStream(
+                command.content(),
+                command.sizeBytes(),
+                mimeType
+        );
         StorageKey storageKey = StorageKey.of("objects/" + UUID.randomUUID());
         StorageProviderId providerId = binaryStoragePort.providerId();
 
         MessageDigest messageDigest = createSha256Digest();
-        DigestInputStream digestInputStream = new DigestInputStream(command.content(), messageDigest);
+        DigestInputStream digestInputStream = new DigestInputStream(validatedContent, messageDigest);
 
         binaryStoragePort.store(
                 storageKey,

@@ -17,6 +17,7 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
@@ -59,7 +60,7 @@ class MediaAssetVersionPersistenceIntegrationTest {
     private SpringDataMediaAssetVersionJpaRepository versionRepository;
 
     @Autowired
-    private SpringDataMediaAssetJpaRepository assetRepository;
+    private JdbcTemplate jdbcTemplate;
 
     private final List<UUID> createdVersionIds = new ArrayList<>();
     private final List<UUID> createdAssetIds = new ArrayList<>();
@@ -67,23 +68,16 @@ class MediaAssetVersionPersistenceIntegrationTest {
     @AfterEach
     void cleanUp() {
         for (UUID versionId : createdVersionIds) {
-            try {
-                if (versionRepository.existsById(versionId.toString())) {
-                    versionRepository.deleteById(versionId.toString());
-                }
-            } catch (Exception ignored) {
-                // Best effort FK-safe cleanup
-            }
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id = ?", versionId.toString());
+            jdbcTemplate.update("DELETE FROM media_asset_versions WHERE id = ?", versionId.toString());
         }
         for (UUID assetId : createdAssetIds) {
-            try {
-                if (assetRepository.existsById(assetId.toString())) {
-                    assetRepository.deleteById(assetId.toString());
-                }
-            } catch (Exception ignored) {
-                // Best effort FK-safe cleanup
-            }
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id IN (SELECT id FROM media_asset_versions WHERE asset_id = ?)", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_asset_versions WHERE asset_id = ?", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
         }
+        createdVersionIds.clear();
+        createdAssetIds.clear();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
@@ -60,15 +61,48 @@ class UploadMediaAssetUseCasesTest {
     private static final StorageProviderId LOCAL_PROVIDER =
             StorageProviderId.of("local");
 
+    private static final byte[] VALID_JPEG_HEADER = new byte[]{
+            (byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0
+    };
+
+    private static final byte[] VALID_PNG_HEADER = new byte[]{
+            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+    };
+
+    private static byte[] createWebpData(String text) {
+        byte[] textBytes = text.getBytes(StandardCharsets.UTF_8);
+        byte[] payload = new byte[12 + textBytes.length];
+        payload[0] = 'R';
+        payload[1] = 'I';
+        payload[2] = 'F';
+        payload[3] = 'F';
+        payload[8] = 'W';
+        payload[9] = 'E';
+        payload[10] = 'B';
+        payload[11] = 'P';
+        System.arraycopy(textBytes, 0, payload, 12, textBytes.length);
+        return payload;
+    }
+
+    private static byte[] combine(byte[] header, byte[] body) {
+        byte[] result = new byte[header.length + body.length];
+        System.arraycopy(header, 0, result, 0, header.length);
+        System.arraycopy(body, 0, result, header.length, body.length);
+        return result;
+    }
+
     @BeforeEach
     void setUp() {
+        RasterContentSignatureValidator validator = new RasterContentSignatureValidator();
         uploadMediaAssetUseCase = new UploadMediaAssetUseCase(
                 binaryStoragePort,
-                registerMediaAssetUseCase
+                registerMediaAssetUseCase,
+                validator
         );
         uploadMediaAssetVersionUseCase = new UploadMediaAssetVersionUseCase(
                 binaryStoragePort,
-                registerMediaAssetVersionUseCase
+                registerMediaAssetVersionUseCase,
+                validator
         );
     }
 
@@ -81,7 +115,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldUploadInitialAssetSuccessfully() throws Exception {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "Hello, Universe Media!".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("Hello, Universe Media!");
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
@@ -145,7 +179,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldAbortWhenStorageFails() {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "sample data".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("sample data");
             doThrow(new StorageException("Disk full"))
                     .when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), anyLong(), any(MimeType.class));
 
@@ -171,7 +205,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldCompensateStorageWhenMetadataRegistrationFails() throws IOException {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "payload data".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("payload data");
             doAnswer(invocation -> {
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
@@ -208,7 +242,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldPreservePrimaryExceptionWhenCompensationAlsoFails() throws IOException {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "payload data".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("payload data");
             doAnswer(invocation -> {
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
@@ -250,7 +284,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldNotCloseCallerInputStream() throws IOException {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "stream data".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("stream data");
             doAnswer(invocation -> {
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
@@ -291,6 +325,179 @@ class UploadMediaAssetUseCasesTest {
             assertThat(closed.get()).isFalse();
         }
 
+        @Test
+        @DisplayName("rejects initial upload when binary signature does not match declared raster MIME")
+        void shouldRejectInitialUploadWhenRasterSignatureMismatches() {
+            byte[] mismatched = combine(VALID_JPEG_HEADER, "not a png".getBytes(StandardCharsets.UTF_8));
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(mismatched),
+                    mismatched.length,
+                    "image/png",
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    "fake.png"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Content binary signature does not match declared raster MIME type 'image/png'");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(binaryStoragePort, never()).delete(any());
+            verify(registerMediaAssetUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("rejects initial upload when raster binary stream is shorter than required prefix")
+        void shouldRejectInitialUploadWhenContentTooShort() {
+            byte[] shortData = new byte[]{'R', 'I', 'F'}; // 3 bytes, requires 12 for webp
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(shortData),
+                    shortData.length,
+                    "image/webp",
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    "short.webp"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("too small for declared MIME type 'image/webp'");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(binaryStoragePort, never()).delete(any());
+            verify(registerMediaAssetUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("successful JPEG upload streams binary with valid JPEG signature")
+        void shouldUploadJpegSuccessfullyWithValidSignature() throws Exception {
+            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+            byte[] data = combine(VALID_JPEG_HEADER, "JPEG body content".getBytes(StandardCharsets.UTF_8));
+            String expectedSha256 = computeSha256(data);
+
+            doAnswer(invocation -> {
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return null;
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.IMAGE,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "image/jpeg",
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    "photo.jpeg"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+            assertThat(result).isNotNull();
+
+            ArgumentCaptor<RegisterMediaAssetCommand> registerCaptor = ArgumentCaptor.forClass(RegisterMediaAssetCommand.class);
+            verify(registerMediaAssetUseCase).execute(registerCaptor.capture());
+            assertThat(registerCaptor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(registerCaptor.getValue().mimeType()).isEqualTo("image/jpeg");
+        }
+
+        @Test
+        @DisplayName("successful PNG upload streams binary with valid PNG signature")
+        void shouldUploadPngSuccessfullyWithValidSignature() throws Exception {
+            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+            byte[] data = combine(VALID_PNG_HEADER, "PNG body content".getBytes(StandardCharsets.UTF_8));
+            String expectedSha256 = computeSha256(data);
+
+            doAnswer(invocation -> {
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return null;
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.IMAGE,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "image/png",
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    "graphic.png"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+            assertThat(result).isNotNull();
+
+            ArgumentCaptor<RegisterMediaAssetCommand> registerCaptor = ArgumentCaptor.forClass(RegisterMediaAssetCommand.class);
+            verify(registerMediaAssetUseCase).execute(registerCaptor.capture());
+            assertThat(registerCaptor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(registerCaptor.getValue().mimeType()).isEqualTo("image/png");
+        }
+
+        @Test
+        @DisplayName("non-raster MIME type (audio/mpeg) bypasses raster signature validation")
+        void shouldBypassValidationForNonRasterInitialUpload() throws Exception {
+            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+            byte[] data = "Arbitrary audio stream data that does not match image headers".getBytes(StandardCharsets.UTF_8);
+            String expectedSha256 = computeSha256(data);
+
+            doAnswer(invocation -> {
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return null;
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.AUDIO,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "audio/mpeg",
+                    MediaType.AUDIO,
+                    MediaVisibility.PUBLIC,
+                    "narration.mp3"
+            );
+
+            UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
+            assertThat(result).isNotNull();
+
+            ArgumentCaptor<RegisterMediaAssetCommand> registerCaptor = ArgumentCaptor.forClass(RegisterMediaAssetCommand.class);
+            verify(registerMediaAssetUseCase).execute(registerCaptor.capture());
+            assertThat(registerCaptor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(registerCaptor.getValue().mimeType()).isEqualTo("audio/mpeg");
+        }
+
         @ParameterizedTest(name = "UploadMediaAssetCommand rejects non-positive size: {0}")
         @ValueSource(longs = {0L, -1L, -100L})
         void shouldRejectNonPositiveSizeInUploadMediaAssetCommand(long invalidSize) {
@@ -315,7 +522,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldUploadVersionSuccessfully() throws Exception {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "Version 2 binary data".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("Version 2 binary data");
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
@@ -367,7 +574,7 @@ class UploadMediaAssetUseCasesTest {
         void shouldCompensateStorageWhenVersionMetadataRegistrationFails() throws IOException {
             when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
 
-            byte[] data = "version payload".getBytes(StandardCharsets.UTF_8);
+            byte[] data = createWebpData("version payload");
             doAnswer(invocation -> {
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
@@ -396,6 +603,134 @@ class UploadMediaAssetUseCasesTest {
             verify(binaryStoragePort).delete(deletedKeyCaptor.capture());
             assertThat(deletedKeyCaptor.getValue()).isEqualTo(storedKeyCaptor.getValue());
             assertThat(deletedKeyCaptor.getValue().value()).startsWith("objects/");
+        }
+
+        @Test
+        @DisplayName("rejects version upload when binary signature does not match declared raster MIME")
+        void shouldRejectVersionUploadWhenRasterSignatureMismatches() {
+            byte[] mismatched = combine(VALID_PNG_HEADER, "not a jpeg".getBytes(StandardCharsets.UTF_8));
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    UUID.randomUUID(),
+                    new ByteArrayInputStream(mismatched),
+                    mismatched.length,
+                    "image/jpeg",
+                    "fake.jpeg"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("Content binary signature does not match declared raster MIME type 'image/jpeg'");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(binaryStoragePort, never()).delete(any());
+            verify(registerMediaAssetVersionUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("rejects version upload when raster binary stream is shorter than required prefix")
+        void shouldRejectVersionUploadWhenContentTooShort() {
+            byte[] shortData = new byte[]{(byte) 0x89, 0x50}; // 2 bytes, requires 8 for png
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    UUID.randomUUID(),
+                    new ByteArrayInputStream(shortData),
+                    shortData.length,
+                    "image/png",
+                    "short.png"
+            );
+
+            assertThatThrownBy(() -> uploadMediaAssetVersionUseCase.execute(command))
+                    .isInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasMessageContaining("too small for declared MIME type 'image/png'");
+
+            verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
+            verify(binaryStoragePort, never()).delete(any());
+            verify(registerMediaAssetVersionUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("successful JPEG version upload streams binary with valid JPEG signature")
+        void shouldUploadJpegVersionSuccessfullyWithValidSignature() throws Exception {
+            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+            byte[] data = combine(VALID_JPEG_HEADER, "JPEG v2 payload".getBytes(StandardCharsets.UTF_8));
+            String expectedSha256 = computeSha256(data);
+
+            doAnswer(invocation -> {
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return null;
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            Instant now = Instant.now();
+
+            when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
+                    .thenReturn(new RegisterMediaAssetVersionResult(
+                            assetId,
+                            versionId,
+                            2,
+                            now
+                    ));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "image/jpeg",
+                    "v2.jpeg"
+            );
+
+            UploadMediaAssetVersionResult result = uploadMediaAssetVersionUseCase.execute(command);
+            assertThat(result.versionNumber()).isEqualTo(2);
+
+            ArgumentCaptor<RegisterMediaAssetVersionCommand> captor = ArgumentCaptor.forClass(RegisterMediaAssetVersionCommand.class);
+            verify(registerMediaAssetVersionUseCase).execute(captor.capture());
+            assertThat(captor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(captor.getValue().mimeType()).isEqualTo("image/jpeg");
+        }
+
+        @Test
+        @DisplayName("non-raster version upload (audio/mpeg) bypasses raster signature validation")
+        void shouldBypassValidationForNonRasterVersionUpload() throws Exception {
+            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+            byte[] data = "Arbitrary v2 audio stream".getBytes(StandardCharsets.UTF_8);
+            String expectedSha256 = computeSha256(data);
+
+            doAnswer(invocation -> {
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return null;
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            Instant now = Instant.now();
+
+            when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
+                    .thenReturn(new RegisterMediaAssetVersionResult(
+                            assetId,
+                            versionId,
+                            2,
+                            now
+                    ));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "audio/mpeg",
+                    "narration_v2.mp3"
+            );
+
+            UploadMediaAssetVersionResult result = uploadMediaAssetVersionUseCase.execute(command);
+            assertThat(result.versionNumber()).isEqualTo(2);
+
+            ArgumentCaptor<RegisterMediaAssetVersionCommand> captor = ArgumentCaptor.forClass(RegisterMediaAssetVersionCommand.class);
+            verify(registerMediaAssetVersionUseCase).execute(captor.capture());
+            assertThat(captor.getValue().contentHash()).isEqualTo(expectedSha256);
+            assertThat(captor.getValue().mimeType()).isEqualTo("audio/mpeg");
         }
 
         @ParameterizedTest(name = "UploadMediaAssetVersionCommand rejects non-positive size: {0}")

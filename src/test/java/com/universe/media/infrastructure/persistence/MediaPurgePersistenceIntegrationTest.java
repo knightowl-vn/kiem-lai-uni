@@ -15,7 +15,7 @@ import com.universe.test.TestDatabaseSupport;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationState;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +34,7 @@ import javax.sql.DataSource;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -81,11 +82,16 @@ class MediaPurgePersistenceIntegrationTest {
     @Autowired
     private PurgeMediaAssetMetadataService purgeMediaAssetMetadataService;
 
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM media_image_variants");
-        jdbcTemplate.update("DELETE FROM media_asset_versions");
-        jdbcTemplate.update("DELETE FROM media_assets");
+    private final List<UUID> createdAssetIds = new ArrayList<>();
+
+    @AfterEach
+    void cleanUp() {
+        for (UUID assetId : createdAssetIds) {
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id IN (SELECT id FROM media_asset_versions WHERE asset_id = ?)", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_asset_versions WHERE asset_id = ?", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
+        }
+        createdAssetIds.clear();
     }
 
     @Test
@@ -121,11 +127,24 @@ class MediaPurgePersistenceIntegrationTest {
         Instant now = Instant.parse("2026-09-10T12:00:00Z");
         Instant cutoff = now.minus(Duration.ofDays(7)); // 2026-09-03T12:00:00Z
 
+        Long existingEligibleCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM media_assets WHERE status = 'DELETED' AND updated_at <= ?",
+                Long.class,
+                Timestamp.from(cutoff)
+        );
+        int queryLimit = Math.toIntExact((existingEligibleCount != null ? existingEligibleCount : 0L) + 2);
+
         UUID expiredDeletedId1 = UUID.randomUUID();
         UUID expiredDeletedId2 = UUID.randomUUID();
         UUID recentDeletedId = UUID.randomUUID();
         UUID activeAssetId = UUID.randomUUID();
         UUID archivedAssetId = UUID.randomUUID();
+
+        createdAssetIds.add(expiredDeletedId1);
+        createdAssetIds.add(expiredDeletedId2);
+        createdAssetIds.add(recentDeletedId);
+        createdAssetIds.add(activeAssetId);
+        createdAssetIds.add(archivedAssetId);
 
         // 1. Expired DELETED asset 1 (deleted 10 days ago)
         jdbcTemplate.update(
@@ -163,10 +182,10 @@ class MediaPurgePersistenceIntegrationTest {
         );
 
         // Execute query through repository adapter
-        List<MediaAsset> expiredAssets = assetAdapter.findExpiredDeleted(cutoff, 10);
+        List<MediaAsset> expiredAssets = assetAdapter.findExpiredDeleted(cutoff, queryLimit);
         List<UUID> expiredIds = expiredAssets.stream().map(MediaAsset::getId).toList();
 
-        assertThat(expiredIds).containsExactly(
+        assertThat(expiredIds).contains(
                 expiredDeletedId1,
                 expiredDeletedId2
         );
@@ -181,6 +200,7 @@ class MediaPurgePersistenceIntegrationTest {
     @DisplayName("PurgeMediaAssetMetadataService purges variants, versions, and asset bottom-up via adapters without FK violations")
     void shouldPurgeMetadataBottomUpUsingServiceAndAdapters() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID version1Id = UUID.randomUUID();
         UUID version2Id = UUID.randomUUID();
         UUID variant1Id = UUID.randomUUID();
@@ -278,6 +298,7 @@ class MediaPurgePersistenceIntegrationTest {
     @DisplayName("PurgeMediaAssetMetadataService is idempotent when asset does not exist")
     void shouldBeIdempotentWhenAssetAlreadyMissing() {
         UUID nonExistentAssetId = UUID.randomUUID();
+        createdAssetIds.add(nonExistentAssetId);
 
         // Must succeed without throwing
         purgeMediaAssetMetadataService.execute(nonExistentAssetId);
@@ -289,6 +310,7 @@ class MediaPurgePersistenceIntegrationTest {
     @DisplayName("PurgeMediaAssetMetadataService refuses deletion when asset is ACTIVE")
     void shouldRefuseDeletionWhenAssetIsActive() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         Instant now = Instant.now();
 

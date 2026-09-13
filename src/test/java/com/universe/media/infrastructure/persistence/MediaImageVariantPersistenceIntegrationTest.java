@@ -11,7 +11,7 @@ import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageLocation;
 import com.universe.test.TestDatabaseSupport;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -67,17 +69,23 @@ class MediaImageVariantPersistenceIntegrationTest {
     @Autowired
     private SpringDataMediaAssetVersionJpaRepository versionRepository;
 
-    @BeforeEach
-    void setUp() {
-        jdbcTemplate.update("DELETE FROM media_image_variants");
-        jdbcTemplate.update("DELETE FROM media_asset_versions");
-        jdbcTemplate.update("DELETE FROM media_assets");
+    private final List<UUID> createdAssetIds = new ArrayList<>();
+
+    @AfterEach
+    void cleanUp() {
+        for (UUID assetId : createdAssetIds) {
+            jdbcTemplate.update("DELETE FROM media_image_variants WHERE version_id IN (SELECT id FROM media_asset_versions WHERE asset_id = ?)", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_asset_versions WHERE asset_id = ?", assetId.toString());
+            jdbcTemplate.update("DELETE FROM media_assets WHERE id = ?", assetId.toString());
+        }
+        createdAssetIds.clear();
     }
 
     @Test
     @DisplayName("persists and retrieves MediaImageVariant via adapter with full roundtrip mapping")
     void shouldPersistAndRetrieveMediaImageVariantViaAdapter() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         UUID variantId = UUID.randomUUID();
         Instant now = Instant.now();
@@ -148,6 +156,7 @@ class MediaImageVariantPersistenceIntegrationTest {
     @DisplayName("persists and retrieves variant with actual width smaller than targetWidth (proportional resize)")
     void shouldPersistAndRetrieveVariantWithActualWidthSmallerThanTargetWidth() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         UUID variantId = UUID.randomUUID();
         Instant now = Instant.now();
@@ -201,6 +210,7 @@ class MediaImageVariantPersistenceIntegrationTest {
     @DisplayName("enforces UNIQUE(version_id, variant_key) constraint in database")
     void shouldEnforceUniqueVersionAndVariantKeyConstraint() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         Instant now = Instant.now();
 
@@ -254,6 +264,7 @@ class MediaImageVariantPersistenceIntegrationTest {
     @DisplayName("enforces UNIQUE(storage_provider_id, storage_key) constraint in database")
     void shouldEnforceUniqueStorageLocationConstraint() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId1 = UUID.randomUUID();
         UUID versionId2 = UUID.randomUUID();
         Instant now = Instant.now();
@@ -321,6 +332,7 @@ class MediaImageVariantPersistenceIntegrationTest {
     @DisplayName("enforces foreign key ON DELETE RESTRICT from media_asset_versions")
     void shouldEnforceForeignKeyRestrictOnParentVersionDelete() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         Instant now = Instant.now();
 
@@ -360,6 +372,7 @@ class MediaImageVariantPersistenceIntegrationTest {
     @DisplayName("enforces exact, case-sensitive and whitespace-sensitive variant_key lookup in database")
     void shouldEnforceExactCaseSensitiveAndWhitespaceSensitiveVariantKeyLookup() {
         UUID assetId = UUID.randomUUID();
+        createdAssetIds.add(assetId);
         UUID versionId = UUID.randomUUID();
         Instant now = Instant.now();
 

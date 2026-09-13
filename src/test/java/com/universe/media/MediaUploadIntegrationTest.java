@@ -7,6 +7,7 @@ import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.OpenMediaAssetVersionContentUseCase;
+import com.universe.media.application.asset.RasterContentSignatureValidator;
 import com.universe.media.application.asset.RegisterMediaAssetUseCase;
 import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
@@ -48,7 +49,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -97,6 +97,7 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         DeleteMediaAssetUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
+        RasterContentSignatureValidator.class,
         GenerateMediaImageVariantUseCase.class,
         LocalFilesystemStorageAdapter.class,
         MediaFacade.class,
@@ -149,10 +150,12 @@ class MediaUploadIntegrationTest {
     @AfterAll
     static void cleanUpTempStorage() throws IOException {
         if (tempStorageDir != null && Files.exists(tempStorageDir)) {
+            List<Path> paths;
             try (var stream = Files.walk(tempStorageDir)) {
-                stream.sorted(Comparator.reverseOrder())
-                        .map(Path::toFile)
-                        .forEach(File::delete);
+                paths = stream.sorted(Comparator.reverseOrder()).toList();
+            }
+            for (Path path : paths) {
+                Files.deleteIfExists(path);
             }
         }
     }
@@ -161,7 +164,7 @@ class MediaUploadIntegrationTest {
     @DisplayName("End-to-end media upload and version registration through public MediaContract on local MySQL")
     void shouldUploadAssetAndNewVersionSuccessfully() throws Exception {
         // --- 1. Upload Initial Binary Asset ---
-        byte[] initialBytes = "Initial v1 binary content for integration test".getBytes(StandardCharsets.UTF_8);
+        byte[] initialBytes = createWebpSamplePayload("Initial v1 binary content for integration test");
         String initialSha256 = computeSha256(initialBytes);
 
         UploadMediaAssetRequestDTO uploadRequest = new UploadMediaAssetRequestDTO(
@@ -215,7 +218,7 @@ class MediaUploadIntegrationTest {
         }
 
         // --- 7. Upload a second version and verify version number advances ---
-        byte[] v2Bytes = "Updated v2 binary content payload".getBytes(StandardCharsets.UTF_8);
+        byte[] v2Bytes = createWebpSamplePayload("Updated v2 binary content payload");
         String v2Sha256 = computeSha256(v2Bytes);
 
         UploadMediaAssetVersionRequestDTO v2Request = new UploadMediaAssetVersionRequestDTO(
@@ -255,6 +258,21 @@ class MediaUploadIntegrationTest {
             byte[] readV2Bytes = storedV2Stream.readAllBytes();
             assertThat(readV2Bytes).isEqualTo(v2Bytes);
         }
+    }
+
+    private static byte[] createWebpSamplePayload(String text) {
+        byte[] textBytes = text.getBytes(StandardCharsets.UTF_8);
+        byte[] payload = new byte[12 + textBytes.length];
+        payload[0] = 'R';
+        payload[1] = 'I';
+        payload[2] = 'F';
+        payload[3] = 'F';
+        payload[8] = 'W';
+        payload[9] = 'E';
+        payload[10] = 'B';
+        payload[11] = 'P';
+        System.arraycopy(textBytes, 0, payload, 12, textBytes.length);
+        return payload;
     }
 
     private String computeSha256(byte[] data) {
