@@ -1,7 +1,9 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.BookmarkChapterCommand;
 import com.universe.novel.application.reader.BookmarkChapterUseCase;
@@ -9,7 +11,6 @@ import com.universe.novel.application.reader.ListUserBookmarkedChaptersUseCase;
 import com.universe.novel.application.reader.UnbookmarkChapterCommand;
 import com.universe.novel.application.reader.UnbookmarkChapterUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderBookmarkedChapterDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,19 +22,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.ui.Model;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -58,15 +57,6 @@ class ReaderBookmarkControllerTest {
     @Mock
     private ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase;
 
-    @Mock
-    private AuthenticatedEmailResolver authenticatedEmailResolver;
-
-    @Mock
-    private UserIdentityContract userIdentityContract;
-
-    @Mock
-    private Authentication authentication;
-
     private ReaderBookmarkController controller;
 
     @BeforeEach
@@ -74,22 +64,24 @@ class ReaderBookmarkControllerTest {
         controller = new ReaderBookmarkController(
                 bookmarkChapterUseCase,
                 unbookmarkChapterUseCase,
-                listUserBookmarkedChaptersUseCase,
-                authenticatedEmailResolver,
-                userIdentityContract
+                listUserBookmarkedChaptersUseCase
         );
     }
 
-    private UserDTO createTestUser() {
-        return new UserDTO(
-                USER_ID,
-                USER_EMAIL,
-                "Reader User",
-                null,
-                "ACTIVE",
-                "USER",
-                Instant.now()
+    private MockHttpServletRequest authenticatedRequest() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request,
+                new AuthenticatedRequestIdentity(
+                        USER_ID,
+                        USER_EMAIL,
+                        "Reader User",
+                        null,
+                        UserStatus.ACTIVE,
+                        UserRole.USER
+                )
         );
+        return request;
     }
 
     @Nested
@@ -99,9 +91,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 401 Unauthorized for anonymous requests")
         void shouldReturn401WhenAnonymous() {
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
-
-            ResponseEntity<Void> response = controller.bookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.bookmarkChapter(
+                    CHAPTER_ID,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             verifyNoInteractions(bookmarkChapterUseCase);
@@ -110,7 +103,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 400 Bad Request when chapterId is null")
         void shouldReturn400WhenChapterIdNull() {
-            ResponseEntity<Void> response = controller.bookmarkChapter(null, authentication);
+            ResponseEntity<Void> response = controller.bookmarkChapter(
+                    null,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             verifyNoInteractions(bookmarkChapterUseCase);
@@ -119,11 +115,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Bookmarks chapter and returns 204 No Content for authenticated user")
         void shouldBookmarkChapterAndReturn204() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
-            ResponseEntity<Void> response = controller.bookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.bookmarkChapter(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
@@ -138,14 +133,14 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 404 Not Found when chapter is not publicly readable or does not exist")
         void shouldReturn404WhenChapterNotFound() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
             doThrow(new ChapterNotFoundException(CHAPTER_ID))
                     .when(bookmarkChapterUseCase)
                     .execute(any());
 
-            ResponseEntity<Void> response = controller.bookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.bookmarkChapter(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         }
@@ -153,14 +148,14 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 409 Conflict when user reaches bookmark limit (100 bookmarks)")
         void shouldReturn409WhenBookmarkLimitExceeded() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
             doThrow(new com.universe.novel.application.exceptions.BookmarkLimitExceededException(USER_ID, 100))
                     .when(bookmarkChapterUseCase)
                     .execute(any());
 
-            ResponseEntity<Void> response = controller.bookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.bookmarkChapter(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         }
@@ -173,9 +168,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 401 Unauthorized for anonymous requests")
         void shouldReturn401WhenAnonymous() {
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
-
-            ResponseEntity<Void> response = controller.unbookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.unbookmarkChapter(
+                    CHAPTER_ID,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
             verifyNoInteractions(unbookmarkChapterUseCase);
@@ -184,7 +180,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Returns 400 Bad Request when chapterId is null")
         void shouldReturn400WhenChapterIdNull() {
-            ResponseEntity<Void> response = controller.unbookmarkChapter(null, authentication);
+            ResponseEntity<Void> response = controller.unbookmarkChapter(
+                    null,
+                    new MockHttpServletRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             verifyNoInteractions(unbookmarkChapterUseCase);
@@ -193,11 +192,10 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Unbookmarks chapter and returns 204 No Content for authenticated user")
         void shouldUnbookmarkChapterAndReturn204() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
-            ResponseEntity<Void> response = controller.unbookmarkChapter(CHAPTER_ID, authentication);
+            ResponseEntity<Void> response = controller.unbookmarkChapter(
+                    CHAPTER_ID,
+                    authenticatedRequest()
+            );
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
@@ -217,10 +215,11 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Redirects to /login when unauthenticated")
         void shouldRedirectToLoginWhenAnonymous() {
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.empty());
-
             Model model = new ConcurrentModel();
-            String view = controller.bookmarksPage(authentication, model);
+            String view = controller.bookmarksPage(
+                    new MockHttpServletRequest(),
+                    model
+            );
 
             assertThat(view).isEqualTo("redirect:/login");
             verifyNoInteractions(listUserBookmarkedChaptersUseCase);
@@ -229,10 +228,6 @@ class ReaderBookmarkControllerTest {
         @Test
         @DisplayName("Renders bookmarks list page for authenticated reader")
         void shouldRenderBookmarksListPage() {
-            UserDTO user = createTestUser();
-            when(authenticatedEmailResolver.resolve(authentication)).thenReturn(Optional.of(USER_EMAIL));
-            when(userIdentityContract.findByEmail(USER_EMAIL)).thenReturn(Optional.of(user));
-
             List<ReaderBookmarkedChapterDTO> list = List.of(
                     new ReaderBookmarkedChapterDTO(
                             CHAPTER_ID,
@@ -246,7 +241,7 @@ class ReaderBookmarkControllerTest {
             when(listUserBookmarkedChaptersUseCase.execute(USER_ID)).thenReturn(list);
 
             Model model = new ConcurrentModel();
-            String view = controller.bookmarksPage(authentication, model);
+            String view = controller.bookmarksPage(authenticatedRequest(), model);
 
             assertThat(view).isEqualTo("novel/reader/bookmarks");
             assertThat(model.getAttribute("bookmarks")).isSameAs(list);

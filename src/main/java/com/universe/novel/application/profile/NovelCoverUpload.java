@@ -1,8 +1,11 @@
 package com.universe.novel.application.profile;
 
+import java.io.InputStream;
+
 public record NovelCoverUpload(
-        String originalFilename,
+        InputStream content,
+        long sizeBytes,
         String contentType,
-        byte[] content
+        String originalFilename
 ) {
 }

@@ -19,6 +19,21 @@ public interface SpringDataUserJpaRepository
 
     Optional<UserJpaEntity> findByEmail(String email);
 
+    @Query("""
+            SELECT
+                user.id AS userId,
+                user.email AS normalizedEmail,
+                user.displayName AS displayName,
+                user.avatarUrl AS avatarUrl,
+                user.status AS status,
+                user.role AS role
+            FROM UserJpaEntity user
+            WHERE user.email = :normalizedEmail
+            """)
+    Optional<AuthenticatedRequestIdentityProjection> findRequestIdentityByEmail(
+            @Param("normalizedEmail") String normalizedEmail
+    );
+
     Optional<UserJpaEntity>
     findByAuthProviderAndProviderSubject(
             String authProvider,

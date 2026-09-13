@@ -38,6 +38,9 @@ public class UserJpaEntity {
 	@Column(name = "avatar_url", length = 1000)
 	private String avatarUrl;
 
+	@Column(name = "avatar_media_asset_id", length = 36, columnDefinition = "CHAR(36)")
+	private String avatarMediaAssetId;
+
 	@Column(name = "avatar_customized", nullable = false)
 	private boolean avatarCustomized;
 
@@ -120,6 +123,14 @@ public class UserJpaEntity {
 
 	public String getAvatarUrl() {
 		return avatarUrl;
+	}
+
+	public String getAvatarMediaAssetId() {
+		return avatarMediaAssetId;
+	}
+
+	public void setAvatarMediaAssetId(String avatarMediaAssetId) {
+		this.avatarMediaAssetId = avatarMediaAssetId;
 	}
 
 	public boolean isAvatarCustomized() {

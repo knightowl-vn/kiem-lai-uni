@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quản lý giọng đọc | Kiếm Lai Universe</title>
+<link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+<link rel="stylesheet" th:href="@{/css/novel/admin.css}">
+</head>
+
+<body>
+	<div class="admin-layout">
+
+		<div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+		<main class="admin-main">
+
+			<div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+			<section class="dashboard-content">
+
+				<div th:replace="~{admin/novel/fragments/navigation :: subnav(${activeSubMenu != null ? activeSubMenu : 'voices'})}"></div>
+
+				<div th:if="${successMessage != null}"
+					class="novel-admin-success-message" th:text="${successMessage}">
+					Thao tác thành công.
+				</div>
+
+				<div th:if="${errorMessage != null}"
+					class="novel-admin-form-error" th:text="${errorMessage}">
+					Không thể thực hiện thao tác.
+				</div>
+
+				<div class="novel-admin-heading">
+					<div>
+						<span class="novel-admin-eyebrow">NOVEL MODULE</span>
+						<h2>Quản lý giọng đọc</h2>
+						<p>Cấu hình danh mục giọng đọc KiemLai và liên kết với TTS Provider.</p>
+					</div>
+
+					<a th:href="@{/admin/novel/narration/voices/new}"
+						class="novel-admin-primary-button">+ Thêm giọng đọc</a>
+				</div>
+
+				<section class="novel-admin-filter-panel">
+					<form method="get" th:action="@{/admin/novel/narration/voices}"
+						class="novel-admin-filter-form">
+
+						<div class="novel-admin-field keyword-field">
+							<label for="novelAdminVoiceKeyword">Tìm kiếm</label>
+							<input id="novelAdminVoiceKeyword" type="search" name="keyword"
+								placeholder="Tên, Voice Key hoặc Provider ID..." th:value="${keyword}">
+						</div>
+
+						<div class="novel-admin-field">
+							<label for="novelAdminVoiceStatus">Trạng thái</label>
+							<select id="novelAdminVoiceStatus" name="status">
+								<option value="">Tất cả</option>
+								<option value="ACTIVE" th:selected="${selectedStatus == 'ACTIVE'}">ACTIVE</option>
+								<option value="DISABLED" th:selected="${selectedStatus == 'DISABLED'}">DISABLED</option>
+							</select>
+						</div>
+
+						<div class="novel-admin-filter-actions">
+							<button type="submit" class="novel-admin-secondary-button">Lọc</button>
+							<a th:href="@{/admin/novel/narration/voices}"
+								class="novel-admin-reset-link">Đặt lại</a>
+						</div>
+					</form>
+				</section>
+
+				<div class="novel-admin-result-summary">
+					<span th:text="|Tổng cộng: ${#lists.size(voices)} giọng đọc|">Tổng cộng: 0 giọng đọc</span>
+				</div>
+
+				<section class="novel-admin-table-panel">
+
+					<div th:if="${#lists.isEmpty(voices)}" class="novel-admin-empty-state">
+						<div class="novel-admin-empty-state-icon">🎙</div>
+						<h3>Chưa có giọng đọc nào</h3>
+						<p>Chưa có giọng đọc nào phù hợp với bộ lọc hiện tại.</p>
+					</div>
+
+					<div th:unless="${#lists.isEmpty(voices)}" class="novel-admin-table-container">
+						<table class="novel-admin-table">
+							<thead>
+								<tr>
+									<th>Thứ tự</th>
+									<th>Tên giọng đọc</th>
+									<th>Provider Voice ID</th>
+									<th>Trạng thái</th>
+									<th>Mặc định</th>
+									<th>Revision</th>
+									<th>Cập nhật</th>
+									<th class="novel-admin-actions-cell">Thao tác</th>
+								</tr>
+							</thead>
+
+							<tbody>
+								<tr th:each="voice : ${voices}">
+									<td class="novel-admin-order-cell">
+										<span class="novel-admin-order-badge" th:text="${voice.displayOrder}">0</span>
+									</td>
+
+									<td class="novel-admin-volume-cell">
+										<a class="novel-admin-volume-link"
+											th:href="@{/admin/novel/narration/voices/{id}/edit(id=${voice.id})}">
+											<strong th:text="${voice.displayName}">Anh Khôi</strong>
+											<span th:text="${voice.voiceKey}">kiemlai-male-north-01</span>
+										</a>
+									</td>
+
+									<td>
+										<code th:text="${voice.providerVoiceId}">vi-VN-1</code>
+									</td>
+
+									<td>
+										<span class="novel-admin-status-badge"
+											th:classappend="${voice.status == 'ACTIVE'} ? ' is-active' : ' is-disabled'"
+											th:text="${voice.status}">ACTIVE</span>
+									</td>
+
+									<td>
+										<span th:if="${voice.defaultVoice}" class="novel-admin-badge-default">Mặc định</span>
+										<span th:unless="${voice.defaultVoice}" class="novel-admin-muted">—</span>
+									</td>
+
+									<td>
+										<span th:text="|v${voice.synthesisRevision}|">v1</span>
+									</td>
+
+									<td class="novel-admin-updated-cell">
+										<span th:if="${voice.updatedAt != null}"
+											th:text="${#temporals.format(voice.updatedAt, 'dd/MM/yyyy HH:mm')}">19/08/2026 18:00</span>
+										<span th:unless="${voice.updatedAt != null}" class="novel-admin-muted">—</span>
+									</td>
+
+									<td class="novel-admin-actions-cell">
+										<details class="novel-admin-detail-action-menu novel-admin-list-action-menu">
+											<summary class="novel-admin-detail-action-trigger"
+												data-bs-boundary="window"
+												data-bs-popper-config='{"strategy":"fixed"}'>
+												<span>Thao tác</span>
+												<span class="novel-admin-detail-action-chevron" aria-hidden="true">▾</span>
+											</summary>
+
+											<div class="novel-admin-detail-action-dropdown novel-admin-volume-action-dropdown">
+												<!-- 1. Chỉnh sửa -->
+												<a class="novel-admin-detail-action-item"
+													th:href="@{/admin/novel/narration/voices/{id}/edit(id=${voice.id})}">
+													<span class="novel-admin-detail-action-icon" aria-hidden="true">✎</span>
+													<span>Chỉnh sửa</span>
+												</a>
+
+												<div class="novel-admin-detail-action-separator"></div>
+
+												<!-- 2. Kích hoạt (nếu DISABLED) -->
+												<form th:if="${voice.status == 'DISABLED'}" method="post"
+													th:action="@{/admin/novel/narration/voices/{id}/activate(id=${voice.id})}">
+													<button type="submit" class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon" aria-hidden="true">✓</span>
+														<span>Kích hoạt</span>
+													</button>
+												</form>
+
+												<!-- 3. Vô hiệu hóa (nếu ACTIVE và không phải mặc định) -->
+												<form th:if="${voice.status == 'ACTIVE' and !voice.defaultVoice}" method="post"
+													th:action="@{/admin/novel/narration/voices/{id}/disable(id=${voice.id})}"
+													data-novel-confirm="Vô hiệu hóa giọng đọc này? Giọng đọc sẽ không thể sử dụng cho thuyết minh mới.">
+													<button type="submit" class="novel-admin-detail-action-item is-warning">
+														<span class="novel-admin-detail-action-icon" aria-hidden="true">⊘</span>
+														<span>Vô hiệu hóa</span>
+													</button>
+												</form>
+
+												<!-- 4. Đặt làm mặc định (nếu ACTIVE và chưa là mặc định) -->
+												<form th:if="${voice.status == 'ACTIVE' and !voice.defaultVoice}" method="post"
+													th:action="@{/admin/novel/narration/voices/{id}/default(id=${voice.id})}"
+													data-novel-confirm="Đặt giọng đọc này làm mặc định cho toàn hệ thống? Giọng đọc mặc định cũ sẽ bị hủy đánh dấu.">
+													<button type="submit" class="novel-admin-detail-action-item is-positive">
+														<span class="novel-admin-detail-action-icon" aria-hidden="true">★</span>
+														<span>Đặt mặc định</span>
+													</button>
+												</form>
+											</div>
+										</details>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</section>
+			</section>
+		</main>
+	</div>
+
+	<script th:src="@{/js/novel/admin-list-menus.js}"></script>
+</body>
+</html>

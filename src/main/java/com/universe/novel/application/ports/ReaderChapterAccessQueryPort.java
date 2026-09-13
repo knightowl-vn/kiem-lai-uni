@@ -9,9 +9,19 @@ public interface ReaderChapterAccessQueryPort {
             UUID chapterId
     );
 
+    Optional<ReadableNarrationChapterReference> findPublishedNarrationById(
+            UUID chapterId
+    );
+
     record ReadableChapterReference(
             UUID chapterId,
             int chapterNumber
+    ) {
+    }
+
+    record ReadableNarrationChapterReference(
+            UUID chapterId,
+            long contentVersion
     ) {
     }
 }

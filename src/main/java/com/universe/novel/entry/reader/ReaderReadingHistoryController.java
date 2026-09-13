@@ -1,16 +1,15 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.ListUserReadingHistoryUseCase;
 import com.universe.novel.application.reader.RecordReadingHistoryCommand;
 import com.universe.novel.application.reader.RecordReadingHistoryUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderReadingHistoryDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,14 +29,10 @@ public class ReaderReadingHistoryController {
 
     private final RecordReadingHistoryUseCase recordReadingHistoryUseCase;
     private final ListUserReadingHistoryUseCase listUserReadingHistoryUseCase;
-    private final AuthenticatedEmailResolver authenticatedEmailResolver;
-    private final UserIdentityContract userIdentityContract;
 
     public ReaderReadingHistoryController(
             RecordReadingHistoryUseCase recordReadingHistoryUseCase,
-            ListUserReadingHistoryUseCase listUserReadingHistoryUseCase,
-            AuthenticatedEmailResolver authenticatedEmailResolver,
-            UserIdentityContract userIdentityContract
+            ListUserReadingHistoryUseCase listUserReadingHistoryUseCase
     ) {
         this.recordReadingHistoryUseCase = Objects.requireNonNull(
                 recordReadingHistoryUseCase,
@@ -47,35 +42,28 @@ public class ReaderReadingHistoryController {
                 listUserReadingHistoryUseCase,
                 "ListUserReadingHistoryUseCase không được để trống."
         );
-        this.authenticatedEmailResolver = Objects.requireNonNull(
-                authenticatedEmailResolver,
-                "AuthenticatedEmailResolver không được để trống."
-        );
-        this.userIdentityContract = Objects.requireNonNull(
-                userIdentityContract,
-                "UserIdentityContract không được để trống."
-        );
     }
 
     @PostMapping("/chapters/{chapterId}/history")
     @ResponseBody
     public ResponseEntity<Void> recordHistory(
             @PathVariable UUID chapterId,
-            Authentication authentication
+            HttpServletRequest request
     ) {
         if (chapterId == null) {
             return ResponseEntity.badRequest().build();
         }
 
-        Optional<UserDTO> userOpt = resolveUser(authentication);
-        if (userOpt.isEmpty()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
         try {
             recordReadingHistoryUseCase.execute(
                     new RecordReadingHistoryCommand(
-                            userOpt.get().id(),
+                            identityOptional.get().userId(),
                             chapterId
                     )
             );
@@ -87,25 +75,23 @@ public class ReaderReadingHistoryController {
 
     @GetMapping("/history")
     public String historyPage(
-            Authentication authentication,
+            HttpServletRequest request,
             Model model
     ) {
-        Optional<UserDTO> userOpt = resolveUser(authentication);
-        if (userOpt.isEmpty()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isEmpty()) {
             return "redirect:/login";
         }
 
         List<ReaderReadingHistoryDTO> history =
-                listUserReadingHistoryUseCase.execute(userOpt.get().id());
+                listUserReadingHistoryUseCase.execute(
+                        identityOptional.get().userId()
+                );
 
         model.addAttribute("historyList", history);
         model.addAttribute("pageTitle", "Lịch sử đọc");
 
         return "novel/reader/history";
-    }
-
-    private Optional<UserDTO> resolveUser(Authentication authentication) {
-        return authenticatedEmailResolver.resolve(authentication)
-                .flatMap(userIdentityContract::findByEmail);
     }
 }

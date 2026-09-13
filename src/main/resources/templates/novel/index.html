@@ -40,14 +40,16 @@
         <div class="novel-reader-cover">
 
             <img
-                th:if="${novel.coverImageUrl != null
-                        and !#strings.isEmpty(novel.coverImageUrl)}"
-                th:src="${novel.coverImageUrl}"
-                th:alt="${'Bìa tiểu thuyết ' + novel.title}">
+                th:if="${novel.displayCoverImageUrl != null
+                        and !#strings.isEmpty(novel.displayCoverImageUrl)}"
+                th:src="${novel.displayCoverImageUrl}"
+                th:alt="${'Bìa tiểu thuyết ' + novel.title}"
+                th:attr="data-fallback-url=${novel.fallbackCoverImageUrl}"
+                onerror="if (this.getAttribute('data-fallback-url')) { this.src = this.getAttribute('data-fallback-url'); this.removeAttribute('data-fallback-url'); }">
 
             <div
-                th:unless="${novel.coverImageUrl != null
-                        and !#strings.isEmpty(novel.coverImageUrl)}"
+                th:unless="${novel.displayCoverImageUrl != null
+                        and !#strings.isEmpty(novel.displayCoverImageUrl)}"
                 class="novel-reader-cover-placeholder">
 
                 <span th:text="${novel.title}">

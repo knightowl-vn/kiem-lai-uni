@@ -1,0 +1,66 @@
+package com.universe.media.infrastructure.maintenance;
+
+import com.universe.media.application.asset.PurgeExpiredDeletedMediaAssetsCommand;
+import com.universe.media.application.asset.PurgeExpiredDeletedMediaAssetsResult;
+import com.universe.media.application.asset.PurgeExpiredDeletedMediaAssetsUseCase;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class MediaDeletedAssetSweeperSchedulerTest {
+
+    @Mock
+    private PurgeExpiredDeletedMediaAssetsUseCase sweeperUseCase;
+
+    @Test
+    @DisplayName("invokes sweeper use case with configured batch size on schedule trigger")
+    void shouldInvokeSweeperUseCaseWithConfiguredBatchSize() {
+        MediaDeletedAssetSweeperScheduler scheduler =
+                new MediaDeletedAssetSweeperScheduler(sweeperUseCase, 30);
+
+        when(sweeperUseCase.execute(new PurgeExpiredDeletedMediaAssetsCommand(30)))
+                .thenReturn(new PurgeExpiredDeletedMediaAssetsResult(5, 5, 0, Instant.now()));
+
+        scheduler.sweepExpiredDeletedAssets();
+
+        verify(sweeperUseCase).execute(new PurgeExpiredDeletedMediaAssetsCommand(30));
+    }
+
+    @Test
+    @DisplayName("catches and logs batch-level failure without rethrowing to protect the scheduler")
+    void shouldHandleUnexpectedBatchFailureGracefully() {
+        MediaDeletedAssetSweeperScheduler scheduler =
+                new MediaDeletedAssetSweeperScheduler(sweeperUseCase, 50);
+
+        when(sweeperUseCase.execute(any(PurgeExpiredDeletedMediaAssetsCommand.class)))
+                .thenThrow(new RuntimeException("Database connection timeout during batch candidate lookup"));
+
+        assertThatCode(scheduler::sweepExpiredDeletedAssets)
+                .doesNotThrowAnyException();
+
+        verify(sweeperUseCase).execute(new PurgeExpiredDeletedMediaAssetsCommand(50));
+    }
+
+    @Test
+    @DisplayName("rejects zero or negative configured batch size with IllegalArgumentException")
+    void shouldRejectZeroOrNegativeConfiguredBatchSize() {
+        assertThatThrownBy(() -> new MediaDeletedAssetSweeperScheduler(sweeperUseCase, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Batch size must be greater than 0");
+
+        assertThatThrownBy(() -> new MediaDeletedAssetSweeperScheduler(sweeperUseCase, -10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Batch size must be greater than 0");
+    }
+}

@@ -145,6 +145,8 @@ public final class TestDatabaseSupport {
         registry.add("spring.datasource.username", () -> user);
         registry.add("spring.datasource.password", () -> password);
         registry.add("spring.datasource.driver-class-name", () -> DRIVER_CLASS_NAME);
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> 4);
+        registry.add("spring.datasource.hikari.minimum-idle", () -> 1);
     }
 
     public static javax.sql.DataSource createTestDataSource(String dbName) {

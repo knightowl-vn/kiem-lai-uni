@@ -83,12 +83,17 @@ public class ReaderNovelLandingQueryPersistenceAdapter
     private ReaderNovelOverviewDTO toNovelOverviewDTO(
             NovelProfileJpaEntity entity
     ) {
+        UUID coverMediaAssetId = entity.getCoverMediaAssetId() != null
+                ? UUID.fromString(entity.getCoverMediaAssetId())
+                : null;
+
         return new ReaderNovelOverviewDTO(
                 entity.getTitle(),
                 entity.getSlug(),
                 entity.getAuthor(),
                 entity.getDescription(),
                 entity.getCoverImageUrl(),
+                coverMediaAssetId,
                 entity.getStatus()
         );
     }

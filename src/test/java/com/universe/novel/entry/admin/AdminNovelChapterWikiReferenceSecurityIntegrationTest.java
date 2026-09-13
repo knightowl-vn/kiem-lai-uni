@@ -74,7 +74,10 @@ class AdminNovelChapterWikiReferenceSecurityIntegrationTest {
 
         @Bean
         public AccountStatusFilter accountStatusFilter(SpringDataUserJpaRepository userRepository) {
-            return new AccountStatusFilter(userRepository);
+            return new AccountStatusFilter(
+                    com.universe.identity.infrastructure.security.AccountStatusFilterTestSupport
+                            .queryPort(userRepository)
+            );
         }
     }
 

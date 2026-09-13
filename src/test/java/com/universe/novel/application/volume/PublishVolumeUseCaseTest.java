@@ -2,6 +2,7 @@ package com.universe.novel.application.volume;
 
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.domain.Slug;
 import com.universe.novel.domain.Volume;
@@ -61,6 +62,10 @@ class PublishVolumeUseCaseTest {
     private ClockPort
             clockPort;
 
+    @Mock
+    private PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
     private PublishVolumeUseCase
             useCase;
 
@@ -69,7 +74,8 @@ class PublishVolumeUseCaseTest {
         useCase =
                 new PublishVolumeUseCase(
                         volumeRepositoryPort,
-                        clockPort
+                        clockPort,
+                        publicNovelLandingInvalidationCoordinator
                 );
     }
 
@@ -181,6 +187,8 @@ class PublishVolumeUseCaseTest {
                 volume,
                 1L
         );
+
+        verify(publicNovelLandingInvalidationCoordinator).invalidateAfterCommit();
     }
 
     @Test
@@ -225,6 +233,11 @@ class PublishVolumeUseCaseTest {
                 any(Volume.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test
@@ -296,6 +309,11 @@ class PublishVolumeUseCaseTest {
                 any(Volume.class),
                 anyLong()
         );
+
+        verify(
+                publicNovelLandingInvalidationCoordinator,
+                never()
+        ).invalidateAfterCommit();
     }
 
     @Test

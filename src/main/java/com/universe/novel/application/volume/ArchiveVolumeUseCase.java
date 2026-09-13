@@ -3,6 +3,7 @@ package com.universe.novel.application.volume;
 import com.universe.novel.application.exceptions.VolumeHasPublishedChaptersException;
 import com.universe.novel.application.exceptions.VolumeNotFoundException;
 import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.reader.PublicNovelLandingInvalidationCoordinator;
 import com.universe.novel.application.ports.VolumeRepositoryPort;
 import com.universe.novel.contracts.dto.VolumeDTO;
 import com.universe.novel.domain.Volume;
@@ -27,10 +28,14 @@ public class ArchiveVolumeUseCase {
     private final ClockPort
             clockPort;
 
+    private final PublicNovelLandingInvalidationCoordinator
+            publicNovelLandingInvalidationCoordinator;
+
     public ArchiveVolumeUseCase(
             VolumeRepositoryPort volumeRepositoryPort,
             ChapterRepositoryPort chapterRepositoryPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            PublicNovelLandingInvalidationCoordinator publicNovelLandingInvalidationCoordinator
     ) {
         this.volumeRepositoryPort =
                 volumeRepositoryPort;
@@ -40,6 +45,9 @@ public class ArchiveVolumeUseCase {
 
         this.clockPort =
                 clockPort;
+
+        this.publicNovelLandingInvalidationCoordinator =
+                publicNovelLandingInvalidationCoordinator;
     }
 
     @Transactional
@@ -78,6 +86,9 @@ public class ArchiveVolumeUseCase {
         long expectedVersion =
                 volume.getAggregateVersion();
 
+        boolean wasPublished =
+                volume.getStatus() == com.universe.novel.domain.VolumeStatus.PUBLISHED;
+
         Instant now =
                 clockPort.now();
 
@@ -91,6 +102,10 @@ public class ArchiveVolumeUseCase {
                         volume,
                         expectedVersion
                 );
+
+        if (wasPublished) {
+            publicNovelLandingInvalidationCoordinator.invalidateAfterCommit();
+        }
 
         return VolumeDTOMapper.toDTO(
                 savedVolume

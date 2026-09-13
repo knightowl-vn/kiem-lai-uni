@@ -29,6 +29,7 @@ public class User {
 
     private String passwordHash;
     private String displayName;
+    private UUID avatarMediaAssetId;
     private String avatarUrl;
     private boolean avatarCustomized;
     private String bio;
@@ -89,6 +90,7 @@ public class User {
         this.displayName =
                 normalizeDisplayName(displayName);
 
+        this.avatarMediaAssetId = null;
         this.avatarUrl = null;
         this.avatarCustomized = false;
         this.bio = null;
@@ -120,6 +122,7 @@ public class User {
             Email email,
             String passwordHash,
             String displayName,
+            UUID avatarMediaAssetId,
             String avatarUrl,
             boolean avatarCustomized,
             String bio,
@@ -153,6 +156,9 @@ public class User {
 
         this.displayName =
                 normalizeDisplayName(displayName);
+
+        this.avatarMediaAssetId =
+                avatarMediaAssetId;
 
         this.avatarUrl =
                 normalizeNullableAvatarUrl(
@@ -258,6 +264,7 @@ public class User {
                         email,
                         null,
                         displayName,
+                        null,
                         avatarUrl,
                         false,
                         null,
@@ -284,6 +291,7 @@ public class User {
             String email,
             String passwordHash,
             String displayName,
+            UUID avatarMediaAssetId,
             String avatarUrl,
             boolean avatarCustomized,
             String bio,
@@ -299,6 +307,7 @@ public class User {
                 new Email(email),
                 passwordHash,
                 displayName,
+                avatarMediaAssetId,
                 avatarUrl,
                 avatarCustomized,
                 bio,
@@ -362,10 +371,55 @@ public class User {
     }
 
     /**
-     * Cập nhật URL ảnh đại diện.
+     * Cập nhật ảnh đại diện quản lý qua Media Platform.
      *
-     * Truyền null hoặc chuỗi trắng
-     * sẽ đưa avatar về null.
+     * Yêu cầu mediaAssetId khác null và avatarUrl hợp lệ không rỗng.
+     * Đánh dấu avatarCustomized = true.
+     * Chỉ tăng aggregateVersion khi có thay đổi trạng thái thực tế.
+     */
+    public void updateMediaAvatar(
+            UUID mediaAssetId,
+            String newAvatarUrl
+    ) {
+        Objects.requireNonNull(
+                mediaAssetId,
+                "Media asset ID không được để trống."
+        );
+
+        if (newAvatarUrl == null || newAvatarUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "URL ảnh đại diện không được để trống."
+            );
+        }
+
+        String normalizedAvatarUrl =
+                newAvatarUrl.trim();
+
+        boolean mediaIdChanged =
+                !Objects.equals(this.avatarMediaAssetId, mediaAssetId);
+
+        boolean urlChanged =
+                !Objects.equals(this.avatarUrl, normalizedAvatarUrl);
+
+        boolean customizationChanged =
+                !this.avatarCustomized;
+
+        if (!mediaIdChanged && !urlChanged && !customizationChanged) {
+            return;
+        }
+
+        this.avatarMediaAssetId = mediaAssetId;
+        this.avatarUrl = normalizedAvatarUrl;
+        this.avatarCustomized = true;
+
+        increaseAggregateVersion();
+    }
+
+    /**
+     * Cập nhật URL ảnh đại diện (URL-only legacy hoặc external).
+     *
+     * Xóa tham chiếu avatarMediaAssetId về null.
+     * Truyền null hoặc chuỗi trắng sẽ đưa avatar về null.
      */
     public void updateAvatarUrl(
             String newAvatarUrl
@@ -374,6 +428,9 @@ public class User {
                 normalizeNullableAvatarUrl(
                         newAvatarUrl
                 );
+
+        boolean mediaIdChanged =
+                this.avatarMediaAssetId != null;
 
         boolean avatarChanged =
                 !Objects.equals(
@@ -384,11 +441,13 @@ public class User {
         boolean customizationChanged =
                 !this.avatarCustomized;
 
-        if (!avatarChanged
+        if (!mediaIdChanged
+                && !avatarChanged
                 && !customizationChanged) {
             return;
         }
 
+        this.avatarMediaAssetId = null;
         this.avatarUrl =
                 normalizedAvatarUrl;
 
@@ -403,28 +462,33 @@ public class User {
     }
 
     /**
-     * Xóa avatar hiện tại.
+     * Xóa avatar hiện tại (cả Media ID và URL).
      */
     public void removeAvatar() {
+        boolean mediaIdChanged =
+                avatarMediaAssetId != null;
+
         boolean avatarChanged =
                 avatarUrl != null;
 
         boolean customizationChanged =
                 !avatarCustomized;
 
-        if (!avatarChanged
+        if (!mediaIdChanged
+                && !avatarChanged
                 && !customizationChanged) {
             return;
         }
 
-        avatarUrl = null;
+        this.avatarMediaAssetId = null;
+        this.avatarUrl = null;
 
         /*
          * User đã chủ động xóa avatar.
          * Vì vậy lần đăng nhập Google sau
          * không được tự khôi phục ảnh Google.
          */
-        avatarCustomized = true;
+        this.avatarCustomized = true;
 
         increaseAggregateVersion();
     }
@@ -565,6 +629,7 @@ public class User {
                 && oauthAvatarUrl != null
                 && !oauthAvatarUrl.isBlank()) {
 
+            this.avatarMediaAssetId = null;
             this.avatarUrl =
                     normalizeNullableAvatarUrl(
                             oauthAvatarUrl
@@ -868,6 +933,10 @@ public class User {
 
     public String getDisplayName() {
         return displayName;
+    }
+
+    public UUID getAvatarMediaAssetId() {
+        return avatarMediaAssetId;
     }
 
     public String getAvatarUrl() {

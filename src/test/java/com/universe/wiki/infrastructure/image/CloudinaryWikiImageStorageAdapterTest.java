@@ -3,6 +3,8 @@ package com.universe.wiki.infrastructure.image;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.Uploader;
 
+import com.universe.wiki.application.ports.LegacyWikiImageStoragePort;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,11 +17,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions
+        .assertThat;
+import static org.assertj.core.api.Assertions
         .assertThatCode;
+import static org.assertj.core.api.Assertions
+        .assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers
         .anyMap;
 
+import static org.mockito.Mockito
+        .lenient;
 import static org.mockito.Mockito
         .verify;
 
@@ -45,7 +53,7 @@ class CloudinaryWikiImageStorageAdapterTest {
     @BeforeEach
     void setUp() {
 
-        when(
+        lenient().when(
                 cloudinary.uploader()
         ).thenReturn(
                 uploader
@@ -132,5 +140,20 @@ class CloudinaryWikiImageStorageAdapterTest {
                                 publicId
                         )
         ).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("adapter implements LegacyWikiImageStoragePort")
+    void shouldImplementLegacyWikiImageStoragePort() {
+        assertThat(adapter).isInstanceOf(LegacyWikiImageStoragePort.class);
+    }
+
+    @Test
+    @DisplayName("rejects null or blank publicId")
+    void shouldRejectNullOrBlankPublicId() {
+        assertThatThrownBy(() -> adapter.delete(null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> adapter.delete("   "))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -35,6 +35,18 @@ class ReaderNovelTemplateContractTest {
     }
 
     @Test
+    @DisplayName("Novel reader landing page (index.html) định nghĩa hero cover với th:src novel.displayCoverImageUrl, data-fallback-url và placeholder")
+    void landingPageIncludesCoverRenderingContract() throws Exception {
+        String index = read("src/main/resources/templates/novel/index.html");
+
+        assertThat(index).contains("class=\"novel-reader-cover\"");
+        assertThat(index).contains("novel.displayCoverImageUrl != null");
+        assertThat(index).contains("th:src=\"${novel.displayCoverImageUrl}\"");
+        assertThat(index).contains("data-fallback-url");
+        assertThat(index).contains("class=\"novel-reader-cover-placeholder\"");
+    }
+
+    @Test
     @DisplayName("Novel chapter list fragment (chapter-list.html) định nghĩa fragment chapterList và liên kết chapter slug")
     void chapterListFragmentDefinesExpectedStructure() throws Exception {
         String fragment = read("src/main/resources/templates/novel/chapter-list.html");

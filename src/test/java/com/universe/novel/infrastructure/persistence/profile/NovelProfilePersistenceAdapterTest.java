@@ -46,14 +46,15 @@ class NovelProfilePersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("findBySlug ánh xạ NovelProfileJpaEntity sang NovelProfileDTO chính xác")
-    void shouldFindAndMapEntityToDTO() {
+    @DisplayName("findBySlug ánh xạ NovelProfileJpaEntity sang NovelProfileDTO chính xác với coverMediaAssetId là null (legacy profile)")
+    void shouldFindAndMapLegacyEntityToDTO() {
         NovelProfileJpaEntity entity = createEntity(
                 "Kiếm Lai",
                 "kiem-lai",
                 "Phong Hỏa Hí Chư Hầu",
                 "Mô tả Kiếm Lai",
                 "https://example.com/cover.jpg",
+                null,
                 "ONGOING"
         );
 
@@ -71,6 +72,7 @@ class NovelProfilePersistenceAdapterTest {
         assertThat(dto.author()).isEqualTo("Phong Hỏa Hí Chư Hầu");
         assertThat(dto.description()).isEqualTo("Mô tả Kiếm Lai");
         assertThat(dto.coverImageUrl()).isEqualTo("https://example.com/cover.jpg");
+        assertThat(dto.coverMediaAssetId()).isNull();
         assertThat(dto.status()).isEqualTo("ONGOING");
         assertThat(dto.createdAt()).isEqualTo(CREATED_AT);
         assertThat(dto.updatedAt()).isEqualTo(CREATED_AT);
@@ -79,13 +81,45 @@ class NovelProfilePersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("update cập nhật các trường được phép và lưu lại NovelProfileJpaEntity")
-    void shouldUpdateEntityAndSave() {
+    @DisplayName("findBySlug ánh xạ NovelProfileJpaEntity với coverMediaAssetId trả về raw coverImageUrl và coverMediaAssetId")
+    void shouldFindAndMapEntityWithCoverMediaAssetIdToDTO() {
+        UUID mediaAssetId = UUID.randomUUID();
+        NovelProfileJpaEntity entity = createEntity(
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa Hí Chư Hầu",
+                "Mô tả Kiếm Lai",
+                "https://example.com/cover.jpg",
+                mediaAssetId.toString(),
+                "ONGOING"
+        );
+
+        when(novelProfileRepository.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(entity));
+
+        Optional<NovelProfileDTO> result =
+                adapter.findBySlug("kiem-lai");
+
+        assertThat(result).isPresent();
+        NovelProfileDTO dto = result.get();
+        assertThat(dto.id()).isEqualTo(UUID.fromString(PROFILE_ID_STR));
+        assertThat(dto.coverImageUrl()).isEqualTo("https://example.com/cover.jpg");
+        assertThat(dto.coverMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(dto.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
+
+        verify(novelProfileRepository).findBySlug("kiem-lai");
+    }
+
+    @Test
+    @DisplayName("update với coverMediaAssetId cập nhật các trường và trả về raw coverImageUrl")
+    void shouldUpdateEntityWithCoverMediaAssetIdAndSave() {
+        UUID mediaAssetId = UUID.randomUUID();
         NovelProfileJpaEntity entity = createEntity(
                 "Kiếm Lai",
                 "kiem-lai",
                 "Phong Hỏa",
                 "Mô tả cũ",
+                null,
                 null,
                 "ONGOING"
         );
@@ -101,6 +135,7 @@ class NovelProfilePersistenceAdapterTest {
                 "Tác giả Mới",
                 "Mô tả Mới",
                 "https://example.com/cover2.jpg",
+                mediaAssetId,
                 "COMPLETED",
                 UPDATED_AT
         );
@@ -109,13 +144,92 @@ class NovelProfilePersistenceAdapterTest {
         assertThat(updatedDTO.author()).isEqualTo("Tác giả Mới");
         assertThat(updatedDTO.description()).isEqualTo("Mô tả Mới");
         assertThat(updatedDTO.coverImageUrl()).isEqualTo("https://example.com/cover2.jpg");
+        assertThat(updatedDTO.coverMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/variants/w300");
         assertThat(updatedDTO.status()).isEqualTo("COMPLETED");
         assertThat(updatedDTO.updatedAt()).isEqualTo(UPDATED_AT);
 
-        // Đảm bảo ID, slug và createdAt không bị thay đổi
-        assertThat(updatedDTO.id()).isEqualTo(UUID.fromString(PROFILE_ID_STR));
-        assertThat(updatedDTO.slug()).isEqualTo("kiem-lai");
-        assertThat(updatedDTO.createdAt()).isEqualTo(CREATED_AT);
+        assertThat(entity.getCoverMediaAssetId()).isEqualTo(mediaAssetId.toString());
+
+        verify(novelProfileRepository).findBySlug("kiem-lai");
+        verify(novelProfileRepository).save(entity);
+    }
+
+    @Test
+    @DisplayName("update với legacy signature khi entity có coverMediaAssetId bảo toàn coverMediaAssetId và raw legacy URL")
+    void shouldPreserveExistingCoverMediaAssetIdWhenUpdatingWithLegacySignature() {
+        UUID existingMediaAssetId = UUID.randomUUID();
+        NovelProfileJpaEntity entity = createEntity(
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                "https://example.com/old-cover.jpg",
+                existingMediaAssetId.toString(),
+                "ONGOING"
+        );
+
+        when(novelProfileRepository.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(entity));
+        when(novelProfileRepository.save(any(NovelProfileJpaEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        NovelProfileDTO updatedDTO = adapter.update(
+                "kiem-lai",
+                "Kiếm Lai Mới",
+                "Tác giả Mới",
+                "Mô tả Mới",
+                "https://example.com/new-cover.jpg",
+                "COMPLETED",
+                UPDATED_AT
+        );
+
+        assertThat(updatedDTO.title()).isEqualTo("Kiếm Lai Mới");
+        assertThat(updatedDTO.author()).isEqualTo("Tác giả Mới");
+        assertThat(updatedDTO.description()).isEqualTo("Mô tả Mới");
+        assertThat(updatedDTO.coverImageUrl()).isEqualTo("https://example.com/new-cover.jpg");
+        assertThat(updatedDTO.coverMediaAssetId()).isEqualTo(existingMediaAssetId);
+        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("/media/assets/" + existingMediaAssetId + "/variants/w300");
+        assertThat(updatedDTO.status()).isEqualTo("COMPLETED");
+        assertThat(updatedDTO.updatedAt()).isEqualTo(UPDATED_AT);
+
+        assertThat(entity.getCoverMediaAssetId()).isEqualTo(existingMediaAssetId.toString());
+
+        verify(novelProfileRepository).findBySlug("kiem-lai");
+        verify(novelProfileRepository).save(entity);
+    }
+
+    @Test
+    @DisplayName("update với legacy signature khi entity không có coverMediaAssetId trả về coverImageUrl legacy")
+    void shouldReturnLegacyCoverImageUrlWhenNoCoverMediaAssetIdPresent() {
+        NovelProfileJpaEntity entity = createEntity(
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả cũ",
+                "https://example.com/old-cover.jpg",
+                null,
+                "ONGOING"
+        );
+
+        when(novelProfileRepository.findBySlug("kiem-lai"))
+                .thenReturn(Optional.of(entity));
+        when(novelProfileRepository.save(any(NovelProfileJpaEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        NovelProfileDTO updatedDTO = adapter.update(
+                "kiem-lai",
+                "Kiếm Lai Mới",
+                "Tác giả Mới",
+                "Mô tả Mới",
+                "https://example.com/new-cover.jpg",
+                "COMPLETED",
+                UPDATED_AT
+        );
+
+        assertThat(updatedDTO.coverImageUrl()).isEqualTo("https://example.com/new-cover.jpg");
+        assertThat(updatedDTO.coverMediaAssetId()).isNull();
+        assertThat(updatedDTO.displayCoverImageUrl()).isEqualTo("https://example.com/new-cover.jpg");
 
         verify(novelProfileRepository).findBySlug("kiem-lai");
         verify(novelProfileRepository).save(entity);
@@ -144,11 +258,12 @@ class NovelProfilePersistenceAdapterTest {
             String author,
             String description,
             String coverImageUrl,
+            String coverMediaAssetId,
             String status
     ) {
         NovelProfileJpaEntity entity = new NovelProfileJpaEntity();
-        // Set fields via reflection or helper update
-        entity.update(title, author, description, coverImageUrl, status, CREATED_AT);
+        // Set fields via update
+        entity.update(title, author, description, coverImageUrl, coverMediaAssetId, status, CREATED_AT);
         try {
             var idField = NovelProfileJpaEntity.class.getDeclaredField("id");
             idField.setAccessible(true);

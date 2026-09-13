@@ -1,7 +1,9 @@
 package com.universe.novel.infrastructure.persistence.reader;
 
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
+import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableNarrationChapterReference;
 import com.universe.novel.infrastructure.persistence.chapter.ReadableChapterAccessProjection;
+import com.universe.novel.infrastructure.persistence.chapter.ReadableChapterNarrationAccessProjection;
 import com.universe.novel.infrastructure.persistence.chapter.SpringDataChapterJpaRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -117,5 +119,58 @@ class ReaderChapterAccessQueryPersistenceAdapterTest {
 
         assertThat(result).isEmpty();
         verify(chapterRepository).findPublishedAccessById(CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("Returns chapter ID and content version for narration when Chapter and Volume are published")
+    void shouldReturnPublishedNarrationChapterReference() {
+        ReadableChapterNarrationAccessProjection projection = new ReadableChapterNarrationAccessProjection() {
+            @Override
+            public String getId() {
+                return CHAPTER_ID.toString();
+            }
+
+            @Override
+            public Long getContentVersion() {
+                return 17L;
+            }
+        };
+        when(chapterRepository.findPublishedNarrationAccessById(CHAPTER_ID.toString()))
+                .thenReturn(Optional.of(projection));
+
+        Optional<ReadableNarrationChapterReference> result = adapter.findPublishedNarrationById(CHAPTER_ID);
+
+        assertThat(result).contains(new ReadableNarrationChapterReference(CHAPTER_ID, 17L));
+        verify(chapterRepository).findPublishedNarrationAccessById(CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("Returns empty narration access when Chapter is not published")
+    void shouldRejectUnpublishedChapterForNarration() {
+        when(chapterRepository.findPublishedNarrationAccessById(CHAPTER_ID.toString()))
+                .thenReturn(Optional.empty());
+
+        assertThat(adapter.findPublishedNarrationById(CHAPTER_ID)).isEmpty();
+
+        verify(chapterRepository).findPublishedNarrationAccessById(CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("Returns empty narration access when owning Volume is not published")
+    void shouldRejectNarrationChapterInUnpublishedVolume() {
+        when(chapterRepository.findPublishedNarrationAccessById(CHAPTER_ID.toString()))
+                .thenReturn(Optional.empty());
+
+        assertThat(adapter.findPublishedNarrationById(CHAPTER_ID)).isEmpty();
+
+        verify(chapterRepository).findPublishedNarrationAccessById(CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("Returns empty narration access without querying persistence when chapter ID is null")
+    void shouldReturnEmptyNarrationAccessWhenChapterIdIsNull() {
+        assertThat(adapter.findPublishedNarrationById(null)).isEmpty();
+
+        verifyNoInteractions(chapterRepository);
     }
 }

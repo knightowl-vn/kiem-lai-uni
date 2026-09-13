@@ -95,6 +95,27 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.HEAD,
+                                "/media/assets/*/content"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/media/assets/*/content",
+                                "/media/assets/*/variants/*",
+                                "/api/novel/narration/voices",
+                                "/api/novel/chapters/*/narration/playback"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/novel/chapters/*/narration/prepare"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 "/novel/bookmarks",
                                 "/novel/bookmarks/**",
                                 "/novel/history",

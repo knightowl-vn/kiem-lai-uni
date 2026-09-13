@@ -26,6 +26,10 @@ import java.time.Instant;
                 @Index(
                         name = "idx_wiki_images_created_at",
                         columnList = "created_at"
+                ),
+                @Index(
+                        name = "idx_wiki_images_media_asset_id",
+                        columnList = "media_asset_id"
                 )
         }
 )
@@ -50,10 +54,16 @@ public class WikiImageJpaEntity {
 
     @Column(
             name = "public_id",
-            nullable = false,
             length = 255
     )
     private String publicId;
+
+    @Column(
+            name = "media_asset_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String mediaAssetId;
 
     @Column(
             name = "url",
@@ -112,6 +122,16 @@ public class WikiImageJpaEntity {
             String publicId
     ) {
         this.publicId = publicId;
+    }
+
+    public String getMediaAssetId() {
+        return mediaAssetId;
+    }
+
+    public void setMediaAssetId(
+            String mediaAssetId
+    ) {
+        this.mediaAssetId = mediaAssetId;
     }
 
     public String getUrl() {

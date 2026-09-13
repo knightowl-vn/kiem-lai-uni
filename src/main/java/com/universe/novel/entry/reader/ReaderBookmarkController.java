@@ -1,7 +1,7 @@
 package com.universe.novel.entry.reader;
 
-import com.universe.identity.contracts.dto.UserDTO;
-import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.novel.application.exceptions.BookmarkLimitExceededException;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.BookmarkChapterCommand;
@@ -10,11 +10,11 @@ import com.universe.novel.application.reader.ListUserBookmarkedChaptersUseCase;
 import com.universe.novel.application.reader.UnbookmarkChapterCommand;
 import com.universe.novel.application.reader.UnbookmarkChapterUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderBookmarkedChapterDTO;
-import com.universe.shared.security.AuthenticatedEmailResolver;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -36,15 +36,11 @@ public class ReaderBookmarkController {
     private final BookmarkChapterUseCase bookmarkChapterUseCase;
     private final UnbookmarkChapterUseCase unbookmarkChapterUseCase;
     private final ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase;
-    private final AuthenticatedEmailResolver authenticatedEmailResolver;
-    private final UserIdentityContract userIdentityContract;
 
     public ReaderBookmarkController(
             BookmarkChapterUseCase bookmarkChapterUseCase,
             UnbookmarkChapterUseCase unbookmarkChapterUseCase,
-            ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase,
-            AuthenticatedEmailResolver authenticatedEmailResolver,
-            UserIdentityContract userIdentityContract
+            ListUserBookmarkedChaptersUseCase listUserBookmarkedChaptersUseCase
     ) {
         this.bookmarkChapterUseCase = Objects.requireNonNull(
                 bookmarkChapterUseCase,
@@ -58,35 +54,28 @@ public class ReaderBookmarkController {
                 listUserBookmarkedChaptersUseCase,
                 "ListUserBookmarkedChaptersUseCase không được để trống."
         );
-        this.authenticatedEmailResolver = Objects.requireNonNull(
-                authenticatedEmailResolver,
-                "AuthenticatedEmailResolver không được để trống."
-        );
-        this.userIdentityContract = Objects.requireNonNull(
-                userIdentityContract,
-                "UserIdentityContract không được để trống."
-        );
     }
 
     @PostMapping("/chapters/{chapterId}/bookmark")
     @ResponseBody
     public ResponseEntity<Void> bookmarkChapter(
             @PathVariable UUID chapterId,
-            Authentication authentication
+            HttpServletRequest request
     ) {
         if (chapterId == null) {
             return ResponseEntity.badRequest().build();
         }
 
-        Optional<UserDTO> userOpt = resolveUser(authentication);
-        if (userOpt.isEmpty()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
         try {
             bookmarkChapterUseCase.execute(
                     new BookmarkChapterCommand(
-                            userOpt.get().id(),
+                            identityOptional.get().userId(),
                             chapterId
                     )
             );
@@ -102,20 +91,21 @@ public class ReaderBookmarkController {
     @ResponseBody
     public ResponseEntity<Void> unbookmarkChapter(
             @PathVariable UUID chapterId,
-            Authentication authentication
+            HttpServletRequest request
     ) {
         if (chapterId == null) {
             return ResponseEntity.badRequest().build();
         }
 
-        Optional<UserDTO> userOpt = resolveUser(authentication);
-        if (userOpt.isEmpty()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isEmpty()) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
         unbookmarkChapterUseCase.execute(
                 new UnbookmarkChapterCommand(
-                        userOpt.get().id(),
+                        identityOptional.get().userId(),
                         chapterId
                 )
         );
@@ -124,25 +114,23 @@ public class ReaderBookmarkController {
 
     @GetMapping("/bookmarks")
     public String bookmarksPage(
-            Authentication authentication,
+            HttpServletRequest request,
             Model model
     ) {
-        Optional<UserDTO> userOpt = resolveUser(authentication);
-        if (userOpt.isEmpty()) {
+        Optional<AuthenticatedRequestIdentity> identityOptional =
+                AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOptional.isEmpty()) {
             return "redirect:/login";
         }
 
         List<ReaderBookmarkedChapterDTO> bookmarks =
-                listUserBookmarkedChaptersUseCase.execute(userOpt.get().id());
+                listUserBookmarkedChaptersUseCase.execute(
+                        identityOptional.get().userId()
+                );
 
         model.addAttribute("bookmarks", bookmarks);
         model.addAttribute("pageTitle", "Dấu trang chương");
 
         return "novel/reader/bookmarks";
-    }
-
-    private Optional<UserDTO> resolveUser(Authentication authentication) {
-        return authenticatedEmailResolver.resolve(authentication)
-                .flatMap(userIdentityContract::findByEmail);
     }
 }
