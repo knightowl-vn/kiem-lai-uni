@@ -5317,6 +5317,13 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         };
     }
 
+    async function waitForCondition(predicate, timeoutMs = 300, intervalMs = 5) {
+        const start = Date.now();
+        while (!predicate() && (Date.now() - start) < timeoutMs) {
+            await new Promise(r => setTimeout(r, intervalMs));
+        }
+    }
+
     await t.test('1. default autoNextManagedGraceMs === 5000 and config override supported', async () => {
         const env = createEnv();
         const defaultCtrl = new env.NarrationController.NarrationController({});
@@ -5373,11 +5380,16 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         ctrl.managedPreparationPollIntervalMs = 20;
         ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
 
+        let currentTime = 1000;
+        const origNow = env.Date.now;
+        env.Date.now = () => currentTime;
+
         const waitedIntervals = [];
         ctrl.config = {
             waitFunction: (ms, signal) => {
                 waitedIntervals.push(ms);
-                return new Promise(resolve => setTimeout(resolve, ms));
+                currentTime += ms;
+                return new Promise(resolve => setTimeout(resolve, 2));
             }
         };
 
@@ -5389,25 +5401,29 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         let devicePlayed = false;
         ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
 
-        await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
-        await new Promise(r => setTimeout(r, 70));
+        try {
+            await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
+            await waitForCondition(() => devicePlayed === true, 300, 5);
 
-        assert.strictEqual(ctrl.chapterId, '2');
-        assert.strictEqual(ctrl.activeEngineType, 'device', 'switched to Device');
-        assert.strictEqual(ctrl.engine, ctrl.deviceEngine, 'deviceEngine authoritative');
-        assert.strictEqual(devicePlayed, true, 'Device TTS started');
-        assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'Managed preference remains intact');
-        assert.strictEqual(postCount, 1, 'zero second POST /prepare occurs');
+            assert.strictEqual(ctrl.chapterId, '2');
+            assert.strictEqual(ctrl.activeEngineType, 'device', 'switched to Device');
+            assert.strictEqual(ctrl.engine, ctrl.deviceEngine, 'deviceEngine authoritative');
+            assert.strictEqual(devicePlayed, true, 'Device TTS started');
+            assert.deepStrictEqual(ctrl.savedVoicePreference, { type: 'managed', voiceKey: 'v1' }, 'Managed preference remains intact');
+            assert.strictEqual(postCount, 1, 'zero second POST /prepare occurs');
 
-        // Polling completely stops
-        const probeCountAtFallback = probeCount;
-        await new Promise(r => setTimeout(r, 40));
-        assert.strictEqual(probeCount, probeCountAtFallback, 'polling must stop once grace period expires and fallback occurs');
+            // Polling completely stops
+            const probeCountAtFallback = probeCount;
+            await new Promise(r => setTimeout(r, 40));
+            assert.strictEqual(probeCount, probeCountAtFallback, 'polling must stop once grace period expires and fallback occurs');
 
-        // Verify remaining deadline was respected and did not overshoot by full poll interval
-        assert.ok(waitedIntervals.length >= 2, 'at least two waits executed');
-        assert.strictEqual(waitedIntervals[0], 20, 'first wait is full poll interval');
-        assert.ok(waitedIntervals[1] <= 16, 'second wait clamped to remainingMs <= 15, not full 20ms');
+            // Verify remaining deadline was respected and did not overshoot by full poll interval
+            assert.ok(waitedIntervals.length >= 2, 'at least two waits executed');
+            assert.strictEqual(waitedIntervals[0], 20, 'first wait is full poll interval');
+            assert.ok(waitedIntervals[1] <= 16, 'second wait clamped to remainingMs <= 15, not full 20ms');
+        } finally {
+            env.Date.now = origNow;
+        }
     });
 
     await t.test('5. fallback OFF continues Managed polling beyond autoNextManagedGraceMs', async () => {
@@ -5415,7 +5431,7 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         const ctrl = createCtrl(env);
         ctrl.fallbackToDevice = false;
         ctrl.autoNextManagedGraceMs = 20; // grace is 20ms
-        ctrl.managedPreparationTimeoutMs = 120; // timeout is 120ms
+        ctrl.managedPreparationTimeoutMs = 300; // timeout headroom well beyond grace (20ms)
         ctrl.managedPreparationPollIntervalMs = 8;
         ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
 
@@ -5427,8 +5443,8 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
 
         const transPromise = ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
-        // Wait 45ms: past autoNextManagedGraceMs (20ms), but well before managedPreparationTimeoutMs (120ms)
-        await new Promise(r => setTimeout(r, 45));
+        // Wait until at least 3 probes have occurred (past the 20ms grace window)
+        await waitForCondition(() => probeCount >= 3, 300, 5);
 
         assert.strictEqual(devicePlayed, false, 'Device fallback must NOT occur when fallback is disabled');
         assert.strictEqual(ctrl.activeEngineType, 'managed', 'remains managed past grace duration');
@@ -5443,7 +5459,7 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         const ctrl = createCtrl(env);
         ctrl.fallbackToDevice = false;
         ctrl.autoNextManagedGraceMs = 20; // grace would be 20ms
-        ctrl.managedPreparationTimeoutMs = 120;
+        ctrl.managedPreparationTimeoutMs = 300;
         ctrl.managedPreparationPollIntervalMs = 8;
         ctrl._activeNextChapterPreload = createSnapshot(ctrl, { playbackAvailability: 'unavailable', playbackMetadata: null });
 
@@ -5463,7 +5479,8 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         ctrl.deviceEngine.play = () => { devicePlayed = true; return Promise.resolve(); };
 
         await ctrl._transitionToNextChapter('/next', { mode: 'managed', voiceKey: 'v1' });
-        await new Promise(r => setTimeout(r, 60));
+        // Wait until Managed playback is triggered upon becoming ready
+        await waitForCondition(() => ctrl._playCalledCount() >= 1, 300, 5);
 
         assert.strictEqual(devicePlayed, false, 'Device never played');
         assert.strictEqual(ctrl.activeEngineType, 'managed', 'Managed remains active');
