@@ -56,7 +56,7 @@ public class RasterContentSignatureValidator {
                 totalRead += read;
             }
         } catch (IOException e) {
-            throw new UploadContentMimeMismatchException(
+            throw new IllegalStateException(
                     "Failed to read binary header prefix for '" + mimeValue + "': " + e.getMessage(),
                     e
             );
@@ -78,7 +78,7 @@ public class RasterContentSignatureValidator {
         try {
             pushbackStream.unread(prefix, 0, totalRead);
         } catch (IOException e) {
-            throw new UploadContentMimeMismatchException(
+            throw new IllegalStateException(
                     "Failed to unread binary header prefix for '" + mimeValue + "': " + e.getMessage(),
                     e
             );

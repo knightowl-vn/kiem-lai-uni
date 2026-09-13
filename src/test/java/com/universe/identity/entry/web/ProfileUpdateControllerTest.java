@@ -4,6 +4,7 @@ import com.universe.identity.application.profile.DeleteAvatarService;
 import com.universe.identity.application.profile.UpdateAvatarService;
 import com.universe.identity.application.profile.UpdateBioService;
 import com.universe.identity.application.profile.UpdateDisplayNameService;
+import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -110,6 +111,31 @@ class ProfileUpdateControllerTest {
 
         assertThat(view).isEqualTo("redirect:/profile");
         assertThat(redirectAttributes.getFlashAttributes().get("errorMessage")).isEqualTo("Ảnh đại diện không được vượt quá 2 MB.");
+    }
+
+    @Test
+    @DisplayName("updateAvatar handles UploadContentMimeMismatchException and sets error flash message without escaping")
+    void shouldHandleUploadContentMimeMismatchExceptionInUpdateAvatar() {
+        when(authentication.isAuthenticated()).thenReturn(true);
+        when(authentication.getName()).thenReturn("user@example.com");
+
+        MockMultipartFile multipartFile = new MockMultipartFile(
+                "avatarFile",
+                "avatar.png",
+                "image/png",
+                "data".getBytes(StandardCharsets.UTF_8)
+        );
+
+        doThrow(new UploadContentMimeMismatchException("Nội dung file không khớp MIME đã khai báo."))
+                .when(updateAvatarService).execute(any(), any(), anyLong(), any(), any());
+
+        RedirectAttributes redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateAvatar(multipartFile, authentication, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/profile");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                .isEqualTo("Nội dung file không khớp MIME đã khai báo.");
     }
 
     @Test

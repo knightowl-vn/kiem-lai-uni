@@ -1,5 +1,6 @@
 package com.universe.wiki.entry.admin;
 
+import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
 import com.universe.wiki.application.image.UploadWikiImageUseCase;
 import com.universe.wiki.application.image.WikiImageUploadResult;
 
@@ -138,5 +139,28 @@ class AdminWikiImageControllerTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> body = (Map<String, Object>) response.getBody();
         assertThat(body).containsEntry("message", "Chỉ chấp nhận ảnh JPG, PNG hoặc WEBP.");
+    }
+
+    @Test
+    @DisplayName("upload trả về 400 Bad Request khi use case ném UploadContentMimeMismatchException")
+    void shouldReturnBadRequestWhenUseCaseThrowsUploadContentMimeMismatchException() {
+        byte[] content = "invalid".getBytes(StandardCharsets.UTF_8);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "photo.png",
+                "image/png",
+                content
+        );
+
+        when(uploadWikiImageUseCase.execute(any(), anyLong(), any(), any()))
+                .thenThrow(new UploadContentMimeMismatchException("Nội dung file không khớp MIME đã khai báo: image/png."));
+
+        ResponseEntity<?> response = controller.upload(file);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body).containsEntry("message", "Nội dung file không khớp MIME đã khai báo: image/png.");
     }
 }

@@ -5,6 +5,7 @@ import com.universe.novel.application.profile.NovelCoverUpload;
 import com.universe.novel.application.profile.UpdateNovelProfileCommand;
 import com.universe.novel.application.profile.UpdateNovelProfileUseCase;
 import com.universe.novel.contracts.dto.profile.NovelProfileDTO;
+import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
 import com.universe.novel.entry.admin.form.EditNovelProfileForm;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -187,6 +188,51 @@ class AdminNovelProfileCommandControllerTest {
         assertThat(view).isEqualTo("admin/novel/profile");
         assertThat(model.getAttribute("errorMessage"))
                 .isEqualTo("Tiêu đề tiểu thuyết không được để trống.");
+        assertThat(model.getAttribute("form")).isEqualTo(form);
+        assertThat(model.getAttribute("profile")).isEqualTo(existingProfile);
+        assertThat(model.getAttribute("activeSubMenu")).isEqualTo("profile");
+    }
+
+    @Test
+    @DisplayName("POST /admin/novel/profile khi có lỗi UploadContentMimeMismatchException trả về view admin/novel/profile với errorMessage và giữ lại form input, profile")
+    void shouldRenderFormWithErrorMessageWhenUploadContentMimeMismatchExceptionThrown() {
+        EditNovelProfileForm form = new EditNovelProfileForm();
+        form.setTitle("Kiếm Lai");
+        form.setAuthor("Phong Hỏa");
+        form.setDescription("Mô tả");
+        form.setStatus("ONGOING");
+        MockMultipartFile mockFile = new MockMultipartFile(
+                "coverImageFile",
+                "fake.png",
+                "image/png",
+                new byte[]{1, 2, 3, 4}
+        );
+        form.setCoverImageFile(mockFile);
+
+        when(updateNovelProfileUseCase.execute(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new UploadContentMimeMismatchException("Nội dung file không khớp định dạng PNG."));
+
+        NovelProfileDTO existingProfile = new NovelProfileDTO(
+                PROFILE_ID,
+                "Kiếm Lai",
+                "kiem-lai",
+                "Phong Hỏa",
+                "Mô tả",
+                null,
+                "ONGOING",
+                CREATED_AT,
+                UPDATED_AT
+        );
+        when(getNovelProfileUseCase.execute()).thenReturn(existingProfile);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+        String view = controller.updateProfile(form, model, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/novel/profile");
+        assertThat(model.getAttribute("errorMessage"))
+                .isEqualTo("Nội dung file không khớp định dạng PNG.");
         assertThat(model.getAttribute("form")).isEqualTo(form);
         assertThat(model.getAttribute("profile")).isEqualTo(existingProfile);
         assertThat(model.getAttribute("activeSubMenu")).isEqualTo("profile");

@@ -277,6 +277,38 @@ class RasterContentSignatureValidatorTest {
         }
     }
 
+    @Nested
+    @DisplayName("I/O Failure Handling Tests")
+    class IoFailureTests {
+
+        @Test
+        @DisplayName("throws IllegalStateException wrapping original IOException when reading stream fails")
+        void shouldThrowIllegalStateExceptionOnIoReadFailure() {
+            IOException originalIoException = new IOException("Simulated network/disk read failure");
+            InputStream failingStream = new InputStream() {
+                @Override
+                public int read() throws IOException {
+                    throw originalIoException;
+                }
+
+                @Override
+                public int read(byte[] b, int off, int len) throws IOException {
+                    throw originalIoException;
+                }
+            };
+
+            assertThatThrownBy(() -> validator.validateAndPrepareStream(
+                    failingStream,
+                    100L,
+                    MimeType.of("image/png")
+            ))
+                    .isInstanceOf(IllegalStateException.class)
+                    .isNotInstanceOf(UploadContentMimeMismatchException.class)
+                    .hasCause(originalIoException)
+                    .hasMessageContaining("Failed to read binary header prefix for 'image/png'");
+        }
+    }
+
     private static byte[] combine(byte[] header, byte[] body) {
         byte[] result = new byte[header.length + body.length];
         System.arraycopy(header, 0, result, 0, header.length);
