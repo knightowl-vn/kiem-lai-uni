@@ -9,6 +9,7 @@ import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -38,6 +39,11 @@ import java.util.Objects;
  * </ul>
  */
 @Component
+@ConditionalOnProperty(
+        name = "media.storage.provider",
+        havingValue = "local",
+        matchIfMissing = true
+)
 public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
 
     public static final StorageProviderId PROVIDER_ID =
