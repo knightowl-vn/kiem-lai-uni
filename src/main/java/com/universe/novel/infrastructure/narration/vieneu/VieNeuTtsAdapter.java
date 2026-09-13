@@ -36,15 +36,20 @@ import java.util.List;
 @Component
 public class VieNeuTtsAdapter implements TtsProviderPort {
 
+    public static final String CF_ACCESS_CLIENT_ID_HEADER = "CF-Access-Client-Id";
+    public static final String CF_ACCESS_CLIENT_SECRET_HEADER = "CF-Access-Client-Secret";
+
     private static final int MAX_ERROR_BODY_LENGTH = 500;
 
     private final RestClient restClient;
 
     @Autowired
     public VieNeuTtsAdapter(
-            @Value("${narration.tts.vieneu.base-url:http://localhost:9000}") String baseUrl,
+            @Value("${narration.tts.vieneu.base-url:http://localhost:8000}") String baseUrl,
             @Value("${narration.tts.vieneu.connect-timeout:10s}") Duration connectTimeout,
             @Value("${narration.tts.vieneu.read-timeout:120s}") Duration readTimeout,
+            @Value("${narration.tts.vieneu.cf-access-client-id:}") String cfAccessClientId,
+            @Value("${narration.tts.vieneu.cf-access-client-secret:}") String cfAccessClientSecret,
             @Autowired(required = false) RestClient.Builder restClientBuilder
     ) {
         String normalizedUrl = normalizeBaseUrl(baseUrl);
@@ -55,11 +60,55 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
         requestFactory.setReadTimeout(readTimeout != null ? readTimeout : Duration.ofSeconds(120));
         builder.requestFactory(requestFactory);
 
+        String cleanClientId = cleanCredential(cfAccessClientId);
+        String cleanClientSecret = cleanCredential(cfAccessClientSecret);
+
+        boolean hasClientId = cleanClientId != null;
+        boolean hasClientSecret = cleanClientSecret != null;
+
+        if (hasClientId ^ hasClientSecret) {
+            throw new IllegalStateException(
+                    "Cloudflare Access configuration is partial: both narration.tts.vieneu.cf-access-client-id "
+                            + "and narration.tts.vieneu.cf-access-client-secret must be configured together."
+            );
+        }
+
+        if (hasClientId && hasClientSecret) {
+            builder.defaultHeader(CF_ACCESS_CLIENT_ID_HEADER, cleanClientId);
+            builder.defaultHeader(CF_ACCESS_CLIENT_SECRET_HEADER, cleanClientSecret);
+        }
+
         this.restClient = builder.baseUrl(normalizedUrl).build();
     }
 
     public VieNeuTtsAdapter(String baseUrl, RestClient.Builder restClientBuilder) {
-        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), restClientBuilder);
+        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), null, null, restClientBuilder);
+    }
+
+    public VieNeuTtsAdapter(
+            String baseUrl,
+            Duration connectTimeout,
+            Duration readTimeout,
+            RestClient.Builder restClientBuilder
+    ) {
+        this(baseUrl, connectTimeout, readTimeout, null, null, restClientBuilder);
+    }
+
+    public VieNeuTtsAdapter(
+            String baseUrl,
+            String cfAccessClientId,
+            String cfAccessClientSecret,
+            RestClient.Builder restClientBuilder
+    ) {
+        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), cfAccessClientId, cfAccessClientSecret, restClientBuilder);
+    }
+
+    private static String cleanCredential(String credential) {
+        if (credential == null) {
+            return null;
+        }
+        String stripped = credential.strip();
+        return stripped.isEmpty() ? null : stripped;
     }
 
     @Override

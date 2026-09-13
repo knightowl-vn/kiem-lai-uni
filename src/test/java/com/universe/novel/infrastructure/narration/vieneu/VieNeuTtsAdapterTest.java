@@ -26,6 +26,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -252,5 +254,223 @@ class VieNeuTtsAdapterTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> adapter.synthesize(new TtsSynthesisCommand("Valid text", "   ")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("Local/direct mode GET /api/voices sends neither Cloudflare header")
+    void localDirectModeGetVoicesSendsNeitherCloudflareHeader() {
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> voices = adapter.listVoices();
+        assertThat(voices).isEmpty();
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Local/direct mode POST /api/tts/generate sends neither Cloudflare header")
+    void localDirectModePostGenerateSendsNeitherCloudflareHeader() {
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER))
+                .andRespond(withSuccess(new byte[]{82, 73, 70, 70}, MediaType.valueOf("audio/wav")));
+
+        TtsSynthesisResult result = adapter.synthesize(new TtsSynthesisCommand("Test text", "voice-1"));
+        assertThat(result.audioBytes()).isEqualTo(new byte[]{82, 73, 70, 70});
+
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Authenticated GET sends exact configured Client ID and Client Secret headers")
+    void authenticatedGetSendsConfiguredCloudflareHeaders() {
+        RestClient.Builder authBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer authServer = MockRestServiceServer.bindTo(authBuilder).build();
+        Mockito.doReturn(authBuilder).when(authBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter authAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "cf-client-id-123",
+                "cf-client-secret-456",
+                authBuilder
+        );
+
+        authServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER, "cf-client-id-123"))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER, "cf-client-secret-456"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> voices = authAdapter.listVoices();
+        assertThat(voices).isEmpty();
+
+        authServer.verify();
+    }
+
+    @Test
+    @DisplayName("Authenticated POST sends both headers, unchanged text/voice_id payload, and returns audio/wav")
+    void authenticatedPostSendsHeadersAndUnchangedPayloadAndReturnsAudioWav() {
+        RestClient.Builder authBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer authServer = MockRestServiceServer.bindTo(authBuilder).build();
+        Mockito.doReturn(authBuilder).when(authBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter authAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "cf-client-id-123",
+                "cf-client-secret-456",
+                authBuilder
+        );
+
+        byte[] expectedAudio = new byte[]{82, 73, 70, 70, 36, 0, 0, 0, 87, 65, 86, 69};
+
+        authServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER, "cf-client-id-123"))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER, "cf-client-secret-456"))
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.text").value("Trần Bình An cất bước ra đi."))
+                .andExpect(jsonPath("$.voice_id").value("minh-duc"))
+                .andRespond(withSuccess(expectedAudio, MediaType.valueOf("audio/wav")));
+
+        TtsSynthesisResult result = authAdapter.synthesize(
+                new TtsSynthesisCommand("Trần Bình An cất bước ra đi.", "minh-duc")
+        );
+
+        assertThat(result.audioBytes()).isEqualTo(expectedAudio);
+        assertThat(result.mediaType()).isEqualTo("audio/wav");
+
+        authServer.verify();
+    }
+
+    @Test
+    @DisplayName("Partial credentials fail during construction and exception never contains credential values")
+    void partialCredentialsFailWithoutLeakingValues() {
+        String sensitiveId = "SUPER_SECRET_ID_999";
+        String sensitiveSecret = "SUPER_SECRET_KEY_888";
+
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, null, restClientBuilder))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
+                .hasMessageNotContaining(sensitiveId);
+
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, "   ", restClientBuilder))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
+                .hasMessageNotContaining(sensitiveId);
+
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, null, sensitiveSecret, restClientBuilder))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
+                .hasMessageNotContaining(sensitiveSecret);
+
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, "   ", sensitiveSecret, restClientBuilder))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
+                .hasMessageNotContaining(sensitiveSecret);
+    }
+
+    @Test
+    @DisplayName("Whitespace-only values count as absent and operate in local/direct mode")
+    void whitespaceOnlyValuesCountAsAbsent() {
+        RestClient.Builder wsBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer wsServer = MockRestServiceServer.bindTo(wsBuilder).build();
+        Mockito.doReturn(wsBuilder).when(wsBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter wsAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "   ",
+                "   ",
+                wsBuilder
+        );
+
+        wsServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> voices = wsAdapter.listVoices();
+        assertThat(voices).isEmpty();
+
+        wsServer.verify();
+    }
+
+    @Test
+    @DisplayName("Surrounding whitespace on configured credential values is stripped")
+    void surroundingWhitespaceOnCredentialsIsStripped() {
+        RestClient.Builder trimBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer trimServer = MockRestServiceServer.bindTo(trimBuilder).build();
+        Mockito.doReturn(trimBuilder).when(trimBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter trimAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "  padded-client-id  ",
+                "  padded-client-secret  ",
+                trimBuilder
+        );
+
+        trimServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER, "padded-client-id"))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER, "padded-client-secret"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> voices = trimAdapter.listVoices();
+        assertThat(voices).isEmpty();
+
+        trimServer.verify();
+    }
+
+    @Test
+    @DisplayName("Unicode whitespace is stripped from credentials and unicode whitespace-only counts as absent")
+    void unicodeWhitespaceIsStrippedAndUnicodeWhitespaceOnlyCountsAsAbsent() {
+        RestClient.Builder unicodeBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer unicodeServer = MockRestServiceServer.bindTo(unicodeBuilder).build();
+        Mockito.doReturn(unicodeBuilder).when(unicodeBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter unicodeAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "\u2003\t padded-client-id \u2003",
+                "\u2003  padded-client-secret \u2003\n",
+                unicodeBuilder
+        );
+
+        unicodeServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER, "padded-client-id"))
+                .andExpect(header(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER, "padded-client-secret"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> voices = unicodeAdapter.listVoices();
+        assertThat(voices).isEmpty();
+
+        unicodeServer.verify();
+
+        RestClient.Builder wsBuilder = Mockito.spy(RestClient.builder());
+        MockRestServiceServer wsServer = MockRestServiceServer.bindTo(wsBuilder).build();
+        Mockito.doReturn(wsBuilder).when(wsBuilder).requestFactory(any(ClientHttpRequestFactory.class));
+
+        VieNeuTtsAdapter wsAdapter = new VieNeuTtsAdapter(
+                BASE_URL,
+                "\u2003\u2003",
+                "\u2003 \t \u2003",
+                wsBuilder
+        );
+
+        wsServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_ID_HEADER))
+                .andExpect(headerDoesNotExist(VieNeuTtsAdapter.CF_ACCESS_CLIENT_SECRET_HEADER))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        List<TtsProviderVoice> wsVoices = wsAdapter.listVoices();
+        assertThat(wsVoices).isEmpty();
+
+        wsServer.verify();
     }
 }
