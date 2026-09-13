@@ -1,10 +1,13 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.exceptions.DuplicateStorageLocationException;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageLocation;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -14,6 +17,8 @@ import java.util.UUID;
 
 @Component
 public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRepositoryPort {
+
+    private static final String UQ_PROVIDER_KEY = "uq_media_asset_versions_provider_key";
 
     private final SpringDataMediaAssetVersionJpaRepository repository;
 
@@ -45,8 +50,15 @@ public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRep
         entity.setOriginalFilename(version.getOriginalFilename());
         entity.setCreatedAt(version.getCreatedAt());
 
-        MediaAssetVersionJpaEntity savedEntity = repository.save(entity);
-        return toDomain(savedEntity);
+        try {
+            MediaAssetVersionJpaEntity savedEntity = repository.saveAndFlush(entity);
+            return toDomain(savedEntity);
+        } catch (DataIntegrityViolationException ex) {
+            if (isConstraintViolation(ex, UQ_PROVIDER_KEY)) {
+                throw new DuplicateStorageLocationException(version.getStorageLocation());
+            }
+            throw ex;
+        }
     }
 
     @Override
@@ -120,6 +132,25 @@ public class MediaAssetVersionPersistenceAdapter implements MediaAssetVersionRep
         );
 
         repository.deleteByAssetId(assetId.toString());
+    }
+
+    private boolean isConstraintViolation(DataIntegrityViolationException ex, String targetConstraint) {
+        String target = targetConstraint.toLowerCase();
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null
+                        && cve.getConstraintName().toLowerCase().contains(target)) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null
+                    && current.getMessage().toLowerCase().contains(target)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private MediaAssetVersion toDomain(

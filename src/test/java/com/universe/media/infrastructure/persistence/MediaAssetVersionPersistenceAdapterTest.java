@@ -1,9 +1,11 @@
 package com.universe.media.infrastructure.persistence;
 
+import com.universe.media.application.exceptions.DuplicateStorageLocationException;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageLocation;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,7 +14,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -47,7 +51,7 @@ class MediaAssetVersionPersistenceAdapterTest {
     }
 
     @Test
-    @DisplayName("save maps domain version to a NEW JPA entity and does NOT perform an existence lookup")
+    @DisplayName("save maps domain version to a NEW JPA entity and calls saveAndFlush without prior lookup")
     void shouldSaveVersionDirectlyWithoutPriorLookup() {
         MediaAssetVersion domainVersion = MediaAssetVersion.create(
                 versionId,
@@ -62,13 +66,13 @@ class MediaAssetVersionPersistenceAdapterTest {
                 createdAt
         );
 
-        when(repository.save(any(MediaAssetVersionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenAnswer(inv -> inv.getArgument(0));
 
         MediaAssetVersion result = adapter.save(domainVersion);
 
-        // Verify save was called with correct mapping
+        // Verify saveAndFlush was called with correct mapping
         ArgumentCaptor<MediaAssetVersionJpaEntity> captor = ArgumentCaptor.forClass(MediaAssetVersionJpaEntity.class);
-        verify(repository).save(captor.capture());
+        verify(repository).saveAndFlush(captor.capture());
 
         MediaAssetVersionJpaEntity captured = captor.getValue();
         assertThat(captured.getId()).isEqualTo(versionId.toString());
@@ -91,6 +95,103 @@ class MediaAssetVersionPersistenceAdapterTest {
         assertThat(result.getId()).isEqualTo(versionId);
         assertThat(result.getAssetId()).isEqualTo(assetId);
         assertThat(result.getVersionNumber()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("save translates uq_media_asset_versions_provider_key constraint violation to DuplicateStorageLocationException")
+    void shouldThrowDuplicateStorageLocationExceptionWhenProviderKeyConstraintViolated() {
+        StorageLocation location = StorageLocation.of("local", "objects/collision.png");
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                location,
+                null,
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/png"),
+                100L,
+                "collision.png",
+                createdAt
+        );
+
+        SQLException sqlEx = new SQLException("Duplicate entry 'local-objects/collision.png' for key 'media_asset_versions.uq_media_asset_versions_provider_key'", "23000", 1062);
+        ConstraintViolationException cve = new ConstraintViolationException(
+                "could not execute statement",
+                sqlEx,
+                "uq_media_asset_versions_provider_key"
+        );
+        DataIntegrityViolationException dive = new DataIntegrityViolationException("Constraint violation", cve);
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenThrow(dive);
+
+        assertThatThrownBy(() -> adapter.save(domainVersion))
+                .isInstanceOf(DuplicateStorageLocationException.class)
+                .hasMessageContaining(location.providerId().value())
+                .hasMessageContaining(location.key().value());
+    }
+
+    @Test
+    @DisplayName("save does NOT translate uq_media_asset_versions_asset_version constraint violation")
+    void shouldReThrowDataIntegrityViolationExceptionWhenAssetVersionConstraintViolated() {
+        StorageLocation location = StorageLocation.of("local", "objects/version-collision.png");
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                location,
+                null,
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/png"),
+                100L,
+                "version-collision.png",
+                createdAt
+        );
+
+        SQLException sqlEx = new SQLException("Duplicate entry '11111111-1' for key 'media_asset_versions.uq_media_asset_versions_asset_version'", "23000", 1062);
+        ConstraintViolationException cve = new ConstraintViolationException(
+                "could not execute statement",
+                sqlEx,
+                "uq_media_asset_versions_asset_version"
+        );
+        DataIntegrityViolationException dive = new DataIntegrityViolationException("Constraint violation", cve);
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenThrow(dive);
+
+        assertThatThrownBy(() -> adapter.save(domainVersion))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .isNotInstanceOf(DuplicateStorageLocationException.class);
+    }
+
+    @Test
+    @DisplayName("save does NOT translate unrelated foreign key constraint violation")
+    void shouldReThrowDataIntegrityViolationExceptionWhenUnrelatedConstraintViolated() {
+        StorageLocation location = StorageLocation.of("local", "objects/fk-fail.png");
+        MediaAssetVersion domainVersion = MediaAssetVersion.create(
+                versionId,
+                assetId,
+                1,
+                location,
+                null,
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/png"),
+                100L,
+                "fk-fail.png",
+                createdAt
+        );
+
+        SQLException sqlEx = new SQLException("Cannot add or update a child row: a foreign key constraint fails", "23000", 1452);
+        ConstraintViolationException cve = new ConstraintViolationException(
+                "could not execute statement",
+                sqlEx,
+                "fk_media_asset_versions_asset"
+        );
+        DataIntegrityViolationException dive = new DataIntegrityViolationException("FK violation", cve);
+
+        when(repository.saveAndFlush(any(MediaAssetVersionJpaEntity.class))).thenThrow(dive);
+
+        assertThatThrownBy(() -> adapter.save(domainVersion))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .isNotInstanceOf(DuplicateStorageLocationException.class);
     }
 
     @Test
