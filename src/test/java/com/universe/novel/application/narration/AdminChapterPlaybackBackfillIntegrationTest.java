@@ -62,10 +62,12 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         Chapter chapter = mock(Chapter.class);
         when(chapter.getStatus()).thenReturn(ChapterStatus.PUBLISHED);
         when(chapter.getContentVersion()).thenReturn(1L);
+        when(chapter.getChapterNumber()).thenReturn(1);
         when(chapters.findById(chapterId)).thenReturn(Optional.of(chapter));
         ManagedVoice voice = mock(ManagedVoice.class);
         when(voice.isActive()).thenReturn(true);
         when(voice.getSynthesisRevision()).thenReturn(1L);
+        when(voice.getVoiceKey()).thenReturn("voice-hn");
         when(voices.findById(voiceId)).thenReturn(Optional.of(voice));
         List<ChapterNarrationSegment> current = IntStream.range(0, 3)
                 .mapToObj(i -> ChapterNarrationSegment.create(UUID.randomUUID(), chapterId, i, "Đoạn " + i, now)).toList();
@@ -114,7 +116,7 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         var inspector = new InspectChapterNarrationPlaybackUseCase(playbacks, artifacts, cues, media, snapshot);
         var finalizer = new FinalizeChapterNarrationPlaybackUseCase(chapters, voices, manifests, segments, audios,
                 playbacks, artifacts, cues, ids, clock);
-        var builder = new BuildChapterNarrationPlaybackUseCase(snapshot, media, assembler, upload, finalizer, cleanup, inspector);
+        var builder = new BuildChapterNarrationPlaybackUseCase(chapters, voices, snapshot, media, assembler, upload, finalizer, cleanup, inspector);
         var generation = new GenerateChapterNarrationUseCase(chapters, voices, segments, audios, failures,
                 new ChapterNarrationGenerationPlanner(), generateSegment, regenerateSegment, retiredCleanup);
         var dispatcher = new AdminNarrationGenerationDispatcher(Runnable::run, new AdminNarrationGenerationWorker(generation, builder));

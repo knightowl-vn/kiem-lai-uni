@@ -4,7 +4,13 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
+import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
+import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
@@ -19,6 +25,7 @@ import com.universe.media.contracts.dto.MediaVersionDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -60,6 +68,10 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     private static final UUID ARTIFACT_ID = UUID.fromString("10000000-0000-0000-0000-000000000008");
     private static final String SOURCE_HASH = "a".repeat(64);
 
+    @Mock
+    private ChapterRepositoryPort chapterRepositoryPort;
+    @Mock
+    private ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
     @Mock
     private ResolveChapterNarrationPlaybackBuildSnapshotUseCase snapshotUseCase;
     @Mock
@@ -85,6 +97,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new BuildChapterNarrationPlaybackUseCase(
+                chapterRepositoryPort,
+                managedVoiceRepositoryPort,
                 snapshotUseCase,
                 mediaContract,
                 assemblerPort,
@@ -94,6 +108,12 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 new InspectChapterNarrationPlaybackUseCase(playbackRepository, artifactRepository,
                         cueRepository, mediaContract, snapshotUseCase)
         );
+        Chapter defaultChapter = chapterWithNumber(82);
+        ManagedVoice defaultVoice = voiceWithKey("minh-duc");
+        lenient().when(chapterRepositoryPort.findById(CHAPTER_ID))
+                .thenReturn(Optional.of(defaultChapter));
+        lenient().when(managedVoiceRepositoryPort.findById(VOICE_ID))
+                .thenReturn(Optional.of(defaultVoice));
         MediaAssetVersionSnapshotDTO sourceVersion = new MediaAssetVersionSnapshotDTO(
                 SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/mpeg", 4L, "segment.mp3"
         );
@@ -149,7 +169,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         ));
         verify(uploadMediaUseCase).execute(new UploadChapterNarrationPlaybackMediaCommand(
                 assemblyResource,
-                BuildChapterNarrationPlaybackUseCase.originalFilename(CHAPTER_ID, VOICE_ID)
+                "chuong-82-minh-duc.mp3"
         ));
         verifyNoInteractions(cleanupUseCase);
     }
@@ -475,6 +495,120 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 4L,
                 sourceStream
         ));
+    }
+
+    @Test
+    void computesExactHumanReadableFilenameWithoutUuidsTitlesSlugsOrDisplayName() {
+        arrangeSuccessfulHeavyBuild();
+        Chapter detailedChapter = mock(Chapter.class);
+        when(detailedChapter.getChapterNumber()).thenReturn(82);
+        lenient().when(detailedChapter.getTitle()).thenReturn("Hồi 82: Đại chiến");
+        lenient().when(detailedChapter.getSlug()).thenReturn(new com.universe.novel.domain.Slug("hoi-82-dai-chien"));
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(detailedChapter));
+
+        ManagedVoice detailedVoice = mock(ManagedVoice.class);
+        when(detailedVoice.getVoiceKey()).thenReturn("minh-duc");
+        lenient().when(detailedVoice.getDisplayName()).thenReturn("Minh Đức (Giọng Bắc)");
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(detailedVoice));
+
+        when(finalizerUseCase.execute(any())).thenReturn(finalized(null));
+
+        useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+
+        ArgumentCaptor<UploadChapterNarrationPlaybackMediaCommand> captor =
+                ArgumentCaptor.forClass(UploadChapterNarrationPlaybackMediaCommand.class);
+        verify(uploadMediaUseCase).execute(captor.capture());
+
+        String uploadedFilename = captor.getValue().originalFilename();
+        assertThat(uploadedFilename).isEqualTo("chuong-82-minh-duc.mp3");
+        assertThat(uploadedFilename).doesNotContain(CHAPTER_ID.toString());
+        assertThat(uploadedFilename).doesNotContain(VOICE_ID.toString());
+        assertThat(uploadedFilename).doesNotContain("Hồi 82");
+        assertThat(uploadedFilename).doesNotContain("Đại chiến");
+        assertThat(uploadedFilename).doesNotContain("Minh Đức");
+        assertThat(uploadedFilename).endsWith(".mp3");
+    }
+
+    @Test
+    void rejectsNonPositiveChapterNumberWithIllegalStateException() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        Chapter zeroChapter = chapterWithNumber(0);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(zeroChapter));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chapterNumber must be positive: 0");
+
+        Chapter negativeChapter = chapterWithNumber(-1);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(negativeChapter));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chapterNumber must be positive: -1");
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void rejectsNullOrBlankVoiceKeyWithIllegalStateException() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        ManagedVoice blankVoice = voiceWithKey("   ");
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(blankVoice));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("voiceKey must not be null or blank");
+
+        ManagedVoice nullVoice = voiceWithKey(null);
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(nullVoice));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("voiceKey must not be null or blank");
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void propagatesChapterNotFoundExceptionWhenChapterMissing() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(ChapterNotFoundException.class);
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void propagatesManagedVoiceNotFoundExceptionWhenVoiceMissing() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(ManagedVoiceNotFoundException.class);
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void pureHelperMethodBuildsExactFilename() {
+        assertThat(BuildChapterNarrationPlaybackUseCase.chapterPlaybackFilename(82, "minh-duc"))
+                .isEqualTo("chuong-82-minh-duc.mp3");
+        assertThat(BuildChapterNarrationPlaybackUseCase.originalFilename(82, "minh-duc"))
+                .isEqualTo("chuong-82-minh-duc.mp3");
+    }
+
+    private Chapter chapterWithNumber(int chapterNumber) {
+        Chapter chapter = mock(Chapter.class);
+        lenient().when(chapter.getChapterNumber()).thenReturn(chapterNumber);
+        return chapter;
+    }
+
+    private ManagedVoice voiceWithKey(String voiceKey) {
+        ManagedVoice voice = mock(ManagedVoice.class);
+        lenient().when(voice.getVoiceKey()).thenReturn(voiceKey);
+        return voice;
     }
 
     private FinalizeChapterNarrationPlaybackResult finalized(UUID oldAssetId) {
