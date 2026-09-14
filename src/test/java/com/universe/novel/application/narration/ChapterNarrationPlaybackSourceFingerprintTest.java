@@ -43,6 +43,58 @@ class ChapterNarrationPlaybackSourceFingerprintTest {
         assertThat(fingerprint(List.of(first))).isNotEqualTo(fingerprint(List.of(changedContent)));
     }
 
+    @Test
+    void changingEncodedContributionSamplesChangesFingerprint() {
+        var base = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), 2400L, 48000
+        );
+        var changedSamples = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), 4800L, 48000
+        );
+        var nullSamples = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), null, 48000
+        );
+
+        String baseFingerprint = fingerprint(List.of(base));
+        assertThat(fingerprint(List.of(changedSamples))).isNotEqualTo(baseFingerprint);
+        assertThat(fingerprint(List.of(nullSamples))).isNotEqualTo(baseFingerprint);
+    }
+
+    @Test
+    void changingEncodedSampleRateHzChangesFingerprint() {
+        var base = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), 2400L, 48000
+        );
+        var changedRate = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), 2400L, 44100
+        );
+        var nullRate = new ChapterNarrationPlaybackSegmentSnapshot(
+                segmentId, 0, "b".repeat(64), audioId, 1L, mediaId, 2L,
+                source(1, "a".repeat(64), "source.mp3"), 2400L, null
+        );
+
+        String baseFingerprint = fingerprint(List.of(base));
+        assertThat(fingerprint(List.of(changedRate))).isNotEqualTo(baseFingerprint);
+        assertThat(fingerprint(List.of(nullRate))).isNotEqualTo(baseFingerprint);
+    }
+
+    @Test
+    void canonicalSourcePrefixIsV2Internally() {
+        assertThat(ChapterNarrationPlaybackSourceFingerprint.CANONICAL_PREFIX)
+                .isEqualTo("chapter-playback-source-v2");
+
+        var snapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 2L, "c".repeat(64), List.of()
+        );
+        String payload = ChapterNarrationPlaybackSourceFingerprint.canonicalPayload(snapshot);
+        assertThat(payload).startsWith("26:chapter-playback-source-v2");
+    }
+
     private String fingerprint(List<ChapterNarrationPlaybackSegmentSnapshot> segments) {
         return ChapterNarrationPlaybackSourceFingerprint.compute(new ChapterNarrationPlaybackBuildSnapshot(
                 chapterId, voiceId, 1L, 2L, "c".repeat(64), segments));

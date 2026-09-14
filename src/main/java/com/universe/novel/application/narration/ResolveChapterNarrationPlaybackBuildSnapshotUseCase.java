@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,6 +36,9 @@ import java.util.UUID;
  */
 @Service
 public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
+
+    static final String CANONICAL_MIME_TYPE = "audio/mpeg";
+    static final int CANONICAL_SAMPLE_RATE_HZ = 48_000;
 
     private final ChapterRepositoryPort chapterRepositoryPort;
     private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
@@ -122,6 +126,16 @@ public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
                         "Every CURRENT narration segment must have READY audio; segment is not READY: " + segment.getId()
                 );
             }
+            if (!audio.hasEncodedTiming()
+                    || audio.getEncodedContributionSamples() == null
+                    || audio.getEncodedContributionSamples() <= 0
+                    || audio.getEncodedSampleRateHz() == null
+                    || audio.getEncodedSampleRateHz() != CANONICAL_SAMPLE_RATE_HZ) {
+                throw new IllegalStateException(
+                        "Every CURRENT narration segment must have canonical timed audio (" + CANONICAL_SAMPLE_RATE_HZ
+                                + " Hz); segment audio is not canonical: " + segment.getId()
+                );
+            }
         }
 
         List<ChapterNarrationPlaybackSegmentSnapshot> sourceSnapshots = segments.stream()
@@ -190,7 +204,9 @@ public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
                 audio.getVersion(),
                 audio.getMediaAssetId(),
                 audio.getGeneratedSynthesisRevision(),
-                mediaVersion
+                mediaVersion,
+                audio.getEncodedContributionSamples(),
+                audio.getEncodedSampleRateHz()
         );
     }
 
@@ -205,5 +221,18 @@ public class ResolveChapterNarrationPlaybackBuildSnapshotUseCase {
                 || mediaVersion.sizeBytes() <= 0) {
             throw new IllegalStateException("Media returned invalid immutable source provenance for asset: " + expectedAssetId);
         }
+        String normalizedMime = normalizeMimeType(mediaVersion.mimeType());
+        if (!CANONICAL_MIME_TYPE.equals(normalizedMime)) {
+            throw new IllegalStateException(
+                    "Media source version must be canonical " + CANONICAL_MIME_TYPE + ", but found: " + mediaVersion.mimeType()
+            );
+        }
+    }
+
+    private static String normalizeMimeType(String mimeType) {
+        if (mimeType == null) {
+            return "";
+        }
+        return mimeType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
     }
 }
