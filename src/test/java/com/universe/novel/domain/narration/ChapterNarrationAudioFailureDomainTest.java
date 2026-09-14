@@ -190,12 +190,33 @@ class ChapterNarrationAudioFailureDomainTest {
     void shouldResolveSafeFailureMessages() {
         assertThat(ChapterNarrationAudioFailure.resolveSafeErrorMessage(NarrationAudioFailureStage.TTS_SYNTHESIS))
                 .isEqualTo("Narration TTS synthesis failed.");
+        assertThat(ChapterNarrationAudioFailure.resolveSafeErrorMessage(NarrationAudioFailureStage.AUDIO_ENCODING))
+                .isEqualTo("Narration audio encoding failed.");
         assertThat(ChapterNarrationAudioFailure.resolveSafeErrorMessage(NarrationAudioFailureStage.MEDIA_UPLOAD))
                 .isEqualTo("Narration audio media upload failed.");
         assertThat(ChapterNarrationAudioFailure.resolveSafeErrorMessage(NarrationAudioFailureStage.ASSIGNMENT_PERSISTENCE))
                 .isEqualTo("Narration audio assignment persistence failed.");
         assertThat(ChapterNarrationAudioFailure.resolveSafeErrorMessage(null))
                 .isEqualTo("Narration audio generation failed.");
+    }
+
+    @Test
+    @DisplayName("Should create failure record with AUDIO_ENCODING stage and provider-neutral error message")
+    void shouldCreateFailureRecordWithAudioEncodingStage() {
+        ChapterNarrationAudioFailure failure = ChapterNarrationAudioFailure.create(
+                ID,
+                SEGMENT_ID,
+                VOICE_ID,
+                NarrationAudioOperation.INITIAL_GENERATION,
+                NarrationAudioFailureStage.AUDIO_ENCODING,
+                2L,
+                "FfmpegEncodingException",
+                NOW
+        );
+
+        assertThat(failure.getStage()).isEqualTo(NarrationAudioFailureStage.AUDIO_ENCODING);
+        assertThat(failure.getErrorMessage()).isEqualTo("Narration audio encoding failed.");
+        assertThat(failure.getErrorType()).isEqualTo("FfmpegEncodingException");
     }
 
     @Test

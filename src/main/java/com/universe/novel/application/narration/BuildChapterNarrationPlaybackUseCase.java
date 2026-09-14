@@ -4,8 +4,13 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
-import com.universe.novel.application.ports.ChapterAudioEncoderPort;
+import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
+import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,29 +36,32 @@ public class BuildChapterNarrationPlaybackUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(BuildChapterNarrationPlaybackUseCase.class);
 
+    private final ChapterRepositoryPort chapterRepositoryPort;
+    private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
     private final ResolveChapterNarrationPlaybackBuildSnapshotUseCase snapshotUseCase;
     private final MediaContract mediaContract;
     private final ChapterAudioAssemblerPort assemblerPort;
-    private final ChapterAudioEncoderPort encoderPort;
     private final UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase;
     private final FinalizeChapterNarrationPlaybackUseCase finalizerUseCase;
     private final RequestNarrationMediaCleanupUseCase cleanupUseCase;
     private final InspectChapterNarrationPlaybackUseCase playbackInspector;
 
     public BuildChapterNarrationPlaybackUseCase(
+            ChapterRepositoryPort chapterRepositoryPort,
+            ManagedVoiceRepositoryPort managedVoiceRepositoryPort,
             ResolveChapterNarrationPlaybackBuildSnapshotUseCase snapshotUseCase,
             MediaContract mediaContract,
             ChapterAudioAssemblerPort assemblerPort,
-            ChapterAudioEncoderPort encoderPort,
             UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase,
             FinalizeChapterNarrationPlaybackUseCase finalizerUseCase,
             RequestNarrationMediaCleanupUseCase cleanupUseCase,
             InspectChapterNarrationPlaybackUseCase playbackInspector
     ) {
+        this.chapterRepositoryPort = Objects.requireNonNull(chapterRepositoryPort, "chapterRepositoryPort must not be null");
+        this.managedVoiceRepositoryPort = Objects.requireNonNull(managedVoiceRepositoryPort, "managedVoiceRepositoryPort must not be null");
         this.snapshotUseCase = Objects.requireNonNull(snapshotUseCase, "snapshotUseCase must not be null");
         this.mediaContract = Objects.requireNonNull(mediaContract, "mediaContract must not be null");
         this.assemblerPort = Objects.requireNonNull(assemblerPort, "assemblerPort must not be null");
-        this.encoderPort = Objects.requireNonNull(encoderPort, "encoderPort must not be null");
         this.uploadMediaUseCase = Objects.requireNonNull(uploadMediaUseCase, "uploadMediaUseCase must not be null");
         this.finalizerUseCase = Objects.requireNonNull(finalizerUseCase, "finalizerUseCase must not be null");
         this.cleanupUseCase = Objects.requireNonNull(cleanupUseCase, "cleanupUseCase must not be null");
@@ -84,21 +92,24 @@ public class BuildChapterNarrationPlaybackUseCase {
                     artifact.getMediaAssetId(), BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
         }
 
+        Chapter chapter = chapterRepositoryPort.findById(command.chapterId())
+                .orElseThrow(() -> new ChapterNotFoundException(command.chapterId()));
+        ManagedVoice voice = managedVoiceRepositoryPort.findById(command.managedVoiceId())
+                .orElseThrow(() -> new ManagedVoiceNotFoundException(command.managedVoiceId()));
+        String originalFilename = chapterPlaybackFilename(chapter.getChapterNumber(), voice.getVoiceKey());
+
         UUID candidateMediaAssetId = null;
         long durationMillis;
         List<ChapterAudioAssemblyCue> cues;
 
         try (OpenedExactSources sources = openExactSources(snapshot);
-             ChapterAudioAssemblyResult assembly = assemblerPort.assemble(sources.toAssemblyRequest());
-             ChapterAudioEncodingResult encoding = encoderPort.encode(
-                     new ChapterAudioEncodingRequest(assembly.resource())
-             )) {
+             ChapterAudioAssemblyResult assembly = assemblerPort.assemble(sources.toAssemblyRequest())) {
             durationMillis = assembly.durationMillis();
             cues = assembly.cues();
             candidateMediaAssetId = uploadMediaUseCase.execute(
                     new UploadChapterNarrationPlaybackMediaCommand(
-                            encoding.resource(),
-                            originalFilename(snapshot.chapterId(), snapshot.managedVoiceId())
+                            assembly.resource(),
+                            originalFilename
                     )
             ).mediaAssetId();
         } catch (RuntimeException | Error buildFailure) {
@@ -150,7 +161,9 @@ public class BuildChapterNarrationPlaybackUseCase {
                         segment.segmentId(),
                         segment.segmentIndex(),
                         content.mimeType(),
-                        ownedStream::openOnce
+                        ownedStream::openOnce,
+                        segment.encodedContributionSamples(),
+                        segment.encodedSampleRateHz()
                 ));
             }
             return openedSources;
@@ -212,8 +225,18 @@ public class BuildChapterNarrationPlaybackUseCase {
         }
     }
 
-    static String originalFilename(UUID chapterId, UUID managedVoiceId) {
-        return "chapter-" + chapterId + "-voice-" + managedVoiceId + ".mp3";
+    static String originalFilename(int chapterNumber, String voiceKey) {
+        return chapterPlaybackFilename(chapterNumber, voiceKey);
+    }
+
+    static String chapterPlaybackFilename(int chapterNumber, String voiceKey) {
+        if (chapterNumber <= 0) {
+            throw new IllegalStateException("chapterNumber must be positive: " + chapterNumber);
+        }
+        if (voiceKey == null || voiceKey.isBlank()) {
+            throw new IllegalStateException("voiceKey must not be null or blank");
+        }
+        return "chuong-" + chapterNumber + "-" + voiceKey + ".mp3";
     }
 
     private static final class OpenedExactSources implements AutoCloseable {

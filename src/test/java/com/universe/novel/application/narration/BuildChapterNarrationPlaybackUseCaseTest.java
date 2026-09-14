@@ -4,8 +4,13 @@ import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
-import com.universe.novel.application.ports.ChapterAudioEncoderPort;
+import com.universe.novel.application.ports.ChapterRepositoryPort;
+import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
+import com.universe.novel.domain.Chapter;
+import com.universe.novel.domain.narration.ManagedVoice;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
@@ -20,6 +25,7 @@ import com.universe.media.contracts.dto.MediaVersionDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -41,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -62,13 +69,15 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     private static final String SOURCE_HASH = "a".repeat(64);
 
     @Mock
+    private ChapterRepositoryPort chapterRepositoryPort;
+    @Mock
+    private ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
+    @Mock
     private ResolveChapterNarrationPlaybackBuildSnapshotUseCase snapshotUseCase;
     @Mock
     private MediaContract mediaContract;
     @Mock
     private ChapterAudioAssemblerPort assemblerPort;
-    @Mock
-    private ChapterAudioEncoderPort encoderPort;
     @Mock
     private UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase;
     @Mock
@@ -82,25 +91,31 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     private BuildChapterNarrationPlaybackUseCase useCase;
     private TrackingInputStream sourceStream;
     private TestAssemblyResource assemblyResource;
-    private TestEncodedResource encodedResource;
     private ChapterNarrationPlaybackBuildSnapshot snapshot;
     private ChapterAudioAssemblyCue cue;
 
     @BeforeEach
     void setUp() {
         useCase = new BuildChapterNarrationPlaybackUseCase(
+                chapterRepositoryPort,
+                managedVoiceRepositoryPort,
                 snapshotUseCase,
                 mediaContract,
                 assemblerPort,
-                encoderPort,
                 uploadMediaUseCase,
                 finalizerUseCase,
                 cleanupUseCase,
                 new InspectChapterNarrationPlaybackUseCase(playbackRepository, artifactRepository,
                         cueRepository, mediaContract, snapshotUseCase)
         );
+        Chapter defaultChapter = chapterWithNumber(82);
+        ManagedVoice defaultVoice = voiceWithKey("minh-duc");
+        lenient().when(chapterRepositoryPort.findById(CHAPTER_ID))
+                .thenReturn(Optional.of(defaultChapter));
+        lenient().when(managedVoiceRepositoryPort.findById(VOICE_ID))
+                .thenReturn(Optional.of(defaultVoice));
         MediaAssetVersionSnapshotDTO sourceVersion = new MediaAssetVersionSnapshotDTO(
-                SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/wav", 4L, "segment.wav"
+                SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/mpeg", 4L, "segment.mp3"
         );
         snapshot = new ChapterNarrationPlaybackBuildSnapshot(
                 CHAPTER_ID,
@@ -116,13 +131,14 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                         2L,
                         SOURCE_ASSET_ID,
                         4L,
-                        sourceVersion
+                        sourceVersion,
+                        48_000L,
+                        48_000
                 ))
         );
         cue = new ChapterAudioAssemblyCue(0, SEGMENT_ID, 0, 0L, 1_000L);
         sourceStream = new TrackingInputStream(new byte[]{1, 2, 3, 4});
         assemblyResource = new TestAssemblyResource();
-        encodedResource = new TestEncodedResource(false);
     }
 
     @Test
@@ -131,8 +147,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         when(finalizerUseCase.execute(any())).thenAnswer(invocation -> {
             assertAll(
                     () -> assertThat(sourceStream.closed).isTrue(),
-                    () -> assertThat(assemblyResource.closed).isTrue(),
-                    () -> assertThat(encodedResource.closed).isTrue()
+                    () -> assertThat(assemblyResource.closed).isTrue()
             );
             FinalizeChapterNarrationPlaybackCommand command = invocation.getArgument(0);
             assertThat(command.snapshot()).isSameAs(snapshot);
@@ -153,8 +168,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 SOURCE_ASSET_ID, 3, SOURCE_HASH
         ));
         verify(uploadMediaUseCase).execute(new UploadChapterNarrationPlaybackMediaCommand(
-                encodedResource,
-                BuildChapterNarrationPlaybackUseCase.originalFilename(CHAPTER_ID, VOICE_ID)
+                assemblyResource,
+                "chuong-82-minh-duc.mp3"
         ));
         verifyNoInteractions(cleanupUseCase);
     }
@@ -168,7 +183,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
         assertThat(result.outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
         assertThat(result.artifactId()).isEqualTo(ARTIFACT_ID);
-        verifyNoInteractions(assemblerPort, encoderPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
         verify(mediaContract, never()).openVersionContent(any());
     }
 
@@ -183,7 +198,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
         assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
         verify(assemblerPort).assemble(any());
-        verify(encoderPort).encode(any());
         verify(uploadMediaUseCase).execute(any());
         verify(finalizerUseCase).execute(any());
         verifyNoInteractions(cleanupUseCase);
@@ -217,7 +231,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
                 List.of(new ChapterNarrationPlaybackSegmentSnapshot(s.segmentId(), s.segmentIndex(), s.contentHash(),
                         s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(),
-                        new MediaAssetVersionSnapshotDTO(SOURCE_ASSET_ID, 2, "d".repeat(64), "audio/wav", 4L, "segment.wav"))));
+                        new MediaAssetVersionSnapshotDTO(SOURCE_ASSET_ID, 2, "d".repeat(64), "audio/mpeg", 4L, "segment.mp3"),
+                        48_000L, 48_000)));
         arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
         assertRebuilt();
     }
@@ -227,7 +242,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         var s = snapshot.segments().get(0);
         var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
                 List.of(new ChapterNarrationPlaybackSegmentSnapshot(UUID.randomUUID(), 0, s.contentHash(),
-                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(), s.sourceMediaVersion())));
+                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(),
+                        s.sourceMediaVersion(), 48_000L, 48_000)));
         arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
         assertRebuilt();
     }
@@ -247,7 +263,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         assertThat(useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)).outcome())
                 .isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
         verify(assemblerPort).assemble(any());
-        verify(encoderPort).encode(any());
         verify(uploadMediaUseCase).execute(any());
         verify(finalizerUseCase).execute(any());
     }
@@ -329,12 +344,12 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
     @Test
     void resourceCloseFailureAfterUploadCleansKnownCandidateAndSkipsFinalization() {
-        encodedResource = new TestEncodedResource(true);
+        assemblyResource = new TestAssemblyResource(true);
         arrangeSuccessfulHeavyBuild();
 
         assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("encoded close failed");
+                .hasMessage("assembly close failed");
 
         verify(cleanupUseCase).execute(
                 CANDIDATE_ASSET_ID,
@@ -342,6 +357,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         );
         verifyNoInteractions(finalizerUseCase);
         assertThat(assemblyResource.closed).isTrue();
+        assertThat(sourceStream.closed).isTrue();
     }
 
     @Test
@@ -355,7 +371,40 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 .isSameAs(assemblyFailure);
 
         assertThat(sourceStream.closed).isTrue();
-        verifyNoInteractions(encoderPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+        verifyNoInteractions(uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+    }
+
+    @Test
+    void uploadFailureClosesResourcesAndSkipsFinalizationWithoutCleanup() {
+        arrangeSuccessfulHeavyBuild();
+        RuntimeException uploadFailure = new RuntimeException("upload failed");
+        when(uploadMediaUseCase.execute(any())).thenThrow(uploadFailure);
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isSameAs(uploadFailure);
+
+        assertThat(sourceStream.closed).isTrue();
+        assertThat(assemblyResource.closed).isTrue();
+        verifyNoInteractions(finalizerUseCase, cleanupUseCase);
+    }
+
+    @Test
+    void assemblerReceivesExactCanonicalMp3SourcesWithTimingMetadata() {
+        arrangeSuccessfulHeavyBuild();
+        when(finalizerUseCase.execute(any())).thenReturn(finalized(null));
+
+        useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ChapterAudioAssemblyRequest.class);
+        verify(assemblerPort).assemble(captor.capture());
+        ChapterAudioAssemblyRequest capturedRequest = captor.getValue();
+        assertThat(capturedRequest.segments()).hasSize(1);
+        ChapterAudioSegmentSource segmentSource = capturedRequest.segments().get(0);
+        assertThat(segmentSource.segmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(segmentSource.segmentIndex()).isEqualTo(0);
+        assertThat(segmentSource.mimeType()).isEqualTo("audio/mpeg");
+        assertThat(segmentSource.encodedContributionSamples()).isEqualTo(48_000L);
+        assertThat(segmentSource.encodedSampleRateHz()).isEqualTo(48_000);
     }
 
     @Test
@@ -430,7 +479,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
             }
             return new ChapterAudioAssemblyResult(assemblyResource, 1_000L, List.of(cue));
         });
-        when(encoderPort.encode(any())).thenReturn(new ChapterAudioEncodingResult(encodedResource));
         when(uploadMediaUseCase.execute(any())).thenReturn(
                 new UploadChapterNarrationPlaybackMediaResult(CANDIDATE_ASSET_ID)
         );
@@ -443,10 +491,124 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 SOURCE_ASSET_ID,
                 3,
                 SOURCE_HASH,
-                "audio/wav",
+                "audio/mpeg",
                 4L,
                 sourceStream
         ));
+    }
+
+    @Test
+    void computesExactHumanReadableFilenameWithoutUuidsTitlesSlugsOrDisplayName() {
+        arrangeSuccessfulHeavyBuild();
+        Chapter detailedChapter = mock(Chapter.class);
+        when(detailedChapter.getChapterNumber()).thenReturn(82);
+        lenient().when(detailedChapter.getTitle()).thenReturn("Hồi 82: Đại chiến");
+        lenient().when(detailedChapter.getSlug()).thenReturn(new com.universe.novel.domain.Slug("hoi-82-dai-chien"));
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(detailedChapter));
+
+        ManagedVoice detailedVoice = mock(ManagedVoice.class);
+        when(detailedVoice.getVoiceKey()).thenReturn("minh-duc");
+        lenient().when(detailedVoice.getDisplayName()).thenReturn("Minh Đức (Giọng Bắc)");
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(detailedVoice));
+
+        when(finalizerUseCase.execute(any())).thenReturn(finalized(null));
+
+        useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+
+        ArgumentCaptor<UploadChapterNarrationPlaybackMediaCommand> captor =
+                ArgumentCaptor.forClass(UploadChapterNarrationPlaybackMediaCommand.class);
+        verify(uploadMediaUseCase).execute(captor.capture());
+
+        String uploadedFilename = captor.getValue().originalFilename();
+        assertThat(uploadedFilename).isEqualTo("chuong-82-minh-duc.mp3");
+        assertThat(uploadedFilename).doesNotContain(CHAPTER_ID.toString());
+        assertThat(uploadedFilename).doesNotContain(VOICE_ID.toString());
+        assertThat(uploadedFilename).doesNotContain("Hồi 82");
+        assertThat(uploadedFilename).doesNotContain("Đại chiến");
+        assertThat(uploadedFilename).doesNotContain("Minh Đức");
+        assertThat(uploadedFilename).endsWith(".mp3");
+    }
+
+    @Test
+    void rejectsNonPositiveChapterNumberWithIllegalStateException() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        Chapter zeroChapter = chapterWithNumber(0);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(zeroChapter));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chapterNumber must be positive: 0");
+
+        Chapter negativeChapter = chapterWithNumber(-1);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(negativeChapter));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("chapterNumber must be positive: -1");
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void rejectsNullOrBlankVoiceKeyWithIllegalStateException() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        ManagedVoice blankVoice = voiceWithKey("   ");
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(blankVoice));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("voiceKey must not be null or blank");
+
+        ManagedVoice nullVoice = voiceWithKey(null);
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(nullVoice));
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("voiceKey must not be null or blank");
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void propagatesChapterNotFoundExceptionWhenChapterMissing() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(ChapterNotFoundException.class);
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void propagatesManagedVoiceNotFoundExceptionWhenVoiceMissing() {
+        when(snapshotUseCase.execute(CHAPTER_ID, VOICE_ID)).thenReturn(snapshot);
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isInstanceOf(ManagedVoiceNotFoundException.class);
+
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase);
+    }
+
+    @Test
+    void pureHelperMethodBuildsExactFilename() {
+        assertThat(BuildChapterNarrationPlaybackUseCase.chapterPlaybackFilename(82, "minh-duc"))
+                .isEqualTo("chuong-82-minh-duc.mp3");
+        assertThat(BuildChapterNarrationPlaybackUseCase.originalFilename(82, "minh-duc"))
+                .isEqualTo("chuong-82-minh-duc.mp3");
+    }
+
+    private Chapter chapterWithNumber(int chapterNumber) {
+        Chapter chapter = mock(Chapter.class);
+        lenient().when(chapter.getChapterNumber()).thenReturn(chapterNumber);
+        return chapter;
+    }
+
+    private ManagedVoice voiceWithKey(String voiceKey) {
+        ManagedVoice voice = mock(ManagedVoice.class);
+        lenient().when(voice.getVoiceKey()).thenReturn(voiceKey);
+        return voice;
     }
 
     private FinalizeChapterNarrationPlaybackResult finalized(UUID oldAssetId) {
@@ -475,11 +637,20 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
     private static final class TestAssemblyResource implements ChapterAudioAssemblyResource {
 
+        private final boolean failOnClose;
         private boolean closed;
+
+        private TestAssemblyResource() {
+            this(false);
+        }
+
+        private TestAssemblyResource(boolean failOnClose) {
+            this.failOnClose = failOnClose;
+        }
 
         @Override
         public String mimeType() {
-            return "audio/wav";
+            return "audio/mpeg";
         }
 
         @Override
@@ -495,38 +666,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         @Override
         public void close() {
             closed = true;
-        }
-    }
-
-    private static final class TestEncodedResource implements ChapterAudioEncodedResource {
-
-        private final boolean failOnClose;
-        private boolean closed;
-
-        private TestEncodedResource(boolean failOnClose) {
-            this.failOnClose = failOnClose;
-        }
-
-        @Override
-        public String mimeType() {
-            return "audio/mpeg";
-        }
-
-        @Override
-        public long sizeBytes() {
-            return 3L;
-        }
-
-        @Override
-        public InputStream openStream() {
-            return new ByteArrayInputStream(new byte[]{1, 2, 3});
-        }
-
-        @Override
-        public void close() {
-            closed = true;
             if (failOnClose) {
-                throw new IllegalStateException("encoded close failed");
+                throw new IllegalStateException("assembly close failed");
             }
         }
     }

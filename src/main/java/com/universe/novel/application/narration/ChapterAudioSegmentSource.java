@@ -10,8 +10,23 @@ public record ChapterAudioSegmentSource(
         UUID segmentId,
         int segmentIndex,
         String mimeType,
-        ChapterAudioSegmentBinarySource binarySource
+        ChapterAudioSegmentBinarySource binarySource,
+        Long encodedContributionSamples,
+        Integer encodedSampleRateHz
 ) {
+
+    /**
+     * Backward-compatible constructor delegating timing to {@code null}/{@code null}.
+     */
+    public ChapterAudioSegmentSource(
+            UUID segmentId,
+            int segmentIndex,
+            String mimeType,
+            ChapterAudioSegmentBinarySource binarySource
+    ) {
+        this(segmentId, segmentIndex, mimeType, binarySource, null, null);
+    }
+
     public ChapterAudioSegmentSource {
         Objects.requireNonNull(segmentId, "segmentId must not be null");
         if (segmentIndex < 0) {
@@ -22,5 +37,23 @@ public record ChapterAudioSegmentSource(
         }
         mimeType = mimeType.trim();
         Objects.requireNonNull(binarySource, "binarySource must not be null");
+
+        if ((encodedContributionSamples == null) != (encodedSampleRateHz == null)) {
+            throw new IllegalArgumentException(
+                    "encodedContributionSamples and encodedSampleRateHz must either both be null or both be non-null"
+            );
+        }
+        if (encodedContributionSamples != null) {
+            if (encodedContributionSamples <= 0) {
+                throw new IllegalArgumentException(
+                        "encodedContributionSamples must be > 0: " + encodedContributionSamples
+                );
+            }
+            if (encodedSampleRateHz <= 0) {
+                throw new IllegalArgumentException(
+                        "encodedSampleRateHz must be > 0: " + encodedSampleRateHz
+                );
+            }
+        }
     }
 }

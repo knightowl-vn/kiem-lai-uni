@@ -3,16 +3,16 @@ package com.universe.novel.application.narration;
 import java.io.InputStream;
 
 /**
- * Caller-owned temporary encoded chapter audio resource.
+ * Caller-owned temporary binary chapter audio resource.
  */
-public interface ChapterAudioEncodedResource extends AutoCloseable {
+public interface ChapterAudioBinaryResource extends AutoCloseable {
 
     String mimeType();
 
     long sizeBytes();
 
     /**
-     * Opens a new readable stream for the encoded audio.
+     * Opens a new readable stream for the audio binary.
      * <p>
      * The caller owns and must close the returned stream before closing this resource.
      */

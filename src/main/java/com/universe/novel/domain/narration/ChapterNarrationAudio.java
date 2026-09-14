@@ -25,6 +25,8 @@ public class ChapterNarrationAudio {
     private final UUID managedVoiceId;
     private UUID mediaAssetId;
     private long generatedSynthesisRevision;
+    private Long encodedContributionSamples;
+    private Integer encodedSampleRateHz;
     private final Long version;
     private final Instant createdAt;
     private Instant updatedAt;
@@ -35,6 +37,8 @@ public class ChapterNarrationAudio {
             UUID managedVoiceId,
             UUID mediaAssetId,
             long generatedSynthesisRevision,
+            Long encodedContributionSamples,
+            Integer encodedSampleRateHz,
             Long version,
             Instant createdAt,
             Instant updatedAt
@@ -44,6 +48,9 @@ public class ChapterNarrationAudio {
         this.managedVoiceId = Objects.requireNonNull(managedVoiceId, "ID giọng đọc không được để trống.");
         this.mediaAssetId = Objects.requireNonNull(mediaAssetId, "ID media asset không được để trống.");
         this.generatedSynthesisRevision = validateSynthesisRevision(generatedSynthesisRevision);
+        validateEncodedTiming(encodedContributionSamples, encodedSampleRateHz);
+        this.encodedContributionSamples = encodedContributionSamples;
+        this.encodedSampleRateHz = encodedSampleRateHz;
         this.version = version;
         this.createdAt = Objects.requireNonNull(createdAt, "Thời gian tạo không được để trống.");
         this.updatedAt = Objects.requireNonNull(updatedAt, "Thời gian cập nhật không được để trống.");
@@ -54,7 +61,7 @@ public class ChapterNarrationAudio {
     }
 
     /**
-     * Factory method to create a new narration audio assignment.
+     * Factory method to create a new narration audio assignment without timing (legacy).
      */
     public static ChapterNarrationAudio create(
             UUID id,
@@ -64,6 +71,31 @@ public class ChapterNarrationAudio {
             long generatedSynthesisRevision,
             Instant now
     ) {
+        return create(
+                id,
+                segmentId,
+                managedVoiceId,
+                mediaAssetId,
+                generatedSynthesisRevision,
+                null,
+                null,
+                now
+        );
+    }
+
+    /**
+     * Factory method to create a new narration audio assignment with encoded timing metadata.
+     */
+    public static ChapterNarrationAudio create(
+            UUID id,
+            UUID segmentId,
+            UUID managedVoiceId,
+            UUID mediaAssetId,
+            long generatedSynthesisRevision,
+            Long encodedContributionSamples,
+            Integer encodedSampleRateHz,
+            Instant now
+    ) {
         Objects.requireNonNull(now, "Thời gian tạo không được để trống.");
         return new ChapterNarrationAudio(
                 id,
@@ -71,6 +103,8 @@ public class ChapterNarrationAudio {
                 managedVoiceId,
                 mediaAssetId,
                 generatedSynthesisRevision,
+                encodedContributionSamples,
+                encodedSampleRateHz,
                 null,
                 now,
                 now
@@ -78,7 +112,7 @@ public class ChapterNarrationAudio {
     }
 
     /**
-     * Factory method to rehydrate an existing narration audio assignment from persistence.
+     * Factory method to rehydrate an existing narration audio assignment from persistence without timing (legacy).
      */
     public static ChapterNarrationAudio rehydrate(
             UUID id,
@@ -90,12 +124,43 @@ public class ChapterNarrationAudio {
             Instant createdAt,
             Instant updatedAt
     ) {
+        return rehydrate(
+                id,
+                segmentId,
+                managedVoiceId,
+                mediaAssetId,
+                generatedSynthesisRevision,
+                null,
+                null,
+                version,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    /**
+     * Factory method to rehydrate an existing narration audio assignment from persistence with encoded timing.
+     */
+    public static ChapterNarrationAudio rehydrate(
+            UUID id,
+            UUID segmentId,
+            UUID managedVoiceId,
+            UUID mediaAssetId,
+            long generatedSynthesisRevision,
+            Long encodedContributionSamples,
+            Integer encodedSampleRateHz,
+            Long version,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
         return new ChapterNarrationAudio(
                 id,
                 segmentId,
                 managedVoiceId,
                 mediaAssetId,
                 generatedSynthesisRevision,
+                encodedContributionSamples,
+                encodedSampleRateHz,
                 version,
                 createdAt,
                 updatedAt
@@ -129,7 +194,16 @@ public class ChapterNarrationAudio {
     }
 
     /**
-     * Replaces the currently attached audio with a newly synthesized and stored Media asset.
+     * Checks whether this audio assignment has persisted encoded timing metadata.
+     *
+     * @return {@code true} if encoded timing metadata is present; {@code false} for legacy untimed audio
+     */
+    public boolean hasEncodedTiming() {
+        return this.encodedContributionSamples != null && this.encodedSampleRateHz != null;
+    }
+
+    /**
+     * Replaces the currently attached audio with a newly synthesized and stored Media asset (legacy/un-timed).
      *
      * @param newMediaAssetId                 the new Media asset identity
      * @param newGeneratedSynthesisRevision the new generated synthesis revision (&gt;= 1)
@@ -140,10 +214,31 @@ public class ChapterNarrationAudio {
             long newGeneratedSynthesisRevision,
             Instant now
     ) {
+        replaceSuccessfulAudio(newMediaAssetId, newGeneratedSynthesisRevision, null, null, now);
+    }
+
+    /**
+     * Replaces the currently attached audio with a newly synthesized, encoded, and stored Media asset
+     * along with its encoded timing metadata as a single atomic domain mutation.
+     *
+     * @param newMediaAssetId                 the new Media asset identity
+     * @param newGeneratedSynthesisRevision the new generated synthesis revision (&gt;= 1)
+     * @param newEncodedContributionSamples the new encoded contribution samples (&gt; 0, or null with null rate)
+     * @param newEncodedSampleRateHz        the new encoded sample rate in Hz (&gt; 0, or null with null samples)
+     * @param now                             the timestamp of replacement
+     */
+    public void replaceSuccessfulAudio(
+            UUID newMediaAssetId,
+            long newGeneratedSynthesisRevision,
+            Long newEncodedContributionSamples,
+            Integer newEncodedSampleRateHz,
+            Instant now
+    ) {
         Objects.requireNonNull(newMediaAssetId, "ID media asset mới không được để trống.");
         Objects.requireNonNull(now, "Thời gian thay thế không được để trống.");
 
         long validatedRevision = validateSynthesisRevision(newGeneratedSynthesisRevision);
+        validateEncodedTiming(newEncodedContributionSamples, newEncodedSampleRateHz);
 
         if (now.isBefore(this.createdAt)) {
             throw new IllegalArgumentException("Thời gian thay thế không được trước thời gian tạo.");
@@ -151,7 +246,27 @@ public class ChapterNarrationAudio {
 
         this.mediaAssetId = newMediaAssetId;
         this.generatedSynthesisRevision = validatedRevision;
+        this.encodedContributionSamples = newEncodedContributionSamples;
+        this.encodedSampleRateHz = newEncodedSampleRateHz;
         this.updatedAt = now;
+    }
+
+    private static void validateEncodedTiming(Long encodedContributionSamples, Integer encodedSampleRateHz) {
+        if (encodedContributionSamples == null && encodedSampleRateHz == null) {
+            return;
+        }
+        if (encodedContributionSamples == null) {
+            throw new IllegalArgumentException("encodedContributionSamples must not be null when encodedSampleRateHz is present.");
+        }
+        if (encodedSampleRateHz == null) {
+            throw new IllegalArgumentException("encodedSampleRateHz must not be null when encodedContributionSamples is present.");
+        }
+        if (encodedContributionSamples <= 0) {
+            throw new IllegalArgumentException("encodedContributionSamples must be > 0: " + encodedContributionSamples);
+        }
+        if (encodedSampleRateHz <= 0) {
+            throw new IllegalArgumentException("encodedSampleRateHz must be > 0: " + encodedSampleRateHz);
+        }
     }
 
     private static long validateSynthesisRevision(long revision) {
@@ -179,6 +294,14 @@ public class ChapterNarrationAudio {
 
     public long getGeneratedSynthesisRevision() {
         return generatedSynthesisRevision;
+    }
+
+    public Long getEncodedContributionSamples() {
+        return encodedContributionSamples;
+    }
+
+    public Integer getEncodedSampleRateHz() {
+        return encodedSampleRateHz;
     }
 
     public Long getVersion() {
@@ -214,6 +337,8 @@ public class ChapterNarrationAudio {
                 ", managedVoiceId=" + managedVoiceId +
                 ", mediaAssetId=" + mediaAssetId +
                 ", generatedSynthesisRevision=" + generatedSynthesisRevision +
+                ", encodedContributionSamples=" + encodedContributionSamples +
+                ", encodedSampleRateHz=" + encodedSampleRateHz +
                 ", version=" + version +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +

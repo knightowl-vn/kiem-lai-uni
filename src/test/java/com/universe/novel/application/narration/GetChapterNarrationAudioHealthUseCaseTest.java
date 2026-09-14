@@ -177,7 +177,7 @@ class GetChapterNarrationAudioHealthUseCaseTest {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 51840L, 48000, NOW
         );
 
         when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
@@ -205,7 +205,7 @@ class GetChapterNarrationAudioHealthUseCaseTest {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 51840L, 48000, NOW
         );
         ChapterNarrationAudioFailure staleFailure = createFailure(
                 NarrationAudioOperation.REGENERATION,
@@ -287,7 +287,7 @@ class GetChapterNarrationAudioHealthUseCaseTest {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice disabledVoice = createVoice(2L, ManagedVoiceStatus.DISABLED);
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 51840L, 48000, NOW
         );
 
         when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
@@ -425,7 +425,7 @@ class GetChapterNarrationAudioHealthUseCaseTest {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
         ChapterNarrationAudio audio = ChapterNarrationAudio.create(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 51840L, 48000, NOW
         );
         ChapterNarrationAudioFailure ghostFailure = createFailure(
                 NarrationAudioOperation.REGENERATION,
@@ -445,5 +445,35 @@ class GetChapterNarrationAudioHealthUseCaseTest {
         org.mockito.Mockito.verify(failureRepositoryPort, org.mockito.Mockito.never()).save(org.mockito.ArgumentMatchers.any());
         org.mockito.Mockito.verify(failureRepositoryPort, org.mockito.Mockito.never())
                 .deleteSupersededBySuccessfulRevision(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    @DisplayName("15. Derives OUTDATED when assignment is at current voice revision but lacks timing metadata")
+    void shouldDeriveOutdatedWhenSameRevisionAssignmentLacksTimingMetadata() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createVoice(2L, ManagedVoiceStatus.ACTIVE);
+
+        // Same revision (2L == 2L) but untimed (legacy null/null)
+        ChapterNarrationAudio untimedAudio = ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, NOW
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(untimedAudio));
+        when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+
+        GetChapterNarrationAudioHealthResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.segmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(result.managedVoiceId()).isEqualTo(VOICE_ID);
+        assertThat(result.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(result.assignmentId()).isEqualTo(AUDIO_ID);
+        assertThat(result.mediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
+        assertThat(result.currentSynthesisRevision()).isEqualTo(2L);
+        assertThat(result.lastFailure()).isNull();
     }
 }

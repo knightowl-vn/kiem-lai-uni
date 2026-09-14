@@ -1,6 +1,6 @@
 package com.universe.novel.infrastructure.narration.audio;
 
-import com.universe.novel.application.narration.ChapterAudioEncodedResource;
+import com.universe.novel.application.narration.SegmentAudioEncodedResource;
 
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -10,9 +10,9 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Temporary file-backed encoded chapter audio resource.
+ * Temporary file-backed encoded segment audio resource.
  */
-public final class TempFileChapterAudioEncodedResource implements ChapterAudioEncodedResource {
+public final class TempFileSegmentAudioEncodedResource implements SegmentAudioEncodedResource {
 
     @FunctionalInterface
     interface StreamOpener {
@@ -27,20 +27,30 @@ public final class TempFileChapterAudioEncodedResource implements ChapterAudioEn
     private final Path tempFile;
     private final String mimeType;
     private final long sizeBytes;
+    private final long encodedContributionSamples;
+    private final int sampleRateHz;
     private final StreamOpener streamOpener;
     private final TempFileDeleter tempFileDeleter;
     private final Object lock = new Object();
     private int activeStreams = 0;
     private boolean closed = false;
 
-    public TempFileChapterAudioEncodedResource(Path tempFile, String mimeType, long sizeBytes) {
-        this(tempFile, mimeType, sizeBytes, Files::newInputStream, Files::deleteIfExists);
-    }
-
-    TempFileChapterAudioEncodedResource(
+    public TempFileSegmentAudioEncodedResource(
             Path tempFile,
             String mimeType,
             long sizeBytes,
+            long encodedContributionSamples,
+            int sampleRateHz
+    ) {
+        this(tempFile, mimeType, sizeBytes, encodedContributionSamples, sampleRateHz, Files::newInputStream, Files::deleteIfExists);
+    }
+
+    TempFileSegmentAudioEncodedResource(
+            Path tempFile,
+            String mimeType,
+            long sizeBytes,
+            long encodedContributionSamples,
+            int sampleRateHz,
             StreamOpener streamOpener,
             TempFileDeleter tempFileDeleter
     ) {
@@ -53,6 +63,14 @@ public final class TempFileChapterAudioEncodedResource implements ChapterAudioEn
             throw new IllegalArgumentException("sizeBytes must be > 0: " + sizeBytes);
         }
         this.sizeBytes = sizeBytes;
+        if (encodedContributionSamples <= 0) {
+            throw new IllegalArgumentException("encodedContributionSamples must be > 0: " + encodedContributionSamples);
+        }
+        this.encodedContributionSamples = encodedContributionSamples;
+        if (sampleRateHz <= 0) {
+            throw new IllegalArgumentException("sampleRateHz must be > 0: " + sampleRateHz);
+        }
+        this.sampleRateHz = sampleRateHz;
         this.streamOpener = Objects.requireNonNull(streamOpener, "streamOpener must not be null");
         this.tempFileDeleter = Objects.requireNonNull(tempFileDeleter, "tempFileDeleter must not be null");
     }
@@ -68,10 +86,20 @@ public final class TempFileChapterAudioEncodedResource implements ChapterAudioEn
     }
 
     @Override
+    public long encodedContributionSamples() {
+        return encodedContributionSamples;
+    }
+
+    @Override
+    public int sampleRateHz() {
+        return sampleRateHz;
+    }
+
+    @Override
     public InputStream openStream() {
         synchronized (lock) {
             if (closed) {
-                throw new IllegalStateException("ChapterAudioEncodedResource has already been closed.");
+                throw new IllegalStateException("SegmentAudioEncodedResource has already been closed.");
             }
             try {
                 InputStream rawStream = streamOpener.open(tempFile);
@@ -81,7 +109,7 @@ public final class TempFileChapterAudioEncodedResource implements ChapterAudioEn
                 activeStreams++;
                 return new TrackedInputStream(rawStream);
             } catch (IOException e) {
-                throw new IllegalStateException("Failed to open encoded chapter audio temp file.", e);
+                throw new IllegalStateException("Failed to open encoded segment audio temp file.", e);
             }
         }
     }
@@ -101,7 +129,7 @@ public final class TempFileChapterAudioEncodedResource implements ChapterAudioEn
                 tempFileDeleter.deleteIfExists(tempFile);
                 closed = true;
             } catch (IOException e) {
-                throw new IllegalStateException("Failed to delete temporary encoded chapter audio resource.", e);
+                throw new IllegalStateException("Failed to delete temporary encoded segment audio resource.", e);
             }
         }
     }

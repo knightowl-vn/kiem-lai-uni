@@ -41,7 +41,8 @@ class InspectChapterNarrationPlaybackUseCaseTest {
         UUID sourceId = UUID.randomUUID();
         snapshot = new ChapterNarrationPlaybackBuildSnapshot(chapterId, voiceId, 2L, 3L, "a".repeat(64), List.of(
                 new ChapterNarrationPlaybackSegmentSnapshot(segmentId, 0, "b".repeat(64), UUID.randomUUID(), 1L,
-                        sourceId, 3L, new MediaAssetVersionSnapshotDTO(sourceId, 1, "c".repeat(64), "audio/wav", 100L, "source.wav"))));
+                        sourceId, 3L, new MediaAssetVersionSnapshotDTO(sourceId, 1, "c".repeat(64), "audio/mpeg", 100L, "source.mp3"),
+                        51840L, 48000)));
     }
 
     @Test
@@ -78,6 +79,15 @@ class InspectChapterNarrationPlaybackUseCaseTest {
         arrangeArtifact(null);
         assertThat(inspector.execute(chapterId, voiceId, 2L, 3L).state()).isEqualTo(ChapterNarrationPlaybackState.STALE_SOURCE);
         verifyNoInteractions(snapshotUseCase);
+    }
+
+    @Test
+    void v1StyleFingerprintCannotSuppressCanonicalRebuild() {
+        arrangeArtifact("1".repeat(64));
+        when(snapshotUseCase.inspect(chapterId, voiceId)).thenReturn(snapshot);
+        assertThat(inspector.findAlreadyCurrent(snapshot)).isEmpty();
+        assertThat(inspector.execute(chapterId, voiceId, 2L, 3L).state())
+                .isEqualTo(ChapterNarrationPlaybackState.STALE_SOURCE);
     }
 
     @Test

@@ -13,9 +13,21 @@ public final class ChapterNarrationPlaybackSourceFingerprint {
     private ChapterNarrationPlaybackSourceFingerprint() {
     }
 
+    static final String CANONICAL_PREFIX = "chapter-playback-source-v2";
+
     public static String compute(ChapterNarrationPlaybackBuildSnapshot snapshot) {
+        String canonical = canonicalPayload(snapshot);
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
+    }
+
+    static String canonicalPayload(ChapterNarrationPlaybackBuildSnapshot snapshot) {
         StringBuilder canonical = new StringBuilder();
-        append(canonical, "chapter-playback-source-v1");
+        append(canonical, CANONICAL_PREFIX);
         append(canonical, snapshot.chapterId());
         append(canonical, snapshot.managedVoiceId());
         append(canonical, snapshot.sourceContentVersion());
@@ -30,6 +42,8 @@ public final class ChapterNarrationPlaybackSourceFingerprint {
             append(canonical, segment.narrationAudioVersion());
             append(canonical, segment.mediaAssetId());
             append(canonical, segment.generatedSynthesisRevision());
+            append(canonical, segment.encodedContributionSamples());
+            append(canonical, segment.encodedSampleRateHz());
             var media = segment.sourceMediaVersion();
             append(canonical, media.assetId());
             append(canonical, media.versionNumber());
@@ -37,12 +51,7 @@ public final class ChapterNarrationPlaybackSourceFingerprint {
             append(canonical, media.mimeType());
             append(canonical, media.sizeBytes());
         }
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 is unavailable", ex);
-        }
+        return canonical.toString();
     }
 
     private static void append(StringBuilder output, Object value) {

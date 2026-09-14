@@ -2,6 +2,8 @@ package com.universe.novel.domain.narration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -35,6 +37,8 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getManagedVoiceId()).isEqualTo(VOICE_ID);
         assertThat(audio.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
         assertThat(audio.getVersion()).isNull();
         assertThat(audio.getCreatedAt()).isEqualTo(NOW);
         assertThat(audio.getUpdatedAt()).isEqualTo(NOW);
@@ -96,6 +100,8 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getManagedVoiceId()).isEqualTo(VOICE_ID);
         assertThat(audio.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(3L);
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
         assertThat(audio.getVersion()).isEqualTo(version);
         assertThat(audio.getCreatedAt()).isEqualTo(createdAt);
         assertThat(audio.getUpdatedAt()).isEqualTo(updatedAt);
@@ -249,5 +255,184 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getMediaAssetId()).isEqualTo(replacementMediaAssetId);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(2L);
         assertThat(audio.getVersion()).isEqualTo(7L); // Version remains unchanged in memory
+    }
+
+    @Test
+    @DisplayName("Domain 1: existing/legacy create path yields null/null timing")
+    void shouldCreateLegacyAssignmentWithNullTiming() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
+        );
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+    }
+
+    @Test
+    @DisplayName("Domain 2: rehydrate accepts null/null timing")
+    void shouldRehydrateAcceptingNullTiming() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, null, null, 1L, NOW, NOW
+        );
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+    }
+
+    @Test
+    @DisplayName("Domain 3: rehydrate accepts positive samples + positive sample rate")
+    void shouldRehydrateAcceptingPositiveSamplesAndSampleRate() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 51840L, 48000, 1L, NOW, NOW
+        );
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(48000);
+    }
+
+    @Test
+    @DisplayName("Domain 4: rejects samples without sampleRate")
+    void shouldRejectSamplesWithoutSampleRate() {
+        assertThatThrownBy(() -> ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, null, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedSampleRateHz must not be null when encodedContributionSamples is present");
+
+        assertThatThrownBy(() -> ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, null, 0L, NOW, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedSampleRateHz must not be null when encodedContributionSamples is present");
+    }
+
+    @Test
+    @DisplayName("Domain 5: rejects sampleRate without samples")
+    void shouldRejectSampleRateWithoutSamples() {
+        assertThatThrownBy(() -> ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, null, 48000, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedContributionSamples must not be null when encodedSampleRateHz is present");
+
+        assertThatThrownBy(() -> ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, null, 48000, 0L, NOW, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedContributionSamples must not be null when encodedSampleRateHz is present");
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0L, -1L, -500L})
+    @DisplayName("Domain 6: rejects zero/negative samples")
+    void shouldRejectZeroOrNegativeSamples(long invalidSamples) {
+        assertThatThrownBy(() -> ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, invalidSamples, 48000, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedContributionSamples must be > 0");
+
+        assertThatThrownBy(() -> ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, invalidSamples, 48000, 0L, NOW, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedContributionSamples must be > 0");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1, -48000})
+    @DisplayName("Domain 7: rejects zero/negative sampleRate")
+    void shouldRejectZeroOrNegativeSampleRate(int invalidSampleRate) {
+        assertThatThrownBy(() -> ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, invalidSampleRate, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedSampleRateHz must be > 0");
+
+        assertThatThrownBy(() -> ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, invalidSampleRate, 0L, NOW, NOW
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encodedSampleRateHz must be > 0");
+    }
+
+    @Test
+    @DisplayName("Domain 8: timed successful-audio replacement updates mediaAssetId, synthesis revision, samples, sample rate, and updatedAt")
+    void shouldUpdateTimingAndMetadataAtomicallyOnTimedReplacement() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
+        );
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+
+        UUID newMediaAssetId = UUID.randomUUID();
+        Instant replacedTime = NOW.plusSeconds(300);
+
+        audio.replaceSuccessfulAudio(newMediaAssetId, 4L, 96000L, 48000, replacedTime);
+
+        assertThat(audio.getMediaAssetId()).isEqualTo(newMediaAssetId);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(4L);
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(96000L);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(48000);
+        assertThat(audio.getUpdatedAt()).isEqualTo(replacedTime);
+    }
+
+    @Test
+    @DisplayName("Domain 9: legacy replacement path remains compatible if still needed")
+    void shouldPreserveCompatibilityOnLegacyReplacementPath() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, NOW
+        );
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(51840L);
+
+        UUID legacyReplacementAssetId = UUID.randomUUID();
+        Instant replacedTime = NOW.plusSeconds(180);
+
+        audio.replaceSuccessfulAudio(legacyReplacementAssetId, 2L, replacedTime);
+
+        assertThat(audio.getMediaAssetId()).isEqualTo(legacyReplacementAssetId);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+        assertThat(audio.getUpdatedAt()).isEqualTo(replacedTime);
+    }
+
+    @Test
+    @DisplayName("Domain 10: version semantics remain unchanged during timed replacement")
+    void shouldPreserveVersionDuringTimedAudioReplacement() {
+        ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, 9L, NOW, NOW
+        );
+        assertThat(audio.getVersion()).isEqualTo(9L);
+
+        UUID replacementMediaAssetId = UUID.randomUUID();
+        audio.replaceSuccessfulAudio(replacementMediaAssetId, 2L, 103680L, 48000, NOW.plusSeconds(30));
+
+        assertThat(audio.getMediaAssetId()).isEqualTo(replacementMediaAssetId);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(103680L);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(48000);
+        assertThat(audio.getVersion()).isEqualTo(9L); // In-memory version must NOT be mutated
+    }
+
+    @Test
+    @DisplayName("Domain 11: hasEncodedTiming returns false when timing is null and true when timing is present")
+    void shouldVerifyHasEncodedTimingBehavior() {
+        ChapterNarrationAudio legacyAudio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
+        );
+        assertThat(legacyAudio.hasEncodedTiming()).isFalse();
+
+        ChapterNarrationAudio rehydratedLegacyAudio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, null, null, 0L, NOW, NOW
+        );
+        assertThat(rehydratedLegacyAudio.hasEncodedTiming()).isFalse();
+
+        ChapterNarrationAudio timedAudio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, NOW
+        );
+        assertThat(timedAudio.hasEncodedTiming()).isTrue();
+
+        ChapterNarrationAudio rehydratedTimedAudio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, 1L, NOW, NOW
+        );
+        assertThat(rehydratedTimedAudio.hasEncodedTiming()).isTrue();
+
+        // Updating legacy with timed replacement makes hasEncodedTiming true
+        legacyAudio.replaceSuccessfulAudio(UUID.randomUUID(), 2L, 51840L, 48000, NOW.plusSeconds(10));
+        assertThat(legacyAudio.hasEncodedTiming()).isTrue();
+
+        // Updating timed with legacy replacement makes hasEncodedTiming false
+        timedAudio.replaceSuccessfulAudio(UUID.randomUUID(), 2L, NOW.plusSeconds(10));
+        assertThat(timedAudio.hasEncodedTiming()).isFalse();
     }
 }

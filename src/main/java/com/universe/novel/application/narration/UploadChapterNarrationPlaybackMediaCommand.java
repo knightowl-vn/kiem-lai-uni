@@ -1,10 +1,10 @@
 package com.universe.novel.application.narration;
 
 /**
- * Passive command for uploading one caller-owned H.9D2 encoded chapter playback resource.
+ * Passive command for uploading one caller-owned chapter playback binary resource.
  */
 public record UploadChapterNarrationPlaybackMediaCommand(
-        ChapterAudioEncodedResource resource,
+        ChapterAudioBinaryResource resource,
         String originalFilename
 ) {
 }

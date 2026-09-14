@@ -13,6 +13,7 @@ import com.universe.novel.application.exceptions.ManagedVoiceNotFoundException;
 import com.universe.novel.application.ports.ChapterNarrationAudioRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationSegmentRepositoryPort;
 import com.universe.novel.application.ports.ManagedVoiceRepositoryPort;
+import com.universe.novel.application.ports.SegmentAudioEncoderPort;
 import com.universe.novel.application.ports.TtsProviderPort;
 import com.universe.novel.domain.narration.ChapterNarrationAudio;
 import com.universe.novel.domain.narration.ChapterNarrationSegment;
@@ -28,7 +29,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
@@ -37,7 +37,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Use case orchestrating TTS synthesis, Media binary upload, and persistence of chapter narration audio assignments.
+ * Use case orchestrating TTS synthesis, WAV boundary normalization, canonical segment MP3 encoding,
+ * Media binary upload, and persistence of chapter narration audio assignments with encoded timing metadata.
  * <p>
  * <strong>Workflow:</strong>
  * <ol>
@@ -45,15 +46,16 @@ import java.util.UUID;
  *     <li>Loads {@link ManagedVoice} and validates that it exists and is in {@code ACTIVE} status.</li>
  *     <li>Checks for an existing {@link ChapterNarrationAudio} assignment:
  *         <ul>
- *             <li>If present and its synthesis revision matches the voice, returns {@link NarrationAudioGenerationOutcome#REUSED} without invoking TTS or Media.</li>
- *             <li>If present but its synthesis revision is stale, returns {@link NarrationAudioGenerationOutcome#STALE} without regenerating (regeneration is owned by H.5D).</li>
+ *             <li>If present, its synthesis revision matches the voice, and has encoded timing, returns {@link NarrationAudioGenerationOutcome#REUSED} without invoking TTS, encoder, or Media.</li>
+ *             <li>If present but its synthesis revision is stale or it lacks encoded timing, returns {@link NarrationAudioGenerationOutcome#STALE} without regenerating (regeneration is owned by H.5D / 01C3B).</li>
  *         </ul>
  *     </li>
  *     <li>If no assignment exists:
  *         <ul>
  *             <li>Synthesizes audio via {@link TtsProviderPort}.</li>
- *             <li>Uploads synthesized audio to the Media platform via {@link MediaContract}.</li>
- *             <li>Persists a new {@link ChapterNarrationAudio} assignment.</li>
+ *             <li>Normalizes WAV boundary via {@link NarrationWavBoundaryNormalizer} and encodes to canonical MP3 via {@link SegmentAudioEncoderPort}.</li>
+ *             <li>Uploads canonical encoded audio to the Media platform via {@link MediaContract}.</li>
+ *             <li>Persists a new {@link ChapterNarrationAudio} assignment with encoded timing metadata.</li>
  *             <li>If persistence fails, initiates durable cleanup handoff for the newly uploaded unreferenced Media asset via {@link RequestNarrationMediaCleanupUseCase}.</li>
  *             <li>Records failure diagnostics on any error stage without masking the primary exception.</li>
  *             <li>Clears existing failure diagnostics on success.</li>
@@ -63,7 +65,7 @@ import java.util.UUID;
  * </ol>
  * <p>
  * <strong>Transaction Boundary:</strong> This service does NOT hold an active database transaction across
- * the HTTP TTS synthesis call or Media binary upload. Database writes occur only after media storage completes.
+ * the HTTP TTS synthesis call, audio encoding, or Media binary upload. Database writes occur only after media storage completes.
  */
 @Service
 public class GenerateChapterNarrationAudioUseCase {
@@ -75,6 +77,7 @@ public class GenerateChapterNarrationAudioUseCase {
     private final ChapterNarrationAudioRepositoryPort audioRepositoryPort;
     private final ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort;
     private final TtsProviderPort ttsProviderPort;
+    private final SegmentAudioEncoderPort segmentAudioEncoderPort;
     private final MediaContract mediaContract;
     private final RequestNarrationMediaCleanupUseCase cleanupRequestUseCase;
     private final IdGeneratorPort idGeneratorPort;
@@ -86,6 +89,7 @@ public class GenerateChapterNarrationAudioUseCase {
             ChapterNarrationAudioRepositoryPort audioRepositoryPort,
             ChapterNarrationAudioFailureRepositoryPort failureRepositoryPort,
             TtsProviderPort ttsProviderPort,
+            SegmentAudioEncoderPort segmentAudioEncoderPort,
             MediaContract mediaContract,
             RequestNarrationMediaCleanupUseCase cleanupRequestUseCase,
             IdGeneratorPort idGeneratorPort,
@@ -96,6 +100,7 @@ public class GenerateChapterNarrationAudioUseCase {
         this.audioRepositoryPort = Objects.requireNonNull(audioRepositoryPort, "audioRepositoryPort must not be null");
         this.failureRepositoryPort = Objects.requireNonNull(failureRepositoryPort, "failureRepositoryPort must not be null");
         this.ttsProviderPort = Objects.requireNonNull(ttsProviderPort, "ttsProviderPort must not be null");
+        this.segmentAudioEncoderPort = Objects.requireNonNull(segmentAudioEncoderPort, "segmentAudioEncoderPort must not be null");
         this.mediaContract = Objects.requireNonNull(mediaContract, "mediaContract must not be null");
         this.cleanupRequestUseCase = Objects.requireNonNull(cleanupRequestUseCase, "cleanupRequestUseCase must not be null");
         this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "idGeneratorPort must not be null");
@@ -156,7 +161,7 @@ public class GenerateChapterNarrationAudioUseCase {
 
         if (existingAudioOpt.isPresent()) {
             ChapterNarrationAudio existingAudio = existingAudioOpt.get();
-            if (existingAudio.isCompatibleWith(voice.getSynthesisRevision())) {
+            if (existingAudio.isCompatibleWith(voice.getSynthesisRevision()) && existingAudio.hasEncodedTiming()) {
                 return new GenerateChapterNarrationAudioResult(
                         existingAudio.getId(),
                         segmentId,
@@ -191,49 +196,86 @@ public class GenerateChapterNarrationAudioUseCase {
             throw ttsEx;
         }
 
-        // 5. Upload audio to Media Platform (outside DB transaction)
-        String originalFilename = NarrationAudioFilenameResolver.resolveFilename(segmentId, ttsResult.mediaType());
-        byte[] audioBytes = NarrationWavBoundaryNormalizer.normalize(ttsResult.audioBytes(), ttsResult.mediaType());
-        UUID mediaAssetId;
+        // 5. Normalize boundary and encode audio via SegmentAudioEncoderPort (outside DB transaction)
+        byte[] normalizedBytes = NarrationWavBoundaryNormalizer.normalize(ttsResult.audioBytes(), ttsResult.mediaType());
+        SegmentAudioEncodingResult encodedResult;
+        try {
+            encodedResult = segmentAudioEncoderPort.encode(
+                    SegmentAudioEncodingRequest.of(ttsResult.mediaType(), normalizedBytes)
+            );
+        } catch (RuntimeException encodeEx) {
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.AUDIO_ENCODING, attemptedRevision, encodeEx, encodeEx);
+            throw encodeEx;
+        }
 
-        try (InputStream inputStream = new ByteArrayInputStream(audioBytes)) {
-            UploadMediaAssetRequestDTO uploadRequest = new UploadMediaAssetRequestDTO(
+        // Upload canonical encoded audio to Media Platform (outside DB transaction)
+        UUID mediaAssetId;
+        long encodedContributionSamples;
+        int encodedSampleRateHz;
+        InputStream inputStream = null;
+
+        // 5a. Pre-upload metadata preparation and stream opening (AUDIO_ENCODING failure stage)
+        UploadMediaAssetRequestDTO uploadRequest;
+        try {
+            encodedContributionSamples = encodedResult.encodedContributionSamples();
+            encodedSampleRateHz = encodedResult.sampleRateHz();
+            long sizeBytes = encodedResult.sizeBytes();
+            String mimeType = encodedResult.mimeType();
+            String originalFilename = NarrationAudioFilenameResolver.resolveFilename(segmentId, mimeType);
+            inputStream = encodedResult.openStream();
+            uploadRequest = new UploadMediaAssetRequestDTO(
                     inputStream,
-                    audioBytes.length,
-                    ttsResult.mediaType(),
+                    sizeBytes,
+                    mimeType,
                     MediaTypeDTO.AUDIO,
                     MediaVisibilityDTO.PUBLIC,
                     originalFilename
             );
-            UploadMediaAssetResponseDTO uploadResponse = mediaContract.uploadAsset(uploadRequest);
-            mediaAssetId = uploadResponse.assetId();
-        } catch (RuntimeException mediaEx) {
+        } catch (RuntimeException preUploadEx) {
+            closeWithSuppression(inputStream, preUploadEx);
+            closeWithSuppression(encodedResult, preUploadEx);
             recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
-                    NarrationAudioFailureStage.MEDIA_UPLOAD, attemptedRevision, mediaEx, mediaEx);
-            throw mediaEx;
-        } catch (IOException e) {
-            IllegalStateException isEx = new IllegalStateException("Failed to read audio byte stream for media upload", e);
-            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
-                    NarrationAudioFailureStage.MEDIA_UPLOAD, attemptedRevision, isEx, isEx);
-            throw isEx;
+                    NarrationAudioFailureStage.AUDIO_ENCODING, attemptedRevision, preUploadEx, preUploadEx);
+            throw preUploadEx;
         }
 
-        // 6. Persist ChapterNarrationAudio assignment with durable cleanup handoff on failure
-        Instant now = clockPort.now();
-        UUID assignmentId = idGeneratorPort.generate();
-        ChapterNarrationAudio newAudio = ChapterNarrationAudio.create(
-                assignmentId,
-                segmentId,
-                managedVoiceId,
-                mediaAssetId,
-                attemptedRevision,
-                now
-        );
+        // 5b. Media binary upload (MEDIA_UPLOAD failure stage)
+        try {
+            UploadMediaAssetResponseDTO uploadResponse = mediaContract.uploadAsset(uploadRequest);
+            if (uploadResponse == null || uploadResponse.assetId() == null) {
+                throw new IllegalStateException("Media upload returned null response or asset ID");
+            }
+            mediaAssetId = uploadResponse.assetId();
+        } catch (RuntimeException uploadEx) {
+            closeWithSuppression(inputStream, uploadEx);
+            closeWithSuppression(encodedResult, uploadEx);
+            recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
+                    NarrationAudioFailureStage.MEDIA_UPLOAD, attemptedRevision, uploadEx, uploadEx);
+            throw uploadEx;
+        }
 
+        // 5c. Post-upload local resource cleanup (log warnings only, never fail upload or request media cleanup)
+        closeSafely(inputStream, "encoded audio input stream");
+        closeSafely(encodedResult, "encoded segment audio result");
+
+        // 6. Post-upload assignment preparation & persistence inside unified cleanup boundary
         ChapterNarrationAudio savedAudio;
         try {
+            Instant now = clockPort.now();
+            UUID assignmentId = idGeneratorPort.generate();
+            ChapterNarrationAudio newAudio = ChapterNarrationAudio.create(
+                    assignmentId,
+                    segmentId,
+                    managedVoiceId,
+                    mediaAssetId,
+                    attemptedRevision,
+                    encodedContributionSamples,
+                    encodedSampleRateHz,
+                    now
+            );
             savedAudio = audioRepositoryPort.save(newAudio);
-        } catch (RuntimeException persistenceEx) {
+        } catch (RuntimeException assignmentEx) {
             // 1. Request durable cleanup for this request's unreferenced new media asset
             RuntimeException cleanupEx = null;
             try {
@@ -244,8 +286,8 @@ public class GenerateChapterNarrationAudioUseCase {
                         mediaAssetId, ex.getMessage(), ex);
             }
 
-            // 2. Concurrency duplicate race handling
-            if (isDuplicateRaceConflict(persistenceEx)) {
+            // 2. Concurrency duplicate race handling (applies ONLY to duplicate race conflicts)
+            if (isDuplicateRaceConflict(assignmentEx)) {
                 Optional<ChapterNarrationAudio> winnerOpt = Optional.empty();
                 RuntimeException winnerLookupEx = null;
                 try {
@@ -258,9 +300,9 @@ public class GenerateChapterNarrationAudioUseCase {
 
                 if (winnerLookupEx == null && winnerOpt.isPresent()) {
                     ChapterNarrationAudio winner = winnerOpt.get();
-                    if (winner.isCompatibleWith(attemptedRevision)) {
+                    if (winner.isCompatibleWith(attemptedRevision) && winner.hasEncodedTiming()) {
                         if (cleanupEx != null) {
-                            cleanupEx.addSuppressed(persistenceEx);
+                            cleanupEx.addSuppressed(assignmentEx);
                             throw cleanupEx;
                         }
                         return new GenerateChapterNarrationAudioResult(
@@ -275,16 +317,16 @@ public class GenerateChapterNarrationAudioUseCase {
                 }
 
                 if (winnerLookupEx != null) {
-                    persistenceEx.addSuppressed(winnerLookupEx);
+                    assignmentEx.addSuppressed(winnerLookupEx);
                 }
             }
 
             if (cleanupEx != null) {
-                persistenceEx.addSuppressed(cleanupEx);
+                assignmentEx.addSuppressed(cleanupEx);
             }
             recordFailureSafely(segmentId, managedVoiceId, NarrationAudioOperation.INITIAL_GENERATION,
-                    NarrationAudioFailureStage.ASSIGNMENT_PERSISTENCE, attemptedRevision, persistenceEx, persistenceEx);
-            throw persistenceEx;
+                    NarrationAudioFailureStage.ASSIGNMENT_PERSISTENCE, attemptedRevision, assignmentEx, assignmentEx);
+            throw assignmentEx;
         }
 
         // 7. Clear unresolved failure record superseded by successful generation
@@ -350,8 +392,30 @@ public class GenerateChapterNarrationAudioUseCase {
                 failureRepositoryPort.save(failure);
             }
         } catch (RuntimeException diagEx) {
-            if (primaryException != null) {
+            if (primaryException != null && primaryException != diagEx) {
                 primaryException.addSuppressed(diagEx);
+            }
+        }
+    }
+
+    private void closeWithSuppression(AutoCloseable closeable, Throwable primaryException) {
+        if (closeable != null) {
+            try {
+                closeable.close();
+            } catch (Throwable closeEx) {
+                if (primaryException != null && primaryException != closeEx) {
+                    primaryException.addSuppressed(closeEx);
+                }
+            }
+        }
+    }
+
+    private void closeSafely(AutoCloseable closeable, String resourceDescription) {
+        if (closeable != null) {
+            try {
+                closeable.close();
+            } catch (Exception ex) {
+                log.warn("Failed to close {} after successful media upload: {}", resourceDescription, ex.getMessage(), ex);
             }
         }
     }

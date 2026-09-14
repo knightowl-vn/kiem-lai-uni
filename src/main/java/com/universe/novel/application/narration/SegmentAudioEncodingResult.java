@@ -4,12 +4,12 @@ import java.io.InputStream;
 import java.util.Objects;
 
 /**
- * Caller-owned chapter audio encoding output.
+ * Caller-owned segment audio encoding output.
  */
-public record ChapterAudioEncodingResult(
-        ChapterAudioEncodedResource resource
+public record SegmentAudioEncodingResult(
+        SegmentAudioEncodedResource resource
 ) implements AutoCloseable {
-    public ChapterAudioEncodingResult {
+    public SegmentAudioEncodingResult {
         Objects.requireNonNull(resource, "resource must not be null");
     }
 
@@ -19,6 +19,14 @@ public record ChapterAudioEncodingResult(
 
     public long sizeBytes() {
         return resource.sizeBytes();
+    }
+
+    public long encodedContributionSamples() {
+        return resource.encodedContributionSamples();
+    }
+
+    public int sampleRateHz() {
+        return resource.sampleRateHz();
     }
 
     /**

@@ -82,8 +82,8 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
         );
         segment1 = ChapterNarrationSegment.create(SEGMENT_1_ID, CHAPTER_ID, 0, "First.", NOW);
         segment2 = ChapterNarrationSegment.create(SEGMENT_2_ID, CHAPTER_ID, 1, "Second.", NOW);
-        audio1 = audio(AUDIO_1_ID, SEGMENT_1_ID, MEDIA_1_ID, 4L, 5L);
-        audio2 = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 4L, 6L);
+        audio1 = audio(AUDIO_1_ID, SEGMENT_1_ID, MEDIA_1_ID, 4L, 2400L, 48000, 5L);
+        audio2 = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 4L, 4800L, 48000, 6L);
         manifestHash = NarrationManifestHasher.computeManifestHash(List.of(
                 NarrationTextSegment.of(0, segment1.getText()),
                 NarrationTextSegment.of(1, segment2.getText())
@@ -109,15 +109,84 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
                 .containsExactly(SEGMENT_1_ID, SEGMENT_2_ID);
         assertThat(result.segments().get(0).narrationAudioId()).isEqualTo(AUDIO_1_ID);
         assertThat(result.segments().get(0).narrationAudioVersion()).isEqualTo(5L);
+        assertThat(result.segments().get(0).encodedContributionSamples()).isEqualTo(2400L);
+        assertThat(result.segments().get(0).encodedSampleRateHz()).isEqualTo(48000);
         assertThat(result.segments().get(0).sourceMediaVersion()).isEqualTo(version1);
+        assertThat(result.segments().get(1).encodedContributionSamples()).isEqualTo(4800L);
+        assertThat(result.segments().get(1).encodedSampleRateHz()).isEqualTo(48000);
         assertThat(result.segments().get(1).sourceMediaVersion()).isEqualTo(version2);
         verify(mediaContract).getCurrentVersionSnapshot(MEDIA_1_ID);
         verify(mediaContract).getCurrentVersionSnapshot(MEDIA_2_ID);
     }
 
     @Test
+    void rejectsSameRevisionLegacyUntimedAudioAssignment() {
+        ChapterNarrationAudio untimed = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 4L, null, null, 6L);
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, untimed));
+
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("canonical timed audio")
+                .hasMessageContaining(SEGMENT_2_ID.toString());
+
+        verifyNoInteractions(mediaContract);
+    }
+
+    @Test
+    void rejectsTimedAssignmentWithNonCanonicalSampleRate() {
+        ChapterNarrationAudio nonCanonicalRate = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 4L, 2400L, 44100, 6L);
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, nonCanonicalRate));
+
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("48000 Hz")
+                .hasMessageContaining(SEGMENT_2_ID.toString());
+
+        verifyNoInteractions(mediaContract);
+    }
+
+    @Test
+    void rejectsMediaSnapshotWithWavMimeType() {
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, audio2));
+        MediaAssetVersionSnapshotDTO wavVersion = version(MEDIA_1_ID, 2, "a".repeat(64), "audio/wav");
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_1_ID)).thenReturn(Optional.of(wavVersion));
+
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("canonical audio/mpeg")
+                .hasMessageContaining("audio/wav");
+    }
+
+    @Test
+    void rejectsMediaSnapshotWithAudioMp3Alias() {
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, audio2));
+        MediaAssetVersionSnapshotDTO mp3AliasVersion = version(MEDIA_1_ID, 2, "a".repeat(64), "audio/mp3");
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_1_ID)).thenReturn(Optional.of(mp3AliasVersion));
+
+        assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("canonical audio/mpeg")
+                .hasMessageContaining("audio/mp3");
+    }
+
+    @Test
+    void acceptsAudioMpegWithMimeParametersWhenNormalizedBaseIsAudioMpeg() {
+        arrangeContext(List.of(segment1, segment2), List.of(audio1, audio2));
+        MediaAssetVersionSnapshotDTO parameterized1 = version(MEDIA_1_ID, 2, "a".repeat(64), "audio/mpeg; codecs=mp3");
+        MediaAssetVersionSnapshotDTO parameterized2 = version(MEDIA_2_ID, 7, "b".repeat(64), " audio/mpeg ; charset=utf-8 ");
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_1_ID)).thenReturn(Optional.of(parameterized1));
+        when(mediaContract.getCurrentVersionSnapshot(MEDIA_2_ID)).thenReturn(Optional.of(parameterized2));
+
+        ChapterNarrationPlaybackBuildSnapshot result = useCase.execute(CHAPTER_ID, VOICE_ID);
+
+        assertThat(result.segments()).hasSize(2);
+        assertThat(result.segments().get(0).sourceMediaVersion().mimeType()).isEqualTo("audio/mpeg; codecs=mp3");
+        assertThat(result.segments().get(1).sourceMediaVersion().mimeType()).isEqualTo(" audio/mpeg ; charset=utf-8 ");
+    }
+
+    @Test
     void rejectsAnyNonReadySegmentBeforeCapturingMediaVersions() {
-        ChapterNarrationAudio outdated = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 3L, 6L);
+        ChapterNarrationAudio outdated = audio(AUDIO_2_ID, SEGMENT_2_ID, MEDIA_2_ID, 3L, 2400L, 48000, 6L);
         arrangeContext(List.of(segment1, segment2), List.of(audio1, outdated));
 
         assertThatThrownBy(() -> useCase.execute(CHAPTER_ID, VOICE_ID))
@@ -189,6 +258,8 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
             UUID segmentId,
             UUID mediaAssetId,
             long synthesisRevision,
+            Long encodedContributionSamples,
+            Integer encodedSampleRateHz,
             long version
     ) {
         return ChapterNarrationAudio.rehydrate(
@@ -197,6 +268,8 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
                 VOICE_ID,
                 mediaAssetId,
                 synthesisRevision,
+                encodedContributionSamples,
+                encodedSampleRateHz,
                 version,
                 NOW,
                 NOW
@@ -204,13 +277,17 @@ class ResolveChapterNarrationPlaybackBuildSnapshotUseCaseTest {
     }
 
     private static MediaAssetVersionSnapshotDTO version(UUID assetId, int versionNumber, String hash) {
+        return version(assetId, versionNumber, hash, "audio/mpeg");
+    }
+
+    private static MediaAssetVersionSnapshotDTO version(UUID assetId, int versionNumber, String hash, String mimeType) {
         return new MediaAssetVersionSnapshotDTO(
                 assetId,
                 versionNumber,
                 hash,
-                "audio/wav",
+                mimeType,
                 100L,
-                "segment.wav"
+                "segment.mp3"
         );
     }
 }

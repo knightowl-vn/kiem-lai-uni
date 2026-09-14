@@ -170,6 +170,7 @@ public class ChapterNarrationAudioFailure {
         }
         return switch (stage) {
             case TTS_SYNTHESIS -> "Narration TTS synthesis failed.";
+            case AUDIO_ENCODING -> "Narration audio encoding failed.";
             case MEDIA_UPLOAD -> "Narration audio media upload failed.";
             case ASSIGNMENT_PERSISTENCE -> "Narration audio assignment persistence failed.";
         };

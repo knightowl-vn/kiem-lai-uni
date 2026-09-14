@@ -178,6 +178,8 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
                 domain.getManagedVoiceId().toString(),
                 domain.getMediaAssetId().toString(),
                 domain.getGeneratedSynthesisRevision(),
+                domain.getEncodedContributionSamples(),
+                domain.getEncodedSampleRateHz(),
                 domain.getVersion(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt()
@@ -191,6 +193,8 @@ public class ChapterNarrationAudioPersistenceAdapter implements ChapterNarration
                 UUID.fromString(entity.getManagedVoiceId()),
                 UUID.fromString(entity.getMediaAssetId()),
                 entity.getGeneratedSynthesisRevision(),
+                entity.getEncodedContributionSamples(),
+                entity.getEncodedSampleRateHz(),
                 entity.getVersion(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()

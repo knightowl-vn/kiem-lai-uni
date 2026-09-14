@@ -149,7 +149,7 @@ class GenerateChapterNarrationUseCaseTest {
     }
 
     @Test
-    void adminLegacyBackfillSkipsThreeReadySegmentsWithoutCallingGenerationPrimitives() {
+    void adminBackfillSkipsThreeReadySegmentsWithoutCallingGenerationPrimitives() {
         when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(createChapter(ChapterStatus.PUBLISHED)));
         when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(createVoice(ManagedVoiceStatus.ACTIVE, 2L)));
         List<UUID> segmentIds = List.of(SEGMENT_0_ID, SEGMENT_1_ID, SEGMENT_2_ID);
@@ -157,9 +157,9 @@ class GenerateChapterNarrationUseCaseTest {
                 .thenReturn(List.of(createSegment(SEGMENT_0_ID, 0, "Đoạn 0"),
                         createSegment(SEGMENT_1_ID, 1, "Đoạn 1"), createSegment(SEGMENT_2_ID, 2, "Đoạn 2")));
         when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(segmentIds, VOICE_ID)).thenReturn(List.of(
-                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, T0),
-                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_1_ID, VOICE_ID, MEDIA_1_ID, 2L, T0),
-                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_ID, MEDIA_2_ID, 2L, T0)
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, 51840L, 48000, T0),
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_1_ID, VOICE_ID, MEDIA_1_ID, 2L, 51840L, 48000, T0),
+                ChapterNarrationAudio.create(UUID.randomUUID(), SEGMENT_2_ID, VOICE_ID, MEDIA_2_ID, 2L, 51840L, 48000, T0)
         ));
         BuildChapterNarrationPlaybackUseCase builder = mock(BuildChapterNarrationPlaybackUseCase.class);
         when(builder.execute(any())).thenReturn(new BuildChapterNarrationPlaybackResult(
@@ -294,9 +294,9 @@ class GenerateChapterNarrationUseCaseTest {
         ChapterNarrationSegment seg2 = createSegment(SEGMENT_2_ID, 2, "Đoạn 2: OUTDATED -> REGENERATE");
         ChapterNarrationSegment seg3 = createSegment(SEGMENT_3_ID, 3, "Đoạn 3: FAILED -> GENERATE (REUSED winner)");
 
-        // seg0 has audio at rev 2 -> READY
+        // seg0 has audio at rev 2 with canonical timing -> READY
         ChapterNarrationAudio audio0 = ChapterNarrationAudio.create(
-                UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, T0
+                UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, 51840L, 48000, T0
         );
         // seg2 has audio at rev 1 (stale) -> OUTDATED
         ChapterNarrationAudio audio2 = ChapterNarrationAudio.create(
@@ -682,5 +682,46 @@ class GenerateChapterNarrationUseCaseTest {
         assertThat(result.cleanupSummary().status()).isEqualTo(ChapterNarrationCompletionCleanupStatus.NOT_ELIGIBLE);
         assertThat(result.cleanupSummary().currentNarrationReady()).isFalse();
         org.mockito.Mockito.verify(cleanupCoordinator, org.mockito.Mockito.never()).execute(any(UUID.class), any(UUID.class));
+    }
+
+    @Test
+    @DisplayName("15. Same-revision legacy untimed audio is planned as REGENERATE and calls regenerateChapterNarrationAudioUseCase")
+    void shouldPlanRegenerationWhenSameRevisionAudioLacksTimingMetadata() {
+        Chapter publishedChapter = createChapter(ChapterStatus.PUBLISHED);
+        ManagedVoice activeVoice = createVoice(ManagedVoiceStatus.ACTIVE, 2L);
+        ChapterNarrationSegment seg0 = createSegment(SEGMENT_0_ID, 0, "Đoạn 0 - Legacy Untimed");
+
+        // Same revision (2L == 2L) but untimed (legacy null/null)
+        ChapterNarrationAudio untimedAudio = ChapterNarrationAudio.create(
+                UUID.randomUUID(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, 2L, T0
+        );
+
+        when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(publishedChapter));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(activeVoice));
+        when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                .thenReturn(List.of(seg0));
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_ID))
+                .thenReturn(List.of(untimedAudio));
+        when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_0_ID), VOICE_ID))
+                .thenReturn(List.of());
+
+        UUID newMediaId = UUID.randomUUID();
+        when(regenerateChapterNarrationAudioUseCase.execute(SEGMENT_0_ID, VOICE_ID))
+                .thenReturn(new RegenerateChapterNarrationAudioResult(
+                        untimedAudio.getId(), SEGMENT_0_ID, VOICE_ID, MEDIA_0_ID, newMediaId, 2L,
+                        RegenerateNarrationAudioOutcome.REGENERATED
+                ));
+
+        GenerateChapterNarrationResult result = useCase.execute(CHAPTER_ID, VOICE_ID);
+
+        assertThat(result.totalSegments()).isEqualTo(1);
+        assertThat(result.items()).hasSize(1);
+        ChapterNarrationSegmentExecutionResult item = result.items().get(0);
+        assertThat(item.segmentId()).isEqualTo(SEGMENT_0_ID);
+        assertThat(item.plannedAction()).isEqualTo(ChapterNarrationGenerationAction.REGENERATE);
+        assertThat(item.isCompletedWork()).isTrue();
+
+        verify(regenerateChapterNarrationAudioUseCase).execute(SEGMENT_0_ID, VOICE_ID);
+        verifyNoInteractions(generateChapterNarrationAudioUseCase);
     }
 }

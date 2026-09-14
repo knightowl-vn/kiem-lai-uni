@@ -23,8 +23,26 @@ class ChapterNarrationAudioHealthResolverTest {
     private static final UUID FAILURE_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
     private static final Instant NOW = Instant.parse("2026-09-06T12:00:00Z");
 
-    private ChapterNarrationAudio createAudio(long generatedRevision) {
+    private ChapterNarrationAudio createCanonicalAudio(long generatedRevision) {
+        return ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID,
+                generatedRevision, 51840L, ChapterNarrationAudioHealthResolver.CANONICAL_SAMPLE_RATE_HZ, NOW
+        );
+    }
+
+    private ChapterNarrationAudio createLegacyUntimedAudio(long generatedRevision) {
         return ChapterNarrationAudio.create(AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, generatedRevision, NOW);
+    }
+
+    private ChapterNarrationAudio createAudioWithSampleRate(long generatedRevision, int sampleRateHz) {
+        return ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID,
+                generatedRevision, 51840L, sampleRateHz, NOW
+        );
+    }
+
+    private ChapterNarrationAudio createAudio(long generatedRevision) {
+        return createCanonicalAudio(generatedRevision);
     }
 
     private ChapterNarrationAudioFailure createFailure(long attemptedRevision) {
@@ -186,5 +204,64 @@ class ChapterNarrationAudioHealthResolverTest {
                 ChapterNarrationAudioHealthResolver.resolveFromOptionals(Optional.empty(), Optional.empty(), 2L);
         assertThat(res3.status()).isEqualTo(ChapterNarrationAudioHealthStatus.MISSING);
         assertThat(res3.relevantFailure()).isNull();
+    }
+
+    @Test
+    @DisplayName("8. Same-revision legacy untimed audio (A == R, no timing) -> OUTDATED, playable, no failure diagnostic")
+    void shouldResolveOutdatedWhenSameRevisionAudioLacksTimingMetadata() {
+        ChapterNarrationAudio untimedAudio = createLegacyUntimedAudio(2L); // A == 2, R == 2, but null/null timing
+
+        ChapterNarrationAudioHealthResolution resolution =
+                ChapterNarrationAudioHealthResolver.resolve(untimedAudio, null, 2L);
+
+        assertThat(resolution.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(resolution.isPlayable()).isTrue();
+        assertThat(resolution.isFailureRelevant()).isFalse();
+        assertThat(resolution.relevantFailure()).isNull();
+    }
+
+    @Test
+    @DisplayName("9. Same-revision legacy untimed audio + current failure (A == R, F == R) -> OUTDATED, diagnostic relevant")
+    void shouldResolveOutdatedWithRelevantDiagnosticWhenSameRevisionAudioLacksTimingAndCurrentFailureExists() {
+        ChapterNarrationAudio untimedAudio = createLegacyUntimedAudio(2L);
+        ChapterNarrationAudioFailure currentFailure = createFailure(2L); // F == 2, R == 2
+
+        ChapterNarrationAudioHealthResolution resolution =
+                ChapterNarrationAudioHealthResolver.resolve(untimedAudio, currentFailure, 2L);
+
+        assertThat(resolution.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(resolution.isPlayable()).isTrue();
+        assertThat(resolution.isFailureRelevant()).isTrue();
+        assertThat(resolution.relevantFailure()).isEqualTo(currentFailure);
+        assertThat(resolution.optionalRelevantFailure()).contains(currentFailure);
+    }
+
+    @Test
+    @DisplayName("10. Same-revision legacy untimed audio + old failure (A == R, F != R) -> OUTDATED, old failure suppressed")
+    void shouldResolveOutdatedAndSuppressOldFailureWhenSameRevisionAudioLacksTiming() {
+        ChapterNarrationAudio untimedAudio = createLegacyUntimedAudio(2L);
+        ChapterNarrationAudioFailure oldFailure = createFailure(1L); // F == 1, R == 2
+
+        ChapterNarrationAudioHealthResolution resolution =
+                ChapterNarrationAudioHealthResolver.resolve(untimedAudio, oldFailure, 2L);
+
+        assertThat(resolution.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(resolution.isPlayable()).isTrue();
+        assertThat(resolution.isFailureRelevant()).isFalse();
+        assertThat(resolution.relevantFailure()).isNull();
+    }
+
+    @Test
+    @DisplayName("11. Same-revision audio with non-canonical sample rate -> OUTDATED")
+    void shouldResolveOutdatedWhenSameRevisionAudioHasNonCanonicalSampleRate() {
+        ChapterNarrationAudio nonCanonicalAudio = createAudioWithSampleRate(2L, 44100);
+
+        ChapterNarrationAudioHealthResolution resolution =
+                ChapterNarrationAudioHealthResolver.resolve(nonCanonicalAudio, null, 2L);
+
+        assertThat(resolution.status()).isEqualTo(ChapterNarrationAudioHealthStatus.OUTDATED);
+        assertThat(resolution.isPlayable()).isTrue();
+        assertThat(resolution.isFailureRelevant()).isFalse();
+        assertThat(resolution.relevantFailure()).isNull();
     }
 }

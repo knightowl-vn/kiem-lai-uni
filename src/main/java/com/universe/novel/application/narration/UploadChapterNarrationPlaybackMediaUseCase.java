@@ -41,7 +41,7 @@ public class UploadChapterNarrationPlaybackMediaUseCase {
             throw new IllegalArgumentException("command must not be null");
         }
 
-        ChapterAudioEncodedResource resource = command.resource();
+        ChapterAudioBinaryResource resource = command.resource();
         if (resource == null) {
             throw new IllegalArgumentException("resource must not be null");
         }
@@ -72,7 +72,7 @@ public class UploadChapterNarrationPlaybackMediaUseCase {
         return new UploadChapterNarrationPlaybackMediaResult(mediaAssetId);
     }
 
-    private static void requireMp3(ChapterAudioEncodedResource resource) {
+    private static void requireMp3(ChapterAudioBinaryResource resource) {
         if (!MP3_MIME_TYPE.equals(resource.mimeType())) {
             throw new IllegalArgumentException(
                     "Chapter playback encoded resource MIME type must be audio/mpeg."
@@ -80,7 +80,7 @@ public class UploadChapterNarrationPlaybackMediaUseCase {
         }
     }
 
-    private static long requirePositiveSize(ChapterAudioEncodedResource resource) {
+    private static long requirePositiveSize(ChapterAudioBinaryResource resource) {
         long sizeBytes = resource.sizeBytes();
         if (sizeBytes <= 0) {
             throw new IllegalArgumentException("Chapter playback encoded resource sizeBytes must be positive.");
@@ -95,10 +95,10 @@ public class UploadChapterNarrationPlaybackMediaUseCase {
         return originalFilename;
     }
 
-    private static InputStream openStream(ChapterAudioEncodedResource resource) {
+    private static InputStream openStream(ChapterAudioBinaryResource resource) {
         InputStream content = resource.openStream();
         if (content == null) {
-            throw new IllegalStateException("ChapterAudioEncodedResource returned a null stream.");
+            throw new IllegalStateException("ChapterAudioBinaryResource returned a null stream.");
         }
         return content;
     }
