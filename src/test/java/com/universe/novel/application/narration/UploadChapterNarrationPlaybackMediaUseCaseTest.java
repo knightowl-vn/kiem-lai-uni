@@ -262,7 +262,7 @@ class UploadChapterNarrationPlaybackMediaUseCaseTest {
         assertThat(resource.resourceClosed()).isFalse();
     }
 
-    private static final class TrackingEncodedResource implements ChapterAudioEncodedResource {
+    private static final class TrackingEncodedResource implements ChapterAudioBinaryResource {
 
         private final String mimeType;
         private final long sizeBytes;

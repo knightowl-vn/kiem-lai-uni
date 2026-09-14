@@ -149,7 +149,7 @@ class GenerateChapterNarrationUseCaseTest {
     }
 
     @Test
-    void adminLegacyBackfillSkipsThreeReadySegmentsWithoutCallingGenerationPrimitives() {
+    void adminBackfillSkipsThreeReadySegmentsWithoutCallingGenerationPrimitives() {
         when(chapterRepositoryPort.findById(CHAPTER_ID)).thenReturn(Optional.of(createChapter(ChapterStatus.PUBLISHED)));
         when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(createVoice(ManagedVoiceStatus.ACTIVE, 2L)));
         List<UUID> segmentIds = List.of(SEGMENT_0_ID, SEGMENT_1_ID, SEGMENT_2_ID);

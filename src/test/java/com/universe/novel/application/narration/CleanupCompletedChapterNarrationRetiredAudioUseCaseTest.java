@@ -778,6 +778,54 @@ class CleanupCompletedChapterNarrationRetiredAudioUseCaseTest {
             assertThat(summary.remainingCleanupCount()).isEqualTo(2); // 3 - 1 (already absent)
             assertThat(summary.cleanupComplete()).isFalse();
         }
+
+        @Test
+        @DisplayName("Canonical CURRENT narration ready + RETIRED segment with legacy untimed audio -> eligible for normal cleanup")
+        void whenCurrentReadyAndRetiredSegmentHasLegacyUntimedAudio_eligibleForNormalHandoffCleanup() {
+            when(manifestRepositoryPort.findByChapterId(CHAPTER_ID))
+                    .thenReturn(Optional.of(createManifest(1L, VALID_MANIFEST_HASH)));
+            UUID currentSegId = UUID.randomUUID();
+            ChapterNarrationSegment currentSeg = createSegment(currentSegId, 0, ChapterNarrationSegmentStatus.CURRENT);
+
+            when(managedVoiceRepositoryPort.findById(VOICE_ID))
+                    .thenReturn(Optional.of(createActiveVoice(VOICE_ID, SYNTHESIS_REVISION)));
+            when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                    .thenReturn(List.of(currentSeg));
+
+            // CURRENT audio is canonical ready (timed 51840L, 48000)
+            ChapterNarrationAudio currentAudio = createAudio(UUID.randomUUID(), currentSegId, VOICE_ID, SYNTHESIS_REVISION);
+            when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(currentSegId), VOICE_ID))
+                    .thenReturn(List.of(currentAudio));
+            when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(currentSegId), VOICE_ID))
+                    .thenReturn(Collections.emptyList());
+
+            // RETIRED segment with legacy untimed narration audio (null/null contribution samples and rate)
+            UUID retSegId = UUID.randomUUID();
+            ChapterNarrationSegment retSeg = createSegment(retSegId, 1, ChapterNarrationSegmentStatus.RETIRED);
+            when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.RETIRED))
+                    .thenReturn(List.of(retSeg));
+
+            UUID retAudioId = UUID.randomUUID();
+            ChapterNarrationAudio legacyRetiredAudio = ChapterNarrationAudio.create(
+                    retAudioId, retSegId, VOICE_ID, UUID.randomUUID(), 1L, Instant.now()
+            );
+            when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(retSegId), VOICE_ID))
+                    .thenReturn(List.of(legacyRetiredAudio));
+
+            when(handoffUseCase.execute(retAudioId)).thenReturn(new HandoffRetiredNarrationAudioCleanupResult(
+                    retAudioId, retSegId, legacyRetiredAudio.getMediaAssetId(), HandoffRetiredNarrationAudioCleanupOutcome.HANDED_OFF
+            ));
+
+            ChapterNarrationCompletionCleanupSummary summary = useCase.execute(CHAPTER_ID, VOICE_ID);
+
+            assertThat(summary.status()).isEqualTo(ChapterNarrationCompletionCleanupStatus.COMPLETED);
+            assertThat(summary.currentNarrationReady()).isTrue();
+            assertThat(summary.retiredAudioCandidateCount()).isEqualTo(1);
+            assertThat(summary.handedOffCount()).isEqualTo(1);
+            assertThat(summary.failedCount()).isEqualTo(0);
+            assertThat(summary.cleanupComplete()).isTrue();
+            verify(handoffUseCase).execute(retAudioId);
+        }
     }
 
     @Nested
