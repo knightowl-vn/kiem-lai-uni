@@ -379,6 +379,50 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     }
 
     @Test
+    @DisplayName("1d. Assignment with matching revision but non-canonical sample rate (44100 Hz) MUST regenerate")
+    void shouldRegenerateWhenAssignmentHasMatchingRevisionButNonCanonicalSampleRate() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        // Existing assignment has matching revision 2L, but non-canonical sample rate 44100 Hz
+        ChapterNarrationAudio audio = ChapterNarrationAudio.rehydrate(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, OLD_MEDIA_ASSET_ID, 2L, 44100L, 44100, 0L, INITIAL_TIME, INITIAL_TIME
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cleanupRequestUseCase.execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        assertThat(result.previousMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
+
+        // Resulting persisted assignment receives canonical encoder timing (48000 Hz, DEFAULT_SAMPLES)
+        assertThat(audio.hasEncodedTiming()).isTrue();
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(DEFAULT_SAMPLES);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(DEFAULT_SAMPLE_RATE);
+
+        verify(ttsProviderPort).synthesize(any());
+        verify(segmentAudioEncoderPort).encode(any());
+        verify(mediaContract).uploadAsset(any());
+        verify(audioRepositoryPort).save(audio);
+        verify(cleanupRequestUseCase).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+    }
+
+    @Test
     @DisplayName("2. TTS failure: Old assignment and old Media asset remain untouched with no cleanup request")
     void shouldLeaveOldAssignmentUntouchedWhenTtsFails() {
         ChapterNarrationSegment segment = createCurrentSegment();
@@ -1676,6 +1720,53 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
         // OLD media NOT cleanup-targeted
         verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+        // Diagnostic recorded with ASSIGNMENT_PERSISTENCE stage
+        verify(failureRepositoryPort).save(any(ChapterNarrationAudioFailure.class));
+    }
+
+    @Test
+    @DisplayName("37b. Optimistic race with non-canonical timed winner (44100 Hz): Rejected, loser's NEW asset cleaned up, error propagates, diagnostic recorded")
+    void shouldRejectOptimisticRaceWinnerWithNonCanonicalSampleRate() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio initialStaleAudio = createExistingAudio(1L);
+
+        UUID nonCanonicalMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000014");
+        ChapterNarrationAudio nonCanonicalWinner = ChapterNarrationAudio.rehydrate(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, nonCanonicalMediaAssetId, 2L, 44100L, 44100, 1L, NOW, NOW // Revision 2L matches, but 44100 Hz
+        );
+
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(initialStaleAudio))
+                .thenReturn(Optional.of(nonCanonicalWinner));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        ObjectOptimisticLockingFailureException optLockEx =
+                new ObjectOptimisticLockingFailureException(ChapterNarrationAudio.class, AUDIO_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(optLockEx);
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(optLockEx);
+
+        // Loser's NEW media requested for cleanup
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        // OLD media NOT cleanup-targeted
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+        // Non-canonical winner's media NOT cleanup-targeted
+        verify(cleanupRequestUseCase, never()).execute(nonCanonicalMediaAssetId, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(cleanupRequestUseCase, never()).execute(nonCanonicalMediaAssetId, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
         // Diagnostic recorded with ASSIGNMENT_PERSISTENCE stage
         verify(failureRepositoryPort).save(any(ChapterNarrationAudioFailure.class));
     }

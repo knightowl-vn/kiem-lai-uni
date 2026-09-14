@@ -46,8 +46,8 @@ import java.util.UUID;
  *     <li>Loads {@link ChapterNarrationSegment} and validates that it exists and is in {@code CURRENT} status.</li>
  *     <li>Loads {@link ManagedVoice} and validates that it exists and is in {@code ACTIVE} status.</li>
  *     <li>Loads existing {@link ChapterNarrationAudio} assignment (rejecting with {@link ChapterNarrationAudioNotFoundException} if missing).</li>
- *     <li>If the assignment is already compatible with current voice synthesis revision AND has encoded timing, returns {@link RegenerateNarrationAudioOutcome#ALREADY_CURRENT} without TTS, encoder, or Media writes.</li>
- *     <li>If the assignment is stale or lacks encoded timing (legacy WAV):
+ *     <li>If the assignment is already canonical (compatible with current voice synthesis revision AND has canonical encoded timing at 48 kHz), returns {@link RegenerateNarrationAudioOutcome#ALREADY_CURRENT} without TTS, encoder, or Media writes.</li>
+ *     <li>If the assignment is stale, lacks encoded timing (legacy WAV), or has non-canonical timing:
  *         <ul>
  *             <li>Synthesizes replacement audio via {@link TtsProviderPort}.</li>
  *             <li>Normalizes WAV boundary via {@link NarrationWavBoundaryNormalizer} and encodes to canonical MP3 via {@link SegmentAudioEncoderPort}.</li>
@@ -70,6 +70,7 @@ import java.util.UUID;
 public class RegenerateChapterNarrationAudioUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(RegenerateChapterNarrationAudioUseCase.class);
+    private static final int CANONICAL_SAMPLE_RATE_HZ = 48000;
 
     private final ChapterNarrationSegmentRepositoryPort segmentRepositoryPort;
     private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
@@ -158,8 +159,8 @@ public class RegenerateChapterNarrationAudioUseCase {
         ChapterNarrationAudio audio = audioRepositoryPort.findBySegmentIdAndManagedVoiceId(segmentId, managedVoiceId)
                 .orElseThrow(() -> new ChapterNarrationAudioNotFoundException(segmentId, managedVoiceId));
 
-        // 4. Check if already current: requires BOTH revision match AND encoded timing
-        if (audio.isCompatibleWith(voice.getSynthesisRevision()) && audio.hasEncodedTiming()) {
+        // 4. Check if already current: requires revision match AND canonical timing (48 kHz, contributionSamples > 0)
+        if (isCanonicalCurrent(audio, voice.getSynthesisRevision())) {
             return new RegenerateChapterNarrationAudioResult(
                     audio.getId(),
                     segmentId,
@@ -306,7 +307,7 @@ public class RegenerateChapterNarrationAudioUseCase {
 
                 if (winnerLookupEx == null && winnerOpt.isPresent()) {
                     ChapterNarrationAudio winner = winnerOpt.get();
-                    if (winner.isCompatibleWith(attemptedRevision) && winner.hasEncodedTiming()) {
+                    if (isCanonicalCurrent(winner, attemptedRevision)) {
                         if (cleanupEx != null) {
                             cleanupEx.addSuppressed(assignmentEx);
                             throw cleanupEx;
@@ -363,6 +364,16 @@ public class RegenerateChapterNarrationAudioUseCase {
             current = current.getCause();
         }
         return false;
+    }
+
+    private static boolean isCanonicalCurrent(ChapterNarrationAudio audio, long currentVoiceRevision) {
+        return audio != null
+                && audio.isCompatibleWith(currentVoiceRevision)
+                && audio.hasEncodedTiming()
+                && audio.getEncodedContributionSamples() != null
+                && audio.getEncodedContributionSamples() > 0L
+                && audio.getEncodedSampleRateHz() != null
+                && audio.getEncodedSampleRateHz() == CANONICAL_SAMPLE_RATE_HZ;
     }
 
     private void recordFailureSafely(
