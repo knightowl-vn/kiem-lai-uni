@@ -27,6 +27,7 @@ import com.universe.novel.domain.narration.NarrationAudioOperation;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import com.universe.novel.domain.narration.NarrationTextSegment;
 import com.universe.shared.id.IdGeneratorPort;
+import com.universe.novel.application.ports.SegmentAudioEncoderPort;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -38,10 +39,15 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,6 +80,9 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     private TtsProviderPort ttsProviderPort;
 
     @Mock
+    private SegmentAudioEncoderPort segmentAudioEncoderPort;
+
+    @Mock
     private MediaContract mediaContract;
 
     @Mock
@@ -96,6 +105,9 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     private static final UUID NEW_MEDIA_ASSET_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final Instant INITIAL_TIME = Instant.parse("2026-09-05T12:00:00Z");
     private static final Instant NOW = Instant.parse("2026-09-05T14:00:00Z");
+    private static final byte[] DEFAULT_MP3_BYTES = new byte[]{11, 22, 33, 44};
+    private static final long DEFAULT_SAMPLES = 51840L;
+    private static final int DEFAULT_SAMPLE_RATE = 48000;
 
     @BeforeEach
     void setUp() {
@@ -105,11 +117,123 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 audioRepositoryPort,
                 failureRepositoryPort,
                 ttsProviderPort,
+                segmentAudioEncoderPort,
                 mediaContract,
                 cleanupRequestUseCase,
                 idGeneratorPort,
                 clockPort
         );
+    }
+
+    private void mockDefaultEncoding() {
+        when(segmentAudioEncoderPort.encode(any(SegmentAudioEncodingRequest.class)))
+                .thenAnswer(invocation -> createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE));
+    }
+
+    private SegmentAudioEncodingResult createEncodingResult(byte[] mp3Bytes, long samples, int sampleRate) {
+        return createEncodingResult(mp3Bytes, samples, sampleRate, null, null);
+    }
+
+    private SegmentAudioEncodingResult createEncodingResult(
+            byte[] mp3Bytes,
+            long samples,
+            int sampleRate,
+            AtomicBoolean resourceClosed,
+            List<AtomicBoolean> streamClosedFlags
+    ) {
+        return createEncodingResult(mp3Bytes, samples, sampleRate, resourceClosed, streamClosedFlags, null, null, null);
+    }
+
+    private SegmentAudioEncodingResult createEncodingResult(
+            byte[] mp3Bytes,
+            long samples,
+            int sampleRate,
+            AtomicBoolean resourceClosed,
+            List<AtomicBoolean> streamClosedFlags,
+            RuntimeException openStreamException,
+            IOException streamCloseException,
+            RuntimeException resourceCloseException
+    ) {
+        SegmentAudioEncodedResource resource = new SegmentAudioEncodedResource() {
+            @Override
+            public String mimeType() {
+                return "audio/mpeg";
+            }
+
+            @Override
+            public long sizeBytes() {
+                return mp3Bytes.length;
+            }
+
+            @Override
+            public long encodedContributionSamples() {
+                return samples;
+            }
+
+            @Override
+            public int sampleRateHz() {
+                return sampleRate;
+            }
+
+            @Override
+            public InputStream openStream() {
+                if (openStreamException != null) {
+                    throw openStreamException;
+                }
+                AtomicBoolean streamClosed = new AtomicBoolean(false);
+                if (streamClosedFlags != null) {
+                    streamClosedFlags.add(streamClosed);
+                }
+                return new ByteArrayInputStream(mp3Bytes) {
+                    private boolean isClosed = false;
+
+                    @Override
+                    public int read() {
+                        if (isClosed) {
+                            throw new IllegalStateException("Stream is closed");
+                        }
+                        return super.read();
+                    }
+
+                    @Override
+                    public int read(byte[] b, int off, int len) {
+                        if (isClosed) {
+                            throw new IllegalStateException("Stream is closed");
+                        }
+                        return super.read(b, off, len);
+                    }
+
+                    @Override
+                    public byte[] readAllBytes() {
+                        if (isClosed) {
+                            throw new IllegalStateException("Stream is closed");
+                        }
+                        return super.readAllBytes();
+                    }
+
+                    @Override
+                    public void close() throws IOException {
+                        isClosed = true;
+                        streamClosed.set(true);
+                        if (streamCloseException != null) {
+                            throw streamCloseException;
+                        }
+                        super.close();
+                    }
+                };
+            }
+
+            @Override
+            public void close() {
+                if (resourceClosed != null) {
+                    resourceClosed.set(true);
+                }
+                if (resourceCloseException != null) {
+                    throw resourceCloseException;
+                }
+            }
+        };
+        return new SegmentAudioEncodingResult(resource);
     }
 
     private ChapterNarrationSegment createCurrentSegment() {
@@ -148,12 +272,25 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         );
     }
 
+    private ChapterNarrationAudio createExistingTimedAudio(long revision) {
+        return ChapterNarrationAudio.create(
+                AUDIO_ID,
+                SEGMENT_ID,
+                VOICE_ID,
+                OLD_MEDIA_ASSET_ID,
+                revision,
+                51840L,
+                48000,
+                INITIAL_TIME
+        );
+    }
+
     @Test
-    @DisplayName("1. ALREADY_CURRENT: Returns ALREADY_CURRENT without TTS, Media writes, DB mutation, or cleanup request")
+    @DisplayName("1. ALREADY_CURRENT: Returns ALREADY_CURRENT when assignment is compatible and has encoded timing")
     void shouldReturnAlreadyCurrentWhenAssignmentIsAlreadyCompatible() {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createActiveVoice(2L);
-        ChapterNarrationAudio audio = createExistingAudio(2L); // Already revision 2
+        ChapterNarrationAudio audio = createExistingTimedAudio(2L); // Already revision 2 and timed
 
         when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
         when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
@@ -171,9 +308,74 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.ALREADY_CURRENT);
 
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("1b. Legacy assignment with matching revision but lacking encoded timing MUST regenerate")
+    void shouldRegenerateWhenAssignmentIsLegacyUntimedEvenWithMatchingRevision() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(2L); // Revision matches 2L, but untimed (null samples/rate)
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cleanupRequestUseCase.execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        assertThat(result.previousMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
+
+        assertThat(audio.hasEncodedTiming()).isTrue();
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(DEFAULT_SAMPLES);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(DEFAULT_SAMPLE_RATE);
+    }
+
+    @Test
+    @DisplayName("1c. Stale assignment with encoded timing MUST regenerate when voice revision changed")
+    void shouldRegenerateWhenAssignmentIsStaleEvenWithEncodedTiming() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L); // Current voice is 2L
+        ChapterNarrationAudio audio = createExistingTimedAudio(1L); // Audio is 1L (timed)
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cleanupRequestUseCase.execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        assertThat(result.previousMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
     }
 
     @Test
@@ -197,6 +399,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
 
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
@@ -217,6 +420,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
 
         RuntimeException mediaEx = new RuntimeException("Media storage network error");
         when(mediaContract.uploadAsset(any())).thenThrow(mediaEx);
@@ -247,6 +451,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -261,6 +466,9 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         // In-memory assignment state is reverted to previous state
         assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
         assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+        assertThat(audio.getUpdatedAt()).isEqualTo(INITIAL_TIME);
 
         // Verify InOrder: upload -> save attempt -> cleanup request for NEW
         InOrder inOrder = inOrder(mediaContract, audioRepositoryPort, cleanupRequestUseCase);
@@ -289,6 +497,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -320,6 +529,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -349,7 +559,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         UUID winningMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000009");
         ChapterNarrationAudio winningAudio = ChapterNarrationAudio.rehydrate(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, 1L, NOW, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, 1L, NOW, NOW
         );
 
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -362,6 +572,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(winningAudio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -403,7 +614,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         UUID winningMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000009");
         ChapterNarrationAudio winningAudio = ChapterNarrationAudio.rehydrate(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, 1L, NOW, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, 1L, NOW, NOW
         );
 
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -416,6 +627,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(winningAudio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -453,6 +665,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenThrow(winnerLookupEx);
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
@@ -493,6 +706,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenThrow(winnerLookupEx);
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
@@ -518,7 +732,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     }
 
     @Test
-    @DisplayName("11. Successful regeneration: Save succeeds BEFORE OLD cleanup request, OLD cleaned up with SUPERSEDED_REGENERATION_ASSET, NEW never cleanup-targeted")
+    @DisplayName("11. Successful regeneration: Encodes to canonical MP3, uploads MP3, persists timing metadata, OLD cleaned up with SUPERSEDED_REGENERATION_ASSET")
     void shouldRegenerateStaleAssignmentSuccessfullyWithDurableOldCleanup() throws IOException {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createActiveVoice(2L); // Current voice revision is 2
@@ -535,8 +749,16 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         when(ttsProviderPort.synthesize(new TtsSynthesisCommand("Trần Bình An cất bước ra đi.", "minh-duc")))
                 .thenReturn(ttsResult);
 
-        when(mediaContract.uploadAsset(any(UploadMediaAssetRequestDTO.class)))
-                .thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        byte[] mp3Bytes = new byte[]{1, 2, 3, 4, 5};
+        AtomicReference<byte[]> uploadedBytes = new AtomicReference<>();
+        when(segmentAudioEncoderPort.encode(any(SegmentAudioEncodingRequest.class)))
+                .thenAnswer(invocation -> createEncodingResult(mp3Bytes, 51840L, 48000));
+
+        when(mediaContract.uploadAsset(any(UploadMediaAssetRequestDTO.class))).thenAnswer(invocation -> {
+            UploadMediaAssetRequestDTO request = invocation.getArgument(0);
+            uploadedBytes.set(request.content().readAllBytes());
+            return new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID);
+        });
 
         when(clockPort.now()).thenReturn(NOW);
         when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -556,24 +778,33 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         // Verify TTS call
         verify(ttsProviderPort).synthesize(new TtsSynthesisCommand("Trần Bình An cất bước ra đi.", "minh-duc"));
 
+        // Verify encoder call
+        ArgumentCaptor<SegmentAudioEncodingRequest> encodeCaptor = ArgumentCaptor.forClass(SegmentAudioEncodingRequest.class);
+        verify(segmentAudioEncoderPort).encode(encodeCaptor.capture());
+        SegmentAudioEncodingRequest capturedEncode = encodeCaptor.getValue();
+        assertThat(capturedEncode.mimeType()).isEqualTo("audio/wav");
+        assertThat(capturedEncode.openStream().readAllBytes()).isEqualTo(NarrationWavBoundaryNormalizer.normalize(audioBytes, "audio/wav"));
+
         // Verify Media upload payload
         ArgumentCaptor<UploadMediaAssetRequestDTO> uploadCaptor = ArgumentCaptor.forClass(UploadMediaAssetRequestDTO.class);
         verify(mediaContract).uploadAsset(uploadCaptor.capture());
         UploadMediaAssetRequestDTO capturedUpload = uploadCaptor.getValue();
-        assertThat(capturedUpload.sizeBytes()).isEqualTo(audioBytes.length);
-        assertThat(capturedUpload.mimeType()).isEqualTo("audio/wav");
+        assertThat(capturedUpload.sizeBytes()).isEqualTo(mp3Bytes.length);
+        assertThat(capturedUpload.mimeType()).isEqualTo("audio/mpeg");
         assertThat(capturedUpload.mediaType()).isEqualTo(MediaTypeDTO.AUDIO);
         assertThat(capturedUpload.visibility()).isEqualTo(MediaVisibilityDTO.PUBLIC);
-        assertThat(capturedUpload.originalFilename()).isEqualTo("segment-" + SEGMENT_ID + ".wav");
-        assertThat(capturedUpload.content().readAllBytes()).isEqualTo(audioBytes);
+        assertThat(capturedUpload.originalFilename()).isEqualTo("segment-" + SEGMENT_ID + ".mp3");
+        assertThat(uploadedBytes.get()).isEqualTo(mp3Bytes);
 
-        // Verify persistence of the same assignment identity
+        // Verify persistence of the same assignment identity with timing
         ArgumentCaptor<ChapterNarrationAudio> audioCaptor = ArgumentCaptor.forClass(ChapterNarrationAudio.class);
         verify(audioRepositoryPort).save(audioCaptor.capture());
         ChapterNarrationAudio capturedAudio = audioCaptor.getValue();
         assertThat(capturedAudio.getId()).isEqualTo(AUDIO_ID);
         assertThat(capturedAudio.getMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
         assertThat(capturedAudio.getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(capturedAudio.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(capturedAudio.getEncodedSampleRateHz()).isEqualTo(48000);
         assertThat(capturedAudio.getUpdatedAt()).isEqualTo(NOW);
 
         // Verify Mockito InOrder: Media upload -> assignment save -> OLD cleanup request
@@ -606,6 +837,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -638,6 +870,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -664,9 +897,9 @@ class RegenerateChapterNarrationAudioUseCaseTest {
     void shouldReturnAlreadyCurrentOnSubsequentRetryAfterSuccessfulPersistence() {
         ChapterNarrationSegment segment = createCurrentSegment();
         ManagedVoice voice = createActiveVoice(2L);
-        // After successful persistence from earlier attempt, audio has newMediaAssetId and revision 2
+        // After successful persistence from earlier attempt, audio has newMediaAssetId, revision 2, and encoded timing
         ChapterNarrationAudio persistedAudio = ChapterNarrationAudio.create(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, NEW_MEDIA_ASSET_ID, 2L, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, NEW_MEDIA_ASSET_ID, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, NOW
         );
 
         when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
@@ -683,6 +916,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
 
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
@@ -703,6 +937,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .isInstanceOf(ChapterNarrationAudioNotFoundException.class);
 
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
         verify(audioRepositoryPort, never()).save(any());
@@ -731,6 +966,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         verifyNoInteractions(managedVoiceRepositoryPort);
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
     }
@@ -760,6 +996,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .hasMessageContaining("ACTIVE");
 
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
     }
@@ -774,6 +1011,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         verifyNoInteractions(managedVoiceRepositoryPort);
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
     }
@@ -789,6 +1027,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .isInstanceOf(ManagedVoiceNotFoundException.class);
 
         verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
         verifyNoInteractions(mediaContract);
         verifyNoInteractions(cleanupRequestUseCase);
     }
@@ -806,6 +1045,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(audio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(new TtsSynthesisResult(new byte[]{1, 2}, "audio/mpeg"));
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(audioRepositoryPort.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -853,6 +1093,8 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
                 .isSameAs(ttsEx);
 
+        verifyNoInteractions(segmentAudioEncoderPort);
+
         ArgumentCaptor<ChapterNarrationAudioFailure> failureCaptor = ArgumentCaptor.forClass(ChapterNarrationAudioFailure.class);
         verify(failureRepositoryPort).save(failureCaptor.capture());
         ChapterNarrationAudioFailure failure = failureCaptor.getValue();
@@ -895,6 +1137,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
                 .thenReturn(Optional.of(audio));
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(failureRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
                 .thenReturn(Optional.of(existingFailure));
         when(clockPort.now()).thenReturn(NOW);
@@ -927,6 +1170,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
                 .thenReturn(Optional.of(audio));
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
         when(audioRepositoryPort.save(any(ChapterNarrationAudio.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -972,6 +1216,8 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
                 .isSameAs(ttsEx)
                 .hasSuppressedException(clockEx);
+
+        verifyNoInteractions(segmentAudioEncoderPort);
     }
 
     @Test
@@ -983,7 +1229,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         UUID incompatibleMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000010");
         ChapterNarrationAudio incompatibleAudio = ChapterNarrationAudio.rehydrate(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, incompatibleMediaAssetId, 2L, 1L, NOW, NOW // revision 2 != 3
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, incompatibleMediaAssetId, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, 1L, NOW, NOW // revision 2 != 3
         );
 
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -996,6 +1242,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(incompatibleAudio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -1026,7 +1273,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
 
         UUID winningMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000011");
         ChapterNarrationAudio winningAudio = ChapterNarrationAudio.rehydrate(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, 1L, NOW, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, winningMediaAssetId, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, 1L, NOW, NOW
         );
 
         byte[] audioBytes = new byte[]{1, 2, 3};
@@ -1039,6 +1286,7 @@ class RegenerateChapterNarrationAudioUseCaseTest {
                 .thenReturn(Optional.of(winningAudio));
 
         when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
         when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
         when(clockPort.now()).thenReturn(NOW);
 
@@ -1057,6 +1305,459 @@ class RegenerateChapterNarrationAudioUseCaseTest {
         verify(failureRepositoryPort, never()).deleteSupersededBySuccessfulRevision(any(), any(), org.mockito.ArgumentMatchers.anyLong());
         assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
         assertThat(result.currentMediaAssetId()).isEqualTo(winningMediaAssetId);
+    }
+
+    @Test
+    @DisplayName("28. Encoder failure during regeneration: stage AUDIO_ENCODING recorded, no Media upload, old state untouched")
+    void shouldRecordAudioEncodingFailureWhenEncoderFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        RuntimeException encodeEx = new RuntimeException("FFmpeg encoder process crashed");
+        when(segmentAudioEncoderPort.encode(any())).thenThrow(encodeEx);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(encodeEx);
+
+        // Old audio untouched
+        assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+
+        verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
+        verify(audioRepositoryPort, never()).save(any());
+
+        ArgumentCaptor<ChapterNarrationAudioFailure> failureCaptor = ArgumentCaptor.forClass(ChapterNarrationAudioFailure.class);
+        verify(failureRepositoryPort).save(failureCaptor.capture());
+        ChapterNarrationAudioFailure failure = failureCaptor.getValue();
+        assertThat(failure.getOperation()).isEqualTo(NarrationAudioOperation.REGENERATION);
+        assertThat(failure.getStage()).isEqualTo(NarrationAudioFailureStage.AUDIO_ENCODING);
+        assertThat(failure.getAttemptedSynthesisRevision()).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("29. Pre-upload openStream failure: stage AUDIO_ENCODING, resource closed, no Media upload, old state untouched")
+    void shouldCloseResourceWhenOpenStreamFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        AtomicBoolean resourceClosed = new AtomicBoolean(false);
+        RuntimeException openStreamEx = new RuntimeException("Cannot open stream from temp file");
+        when(segmentAudioEncoderPort.encode(any())).thenAnswer(invocation ->
+                createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE,
+                        resourceClosed, null, openStreamEx, null, null));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(openStreamEx);
+
+        assertThat(resourceClosed.get()).isTrue();
+        assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
+
+        ArgumentCaptor<ChapterNarrationAudioFailure> failureCaptor = ArgumentCaptor.forClass(ChapterNarrationAudioFailure.class);
+        verify(failureRepositoryPort).save(failureCaptor.capture());
+        ChapterNarrationAudioFailure failure = failureCaptor.getValue();
+        assertThat(failure.getStage()).isEqualTo(NarrationAudioFailureStage.AUDIO_ENCODING);
+    }
+
+    @Test
+    @DisplayName("30. Pre-upload failure with resource close failure suppresses close exception under primary exception")
+    void shouldSuppressResourceCloseExceptionWhenPreUploadFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        RuntimeException openStreamEx = new RuntimeException("Stream open failed");
+        RuntimeException closeEx = new RuntimeException("Resource close failed");
+        when(segmentAudioEncoderPort.encode(any())).thenAnswer(invocation ->
+                createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE,
+                        null, null, openStreamEx, null, closeEx));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(openStreamEx)
+                .hasSuppressedException(closeEx);
+
+        verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
+    }
+
+    @Test
+    @DisplayName("31. Upload failure with stream and resource close failures suppresses both under upload exception")
+    void shouldCloseStreamAndResourceWithSuppressionWhenMediaUploadFailsDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+
+        AtomicBoolean resourceClosed = new AtomicBoolean(false);
+        List<AtomicBoolean> streamClosedFlags = new java.util.ArrayList<>();
+        IOException streamCloseEx = new IOException("Stream flush error on close");
+        RuntimeException resourceCloseEx = new RuntimeException("Resource file delete error on close");
+
+        when(segmentAudioEncoderPort.encode(any())).thenAnswer(invocation ->
+                createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE,
+                        resourceClosed, streamClosedFlags, null, streamCloseEx, resourceCloseEx));
+
+        RuntimeException mediaEx = new RuntimeException("S3 upload timeout");
+        when(mediaContract.uploadAsset(any())).thenThrow(mediaEx);
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(mediaEx)
+                .hasSuppressedException(streamCloseEx)
+                .hasSuppressedException(resourceCloseEx);
+
+        assertThat(resourceClosed.get()).isTrue();
+        assertThat(streamClosedFlags).hasSize(1);
+        assertThat(streamClosedFlags.get(0).get()).isTrue();
+        verifyNoInteractions(cleanupRequestUseCase);
+        verify(audioRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("32. Post-upload stream close failure logs warning only and does NOT fail regeneration")
+    void shouldSucceedWhenInputStreamCloseFailsAfterUploadDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+
+        IOException streamCloseEx = new IOException("Minor stream close warning");
+        when(segmentAudioEncoderPort.encode(any())).thenAnswer(invocation ->
+                createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE,
+                        null, null, null, streamCloseEx, null));
+
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cleanupRequestUseCase.execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        // NEW asset never cleanup-targeted
+        verify(cleanupRequestUseCase, never()).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        // OLD asset cleaned up
+        verify(cleanupRequestUseCase).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+    }
+
+    @Test
+    @DisplayName("33. Post-upload resource close failure logs warning only and does NOT fail regeneration")
+    void shouldSucceedWhenEncodedResourceCloseFailsAfterUploadDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+
+        RuntimeException resourceCloseEx = new RuntimeException("Temp file could not be deleted immediately");
+        when(segmentAudioEncoderPort.encode(any())).thenAnswer(invocation ->
+                createEncodingResult(DEFAULT_MP3_BYTES, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE,
+                        null, null, null, null, resourceCloseEx));
+
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(audioRepositoryPort.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cleanupRequestUseCase.execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        RegenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.outcome()).isEqualTo(RegenerateNarrationAudioOutcome.REGENERATED);
+        assertThat(result.currentMediaAssetId()).isEqualTo(NEW_MEDIA_ASSET_ID);
+        verify(cleanupRequestUseCase, never()).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(cleanupRequestUseCase).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+    }
+
+    @Test
+    @DisplayName("34. Clock failure after upload: Cleans up NEW asset, restores OLD state, records ASSIGNMENT_PERSISTENCE")
+    void shouldCleanupNewAssetAndRestoreOldStateWhenClockFailsAfterUploadDuringRegeneration() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L);
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+
+        RuntimeException clockEx = new RuntimeException("System time synchronization failed");
+        when(clockPort.now()).thenThrow(clockEx);
+
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(clockEx);
+
+        // Reverted to old state
+        assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+
+        // NEW asset cleanup requested
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        // OLD asset NOT cleanup-targeted
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+        verify(audioRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("35. Save failure with OLD TIMED assignment: Restores exact old timing metadata and timestamp")
+    void shouldRestoreOldTimedStateWhenPersistenceFails() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingTimedAudio(1L); // Samples: 51840L, Rate: 48000
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+
+        RuntimeException dbEx = new RuntimeException("DB deadlock");
+        when(audioRepositoryPort.save(any())).thenThrow(dbEx);
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(dbEx);
+
+        // Verify exact restoration of timed properties
+        assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(audio.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(audio.getEncodedSampleRateHz()).isEqualTo(48000);
+        assertThat(audio.getUpdatedAt()).isEqualTo(INITIAL_TIME);
+
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+    }
+
+    @Test
+    @DisplayName("36. Save failure with OLD LEGACY assignment: Restores null timing metadata and original timestamp")
+    void shouldRestoreOldLegacyStateWhenPersistenceFails() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio audio = createExistingAudio(1L); // Legacy untimed (null samples/rate)
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(audio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+
+        RuntimeException dbEx = new RuntimeException("DB deadlock");
+        when(audioRepositoryPort.save(any())).thenThrow(dbEx);
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(dbEx);
+
+        // Verify exact restoration of legacy null properties
+        assertThat(audio.getMediaAssetId()).isEqualTo(OLD_MEDIA_ASSET_ID);
+        assertThat(audio.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(audio.getEncodedContributionSamples()).isNull();
+        assertThat(audio.getEncodedSampleRateHz()).isNull();
+        assertThat(audio.getUpdatedAt()).isEqualTo(INITIAL_TIME);
+
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+    }
+
+    @Test
+    @DisplayName("37. Optimistic race with legacy untimed winner: Rejected, loser's NEW asset cleaned up, error propagates, diagnostic recorded")
+    void shouldRejectOptimisticRaceWinnerWithoutEncodedTiming() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio initialStaleAudio = createExistingAudio(1L);
+
+        UUID untimedMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000012");
+        ChapterNarrationAudio legacyWinner = ChapterNarrationAudio.rehydrate(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, untimedMediaAssetId, 2L, null, null, 1L, NOW, NOW // Revision 2L matches, but untimed
+        );
+
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(initialStaleAudio))
+                .thenReturn(Optional.of(legacyWinner));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        ObjectOptimisticLockingFailureException optLockEx =
+                new ObjectOptimisticLockingFailureException(ChapterNarrationAudio.class, AUDIO_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(optLockEx);
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(optLockEx);
+
+        // Loser's NEW media requested for cleanup
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        // OLD media NOT cleanup-targeted
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+        // Diagnostic recorded with ASSIGNMENT_PERSISTENCE stage
+        verify(failureRepositoryPort).save(any(ChapterNarrationAudioFailure.class));
+    }
+
+    @Test
+    @DisplayName("38. Optimistic race with stale timed winner: Rejected, loser's NEW asset cleaned up, error propagates, diagnostic recorded")
+    void shouldRejectOptimisticRaceWinnerWithStaleRevision() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(3L); // Voice target revision is 3L
+        ChapterNarrationAudio initialStaleAudio = createExistingAudio(1L);
+
+        UUID staleMediaAssetId = UUID.fromString("90000000-0000-0000-0000-000000000013");
+        ChapterNarrationAudio staleTimedWinner = ChapterNarrationAudio.rehydrate(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, staleMediaAssetId, 2L, DEFAULT_SAMPLES, DEFAULT_SAMPLE_RATE, 1L, NOW, NOW // Revision 2L != 3L
+        );
+
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(initialStaleAudio))
+                .thenReturn(Optional.of(staleTimedWinner));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(FAILURE_ID);
+
+        ObjectOptimisticLockingFailureException optLockEx =
+                new ObjectOptimisticLockingFailureException(ChapterNarrationAudio.class, AUDIO_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(optLockEx);
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(optLockEx);
+
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(cleanupRequestUseCase, never()).execute(OLD_MEDIA_ASSET_ID, NarrationMediaCleanupReason.SUPERSEDED_REGENERATION_ASSET);
+        verify(failureRepositoryPort).save(any(ChapterNarrationAudioFailure.class));
+    }
+
+    @Test
+    @DisplayName("39. State restoration failure during post-upload error: Restoration failure suppressed under primary, NEW cleanup still requested")
+    void shouldSuppressStateRestorationFailureWhenPostUploadErrorOccurs() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio realAudio = createExistingAudio(1L);
+        ChapterNarrationAudio spyAudio = org.mockito.Mockito.spy(realAudio);
+
+        byte[] audioBytes = new byte[]{82, 73, 70, 70, 10, 20, 30};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(spyAudio));
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        mockDefaultEncoding();
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(NEW_MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+
+        RuntimeException dbEx = new RuntimeException("DB deadlock during save");
+        when(audioRepositoryPort.save(any())).thenThrow(dbEx);
+
+        RuntimeException restoreEx = new RuntimeException("State restoration corrupted");
+        org.mockito.Mockito.doCallRealMethod()
+                .doThrow(restoreEx)
+                .when(spyAudio).replaceSuccessfulAudio(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
+
+        when(cleanupRequestUseCase.execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(dbEx)
+                .hasSuppressedException(restoreEx);
+
+        // Verify NEW cleanup was still attempted despite restoration failure
+        verify(cleanupRequestUseCase).execute(NEW_MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
     }
 }
 
