@@ -10,6 +10,11 @@ public enum NarrationAudioFailureStage {
     TTS_SYNTHESIS,
 
     /**
+     * Failed during segment audio encoding.
+     */
+    AUDIO_ENCODING,
+
+    /**
      * Failed during Media platform binary upload.
      */
     MEDIA_UPLOAD,

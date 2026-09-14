@@ -403,4 +403,36 @@ class ChapterNarrationAudioDomainTest {
         assertThat(audio.getEncodedSampleRateHz()).isEqualTo(48000);
         assertThat(audio.getVersion()).isEqualTo(9L); // In-memory version must NOT be mutated
     }
+
+    @Test
+    @DisplayName("Domain 11: hasEncodedTiming returns false when timing is null and true when timing is present")
+    void shouldVerifyHasEncodedTimingBehavior() {
+        ChapterNarrationAudio legacyAudio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, NOW
+        );
+        assertThat(legacyAudio.hasEncodedTiming()).isFalse();
+
+        ChapterNarrationAudio rehydratedLegacyAudio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, null, null, 0L, NOW, NOW
+        );
+        assertThat(rehydratedLegacyAudio.hasEncodedTiming()).isFalse();
+
+        ChapterNarrationAudio timedAudio = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, NOW
+        );
+        assertThat(timedAudio.hasEncodedTiming()).isTrue();
+
+        ChapterNarrationAudio rehydratedTimedAudio = ChapterNarrationAudio.rehydrate(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, 1L, NOW, NOW
+        );
+        assertThat(rehydratedTimedAudio.hasEncodedTiming()).isTrue();
+
+        // Updating legacy with timed replacement makes hasEncodedTiming true
+        legacyAudio.replaceSuccessfulAudio(UUID.randomUUID(), 2L, 51840L, 48000, NOW.plusSeconds(10));
+        assertThat(legacyAudio.hasEncodedTiming()).isTrue();
+
+        // Updating timed with legacy replacement makes hasEncodedTiming false
+        timedAudio.replaceSuccessfulAudio(UUID.randomUUID(), 2L, NOW.plusSeconds(10));
+        assertThat(timedAudio.hasEncodedTiming()).isFalse();
+    }
 }

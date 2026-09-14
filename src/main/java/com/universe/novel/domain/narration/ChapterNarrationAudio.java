@@ -194,6 +194,15 @@ public class ChapterNarrationAudio {
     }
 
     /**
+     * Checks whether this audio assignment has persisted encoded timing metadata.
+     *
+     * @return {@code true} if encoded timing metadata is present; {@code false} for legacy untimed audio
+     */
+    public boolean hasEncodedTiming() {
+        return this.encodedContributionSamples != null && this.encodedSampleRateHz != null;
+    }
+
+    /**
      * Replaces the currently attached audio with a newly synthesized and stored Media asset (legacy/un-timed).
      *
      * @param newMediaAssetId                 the new Media asset identity
