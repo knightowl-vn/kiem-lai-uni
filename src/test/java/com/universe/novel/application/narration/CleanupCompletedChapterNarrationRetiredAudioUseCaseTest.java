@@ -133,6 +133,8 @@ class CleanupCompletedChapterNarrationRetiredAudioUseCaseTest {
                 voiceId,
                 UUID.randomUUID(),
                 revision,
+                51840L,
+                48000,
                 0L,
                 now,
                 now
@@ -495,6 +497,33 @@ class CleanupCompletedChapterNarrationRetiredAudioUseCaseTest {
             when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(seg1Id, seg2Id), VOICE_ID))
                     .thenReturn(List.of(audio1, audio2));
             when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(seg1Id, seg2Id), VOICE_ID))
+                    .thenReturn(Collections.emptyList());
+
+            ChapterNarrationCompletionCleanupSummary summary = useCase.execute(CHAPTER_ID, VOICE_ID);
+
+            assertThat(summary.status()).isEqualTo(ChapterNarrationCompletionCleanupStatus.NOT_ELIGIBLE);
+            assertThat(summary.currentNarrationReady()).isFalse();
+            verify(handoffUseCase, never()).execute(any(UUID.class));
+        }
+
+        @Test
+        @DisplayName("When one CURRENT segment has same-revision untimed audio -> blocks cleanup")
+        void whenOneCurrentSegmentUntimed_blocksCleanup() {
+            when(manifestRepositoryPort.findByChapterId(CHAPTER_ID)).thenReturn(Optional.of(createManifest(1L, VALID_MANIFEST_HASH)));
+            UUID seg1Id = UUID.randomUUID();
+            ChapterNarrationSegment seg1 = createSegment(seg1Id, 0, ChapterNarrationSegmentStatus.CURRENT);
+
+            when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(createActiveVoice(VOICE_ID, SYNTHESIS_REVISION)));
+            when(segmentRepositoryPort.findByChapterIdAndStatus(CHAPTER_ID, ChapterNarrationSegmentStatus.CURRENT))
+                    .thenReturn(List.of(seg1));
+
+            // Same revision but untimed (legacy null/null)
+            ChapterNarrationAudio untimedAudio = ChapterNarrationAudio.create(
+                    UUID.randomUUID(), seg1Id, VOICE_ID, UUID.randomUUID(), SYNTHESIS_REVISION, Instant.now()
+            );
+            when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(seg1Id), VOICE_ID))
+                    .thenReturn(List.of(untimedAudio));
+            when(failureRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(seg1Id), VOICE_ID))
                     .thenReturn(Collections.emptyList());
 
             ChapterNarrationCompletionCleanupSummary summary = useCase.execute(CHAPTER_ID, VOICE_ID);

@@ -11,14 +11,17 @@ import java.util.Optional;
  * <p>
  * <strong>Decision Matrix:</strong>
  * <ul>
- *     <li><strong>Audio exists and A == R:</strong> {@code READY}, failure diagnostic suppressed (null).</li>
- *     <li><strong>Audio exists and A != R:</strong> {@code OUTDATED}, failure diagnostic relevant ONLY when {@code F == R} (null otherwise).</li>
+ *     <li><strong>Canonical Audio exists and A == R:</strong> {@code READY}, failure diagnostic suppressed (null).
+ *         Canonical audio requires non-null contribution samples &gt; 0 and sample rate == 48,000 Hz.</li>
+ *     <li><strong>Audio exists and (A != R or non-canonical timing):</strong> {@code OUTDATED}, failure diagnostic relevant ONLY when {@code F == R} (null otherwise).</li>
  *     <li><strong>No audio and F == R:</strong> {@code FAILED}, failure diagnostic relevant.</li>
  *     <li><strong>No audio and F != R (or no failure):</strong> {@code MISSING}, failure diagnostic suppressed (null).</li>
  * </ul>
  * where A = audio generated synthesis revision, F = failure attempted synthesis revision, R = current voice synthesis revision.
  */
 public final class ChapterNarrationAudioHealthResolver {
+
+    public static final int CANONICAL_SAMPLE_RATE_HZ = 48000;
 
     private ChapterNarrationAudioHealthResolver() {
     }
@@ -37,11 +40,12 @@ public final class ChapterNarrationAudioHealthResolver {
             long currentVoiceRevision
     ) {
         if (audio != null) {
-            if (audio.isCompatibleWith(currentVoiceRevision)) {
-                // A == R: READY, compatible assignment supersedes any failure diagnostic
+            if (isCanonicalReady(audio, currentVoiceRevision)) {
+                // Compatible assignment with canonical timing supersedes any failure diagnostic
                 return new ChapterNarrationAudioHealthResolution(ChapterNarrationAudioHealthStatus.READY, null);
             } else {
-                // A != R: OUTDATED, existing audio is playable; failure is relevant ONLY if regeneration failed for current revision (F == R)
+                // Audio is not canonical ready (outdated revision, legacy untimed, or non-canonical timing):
+                // existing audio is playable; failure is relevant ONLY if regeneration failed for current revision (F == R)
                 ChapterNarrationAudioFailure relevantFailure = (failure != null && failure.getAttemptedSynthesisRevision() == currentVoiceRevision)
                         ? failure
                         : null;
@@ -77,5 +81,14 @@ public final class ChapterNarrationAudioHealthResolver {
                 failureOpt != null ? failureOpt.orElse(null) : null,
                 currentVoiceRevision
         );
+    }
+
+    private static boolean isCanonicalReady(ChapterNarrationAudio audio, long currentVoiceRevision) {
+        return audio.isCompatibleWith(currentVoiceRevision)
+                && audio.hasEncodedTiming()
+                && audio.getEncodedContributionSamples() != null
+                && audio.getEncodedContributionSamples() > 0
+                && audio.getEncodedSampleRateHz() != null
+                && audio.getEncodedSampleRateHz() == CANONICAL_SAMPLE_RATE_HZ;
     }
 }
