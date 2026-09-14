@@ -71,6 +71,16 @@ public class ChapterNarrationAudioJpaEntity {
     )
     private long generatedSynthesisRevision;
 
+    @Column(
+            name = "encoded_contribution_samples"
+    )
+    private Long encodedContributionSamples;
+
+    @Column(
+            name = "encoded_sample_rate_hz"
+    )
+    private Integer encodedSampleRateHz;
+
     @Version
     @Column(
             name = "version",
@@ -99,6 +109,8 @@ public class ChapterNarrationAudioJpaEntity {
             String managedVoiceId,
             String mediaAssetId,
             long generatedSynthesisRevision,
+            Long encodedContributionSamples,
+            Integer encodedSampleRateHz,
             Long version,
             Instant createdAt,
             Instant updatedAt
@@ -108,6 +120,8 @@ public class ChapterNarrationAudioJpaEntity {
         this.managedVoiceId = managedVoiceId;
         this.mediaAssetId = mediaAssetId;
         this.generatedSynthesisRevision = generatedSynthesisRevision;
+        this.encodedContributionSamples = encodedContributionSamples;
+        this.encodedSampleRateHz = encodedSampleRateHz;
         this.version = version;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -119,10 +133,23 @@ public class ChapterNarrationAudioJpaEntity {
             String managedVoiceId,
             String mediaAssetId,
             long generatedSynthesisRevision,
+            Long version,
             Instant createdAt,
             Instant updatedAt
     ) {
-        this(id, segmentId, managedVoiceId, mediaAssetId, generatedSynthesisRevision, null, createdAt, updatedAt);
+        this(id, segmentId, managedVoiceId, mediaAssetId, generatedSynthesisRevision, null, null, version, createdAt, updatedAt);
+    }
+
+    public ChapterNarrationAudioJpaEntity(
+            String id,
+            String segmentId,
+            String managedVoiceId,
+            String mediaAssetId,
+            long generatedSynthesisRevision,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(id, segmentId, managedVoiceId, mediaAssetId, generatedSynthesisRevision, null, null, null, createdAt, updatedAt);
     }
 
     public String getId() {
@@ -163,6 +190,22 @@ public class ChapterNarrationAudioJpaEntity {
 
     public void setGeneratedSynthesisRevision(long generatedSynthesisRevision) {
         this.generatedSynthesisRevision = generatedSynthesisRevision;
+    }
+
+    public Long getEncodedContributionSamples() {
+        return encodedContributionSamples;
+    }
+
+    public void setEncodedContributionSamples(Long encodedContributionSamples) {
+        this.encodedContributionSamples = encodedContributionSamples;
+    }
+
+    public Integer getEncodedSampleRateHz() {
+        return encodedSampleRateHz;
+    }
+
+    public void setEncodedSampleRateHz(Integer encodedSampleRateHz) {
+        this.encodedSampleRateHz = encodedSampleRateHz;
     }
 
     public Long getVersion() {

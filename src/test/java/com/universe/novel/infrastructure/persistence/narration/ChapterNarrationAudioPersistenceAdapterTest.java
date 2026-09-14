@@ -186,10 +186,40 @@ class ChapterNarrationAudioPersistenceAdapterTest {
         assertThat(captured.getManagedVoiceId()).isEqualTo(VOICE_ID.toString());
         assertThat(captured.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID.toString());
         assertThat(captured.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(captured.getEncodedContributionSamples()).isNull();
+        assertThat(captured.getEncodedSampleRateHz()).isNull();
         assertThat(captured.getVersion()).isNull();
 
         assertThat(saved.getId()).isEqualTo(ID);
+        assertThat(saved.getEncodedContributionSamples()).isNull();
+        assertThat(saved.getEncodedSampleRateHz()).isNull();
         assertThat(saved.getVersion()).isEqualTo(0L);
+    }
+
+    @Test
+    @DisplayName("Should save timed audio assignment and map timing metadata to and from entity")
+    void shouldSaveAndMapTimingToAndFromDomain() {
+        ChapterNarrationAudio domain = ChapterNarrationAudio.create(
+                ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, NOW
+        );
+
+        ChapterNarrationAudioJpaEntity savedEntity = new ChapterNarrationAudioJpaEntity(
+                ID.toString(), SEGMENT_ID.toString(), VOICE_ID.toString(), MEDIA_ASSET_ID.toString(),
+                1L, 51840L, 48000, 0L, NOW, NOW
+        );
+        when(repository.saveAndFlush(any(ChapterNarrationAudioJpaEntity.class))).thenReturn(savedEntity);
+
+        ChapterNarrationAudio saved = adapter.save(domain);
+
+        ArgumentCaptor<ChapterNarrationAudioJpaEntity> captor = ArgumentCaptor.forClass(ChapterNarrationAudioJpaEntity.class);
+        verify(repository).saveAndFlush(captor.capture());
+
+        ChapterNarrationAudioJpaEntity captured = captor.getValue();
+        assertThat(captured.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(captured.getEncodedSampleRateHz()).isEqualTo(48000);
+
+        assertThat(saved.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(saved.getEncodedSampleRateHz()).isEqualTo(48000);
     }
 
     @Test

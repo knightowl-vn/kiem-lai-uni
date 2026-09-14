@@ -172,6 +172,8 @@ class ChapterNarrationAudioJpaPersistenceIntegrationTest {
         assertThat(a.getManagedVoiceId()).isEqualTo(VOICE_1_ID);
         assertThat(a.getMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(a.getGeneratedSynthesisRevision()).isEqualTo(1L);
+        assertThat(a.getEncodedContributionSamples()).isNull();
+        assertThat(a.getEncodedSampleRateHz()).isNull();
         assertThat(a.isCompatibleWith(1L)).isTrue();
         assertThat(a.isCompatibleWith(2L)).isFalse();
 
@@ -311,5 +313,115 @@ class ChapterNarrationAudioJpaPersistenceIntegrationTest {
             repositoryPort.save(saved);
             entityManager.flush();
         }).isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+    }
+
+    @Test
+    @DisplayName("Persistence 12: populated timing round-trips correctly through database and domain mapping")
+    void shouldRoundTripPopulatedEncodedTimingMetadata() {
+        UUID audioId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                audioId,
+                SEGMENT_1_ID,
+                VOICE_1_ID,
+                MEDIA_ASSET_ID,
+                1L,
+                51840L,
+                48000,
+                now
+        );
+
+        repositoryPort.save(audio);
+        entityManager.flush();
+        entityManager.clear();
+
+        // 1. Verify via repositoryPort mapping
+        Optional<ChapterNarrationAudio> loaded = repositoryPort.findById(audioId);
+        assertThat(loaded).isPresent();
+        ChapterNarrationAudio a = loaded.get();
+        assertThat(a.getEncodedContributionSamples()).isEqualTo(51840L);
+        assertThat(a.getEncodedSampleRateHz()).isEqualTo(48000);
+
+        // 2. Verify direct MySQL column values
+        java.util.Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT encoded_contribution_samples, encoded_sample_rate_hz FROM novel_chapter_narration_audio WHERE id = ?",
+                audioId.toString()
+        );
+        assertThat(((Number) row.get("encoded_contribution_samples")).longValue()).isEqualTo(51840L);
+        assertThat(((Number) row.get("encoded_sample_rate_hz")).intValue()).isEqualTo(48000);
+    }
+
+    @Test
+    @DisplayName("Persistence 13: save/update transitions and preserves timing correctly")
+    void shouldPreserveAndTransitionTimingOnSaveAndUpdate() {
+        UUID audioId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        // Step 1: Start with legacy (null/null) timing
+        ChapterNarrationAudio legacyAudio = ChapterNarrationAudio.create(
+                audioId, SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, now
+        );
+        ChapterNarrationAudio saved = repositoryPort.save(legacyAudio);
+        entityManager.flush();
+        entityManager.clear();
+
+        // Verify initial null timing in DB
+        java.util.Map<String, Object> initialRow = jdbcTemplate.queryForMap(
+                "SELECT encoded_contribution_samples, encoded_sample_rate_hz FROM novel_chapter_narration_audio WHERE id = ?",
+                audioId.toString()
+        );
+        assertThat(initialRow.get("encoded_contribution_samples")).isNull();
+        assertThat(initialRow.get("encoded_sample_rate_hz")).isNull();
+
+        // Step 2: Timed replacement updates timing
+        UUID newAssetId = UUID.randomUUID();
+        saved.replaceSuccessfulAudio(newAssetId, 2L, 103680L, 48000, now.plusSeconds(30));
+        ChapterNarrationAudio updated = repositoryPort.save(saved);
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<ChapterNarrationAudio> reloaded = repositoryPort.findById(audioId);
+        assertThat(reloaded).isPresent();
+        assertThat(reloaded.get().getMediaAssetId()).isEqualTo(newAssetId);
+        assertThat(reloaded.get().getGeneratedSynthesisRevision()).isEqualTo(2L);
+        assertThat(reloaded.get().getEncodedContributionSamples()).isEqualTo(103680L);
+        assertThat(reloaded.get().getEncodedSampleRateHz()).isEqualTo(48000);
+        assertThat(reloaded.get().getVersion()).isEqualTo(1L);
+
+        java.util.Map<String, Object> updatedRow = jdbcTemplate.queryForMap(
+                "SELECT encoded_contribution_samples, encoded_sample_rate_hz FROM novel_chapter_narration_audio WHERE id = ?",
+                audioId.toString()
+        );
+        assertThat(((Number) updatedRow.get("encoded_contribution_samples")).longValue()).isEqualTo(103680L);
+        assertThat(((Number) updatedRow.get("encoded_sample_rate_hz")).intValue()).isEqualTo(48000);
+    }
+
+    @Test
+    @DisplayName("Persistence 14: optimistic-lock version increments on timed replacement update")
+    void shouldIncrementVersionOnTimedReplacementUpdate() {
+        UUID audioId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        ChapterNarrationAudio audio = ChapterNarrationAudio.create(
+                audioId, SEGMENT_1_ID, VOICE_1_ID, MEDIA_ASSET_ID, 1L, 51840L, 48000, now
+        );
+        ChapterNarrationAudio saved = repositoryPort.save(audio);
+        assertThat(saved.getVersion()).isEqualTo(0L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        saved.replaceSuccessfulAudio(UUID.randomUUID(), 2L, 103680L, 48000, now.plusSeconds(60));
+        ChapterNarrationAudio updated = repositoryPort.save(saved);
+        assertThat(updated.getVersion()).isEqualTo(1L);
+
+        entityManager.flush();
+        entityManager.clear();
+
+        Optional<ChapterNarrationAudio> reloaded = repositoryPort.findById(audioId);
+        assertThat(reloaded).isPresent();
+        assertThat(reloaded.get().getVersion()).isEqualTo(1L);
+        assertThat(reloaded.get().getEncodedContributionSamples()).isEqualTo(103680L);
     }
 }

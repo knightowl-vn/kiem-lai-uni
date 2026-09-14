@@ -68,6 +68,8 @@ class ChapterNarrationAudioFlywayRuntimeVerificationTest {
                 "managed_voice_id",
                 "media_asset_id",
                 "generated_synthesis_revision",
+                "encoded_contribution_samples",
+                "encoded_sample_rate_hz",
                 "version",
                 "created_at",
                 "updated_at"
