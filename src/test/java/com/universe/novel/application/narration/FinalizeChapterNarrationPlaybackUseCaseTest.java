@@ -124,6 +124,8 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
                 VOICE_ID,
                 SOURCE_MEDIA_ID,
                 SYNTHESIS_REVISION,
+                51840L,
+                48000,
                 2L,
                 NOW,
                 NOW
@@ -258,6 +260,8 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
                 VOICE_ID,
                 UUID.randomUUID(),
                 SYNTHESIS_REVISION,
+                51840L,
+                48000,
                 3L,
                 NOW,
                 NOW.plusSeconds(1)
@@ -266,6 +270,83 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
                 .thenReturn(List.of(replacement));
 
         assertStaleAndNoPersistence("READY narration audio provenance changed");
+    }
+
+    @Test
+    void assignmentVersionRaceRejectsCandidateBeforePlaybackPersistence() {
+        ChapterNarrationAudio replacement = ChapterNarrationAudio.rehydrate(
+                AUDIO_ID,
+                SEGMENT_ID,
+                VOICE_ID,
+                SOURCE_MEDIA_ID,
+                SYNTHESIS_REVISION,
+                51840L,
+                48000,
+                audio.getVersion() + 1,
+                NOW,
+                NOW.plusSeconds(1)
+        );
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), VOICE_ID))
+                .thenReturn(List.of(replacement));
+
+        assertStaleAndNoPersistence("READY narration audio provenance changed");
+    }
+
+    @Test
+    void audioAssignmentMissingRaceRejectsCandidateBeforePlaybackPersistence() {
+        when(audioRepositoryPort.findBySegmentIdInAndManagedVoiceId(List.of(SEGMENT_ID), VOICE_ID))
+                .thenReturn(List.of());
+
+        assertStaleAndNoPersistence("READY narration audio set changed");
+    }
+
+    @Test
+    void cueOrdinalNonContiguousIsRejectedBeforePersistence() {
+        List<ChapterAudioAssemblyCue> badOrdinalCues = List.of(
+                new ChapterAudioAssemblyCue(1, SEGMENT_ID, 0, 0L, 1_234L)
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command(1_234L, badOrdinalCues)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Assembly cues must preserve the captured segment order exactly.");
+
+        verifyNoInteractions(playbackRepositoryPort, artifactRepositoryPort, cueRepositoryPort, idGeneratorPort);
+    }
+
+    @Test
+    void cueSegmentMismatchIsRejectedBeforePersistence() {
+        List<ChapterAudioAssemblyCue> mismatchedSegmentCues = List.of(
+                new ChapterAudioAssemblyCue(0, UUID.randomUUID(), 0, 0L, 1_234L)
+        );
+
+        assertThatThrownBy(() -> useCase.execute(command(1_234L, mismatchedSegmentCues)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Assembly cues must preserve the captured segment order exactly.");
+
+        verifyNoInteractions(playbackRepositoryPort, artifactRepositoryPort, cueRepositoryPort, idGeneratorPort);
+    }
+
+    @Test
+    void finalCueEndEqualsArtifactDurationIsPreserved() {
+        when(playbackRepositoryPort.findByChapterIdAndManagedVoiceId(CHAPTER_ID, VOICE_ID))
+                .thenReturn(Optional.empty());
+        when(idGeneratorPort.generate()).thenReturn(PLAYBACK_ID, ARTIFACT_ID);
+        arrangePlaybackSaves();
+        when(artifactRepositoryPort.insert(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cueRepositoryPort.insertAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Exact duration equal to cue end
+        FinalizeChapterNarrationPlaybackResult result = useCase.execute(command(1_234L, List.of(cue)));
+
+        assertThat(result.artifactId()).isEqualTo(ARTIFACT_ID);
+        ArgumentCaptor<ChapterNarrationPlaybackArtifact> artifactCaptor =
+                ArgumentCaptor.forClass(ChapterNarrationPlaybackArtifact.class);
+        verify(artifactRepositoryPort).insert(artifactCaptor.capture());
+        assertThat(artifactCaptor.getValue().getDurationMillis()).isEqualTo(1_234L);
+
+        ArgumentCaptor<List<ChapterNarrationPlaybackCue>> cueCaptor = ArgumentCaptor.forClass(List.class);
+        verify(cueRepositoryPort).insertAll(cueCaptor.capture());
+        assertThat(cueCaptor.getValue().get(0).getEndMillis()).isEqualTo(1_234L);
     }
 
     @Test
@@ -399,10 +480,12 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
                         capturedAudio.getMediaAssetId(),
                         2,
                         "e".repeat(64),
-                        "audio/wav",
+                        "audio/mpeg",
                         100L,
-                        "segment.wav"
-                )
+                        "segment.mp3"
+                ),
+                capturedAudio.getEncodedContributionSamples(),
+                capturedAudio.getEncodedSampleRateHz()
         );
     }
 
@@ -432,6 +515,8 @@ class FinalizeChapterNarrationPlaybackUseCaseTest {
                 VOICE_ID,
                 SOURCE_MEDIA_2_ID,
                 SYNTHESIS_REVISION,
+                51840L,
+                48000,
                 1L,
                 NOW,
                 NOW

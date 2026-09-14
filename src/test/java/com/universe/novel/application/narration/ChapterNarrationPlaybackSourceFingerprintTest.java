@@ -17,7 +17,7 @@ class ChapterNarrationPlaybackSourceFingerprintTest {
 
     @Test
     void assignmentIdentityAndVersionArePartOfSourceIdentity() {
-        var original = segment(audioId, 1L, source(1, "a".repeat(64), "source.wav"));
+        var original = segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"));
         String fingerprint = fingerprint(List.of(original));
         assertThat(fingerprint(List.of(segment(UUID.randomUUID(), 1L, original.sourceMediaVersion())))).isNotEqualTo(fingerprint);
         assertThat(fingerprint(List.of(segment(audioId, 2L, original.sourceMediaVersion())))).isNotEqualTo(fingerprint);
@@ -25,16 +25,16 @@ class ChapterNarrationPlaybackSourceFingerprintTest {
 
     @Test
     void exactMediaVersionAndHashMatterButDisplayFilenameDoesNot() {
-        String fingerprint = fingerprint(List.of(segment(audioId, 1L, source(1, "a".repeat(64), "source.wav"))));
-        assertThat(fingerprint(List.of(segment(audioId, 1L, source(2, "a".repeat(64), "source.wav"))))).isNotEqualTo(fingerprint);
-        assertThat(fingerprint(List.of(segment(audioId, 1L, source(1, "b".repeat(64), "source.wav"))))).isNotEqualTo(fingerprint);
-        assertThat(fingerprint(List.of(segment(audioId, 1L, source(1, "a".repeat(64), "renamed.wav"))))).isEqualTo(fingerprint);
+        String fingerprint = fingerprint(List.of(segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"))));
+        assertThat(fingerprint(List.of(segment(audioId, 1L, source(2, "a".repeat(64), "source.mp3"))))).isNotEqualTo(fingerprint);
+        assertThat(fingerprint(List.of(segment(audioId, 1L, source(1, "b".repeat(64), "source.mp3"))))).isNotEqualTo(fingerprint);
+        assertThat(fingerprint(List.of(segment(audioId, 1L, source(1, "a".repeat(64), "renamed.mp3"))))).isEqualTo(fingerprint);
         assertThat(fingerprint).matches("[0-9a-f]{64}");
     }
 
     @Test
     void segmentOrderAndContentRemainExact() {
-        var first = segment(audioId, 1L, source(1, "a".repeat(64), "source.wav"));
+        var first = segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"));
         var second = new ChapterNarrationPlaybackSegmentSnapshot(UUID.randomUUID(), 1, "d".repeat(64),
                 UUID.randomUUID(), 1L, mediaId, 2L, first.sourceMediaVersion());
         assertThat(fingerprint(List.of(first, second))).isNotEqualTo(fingerprint(List.of(second, first)));
@@ -95,6 +95,42 @@ class ChapterNarrationPlaybackSourceFingerprintTest {
         assertThat(payload).startsWith("26:chapter-playback-source-v2");
     }
 
+    @Test
+    void changingSourceContentVersionChangesFingerprint() {
+        var segment = segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"));
+        var baseSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 2L, "c".repeat(64), List.of(segment));
+        var changedSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 2L, 2L, "c".repeat(64), List.of(segment));
+
+        assertThat(ChapterNarrationPlaybackSourceFingerprint.compute(changedSnapshot))
+                .isNotEqualTo(ChapterNarrationPlaybackSourceFingerprint.compute(baseSnapshot));
+    }
+
+    @Test
+    void changingSynthesisRevisionChangesFingerprint() {
+        var segment = segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"));
+        var baseSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 2L, "c".repeat(64), List.of(segment));
+        var changedSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 3L, "c".repeat(64), List.of(segment));
+
+        assertThat(ChapterNarrationPlaybackSourceFingerprint.compute(changedSnapshot))
+                .isNotEqualTo(ChapterNarrationPlaybackSourceFingerprint.compute(baseSnapshot));
+    }
+
+    @Test
+    void changingManifestHashChangesFingerprint() {
+        var segment = segment(audioId, 1L, source(1, "a".repeat(64), "source.mp3"));
+        var baseSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 2L, "c".repeat(64), List.of(segment));
+        var changedSnapshot = new ChapterNarrationPlaybackBuildSnapshot(
+                chapterId, voiceId, 1L, 2L, "d".repeat(64), List.of(segment));
+
+        assertThat(ChapterNarrationPlaybackSourceFingerprint.compute(changedSnapshot))
+                .isNotEqualTo(ChapterNarrationPlaybackSourceFingerprint.compute(baseSnapshot));
+    }
+
     private String fingerprint(List<ChapterNarrationPlaybackSegmentSnapshot> segments) {
         return ChapterNarrationPlaybackSourceFingerprint.compute(new ChapterNarrationPlaybackBuildSnapshot(
                 chapterId, voiceId, 1L, 2L, "c".repeat(64), segments));
@@ -106,6 +142,6 @@ class ChapterNarrationPlaybackSourceFingerprintTest {
     }
 
     private MediaAssetVersionSnapshotDTO source(int version, String hash, String filename) {
-        return new MediaAssetVersionSnapshotDTO(mediaId, version, hash, "audio/wav", 100L, filename);
+        return new MediaAssetVersionSnapshotDTO(mediaId, version, hash, "audio/mpeg", 100L, filename);
     }
 }

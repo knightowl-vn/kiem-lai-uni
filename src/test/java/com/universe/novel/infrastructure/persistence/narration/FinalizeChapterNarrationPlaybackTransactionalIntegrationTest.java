@@ -116,7 +116,7 @@ class FinalizeChapterNarrationPlaybackTransactionalIntegrationTest {
         voice = mock(ManagedVoice.class);
         segment = ChapterNarrationSegment.create(SEGMENT_ID, CHAPTER_ID, 0, "Playback segment.", NOW);
         audio = ChapterNarrationAudio.rehydrate(
-                AUDIO_ID, SEGMENT_ID, VOICE_ID, SOURCE_MEDIA_ID, 2L, 0L, NOW, NOW
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, SOURCE_MEDIA_ID, 2L, 51840L, 48000, 0L, NOW, NOW
         );
         snapshot = new ChapterNarrationPlaybackBuildSnapshot(
                 CHAPTER_ID,
@@ -133,8 +133,10 @@ class FinalizeChapterNarrationPlaybackTransactionalIntegrationTest {
                         SOURCE_MEDIA_ID,
                         2L,
                         new MediaAssetVersionSnapshotDTO(
-                                SOURCE_MEDIA_ID, 1, "b".repeat(64), "audio/wav", 100L, "segment.wav"
-                        )
+                                SOURCE_MEDIA_ID, 1, "b".repeat(64), "audio/mpeg", 100L, "segment.mp3"
+                        ),
+                        51840L,
+                        48000
                 ))
         );
 
