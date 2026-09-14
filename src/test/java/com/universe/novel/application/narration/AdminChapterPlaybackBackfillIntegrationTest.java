@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Real application chain with in-memory repository doubles; security has its separate MVC regression. */
 class AdminChapterPlaybackBackfillIntegrationTest {
     @Test
-    void legacyReadyBackfillThenDirectRepeatPostBuildsAndPublishesOnlyOnce() throws Exception {
+    void canonicalReadySegmentsBuildAndDirectRepeatPublishesOnlyOnce() throws Exception {
         UUID chapterId = UUID.randomUUID();
         UUID voiceId = UUID.randomUUID();
         UUID outputMediaId = UUID.randomUUID();
@@ -49,7 +49,6 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         var cues = mock(ChapterNarrationPlaybackCueRepositoryPort.class);
         var media = mock(MediaContract.class);
         var assembler = mock(ChapterAudioAssemblerPort.class);
-        var encoder = mock(ChapterAudioEncoderPort.class);
         var upload = mock(UploadChapterNarrationPlaybackMediaUseCase.class);
         var cleanup = mock(RequestNarrationMediaCleanupUseCase.class);
         var generateSegment = mock(GenerateChapterNarrationAudioUseCase.class);
@@ -71,7 +70,7 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         List<ChapterNarrationSegment> current = IntStream.range(0, 3)
                 .mapToObj(i -> ChapterNarrationSegment.create(UUID.randomUUID(), chapterId, i, "Đoạn " + i, now)).toList();
         List<ChapterNarrationAudio> ready = current.stream().map(segment -> ChapterNarrationAudio.create(
-                UUID.randomUUID(), segment.getId(), voiceId, UUID.randomUUID(), 1L, now)).toList();
+                UUID.randomUUID(), segment.getId(), voiceId, UUID.randomUUID(), 1L, 51840L, 48000, now)).toList();
         when(segments.findByChapterIdAndStatus(chapterId, ChapterNarrationSegmentStatus.CURRENT)).thenReturn(current);
         when(audios.findBySegmentIdInAndManagedVoiceId(any(), any())).thenReturn(ready);
         String manifestHash = NarrationManifestHasher.computeManifestHash(current.stream()
@@ -79,21 +78,19 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         when(manifests.findByChapterId(chapterId)).thenReturn(Optional.of(
                 ChapterNarrationManifest.create(chapterId, 1L, manifestHash, now)));
         for (ChapterNarrationAudio audio : ready) {
-            var source = new MediaAssetVersionSnapshotDTO(audio.getMediaAssetId(), 1, "a".repeat(64), "audio/wav", 4L, "source.wav");
+            var source = new MediaAssetVersionSnapshotDTO(audio.getMediaAssetId(), 1, "a".repeat(64), "audio/mpeg", 4L, "segment.mp3");
             when(media.getCurrentVersionSnapshot(audio.getMediaAssetId())).thenReturn(Optional.of(source));
             when(media.openVersionContent(new MediaAssetVersionReferenceDTO(audio.getMediaAssetId(), 1, source.contentHash())))
                     .thenAnswer(invocation -> new MediaAssetVersionContentDTO(audio.getMediaAssetId(), 1,
-                            source.contentHash(), "audio/wav", 4L, new ByteArrayInputStream(new byte[]{1, 2, 3, 4})));
+                            source.contentHash(), "audio/mpeg", 4L, new ByteArrayInputStream(new byte[]{1, 2, 3, 4})));
         }
         when(media.getAssetDetail(outputMediaId)).thenReturn(Optional.of(new MediaAssetDetailDTO(outputMediaId,
                 MediaTypeDTO.AUDIO, MediaVisibilityDTO.PUBLIC, MediaAssetStatusDTO.ACTIVE, 1, now, now,
                 new MediaVersionDTO(UUID.randomUUID(), outputMediaId, 1, null, "audio/mpeg", 100L, "chapter.mp3", now))));
         var assemblyResource = mock(ChapterAudioAssemblyResource.class);
-        var encodedResource = mock(ChapterAudioEncodedResource.class);
         List<ChapterAudioAssemblyCue> assembledCues = IntStream.range(0, 3).mapToObj(i ->
                 new ChapterAudioAssemblyCue(i, current.get(i).getId(), i, i * 1000L, (i + 1) * 1000L)).toList();
         when(assembler.assemble(any())).thenReturn(new ChapterAudioAssemblyResult(assemblyResource, 3000L, assembledCues));
-        when(encoder.encode(any())).thenReturn(new ChapterAudioEncodingResult(encodedResource));
         when(upload.execute(any())).thenReturn(new UploadChapterNarrationPlaybackMediaResult(outputMediaId));
 
         Map<UUID, ChapterNarrationPlayback> playbackRows = new HashMap<>();
@@ -117,7 +114,7 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         var inspector = new InspectChapterNarrationPlaybackUseCase(playbacks, artifacts, cues, media, snapshot);
         var finalizer = new FinalizeChapterNarrationPlaybackUseCase(chapters, voices, manifests, segments, audios,
                 playbacks, artifacts, cues, ids, clock);
-        var builder = new BuildChapterNarrationPlaybackUseCase(snapshot, media, assembler, encoder, upload, finalizer, cleanup, inspector);
+        var builder = new BuildChapterNarrationPlaybackUseCase(snapshot, media, assembler, upload, finalizer, cleanup, inspector);
         var generation = new GenerateChapterNarrationUseCase(chapters, voices, segments, audios, failures,
                 new ChapterNarrationGenerationPlanner(), generateSegment, regenerateSegment, retiredCleanup);
         var dispatcher = new AdminNarrationGenerationDispatcher(Runnable::run, new AdminNarrationGenerationWorker(generation, builder));
@@ -145,7 +142,6 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         assertThat(dispatcher.isRunning(chapterId, voiceId)).isFalse();
         verifyNoInteractions(generateSegment, regenerateSegment, cleanup);
         verify(assembler).assemble(any());
-        verify(encoder).encode(any());
         verify(upload).execute(any());
         verify(artifacts).insert(any());
         verify(cues).insertAll(any());

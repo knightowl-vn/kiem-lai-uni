@@ -8,7 +8,9 @@ import com.universe.novel.application.narration.ChapterAudioAssemblyResource;
 import com.universe.novel.application.narration.ChapterAudioAssemblyResult;
 import com.universe.novel.application.narration.ChapterAudioSegmentSource;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FilterInputStream;
@@ -44,9 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Concatenates canonical MP3 segments without re-encoding using {@code -c:a copy},
  * derives intermediate cue intervals directly from per-segment contribution samples,
  * and validates the final chapter artifact with FFprobe.
- * <p>
- * Note: Intentionally not annotated with {@code @Component} until 01C4B migration.
  */
+@Component
 public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudioAssemblerPort {
 
     static final String OUTPUT_MIME_TYPE = "audio/mpeg";
@@ -119,6 +120,7 @@ public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudio
         this("ffmpeg", "ffprobe", Duration.ofSeconds(120));
     }
 
+    @Autowired
     public FfmpegMp3ConcatChapterAudioAssemblerAdapter(
             @Value("${novel.narration.audio.concat-assembler.ffmpeg.path:${novel.narration.audio.encoder.ffmpeg.path:ffmpeg}}") String ffmpegExecutable,
             @Value("${novel.narration.audio.concat-assembler.ffprobe.path:${novel.narration.audio.segment-encoder.ffprobe.path:ffprobe}}") String ffprobeExecutable,

@@ -5,7 +5,6 @@ import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
-import com.universe.novel.application.ports.ChapterAudioEncoderPort;
 import com.universe.novel.domain.narration.NarrationMediaCleanupReason;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackRepositoryPort;
 import com.universe.novel.application.ports.ChapterNarrationPlaybackArtifactRepositoryPort;
@@ -68,8 +67,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     @Mock
     private ChapterAudioAssemblerPort assemblerPort;
     @Mock
-    private ChapterAudioEncoderPort encoderPort;
-    @Mock
     private UploadChapterNarrationPlaybackMediaUseCase uploadMediaUseCase;
     @Mock
     private FinalizeChapterNarrationPlaybackUseCase finalizerUseCase;
@@ -82,7 +79,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
     private BuildChapterNarrationPlaybackUseCase useCase;
     private TrackingInputStream sourceStream;
     private TestAssemblyResource assemblyResource;
-    private TestEncodedResource encodedResource;
     private ChapterNarrationPlaybackBuildSnapshot snapshot;
     private ChapterAudioAssemblyCue cue;
 
@@ -92,7 +88,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 snapshotUseCase,
                 mediaContract,
                 assemblerPort,
-                encoderPort,
                 uploadMediaUseCase,
                 finalizerUseCase,
                 cleanupUseCase,
@@ -100,7 +95,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                         cueRepository, mediaContract, snapshotUseCase)
         );
         MediaAssetVersionSnapshotDTO sourceVersion = new MediaAssetVersionSnapshotDTO(
-                SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/wav", 4L, "segment.wav"
+                SOURCE_ASSET_ID, 3, SOURCE_HASH, "audio/mpeg", 4L, "segment.mp3"
         );
         snapshot = new ChapterNarrationPlaybackBuildSnapshot(
                 CHAPTER_ID,
@@ -116,13 +111,14 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                         2L,
                         SOURCE_ASSET_ID,
                         4L,
-                        sourceVersion
+                        sourceVersion,
+                        48_000L,
+                        48_000
                 ))
         );
         cue = new ChapterAudioAssemblyCue(0, SEGMENT_ID, 0, 0L, 1_000L);
         sourceStream = new TrackingInputStream(new byte[]{1, 2, 3, 4});
         assemblyResource = new TestAssemblyResource();
-        encodedResource = new TestEncodedResource(false);
     }
 
     @Test
@@ -131,8 +127,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         when(finalizerUseCase.execute(any())).thenAnswer(invocation -> {
             assertAll(
                     () -> assertThat(sourceStream.closed).isTrue(),
-                    () -> assertThat(assemblyResource.closed).isTrue(),
-                    () -> assertThat(encodedResource.closed).isTrue()
+                    () -> assertThat(assemblyResource.closed).isTrue()
             );
             FinalizeChapterNarrationPlaybackCommand command = invocation.getArgument(0);
             assertThat(command.snapshot()).isSameAs(snapshot);
@@ -153,7 +148,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 SOURCE_ASSET_ID, 3, SOURCE_HASH
         ));
         verify(uploadMediaUseCase).execute(new UploadChapterNarrationPlaybackMediaCommand(
-                encodedResource,
+                assemblyResource,
                 BuildChapterNarrationPlaybackUseCase.originalFilename(CHAPTER_ID, VOICE_ID)
         ));
         verifyNoInteractions(cleanupUseCase);
@@ -168,7 +163,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
         assertThat(result.outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
         assertThat(result.artifactId()).isEqualTo(ARTIFACT_ID);
-        verifyNoInteractions(assemblerPort, encoderPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+        verifyNoInteractions(assemblerPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
         verify(mediaContract, never()).openVersionContent(any());
     }
 
@@ -183,7 +178,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
         assertThat(useCase.execute(command).outcome()).isEqualTo(BuildChapterNarrationPlaybackOutcome.ALREADY_CURRENT);
         verify(assemblerPort).assemble(any());
-        verify(encoderPort).encode(any());
         verify(uploadMediaUseCase).execute(any());
         verify(finalizerUseCase).execute(any());
         verifyNoInteractions(cleanupUseCase);
@@ -217,7 +211,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
                 List.of(new ChapterNarrationPlaybackSegmentSnapshot(s.segmentId(), s.segmentIndex(), s.contentHash(),
                         s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(),
-                        new MediaAssetVersionSnapshotDTO(SOURCE_ASSET_ID, 2, "d".repeat(64), "audio/wav", 4L, "segment.wav"))));
+                        new MediaAssetVersionSnapshotDTO(SOURCE_ASSET_ID, 2, "d".repeat(64), "audio/mpeg", 4L, "segment.mp3"),
+                        48_000L, 48_000)));
         arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
         assertRebuilt();
     }
@@ -227,7 +222,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         var s = snapshot.segments().get(0);
         var old = new ChapterNarrationPlaybackBuildSnapshot(CHAPTER_ID, VOICE_ID, 7L, 4L, snapshot.manifestHash(),
                 List.of(new ChapterNarrationPlaybackSegmentSnapshot(UUID.randomUUID(), 0, s.contentHash(),
-                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(), s.sourceMediaVersion())));
+                        s.narrationAudioId(), s.narrationAudioVersion(), s.mediaAssetId(), s.generatedSynthesisRevision(),
+                        s.sourceMediaVersion(), 48_000L, 48_000)));
         arrangeCurrentArtifact(old, ChapterNarrationPlaybackSourceFingerprint.compute(old));
         assertRebuilt();
     }
@@ -247,7 +243,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         assertThat(useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)).outcome())
                 .isEqualTo(BuildChapterNarrationPlaybackOutcome.BUILT);
         verify(assemblerPort).assemble(any());
-        verify(encoderPort).encode(any());
         verify(uploadMediaUseCase).execute(any());
         verify(finalizerUseCase).execute(any());
     }
@@ -329,12 +324,12 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
     @Test
     void resourceCloseFailureAfterUploadCleansKnownCandidateAndSkipsFinalization() {
-        encodedResource = new TestEncodedResource(true);
+        assemblyResource = new TestAssemblyResource(true);
         arrangeSuccessfulHeavyBuild();
 
         assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("encoded close failed");
+                .hasMessage("assembly close failed");
 
         verify(cleanupUseCase).execute(
                 CANDIDATE_ASSET_ID,
@@ -342,6 +337,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         );
         verifyNoInteractions(finalizerUseCase);
         assertThat(assemblyResource.closed).isTrue();
+        assertThat(sourceStream.closed).isTrue();
     }
 
     @Test
@@ -355,7 +351,40 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 .isSameAs(assemblyFailure);
 
         assertThat(sourceStream.closed).isTrue();
-        verifyNoInteractions(encoderPort, uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+        verifyNoInteractions(uploadMediaUseCase, finalizerUseCase, cleanupUseCase);
+    }
+
+    @Test
+    void uploadFailureClosesResourcesAndSkipsFinalizationWithoutCleanup() {
+        arrangeSuccessfulHeavyBuild();
+        RuntimeException uploadFailure = new RuntimeException("upload failed");
+        when(uploadMediaUseCase.execute(any())).thenThrow(uploadFailure);
+
+        assertThatThrownBy(() -> useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID)))
+                .isSameAs(uploadFailure);
+
+        assertThat(sourceStream.closed).isTrue();
+        assertThat(assemblyResource.closed).isTrue();
+        verifyNoInteractions(finalizerUseCase, cleanupUseCase);
+    }
+
+    @Test
+    void assemblerReceivesExactCanonicalMp3SourcesWithTimingMetadata() {
+        arrangeSuccessfulHeavyBuild();
+        when(finalizerUseCase.execute(any())).thenReturn(finalized(null));
+
+        useCase.execute(new BuildChapterNarrationPlaybackCommand(CHAPTER_ID, VOICE_ID));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ChapterAudioAssemblyRequest.class);
+        verify(assemblerPort).assemble(captor.capture());
+        ChapterAudioAssemblyRequest capturedRequest = captor.getValue();
+        assertThat(capturedRequest.segments()).hasSize(1);
+        ChapterAudioSegmentSource segmentSource = capturedRequest.segments().get(0);
+        assertThat(segmentSource.segmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(segmentSource.segmentIndex()).isEqualTo(0);
+        assertThat(segmentSource.mimeType()).isEqualTo("audio/mpeg");
+        assertThat(segmentSource.encodedContributionSamples()).isEqualTo(48_000L);
+        assertThat(segmentSource.encodedSampleRateHz()).isEqualTo(48_000);
     }
 
     @Test
@@ -430,7 +459,6 @@ class BuildChapterNarrationPlaybackUseCaseTest {
             }
             return new ChapterAudioAssemblyResult(assemblyResource, 1_000L, List.of(cue));
         });
-        when(encoderPort.encode(any())).thenReturn(new ChapterAudioEncodingResult(encodedResource));
         when(uploadMediaUseCase.execute(any())).thenReturn(
                 new UploadChapterNarrationPlaybackMediaResult(CANDIDATE_ASSET_ID)
         );
@@ -443,7 +471,7 @@ class BuildChapterNarrationPlaybackUseCaseTest {
                 SOURCE_ASSET_ID,
                 3,
                 SOURCE_HASH,
-                "audio/wav",
+                "audio/mpeg",
                 4L,
                 sourceStream
         ));
@@ -475,11 +503,20 @@ class BuildChapterNarrationPlaybackUseCaseTest {
 
     private static final class TestAssemblyResource implements ChapterAudioAssemblyResource {
 
+        private final boolean failOnClose;
         private boolean closed;
+
+        private TestAssemblyResource() {
+            this(false);
+        }
+
+        private TestAssemblyResource(boolean failOnClose) {
+            this.failOnClose = failOnClose;
+        }
 
         @Override
         public String mimeType() {
-            return "audio/wav";
+            return "audio/mpeg";
         }
 
         @Override
@@ -495,38 +532,8 @@ class BuildChapterNarrationPlaybackUseCaseTest {
         @Override
         public void close() {
             closed = true;
-        }
-    }
-
-    private static final class TestEncodedResource implements ChapterAudioEncodedResource {
-
-        private final boolean failOnClose;
-        private boolean closed;
-
-        private TestEncodedResource(boolean failOnClose) {
-            this.failOnClose = failOnClose;
-        }
-
-        @Override
-        public String mimeType() {
-            return "audio/mpeg";
-        }
-
-        @Override
-        public long sizeBytes() {
-            return 3L;
-        }
-
-        @Override
-        public InputStream openStream() {
-            return new ByteArrayInputStream(new byte[]{1, 2, 3});
-        }
-
-        @Override
-        public void close() {
-            closed = true;
             if (failOnClose) {
-                throw new IllegalStateException("encoded close failed");
+                throw new IllegalStateException("assembly close failed");
             }
         }
     }

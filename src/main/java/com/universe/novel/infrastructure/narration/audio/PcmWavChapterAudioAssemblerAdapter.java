@@ -5,7 +5,6 @@ import com.universe.novel.application.narration.ChapterAudioAssemblyRequest;
 import com.universe.novel.application.narration.ChapterAudioAssemblyResult;
 import com.universe.novel.application.narration.ChapterAudioSegmentSource;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
-import org.springframework.stereotype.Component;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -25,7 +24,6 @@ import java.util.Set;
 /**
  * File-backed assembler for compatible PCM16 WAV narration segments.
  */
-@Component
 public class PcmWavChapterAudioAssemblerAdapter implements ChapterAudioAssemblerPort {
 
     private static final String OUTPUT_MIME_TYPE = "audio/wav";
