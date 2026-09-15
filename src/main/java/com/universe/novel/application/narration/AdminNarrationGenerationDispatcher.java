@@ -14,19 +14,15 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.RejectedExecutionException;
 
 /**
- * Dispatcher and lifecycle coordinator for Admin-initiated whole-chapter Managed narration generation (MS-04.9H.7D4A).
+ * Dispatcher and lifecycle coordinator for Admin-initiated whole-chapter Managed narration generation (MS-04.9H.7D4A, H.10A1).
  * <p>
  * <strong>Single-Flight Concurrency Control:</strong>
- * Maintains an in-memory concurrent set keyed by {@code (chapterId, managedVoiceId)}. If generation is actively running
- * or queued for the same key, subsequent requests return {@link AdminNarrationDispatchStatus#ALREADY_RUNNING}.
- * Different chapter/voice pairs execute independently up to executor capacity.
- * <p>
- * <strong>Limitation:</strong>
- * Single-flight deduplication is strictly in-memory per JVM instance for this UI milestone. Distributed locking or durable
- * cluster-wide job tables are not implemented in this slice.
+ * Delegates single-flight ownership to the shared {@link ChapterNarrationExecutionCoordinator} keyed by {@code (chapterId, managedVoiceId)}.
+ * If generation or preparation is actively running or queued for the same key across Admin or Reader domains,
+ * subsequent requests return {@link AdminNarrationDispatchStatus#ALREADY_RUNNING}.
  * <p>
  * <strong>Rejection & Thread Safety:</strong>
- * Uses dedicated bounded {@code adminNarrationGenerationTaskExecutor}. Task rejection immediately releases the in-flight key
+ * Uses shared bounded {@code chapterNarrationExecutionTaskExecutor}. Task rejection immediately releases the in-flight key
  * and records a {@link AdminNarrationOperationStatus#FAILED} state with a safe message. Work is NEVER executed on the caller thread.
  */
 @Component
@@ -43,15 +39,17 @@ public class AdminNarrationGenerationDispatcher {
 
     private final TaskExecutor taskExecutor;
     private final AdminNarrationGenerationWorker worker;
-    private final ConcurrentMap<OperationKey, Boolean> inFlightKeys = new ConcurrentHashMap<>();
+    private final ChapterNarrationExecutionCoordinator coordinator;
     private final ConcurrentMap<OperationKey, AdminNarrationOperationState> operationStates = new ConcurrentHashMap<>();
 
     public AdminNarrationGenerationDispatcher(
-            @Qualifier("adminNarrationGenerationTaskExecutor") TaskExecutor taskExecutor,
-            AdminNarrationGenerationWorker worker
+            @Qualifier("chapterNarrationExecutionTaskExecutor") TaskExecutor taskExecutor,
+            AdminNarrationGenerationWorker worker,
+            ChapterNarrationExecutionCoordinator coordinator
     ) {
         this.taskExecutor = Objects.requireNonNull(taskExecutor, "taskExecutor must not be null");
         this.worker = Objects.requireNonNull(worker, "worker must not be null");
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator must not be null");
     }
 
     /**
@@ -73,36 +71,37 @@ public class AdminNarrationGenerationDispatcher {
 
         OperationKey key = new OperationKey(chapterId, managedVoiceId);
 
-        // 1. Single-flight guard
-        if (inFlightKeys.putIfAbsent(key, Boolean.TRUE) != null) {
-            log.debug("Chapter narration generation for chapter [{}] and voice [{}] is already running; rejecting duplicate dispatch.",
+        // 1. Shared single-flight guard
+        if (!coordinator.tryAcquire(chapterId, managedVoiceId)) {
+            log.debug("Chapter narration generation for chapter [{}] and voice [{}] is already in-flight; rejecting duplicate dispatch.",
                     chapterId, managedVoiceId);
-            AdminNarrationOperationState currentState = operationStates.getOrDefault(
-                    key, AdminNarrationOperationState.running(chapterId, managedVoiceId, Instant.now())
-            );
+            AdminNarrationOperationState currentState = operationStates.get(key);
+            if (currentState == null || currentState.status() != AdminNarrationOperationStatus.RUNNING) {
+                currentState = AdminNarrationOperationState.running(chapterId, managedVoiceId, Instant.now());
+            }
             return AdminNarrationDispatchResult.alreadyRunning(currentState);
         }
 
-        // 2. Mark RUNNING state
+        // 2. Mark RUNNING state in Admin state tracker
         Instant startedAt = Instant.now();
         AdminNarrationOperationState runningState = AdminNarrationOperationState.running(chapterId, managedVoiceId, startedAt);
         operationStates.put(key, runningState);
 
-        // 3. Submit to dedicated bounded background executor
+        // 3. Submit to shared bounded background executor
         try {
             taskExecutor.execute(() -> {
                 try {
                     AdminNarrationOperationState finalState = worker.runGeneration(chapterId, managedVoiceId, startedAt);
                     operationStates.put(key, finalState);
                 } finally {
-                    inFlightKeys.remove(key);
+                    coordinator.release(chapterId, managedVoiceId);
                 }
             });
             return AdminNarrationDispatchResult.started(runningState);
         } catch (RejectedExecutionException ex) {
             log.warn("Chapter narration generation rejected by executor for chapter [{}] and voice [{}]: {}",
                     chapterId, managedVoiceId, ex.getMessage());
-            inFlightKeys.remove(key);
+            coordinator.release(chapterId, managedVoiceId);
             AdminNarrationOperationState rejectedState = AdminNarrationOperationState.failed(
                     chapterId, managedVoiceId, startedAt, Instant.now(), "Hệ thống đang bận. Hàng đợi tác vụ đã đầy."
             );
@@ -111,7 +110,7 @@ public class AdminNarrationGenerationDispatcher {
         } catch (RuntimeException ex) {
             log.warn("Unexpected dispatch failure for chapter [{}] and voice [{}]: {}",
                     chapterId, managedVoiceId, ex.getMessage(), ex);
-            inFlightKeys.remove(key);
+            coordinator.release(chapterId, managedVoiceId);
             AdminNarrationOperationState failedState = AdminNarrationOperationState.failed(
                     chapterId, managedVoiceId, startedAt, Instant.now(), AdminNarrationGenerationWorker.SAFE_FAILURE_MESSAGE
             );
@@ -135,6 +134,13 @@ public class AdminNarrationGenerationDispatcher {
             );
         }
         OperationKey key = new OperationKey(chapterId, managedVoiceId);
+        if (coordinator.isInFlight(chapterId, managedVoiceId)) {
+            AdminNarrationOperationState recorded = operationStates.get(key);
+            if (recorded != null && recorded.status() == AdminNarrationOperationStatus.RUNNING) {
+                return recorded;
+            }
+            return AdminNarrationOperationState.running(chapterId, managedVoiceId, Instant.now());
+        }
         return operationStates.getOrDefault(key, AdminNarrationOperationState.idle(chapterId, managedVoiceId));
     }
 
@@ -145,14 +151,14 @@ public class AdminNarrationGenerationDispatcher {
         if (chapterId == null || managedVoiceId == null) {
             return false;
         }
-        return inFlightKeys.containsKey(new OperationKey(chapterId, managedVoiceId));
+        return coordinator.isInFlight(chapterId, managedVoiceId);
     }
 
     /**
      * Resets in-memory state for testing.
      */
     void clearForTesting() {
-        inFlightKeys.clear();
+        coordinator.clearForTesting();
         operationStates.clear();
     }
 }

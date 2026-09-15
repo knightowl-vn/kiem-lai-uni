@@ -1,6 +1,6 @@
 package com.universe.novel.application.narration;
 
-import com.universe.novel.infrastructure.narration.config.AdminNarrationGenerationConfig;
+import com.universe.novel.infrastructure.narration.config.ChapterNarrationExecutionConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +49,7 @@ class AdminNarrationGenerationOperationTest {
     private TaskExecutor mockTaskExecutor;
 
     private AdminNarrationGenerationWorker worker;
+    private ChapterNarrationExecutionCoordinator coordinator;
     private AdminNarrationGenerationDispatcher syncDispatcher;
 
     private final UUID chapterId1 = UUID.randomUUID();
@@ -61,7 +62,8 @@ class AdminNarrationGenerationOperationTest {
         org.mockito.Mockito.lenient().when(buildChapterNarrationPlaybackUseCase.execute(any()))
                 .thenReturn(new BuildChapterNarrationPlaybackResult(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         worker = new AdminNarrationGenerationWorker(generateChapterNarrationUseCase, buildChapterNarrationPlaybackUseCase);
-        syncDispatcher = new AdminNarrationGenerationDispatcher(new SyncTaskExecutor(), worker);
+        coordinator = new ChapterNarrationExecutionCoordinator();
+        syncDispatcher = new AdminNarrationGenerationDispatcher(new SyncTaskExecutor(), worker, coordinator);
     }
 
     @Test
@@ -115,7 +117,7 @@ class AdminNarrationGenerationOperationTest {
         ExecutorService asyncPool = Executors.newFixedThreadPool(2);
         try {
             AdminNarrationGenerationDispatcher asyncDispatcher = new AdminNarrationGenerationDispatcher(
-                    asyncPool::execute, worker
+                    asyncPool::execute, worker, new ChapterNarrationExecutionCoordinator()
             );
 
             // First dispatch starts in background
@@ -218,7 +220,7 @@ class AdminNarrationGenerationOperationTest {
                 .when(mockTaskExecutor).execute(any(Runnable.class));
 
         AdminNarrationGenerationDispatcher rejectingDispatcher =
-                new AdminNarrationGenerationDispatcher(mockTaskExecutor, worker);
+                new AdminNarrationGenerationDispatcher(mockTaskExecutor, worker, new ChapterNarrationExecutionCoordinator());
 
         AdminNarrationDispatchResult result = rejectingDispatcher.dispatch(chapterId1, voiceId1);
 
@@ -377,7 +379,7 @@ class AdminNarrationGenerationOperationTest {
                 task -> asyncPool.execute(() -> {
                     task.run();
                     independentTasksFinished.countDown();
-                }), worker);
+                }), worker, new ChapterNarrationExecutionCoordinator());
         try {
             assertThat(dispatcher.dispatch(chapterId1, voiceId1).status()).isEqualTo(AdminNarrationDispatchStatus.STARTED);
             assertThat(builderStarted.await(3, TimeUnit.SECONDS)).isTrue();
@@ -430,18 +432,18 @@ class AdminNarrationGenerationOperationTest {
     }
 
     @Test
-    @DisplayName("12. AdminNarrationGenerationConfig configures dedicated bounded executor with AbortPolicy")
-    void configConfiguresDedicatedBoundedExecutorWithAbortPolicy() {
-        AdminNarrationGenerationConfig config = new AdminNarrationGenerationConfig();
-        TaskExecutor executor = config.adminNarrationGenerationTaskExecutor();
+    @DisplayName("12. ChapterNarrationExecutionConfig configures shared bounded executor with AbortPolicy")
+    void configConfiguresSharedBoundedExecutorWithAbortPolicy() {
+        ChapterNarrationExecutionConfig config = new ChapterNarrationExecutionConfig(1, 20);
+        TaskExecutor executor = config.chapterNarrationExecutionTaskExecutor();
 
         assertThat(executor).isInstanceOf(ThreadPoolTaskExecutor.class);
         ThreadPoolTaskExecutor threadPool = (ThreadPoolTaskExecutor) executor;
 
-        assertThat(threadPool.getCorePoolSize()).isEqualTo(2);
-        assertThat(threadPool.getMaxPoolSize()).isEqualTo(4);
+        assertThat(threadPool.getCorePoolSize()).isEqualTo(1);
+        assertThat(threadPool.getMaxPoolSize()).isEqualTo(1);
         assertThat(threadPool.getQueueCapacity()).isEqualTo(20);
-        assertThat(threadPool.getThreadNamePrefix()).isEqualTo("admin-narration-gen-");
+        assertThat(threadPool.getThreadNamePrefix()).isEqualTo("chapter-narration-");
 
         ThreadPoolExecutor rawExecutor = threadPool.getThreadPoolExecutor();
         assertThat(rawExecutor.getRejectedExecutionHandler()).isInstanceOf(ThreadPoolExecutor.AbortPolicy.class);

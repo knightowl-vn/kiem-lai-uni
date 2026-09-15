@@ -1295,20 +1295,31 @@ class ReaderManagedAudioContractTest {
     }
 
     @Test
-    @DisplayName("158. H.9I5E1/E2 Chapter narration preparation infrastructure terminology contract")
+    @DisplayName("158. H.10A1 Shared chapter narration execution infrastructure and architecture contract")
     void chapterPreparationInfrastructureContract() throws Exception {
         assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderNarrationContinuationConfig.java"))).isFalse();
-        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderChapterNarrationPreparationConfig.java"))).isTrue();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderChapterNarrationPreparationConfig.java"))).isFalse();
+        assertThat(Files.exists(Path.of("src/main/java/com/universe/novel/infrastructure/narration/config/ChapterNarrationExecutionConfig.java"))).isTrue();
 
-        String dispatcher = read("src/main/java/com/universe/novel/application/narration/ReaderChapterNarrationPreparationDispatcher.java");
-        assertThat(dispatcher).contains("@Qualifier(\"readerChapterNarrationPreparationTaskExecutor\")");
-        assertThat(dispatcher).doesNotContain("readerNarrationContinuationTaskExecutor");
+        String readerDispatcher = read("src/main/java/com/universe/novel/application/narration/ReaderChapterNarrationPreparationDispatcher.java");
+        assertThat(readerDispatcher).contains("@Qualifier(\"chapterNarrationExecutionTaskExecutor\")");
+        assertThat(readerDispatcher).doesNotContain("com.universe.novel.infrastructure");
+        assertThat(readerDispatcher).doesNotContain("new ChapterNarrationExecutionCoordinator");
+        assertThat(readerDispatcher).doesNotContain("readerNarrationContinuationTaskExecutor");
+        assertThat(readerDispatcher).doesNotContain("readerChapterNarrationPreparationTaskExecutor");
 
-        String config = read("src/main/java/com/universe/novel/infrastructure/narration/config/ReaderChapterNarrationPreparationConfig.java");
-        assertThat(config).contains("readerChapterNarrationPreparationTaskExecutor");
-        assertThat(config).contains("reader-chapter-narration-prep-");
+        String adminDispatcher = read("src/main/java/com/universe/novel/application/narration/AdminNarrationGenerationDispatcher.java");
+        assertThat(adminDispatcher).contains("@Qualifier(\"chapterNarrationExecutionTaskExecutor\")");
+        assertThat(adminDispatcher).doesNotContain("com.universe.novel.infrastructure");
+        assertThat(adminDispatcher).doesNotContain("new ChapterNarrationExecutionCoordinator");
+        assertThat(adminDispatcher).doesNotContain("adminNarrationGenerationTaskExecutor");
+
+        String config = read("src/main/java/com/universe/novel/infrastructure/narration/config/ChapterNarrationExecutionConfig.java");
+        assertThat(config).contains("chapterNarrationExecutionTaskExecutor");
+        assertThat(config).contains("chapter-narration-");
         assertThat(config).doesNotContain("readerNarrationContinuationTaskExecutor");
         assertThat(config).doesNotContain("reader-narration-cont-");
+        assertThat(config).doesNotContain("public ChapterNarrationExecutionConfig()");
     }
 
     private String chapterEngine() throws Exception {
