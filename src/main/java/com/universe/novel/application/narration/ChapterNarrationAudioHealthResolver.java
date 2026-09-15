@@ -83,8 +83,9 @@ public final class ChapterNarrationAudioHealthResolver {
         );
     }
 
-    private static boolean isCanonicalReady(ChapterNarrationAudio audio, long currentVoiceRevision) {
-        return audio.isCompatibleWith(currentVoiceRevision)
+    static boolean isCanonicalReady(ChapterNarrationAudio audio, long currentVoiceRevision) {
+        return audio != null
+                && audio.isCompatibleWith(currentVoiceRevision)
                 && audio.hasEncodedTiming()
                 && audio.getEncodedContributionSamples() != null
                 && audio.getEncodedContributionSamples() > 0

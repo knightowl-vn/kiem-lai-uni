@@ -14,8 +14,9 @@ import java.util.UUID;
  *     <li>{@code mediaAssetId} is required (scalar reference to a Media platform asset).</li>
  *     <li>{@code generatedSynthesisRevision} must be &gt;= 1.</li>
  *     <li>One logical assignment exists per (segmentId, managedVoiceId) pair.</li>
- *     <li>Audio is compatible and reusable if and only if its {@code generatedSynthesisRevision}
- *         equals the current voice {@code synthesisRevision}.</li>
+ *     <li>Audio synthesis-revision compatibility holds if and only if its {@code generatedSynthesisRevision}
+ *         equals the current voice {@code synthesisRevision}. Canonical readiness and reusability
+ *         additionally depend on application-level format and timing contracts.</li>
  * </ul>
  */
 public class ChapterNarrationAudio {
@@ -168,20 +169,27 @@ public class ChapterNarrationAudio {
     }
 
     /**
-     * Checks whether this audio assignment is compatible with the supplied synthesis revision.
+     * Checks whether this audio assignment has a matching synthesis revision with the supplied revision.
+     * <p>
+     * Note: This method evaluates synthesis-revision compatibility only. Full canonical readiness,
+     * reusability, and playback eligibility are application-level contracts that additionally require
+     * canonical encoded timing metadata (e.g. 48 kHz).
      *
      * @param currentSynthesisRevision the current synthesis revision of the voice
-     * @return {@code true} if compatible; {@code false} if stale
+     * @return {@code true} if synthesis revisions match; {@code false} if stale
      */
     public boolean isCompatibleWith(long currentSynthesisRevision) {
         return this.generatedSynthesisRevision == currentSynthesisRevision;
     }
 
     /**
-     * Checks whether this audio assignment is compatible with the given managed voice.
+     * Checks whether this audio assignment belongs to the given managed voice and has a matching synthesis revision.
+     * <p>
+     * Note: This method evaluates synthesis-revision compatibility only. Full canonical readiness
+     * and reusability additionally require canonical encoded timing metadata.
      *
      * @param managedVoice the managed voice aggregate
-     * @return {@code true} if compatible and belonging to the same voice; {@code false} otherwise
+     * @return {@code true} if belonging to the same voice with matching synthesis revision; {@code false} otherwise
      */
     public boolean isCompatibleWith(ManagedVoice managedVoice) {
         if (managedVoice == null) {

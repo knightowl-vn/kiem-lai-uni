@@ -46,8 +46,8 @@ import java.util.UUID;
  *     <li>Loads {@link ManagedVoice} and validates that it exists and is in {@code ACTIVE} status.</li>
  *     <li>Checks for an existing {@link ChapterNarrationAudio} assignment:
  *         <ul>
- *             <li>If present, its synthesis revision matches the voice, and has encoded timing, returns {@link NarrationAudioGenerationOutcome#REUSED} without invoking TTS, encoder, or Media.</li>
- *             <li>If present but its synthesis revision is stale or it lacks encoded timing, returns {@link NarrationAudioGenerationOutcome#STALE} without regenerating (regeneration is owned by H.5D / 01C3B).</li>
+ *             <li>If present, canonical (synthesis revision matches the voice and canonical encoded timing at 48 kHz is present), returns {@link NarrationAudioGenerationOutcome#REUSED} without invoking TTS, encoder, or Media.</li>
+ *             <li>If present but stale, lacking encoded timing, or having non-canonical timing, returns {@link NarrationAudioGenerationOutcome#STALE} without regenerating (regeneration is owned by H.5D / 01C3B).</li>
  *         </ul>
  *     </li>
  *     <li>If no assignment exists:
@@ -161,7 +161,7 @@ public class GenerateChapterNarrationAudioUseCase {
 
         if (existingAudioOpt.isPresent()) {
             ChapterNarrationAudio existingAudio = existingAudioOpt.get();
-            if (existingAudio.isCompatibleWith(voice.getSynthesisRevision()) && existingAudio.hasEncodedTiming()) {
+            if (ChapterNarrationAudioHealthResolver.isCanonicalReady(existingAudio, voice.getSynthesisRevision())) {
                 return new GenerateChapterNarrationAudioResult(
                         existingAudio.getId(),
                         segmentId,
@@ -300,7 +300,7 @@ public class GenerateChapterNarrationAudioUseCase {
 
                 if (winnerLookupEx == null && winnerOpt.isPresent()) {
                     ChapterNarrationAudio winner = winnerOpt.get();
-                    if (winner.isCompatibleWith(attemptedRevision) && winner.hasEncodedTiming()) {
+                    if (ChapterNarrationAudioHealthResolver.isCanonicalReady(winner, attemptedRevision)) {
                         if (cleanupEx != null) {
                             cleanupEx.addSuppressed(assignmentEx);
                             throw cleanupEx;
