@@ -165,7 +165,11 @@ class GenerateChapterNarrationUseCaseTest {
         when(builder.execute(any())).thenReturn(new BuildChapterNarrationPlaybackResult(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()));
         AdminNarrationGenerationWorker worker = new AdminNarrationGenerationWorker(useCase, builder);
-        AdminNarrationGenerationDispatcher dispatcher = new AdminNarrationGenerationDispatcher(Runnable::run, worker);
+        AdminNarrationGenerationDispatcher dispatcher = new AdminNarrationGenerationDispatcher(
+                Runnable::run,
+                worker,
+                new ChapterNarrationExecutionCoordinator()
+        );
 
         dispatcher.dispatch(CHAPTER_ID, VOICE_ID);
 

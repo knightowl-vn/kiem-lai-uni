@@ -119,7 +119,11 @@ class AdminChapterPlaybackBackfillIntegrationTest {
         var builder = new BuildChapterNarrationPlaybackUseCase(chapters, voices, snapshot, media, assembler, upload, finalizer, cleanup, inspector);
         var generation = new GenerateChapterNarrationUseCase(chapters, voices, segments, audios, failures,
                 new ChapterNarrationGenerationPlanner(), generateSegment, regenerateSegment, retiredCleanup);
-        var dispatcher = new AdminNarrationGenerationDispatcher(Runnable::run, new AdminNarrationGenerationWorker(generation, builder));
+        var dispatcher = new AdminNarrationGenerationDispatcher(
+                Runnable::run,
+                new AdminNarrationGenerationWorker(generation, builder),
+                new ChapterNarrationExecutionCoordinator()
+        );
         var overview = mock(GetAdminChapterNarrationOverviewUseCase.class);
         var chapterDTO = mock(ChapterDTO.class);
         var voiceDTO = mock(ManagedVoiceDTO.class);

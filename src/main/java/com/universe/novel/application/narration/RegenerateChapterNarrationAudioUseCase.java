@@ -70,7 +70,6 @@ import java.util.UUID;
 public class RegenerateChapterNarrationAudioUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(RegenerateChapterNarrationAudioUseCase.class);
-    private static final int CANONICAL_SAMPLE_RATE_HZ = 48000;
 
     private final ChapterNarrationSegmentRepositoryPort segmentRepositoryPort;
     private final ManagedVoiceRepositoryPort managedVoiceRepositoryPort;
@@ -160,7 +159,7 @@ public class RegenerateChapterNarrationAudioUseCase {
                 .orElseThrow(() -> new ChapterNarrationAudioNotFoundException(segmentId, managedVoiceId));
 
         // 4. Check if already current: requires revision match AND canonical timing (48 kHz, contributionSamples > 0)
-        if (isCanonicalCurrent(audio, voice.getSynthesisRevision())) {
+        if (ChapterNarrationAudioHealthResolver.isCanonicalReady(audio, voice.getSynthesisRevision())) {
             return new RegenerateChapterNarrationAudioResult(
                     audio.getId(),
                     segmentId,
@@ -307,7 +306,7 @@ public class RegenerateChapterNarrationAudioUseCase {
 
                 if (winnerLookupEx == null && winnerOpt.isPresent()) {
                     ChapterNarrationAudio winner = winnerOpt.get();
-                    if (isCanonicalCurrent(winner, attemptedRevision)) {
+                    if (ChapterNarrationAudioHealthResolver.isCanonicalReady(winner, attemptedRevision)) {
                         if (cleanupEx != null) {
                             cleanupEx.addSuppressed(assignmentEx);
                             throw cleanupEx;
@@ -364,16 +363,6 @@ public class RegenerateChapterNarrationAudioUseCase {
             current = current.getCause();
         }
         return false;
-    }
-
-    private static boolean isCanonicalCurrent(ChapterNarrationAudio audio, long currentVoiceRevision) {
-        return audio != null
-                && audio.isCompatibleWith(currentVoiceRevision)
-                && audio.hasEncodedTiming()
-                && audio.getEncodedContributionSamples() != null
-                && audio.getEncodedContributionSamples() > 0L
-                && audio.getEncodedSampleRateHz() != null
-                && audio.getEncodedSampleRateHz() == CANONICAL_SAMPLE_RATE_HZ;
     }
 
     private void recordFailureSafely(

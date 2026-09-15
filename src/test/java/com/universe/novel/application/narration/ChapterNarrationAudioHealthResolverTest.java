@@ -264,4 +264,22 @@ class ChapterNarrationAudioHealthResolverTest {
         assertThat(resolution.isFailureRelevant()).isFalse();
         assertThat(resolution.relevantFailure()).isNull();
     }
+
+    @Test
+    @DisplayName("12. isCanonicalReady returns true only for matching revision with positive contribution samples and 48 kHz")
+    void shouldEvaluateIsCanonicalReadyCorrectly() {
+        ChapterNarrationAudio canonical = createCanonicalAudio(2L);
+        ChapterNarrationAudio untimed = createLegacyUntimedAudio(2L);
+        ChapterNarrationAudio nonCanonical24k = createAudioWithSampleRate(2L, 24000);
+        ChapterNarrationAudio nonCanonical44k = createAudioWithSampleRate(2L, 44100);
+        ChapterNarrationAudio mismatchedRev = createCanonicalAudio(1L);
+
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(canonical, 2L)).isTrue();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(canonical, 1L)).isFalse();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(untimed, 2L)).isFalse();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(nonCanonical24k, 2L)).isFalse();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(nonCanonical44k, 2L)).isFalse();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(mismatchedRev, 2L)).isFalse();
+        assertThat(ChapterNarrationAudioHealthResolver.isCanonicalReady(null, 2L)).isFalse();
+    }
 }

@@ -1,5 +1,6 @@
 package com.universe.novel.application.narration;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,11 +38,18 @@ class ReaderChapterNarrationPreparationDispatcherTest {
     @Mock
     private ReaderChapterNarrationPreparationWorker worker;
 
+    private ChapterNarrationExecutionCoordinator coordinator;
+
+    @BeforeEach
+    void setUp() {
+        coordinator = new ChapterNarrationExecutionCoordinator();
+    }
+
     @Test
     @DisplayName("1. First request for a chapter+voice pair returns SCHEDULED")
     void firstRequestReturnsScheduled() {
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker);
+                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker, coordinator);
 
         ReaderChapterNarrationPreparationDispatchStatus status = dispatcher.dispatch(
                 new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1)
@@ -66,7 +74,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
         ExecutorService threadPool = Executors.newFixedThreadPool(2);
         try {
             ReaderChapterNarrationPreparationDispatcher dispatcher =
-                    new ReaderChapterNarrationPreparationDispatcher(threadPool::execute, worker);
+                    new ReaderChapterNarrationPreparationDispatcher(threadPool::execute, worker, coordinator);
 
             ReaderChapterNarrationPreparationCommand cmd = new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1);
 
@@ -90,7 +98,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
     @DisplayName("3. Different chapter or voice keys schedule independently without blocking each other")
     void differentKeysScheduleIndependently() {
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker);
+                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker, coordinator);
 
         ReaderChapterNarrationPreparationDispatchStatus status1 = dispatcher.dispatch(
                 new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1)
@@ -125,7 +133,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
         ExecutorService threadPool = Executors.newSingleThreadExecutor();
         try {
             ReaderChapterNarrationPreparationDispatcher dispatcher =
-                    new ReaderChapterNarrationPreparationDispatcher(threadPool::execute, worker);
+                    new ReaderChapterNarrationPreparationDispatcher(threadPool::execute, worker, coordinator);
 
             ReaderChapterNarrationPreparationDispatchStatus status = dispatcher.dispatch(
                     new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1)
@@ -146,7 +154,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
         doThrow(new RejectedExecutionException("Queue full")).when(rejectingExecutor).execute(any());
 
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(rejectingExecutor, worker);
+                new ReaderChapterNarrationPreparationDispatcher(rejectingExecutor, worker, coordinator);
 
         ReaderChapterNarrationPreparationCommand cmd = new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1);
         ReaderChapterNarrationPreparationDispatchStatus status = dispatcher.dispatch(cmd);
@@ -166,7 +174,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
         doThrow(new IllegalStateException("Executor unexpected error")).when(failingExecutor).execute(any());
 
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(failingExecutor, worker);
+                new ReaderChapterNarrationPreparationDispatcher(failingExecutor, worker, coordinator);
 
         ReaderChapterNarrationPreparationCommand cmd = new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1);
         ReaderChapterNarrationPreparationDispatchStatus status = dispatcher.dispatch(cmd);
@@ -183,7 +191,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
     @DisplayName("7. Worker completion releases in-flight key so same chapter+voice can be scheduled again later")
     void workerCompletionReleasesKey() {
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker);
+                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker, coordinator);
 
         ReaderChapterNarrationPreparationCommand cmd = new ReaderChapterNarrationPreparationCommand(CHAPTER_A, VOICE_1);
 
@@ -199,7 +207,7 @@ class ReaderChapterNarrationPreparationDispatcherTest {
     @DisplayName("8. Null command throws IllegalArgumentException")
     void nullCommandThrowsIllegalArgumentException() {
         ReaderChapterNarrationPreparationDispatcher dispatcher =
-                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker);
+                new ReaderChapterNarrationPreparationDispatcher(new SyncTaskExecutor(), worker, coordinator);
 
         assertThatThrownBy(() -> dispatcher.dispatch(null))
                 .isInstanceOf(IllegalArgumentException.class);

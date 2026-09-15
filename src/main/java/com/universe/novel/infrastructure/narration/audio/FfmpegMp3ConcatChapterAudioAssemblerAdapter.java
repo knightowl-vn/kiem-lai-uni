@@ -8,6 +8,7 @@ import com.universe.novel.application.narration.ChapterAudioAssemblyResource;
 import com.universe.novel.application.narration.ChapterAudioAssemblyResult;
 import com.universe.novel.application.narration.ChapterAudioSegmentSource;
 import com.universe.novel.application.ports.ChapterAudioAssemblerPort;
+import com.universe.novel.infrastructure.narration.concurrency.NarrationFfmpegExecutionGate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -115,16 +116,14 @@ public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudio
     private final TempWorkspaceDeleter workspaceDeleter;
     private final ConcatProcessRunner processRunner;
     private final ChapterAudioProbeRunner probeRunner;
-
-    public FfmpegMp3ConcatChapterAudioAssemblerAdapter() {
-        this("ffmpeg", "ffprobe", Duration.ofSeconds(120));
-    }
+    private final NarrationFfmpegExecutionGate ffmpegExecutionGate;
 
     @Autowired
     public FfmpegMp3ConcatChapterAudioAssemblerAdapter(
             @Value("${novel.narration.audio.concat-assembler.ffmpeg.path:${novel.narration.audio.encoder.ffmpeg.path:ffmpeg}}") String ffmpegExecutable,
             @Value("${novel.narration.audio.concat-assembler.ffprobe.path:${novel.narration.audio.segment-encoder.ffprobe.path:ffprobe}}") String ffprobeExecutable,
-            @Value("${novel.narration.audio.concat-assembler.timeout:120s}") Duration timeout
+            @Value("${novel.narration.audio.concat-assembler.timeout:120s}") Duration timeout,
+            NarrationFfmpegExecutionGate ffmpegExecutionGate
     ) {
         this(
                 ffmpegExecutable,
@@ -133,7 +132,8 @@ public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudio
                 () -> Files.createTempDirectory("novel_chapter_concat_"),
                 FfmpegMp3ConcatChapterAudioAssemblerAdapter::deleteRecursively,
                 new JvmConcatProcessRunner(),
-                new JvmChapterAudioProbeRunner(ffprobeExecutable)
+                new JvmChapterAudioProbeRunner(ffprobeExecutable),
+                ffmpegExecutionGate
         );
     }
 
@@ -144,7 +144,8 @@ public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudio
             TempWorkspaceFactory workspaceFactory,
             TempWorkspaceDeleter workspaceDeleter,
             ConcatProcessRunner processRunner,
-            ChapterAudioProbeRunner probeRunner
+            ChapterAudioProbeRunner probeRunner,
+            NarrationFfmpegExecutionGate ffmpegExecutionGate
     ) {
         if (ffmpegExecutable == null || ffmpegExecutable.isBlank()) {
             throw new IllegalArgumentException("ffmpegExecutable must not be blank");
@@ -159,12 +160,17 @@ public class FfmpegMp3ConcatChapterAudioAssemblerAdapter implements ChapterAudio
         this.workspaceDeleter = Objects.requireNonNull(workspaceDeleter, "workspaceDeleter must not be null");
         this.processRunner = Objects.requireNonNull(processRunner, "processRunner must not be null");
         this.probeRunner = Objects.requireNonNull(probeRunner, "probeRunner must not be null");
+        this.ffmpegExecutionGate = Objects.requireNonNull(ffmpegExecutionGate, "ffmpegExecutionGate must not be null");
     }
 
     @Override
     public ChapterAudioAssemblyResult assemble(ChapterAudioAssemblyRequest request) {
         validateRequest(request);
 
+        return ffmpegExecutionGate.execute(() -> performAssemble(request));
+    }
+
+    private ChapterAudioAssemblyResult performAssemble(ChapterAudioAssemblyRequest request) {
         Path workspaceDir;
         try {
             workspaceDir = Objects.requireNonNull(workspaceFactory.create(), "workspaceFactory returned null");

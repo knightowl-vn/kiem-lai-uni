@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.universe.novel.application.narration.SegmentAudioEncodingRequest;
 import com.universe.novel.application.narration.SegmentAudioEncodingResult;
 import com.universe.novel.application.ports.SegmentAudioEncoderPort;
+import com.universe.novel.infrastructure.narration.concurrency.NarrationFfmpegExecutionGate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -102,12 +103,14 @@ public class FfmpegMp3SegmentAudioEncoderAdapter implements SegmentAudioEncoderP
     private final TempFileDeleter tempFileDeleter;
     private final EncoderProcessRunner processRunner;
     private final SegmentAudioProbeRunner probeRunner;
+    private final NarrationFfmpegExecutionGate ffmpegExecutionGate;
 
     @Autowired
     public FfmpegMp3SegmentAudioEncoderAdapter(
             @Value("${novel.narration.audio.segment-encoder.ffmpeg.path:${novel.narration.audio.encoder.ffmpeg.path:ffmpeg}}") String ffmpegExecutable,
             @Value("${novel.narration.audio.segment-encoder.ffprobe.path:ffprobe}") String ffprobeExecutable,
-            @Value("${novel.narration.audio.segment-encoder.timeout:60s}") Duration timeout
+            @Value("${novel.narration.audio.segment-encoder.timeout:60s}") Duration timeout,
+            NarrationFfmpegExecutionGate ffmpegExecutionGate
     ) {
         this(
                 ffmpegExecutable,
@@ -116,7 +119,8 @@ public class FfmpegMp3SegmentAudioEncoderAdapter implements SegmentAudioEncoderP
                 () -> Files.createTempFile("novel_segment_audio_", ".mp3"),
                 Files::deleteIfExists,
                 new JvmEncoderProcessRunner(),
-                new JvmSegmentAudioProbeRunner(ffprobeExecutable)
+                new JvmSegmentAudioProbeRunner(ffprobeExecutable),
+                ffmpegExecutionGate
         );
     }
 
@@ -127,7 +131,8 @@ public class FfmpegMp3SegmentAudioEncoderAdapter implements SegmentAudioEncoderP
             TempFileFactory tempFileFactory,
             TempFileDeleter tempFileDeleter,
             EncoderProcessRunner processRunner,
-            SegmentAudioProbeRunner probeRunner
+            SegmentAudioProbeRunner probeRunner,
+            NarrationFfmpegExecutionGate ffmpegExecutionGate
     ) {
         if (ffmpegExecutable == null || ffmpegExecutable.isBlank()) {
             throw new IllegalArgumentException("ffmpegExecutable must not be blank");
@@ -142,6 +147,7 @@ public class FfmpegMp3SegmentAudioEncoderAdapter implements SegmentAudioEncoderP
         this.tempFileDeleter = Objects.requireNonNull(tempFileDeleter, "tempFileDeleter must not be null");
         this.processRunner = Objects.requireNonNull(processRunner, "processRunner must not be null");
         this.probeRunner = Objects.requireNonNull(probeRunner, "probeRunner must not be null");
+        this.ffmpegExecutionGate = Objects.requireNonNull(ffmpegExecutionGate, "ffmpegExecutionGate must not be null");
     }
 
     @Override
@@ -149,6 +155,10 @@ public class FfmpegMp3SegmentAudioEncoderAdapter implements SegmentAudioEncoderP
         Objects.requireNonNull(request, "request must not be null");
         requireWavSource(request.mimeType());
 
+        return ffmpegExecutionGate.execute(() -> performEncode(request));
+    }
+
+    private SegmentAudioEncodingResult performEncode(SegmentAudioEncodingRequest request) {
         Path tempFile = createTempFile();
         try {
             EncoderProcessResult processResult;

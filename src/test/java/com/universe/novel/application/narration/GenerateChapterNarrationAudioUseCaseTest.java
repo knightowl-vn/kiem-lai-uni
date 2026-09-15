@@ -339,6 +339,36 @@ class GenerateChapterNarrationAudioUseCaseTest {
     }
 
     @Test
+    @DisplayName("2c. Returns STALE when existing audio assignment has same revision but non-canonical sample rate (e.g. 24000 Hz)")
+    void shouldReturnStaleWhenAssignmentHasSameRevisionButNonCanonicalSampleRate() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(2L);
+        ChapterNarrationAudio nonCanonicalAudio = ChapterNarrationAudio.create(
+                AUDIO_ID, SEGMENT_ID, VOICE_ID, MEDIA_ASSET_ID, 2L, 25920L, 24000, NOW
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.of(nonCanonicalAudio));
+
+        GenerateChapterNarrationAudioResult result = useCase.execute(SEGMENT_ID, VOICE_ID);
+
+        assertThat(result.assignmentId()).isEqualTo(AUDIO_ID);
+        assertThat(result.segmentId()).isEqualTo(SEGMENT_ID);
+        assertThat(result.managedVoiceId()).isEqualTo(VOICE_ID);
+        assertThat(result.mediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
+        assertThat(result.generatedSynthesisRevision()).isEqualTo(2L);
+        assertThat(result.outcome()).isEqualTo(NarrationAudioGenerationOutcome.STALE);
+
+        verifyNoInteractions(ttsProviderPort);
+        verifyNoInteractions(segmentAudioEncoderPort);
+        verifyNoInteractions(mediaContract);
+        verifyNoInteractions(cleanupRequestUseCase);
+        verify(audioRepositoryPort, never()).save(any());
+    }
+
+    @Test
     @DisplayName("3. Generates audio via TTS, normalizes, encodes to MP3, uploads to Media, and persists assignment with timing")
     void shouldGenerateAudioAndStoreMediaAndPersistWhenNoAssignmentExists() throws IOException {
         ChapterNarrationSegment segment = createCurrentSegment();
@@ -1196,6 +1226,49 @@ class GenerateChapterNarrationAudioUseCaseTest {
         verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
         verify(mediaContract, never()).delete(any());
         // Diagnostics recorded because legacy winner cannot be reused
+        verify(failureRepositoryPort).findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
+    }
+
+    @Test
+    @DisplayName("19c. Duplicate race with non-canonical winner (24000 Hz): Loser media requested for cleanup and duplicate error propagates with diagnostics")
+    void shouldPropagateDuplicateErrorWhenRaceWinnerHasNonCanonicalSampleRate() {
+        ChapterNarrationSegment segment = createCurrentSegment();
+        ManagedVoice voice = createActiveVoice(1L); // target revision is 1
+        byte[] audioBytes = new byte[]{1, 2, 3};
+        TtsSynthesisResult ttsResult = new TtsSynthesisResult(audioBytes, "audio/wav");
+
+        UUID nonCanonicalWinnerAudioId = UUID.fromString("90000000-0000-0000-0000-000000000007");
+        UUID nonCanonicalWinnerMediaId = UUID.fromString("90000000-0000-0000-0000-000000000008");
+        // Same revision 1L, positive samples, but non-canonical sample rate 24000 Hz:
+        ChapterNarrationAudio nonCanonicalWinnerAudio = ChapterNarrationAudio.create(
+                nonCanonicalWinnerAudioId, SEGMENT_ID, VOICE_ID, nonCanonicalWinnerMediaId, 1L, 25920L, 24000, NOW
+        );
+
+        when(segmentRepositoryPort.findById(SEGMENT_ID)).thenReturn(Optional.of(segment));
+        when(managedVoiceRepositoryPort.findById(VOICE_ID)).thenReturn(Optional.of(voice));
+        when(audioRepositoryPort.findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(nonCanonicalWinnerAudio));
+
+        when(ttsProviderPort.synthesize(any())).thenReturn(ttsResult);
+        when(segmentAudioEncoderPort.encode(any())).thenReturn(createEncodingResult(new byte[]{10, 20}, 51840L, 48000));
+        when(mediaContract.uploadAsset(any())).thenReturn(new UploadMediaAssetResponseDTO(MEDIA_ASSET_ID));
+        when(clockPort.now()).thenReturn(NOW);
+        when(idGeneratorPort.generate()).thenReturn(AUDIO_ID);
+
+        ChapterNarrationAudioAlreadyExistsException duplicateEx =
+                new ChapterNarrationAudioAlreadyExistsException(SEGMENT_ID, VOICE_ID);
+        when(audioRepositoryPort.save(any())).thenThrow(duplicateEx);
+        when(cleanupRequestUseCase.execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET))
+                .thenReturn(new RequestNarrationMediaCleanupResult(MEDIA_ASSET_ID, NarrationMediaCleanupOutcome.IMMEDIATELY_DELETED));
+
+        assertThatThrownBy(() -> useCase.execute(SEGMENT_ID, VOICE_ID))
+                .isSameAs(duplicateEx);
+
+        // Redundant media requested for cleanup
+        verify(cleanupRequestUseCase).execute(MEDIA_ASSET_ID, NarrationMediaCleanupReason.UNREFERENCED_GENERATED_ASSET);
+        verify(mediaContract, never()).delete(any());
+        // Diagnostics recorded because non-canonical winner cannot be reused
         verify(failureRepositoryPort).findBySegmentIdAndManagedVoiceId(SEGMENT_ID, VOICE_ID);
     }
 
