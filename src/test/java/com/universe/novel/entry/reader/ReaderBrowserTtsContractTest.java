@@ -330,7 +330,6 @@ class ReaderBrowserTtsContractTest {
                 "grid-template-columns: 6.5ch minmax(0, 1fr) 6.5ch",
                 ".novel-narration-player.is-collapsed .novel-narration-timeline");
         assertThat(css).contains(".novel-narration-select--voice");
-        assertThat(css).contains(".novel-narration-select--rate");
         assertThat(css).contains(".novel-reading-toggle-checkbox");
         assertThat(css).contains(".novel-reading-toggle-switch");
 

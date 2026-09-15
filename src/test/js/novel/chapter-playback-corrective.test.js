@@ -375,8 +375,9 @@ test('visible chapter times advance continuously and legacy progress clears chap
     Object.assign(controller, {
         dom: {
             progressBar: { setAttribute: (name, value) => attributes.set(name, value) },
-            progressFill: { style: {} }, progressCurrent: { textContent: 'stale' },
-            progressTotal: { textContent: 'stale' }
+            progressFill: { style: {} },
+            progressCurrent: { textContent: 'stale', style: {}, hidden: false },
+            progressTotal: { textContent: 'stale', style: {}, hidden: false }
         }
     });
 
@@ -392,12 +393,17 @@ test('visible chapter times advance continuously and legacy progress clears chap
 
     assert.deepEqual(visibleCurrentLabels, ['0:27', '0:28', '0:29']);
     assert.equal(controller.dom.progressTotal.textContent, '1:49');
+    assert.equal(controller.dom.progressCurrent.hidden, false);
+    assert.equal(controller.dom.progressTotal.hidden, false);
     assert.ok(Math.abs(parseFloat(controller.dom.progressFill.style.width) - (29 / 109.9 * 100)) < 0.0001);
     assert.equal(attributes.get('aria-valuetext'), '0:29 / 1:49');
 
     controller._updateProgressDisplay(2, 3);
-    assert.equal(controller.dom.progressCurrent.textContent, '2');
-    assert.equal(controller.dom.progressTotal.textContent, '3');
+    assert.equal(controller.dom.progressCurrent.hidden, true);
+    assert.equal(controller.dom.progressTotal.hidden, true);
+    assert.equal(controller.dom.progressCurrent.textContent, '');
+    assert.equal(controller.dom.progressTotal.textContent, '');
+    assert.equal(attributes.get('aria-valuenow'), '67');
     assert.equal(attributes.get('aria-valuetext'), '2 trên 3 câu');
 });
 
@@ -408,4 +414,290 @@ test('Managed voice change keeps chapter playback progress and ready wording', a
     assert.deepEqual(result.chapterProgressCalls, [result.chapterProgress]);
     assert.equal(result.statuses.at(-1), 'Sẵn sàng phát âm thanh cả chương.');
     assert.equal(result.controller.engine, result.controller.chapterEngine);
+});
+
+function createMockRateDom(presetValues = ['0.75', '1.0', '1.25', '1.5', '1.75', '2.0'], initialRate = '1.0') {
+    const sliderAttrs = new Map();
+    const rateSelect = {
+        options: [],
+        value: initialRate,
+        selectedIndex: 0,
+        appendChild(opt) {
+            opt.parentNode = this;
+            this.options.push(opt);
+        },
+        removeChild(opt) {
+            const idx = this.options.indexOf(opt);
+            if (idx >= 0) this.options.splice(idx, 1);
+            opt.parentNode = null;
+        }
+    };
+    presetValues.forEach((val, idx) => {
+        const opt = {
+            value: val,
+            textContent: val + 'x',
+            selected: val === initialRate,
+            dataset: {},
+            classList: {
+                _classes: new Set(),
+                contains(c) { return this._classes.has(c); },
+                add(c) { this._classes.add(c); }
+            },
+            parentNode: rateSelect
+        };
+        rateSelect.options.push(opt);
+        if (val === initialRate) {
+            rateSelect.selectedIndex = idx;
+        }
+    });
+
+    const rateSlider = {
+        value: initialRate,
+        setAttribute: (name, val) => sliderAttrs.set(name, String(val)),
+        getAttribute: (name) => sliderAttrs.get(name),
+        attrs: sliderAttrs
+    };
+
+    const rateValue = {
+        textContent: initialRate + 'x'
+    };
+
+    return { rateSelect, rateSlider, rateValue };
+}
+
+test('no saved preference defaults effective rate to 1.0', () => {
+    const dom = createMockRateDom();
+    const controller = Object.create(NarrationController.prototype);
+    let deviceRate = null;
+    let chapterRate = null;
+    Object.assign(controller, {
+        dom,
+        rate: 1.0,
+        deviceEngine: { setRate: r => { deviceRate = r; } },
+        chapterEngine: { setRate: r => { chapterRate = r; } },
+        _loadPreferences: () => null,
+        _savePreferences: () => {}
+    });
+
+    controller._initStorageAndPreferences();
+
+    assert.equal(controller.rate, 1.0);
+    assert.equal(dom.rateSelect.value, '1.0');
+    assert.equal(dom.rateSlider.value, '1.0');
+    assert.equal(dom.rateValue.textContent, '1.0x');
+    assert.equal(deviceRate, 1.0);
+    assert.equal(chapterRate, 1.0);
+});
+
+test('preset select synchronization: selecting 1.25 updates canonical rate, slider, and engines', () => {
+    const dom = createMockRateDom();
+    const controller = Object.create(NarrationController.prototype);
+    let deviceRate = null;
+    let chapterRate = null;
+    let saved = false;
+    Object.assign(controller, {
+        dom,
+        rate: 1.0,
+        deviceEngine: { setRate: r => { deviceRate = r; } },
+        chapterEngine: { setRate: r => { chapterRate = r; } },
+        _savePreferences: () => { saved = true; }
+    });
+
+    dom.rateSelect.value = '1.25';
+    controller._handleRateChange();
+
+    assert.equal(controller.rate, 1.25);
+    assert.equal(dom.rateSelect.value, '1.25');
+    assert.equal(dom.rateSlider.value, '1.25');
+    assert.equal(dom.rateValue.textContent, '1.25x');
+    assert.equal(dom.rateSlider.attrs.get('aria-valuenow'), '1.25');
+    assert.equal(dom.rateSlider.attrs.get('aria-valuetext'), '1.25 lần');
+    assert.equal(deviceRate, 1.25);
+    assert.equal(chapterRate, 1.25);
+    assert.equal(saved, true);
+});
+
+test('custom slider rate: dragging to 1.15 updates canonical rate, engines, display, and does not falsely select preset', () => {
+    const dom = createMockRateDom();
+    const controller = Object.create(NarrationController.prototype);
+    let deviceRate = null;
+    let chapterRate = null;
+    Object.assign(controller, {
+        dom,
+        rate: 1.0,
+        deviceEngine: { setRate: r => { deviceRate = r; } },
+        chapterEngine: { setRate: r => { chapterRate = r; } },
+        _savePreferences: () => {}
+    });
+
+    dom.rateSlider.value = '1.15';
+    controller._handleRateSliderInput();
+
+    assert.equal(controller.rate, 1.15);
+    assert.equal(deviceRate, 1.15);
+    assert.equal(chapterRate, 1.15);
+    assert.equal(dom.rateValue.textContent, '1.15x');
+    assert.equal(dom.rateSlider.attrs.get('aria-valuenow'), '1.15');
+    assert.equal(dom.rateSlider.attrs.get('aria-valuetext'), '1.15 lần');
+    // Select must show custom option and NOT falsely select 1.0 or 1.25
+    assert.equal(dom.rateSelect.value, '1.15');
+    const customOpt = dom.rateSelect.options.find(o => o.value === '1.15');
+    assert.ok(customOpt);
+    assert.equal(customOpt.textContent, 'Tùy chỉnh · 1.15x');
+    assert.equal(customOpt.selected, true);
+});
+
+test('returning slider to preset: 1.15 -> 1.25 restores preset and cleans up custom option without duplicates', () => {
+    const dom = createMockRateDom();
+    const controller = Object.create(NarrationController.prototype);
+    Object.assign(controller, {
+        dom,
+        rate: 1.0,
+        deviceEngine: { setRate: () => {} },
+        chapterEngine: { setRate: () => {} },
+        _savePreferences: () => {}
+    });
+
+    // Step 1: Set custom 1.15
+    dom.rateSlider.value = '1.15';
+    controller._handleRateSliderChange();
+    assert.equal(dom.rateSelect.value, '1.15');
+    assert.equal(dom.rateSelect.options.length, 7); // 6 presets + 1 custom
+
+    // Step 2: Set another custom 1.35 (must NOT duplicate custom option)
+    dom.rateSlider.value = '1.35';
+    controller._handleRateSliderChange();
+    assert.equal(dom.rateSelect.value, '1.35');
+    assert.equal(dom.rateSelect.options.length, 7); // Still exactly 1 custom option
+
+    // Step 3: Return to preset 1.25
+    dom.rateSlider.value = '1.25';
+    controller._handleRateSliderChange();
+    assert.equal(controller.rate, 1.25);
+    assert.equal(dom.rateSelect.value, '1.25');
+    assert.equal(dom.rateValue.textContent, '1.25x');
+    assert.equal(dom.rateSelect.options.length, 6); // Custom option removed
+    assert.equal(dom.rateSelect.options.some(o => o.dataset && o.dataset.custom === 'true'), false);
+});
+
+test('DEVICE progress: internal 12 / 94 drives percentage with hidden textual counters and valid aria-valuetext', () => {
+    const attributes = new Map();
+    const controller = Object.create(NarrationController.prototype);
+    const progressCurrent = { textContent: 'stale', style: {}, hidden: false };
+    const progressTotal = { textContent: 'stale', style: {}, hidden: false };
+    const progressFill = { style: {} };
+    Object.assign(controller, {
+        dom: {
+            progressBar: { setAttribute: (name, value) => attributes.set(name, value) },
+            progressFill,
+            progressCurrent,
+            progressTotal
+        }
+    });
+
+    controller._updateProgressDisplay(12, 94);
+
+    // Textual counters hidden and cleared
+    assert.equal(progressCurrent.hidden, true);
+    assert.equal(progressTotal.hidden, true);
+    assert.equal(progressCurrent.textContent, '');
+    assert.equal(progressTotal.textContent, '');
+    assert.equal(progressCurrent.style.visibility, 'hidden');
+    assert.equal(progressTotal.style.visibility, 'hidden');
+
+    // Progress bar calculations: 12 / 94 ≈ 12.77% -> 13%
+    assert.equal(attributes.get('aria-valuenow'), '13');
+    assert.equal(attributes.get('aria-valuetext'), '12 trên 94 câu');
+    assert.equal(progressFill.style.width, '13%');
+});
+
+test('switching MANAGED -> DEVICE -> MANAGED cleanly manages label visibility without stale counters', () => {
+    const attributes = new Map();
+    const controller = Object.create(NarrationController.prototype);
+    const progressCurrent = { textContent: '', style: {}, hidden: false };
+    const progressTotal = { textContent: '', style: {}, hidden: false };
+    const progressFill = { style: {} };
+    Object.assign(controller, {
+        dom: {
+            progressBar: { setAttribute: (name, value) => attributes.set(name, value) },
+            progressFill,
+            progressCurrent,
+            progressTotal
+        }
+    });
+
+    // 1. In MANAGED mode: labels are visible and formatted
+    controller._updateChapterProgressDisplay({
+        currentTimeSeconds: 204, // 03:24
+        durationSeconds: 627,    // 10:27
+        progressRatio: 204 / 627
+    });
+    assert.equal(progressCurrent.hidden, false);
+    assert.equal(progressTotal.hidden, false);
+    assert.equal(progressCurrent.textContent, '3:24');
+    assert.equal(progressTotal.textContent, '10:27');
+    assert.equal(progressCurrent.style.visibility, '');
+    assert.equal(progressTotal.style.visibility, '');
+    assert.equal(attributes.get('aria-valuetext'), '3:24 / 10:27');
+
+    // 2. Switch to DEVICE mode (e.g. fallback or user switch)
+    controller._updateProgressDisplay(1, 94);
+    assert.equal(progressCurrent.hidden, true);
+    assert.equal(progressTotal.hidden, true);
+    assert.equal(progressCurrent.textContent, '');
+    assert.equal(progressTotal.textContent, '');
+    assert.equal(progressCurrent.style.visibility, 'hidden');
+    assert.equal(progressTotal.style.visibility, 'hidden');
+    assert.equal(attributes.get('aria-valuetext'), '1 trên 94 câu');
+
+    // 3. Switch back to MANAGED mode
+    controller._updateChapterProgressDisplay({
+        currentTimeSeconds: 205,
+        durationSeconds: 627,
+        progressRatio: 205 / 627
+    });
+    assert.equal(progressCurrent.hidden, false);
+    assert.equal(progressTotal.hidden, false);
+    assert.equal(progressCurrent.textContent, '3:25');
+    assert.equal(progressTotal.textContent, '10:27');
+    assert.equal(progressCurrent.style.visibility, '');
+    assert.equal(progressTotal.style.visibility, '');
+    assert.equal(attributes.get('aria-valuetext'), '3:25 / 10:27');
+});
+
+test('unsupported browser state disables rateControl container, select, and slider', () => {
+    const rateControlClasses = new Set();
+    const rateControl = {
+        classList: {
+            add: c => rateControlClasses.add(c),
+            remove: c => rateControlClasses.delete(c),
+            contains: c => rateControlClasses.has(c)
+        }
+    };
+    const rateSelect = { disabled: false };
+    const rateSlider = { disabled: false };
+    const controller = Object.create(NarrationController.prototype);
+    Object.assign(controller, {
+        dom: {
+            rateControl,
+            rateSelect,
+            rateSlider,
+            voiceSelect: { disabled: false, innerHTML: '' }
+        },
+        _setStatusMessage: () => {}
+    });
+
+    controller._renderUnsupportedState();
+
+    assert.equal(rateControlClasses.has('is-disabled'), true);
+    assert.equal(rateSelect.disabled, true);
+    assert.equal(rateSlider.disabled, true);
+});
+
+test('NarrationController defines rateControl selector targeting #novelNarrationRateControl', () => {
+    const controller = new NarrationController();
+    assert.equal(controller.selectors.rateControl, '#novelNarrationRateControl');
+    assert.equal(controller.selectors.rateSlider, '#novelNarrationRateSlider');
+    assert.equal(controller.selectors.rateSelect, '#novelNarrationRateSelect');
+    assert.equal(controller.selectors.rateValue, '#novelNarrationRateValue');
 });

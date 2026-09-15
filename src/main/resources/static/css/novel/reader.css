@@ -1772,11 +1772,22 @@ body.has-toc-open {
     white-space: nowrap;
 }
 
+.novel-narration-progress-time--current {
+    grid-column: 1;
+}
+
 .novel-narration-progress-time--total {
+    grid-column: 3;
     text-align: right;
 }
 
+.novel-narration-progress-time[hidden] {
+    display: inline-block !important;
+    visibility: hidden !important;
+}
+
 .novel-narration-progress-bar {
+    grid-column: 2;
     position: relative;
     width: 100%;
     height: 20px;
@@ -2014,16 +2025,33 @@ body.has-toc-open {
 
 .novel-narration-select {
     width: 100%;
-    padding: 7px 10px;
-    font-size: 12.5px;
-    font-family: inherit;
+    padding: 7px 30px 7px 11px;
+    font-size: 13px;
+    font-weight: 400;
+    font-family: var(--font-ui);
     border-radius: var(--reader-radius-sm);
-    background: var(--reader-surface);
+    background-color: var(--reader-surface);
     color: var(--reader-text);
     border: 1px solid var(--reader-border);
     outline: none;
     cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23706b64' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 13px 13px;
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+html[data-theme="dark"] .novel-narration-select,
+html[data-bs-theme="dark"] .novel-narration-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a8a29a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+.novel-narration-select:hover:not(:disabled) {
+    border-color: var(--reader-primary);
 }
 
 .novel-narration-select:focus {
@@ -2043,8 +2071,184 @@ body.has-toc-open {
     overflow: hidden;
 }
 
-.novel-narration-select--rate {
+/* Unified One-Row Narration Rate Control */
+.novel-narration-rate-control {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 4px 0 12px;
+    border-radius: var(--reader-radius-sm);
+    background-color: var(--reader-surface);
+    border: 1px solid var(--reader-border);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.novel-narration-rate-control:hover {
+    border-color: var(--reader-primary);
+}
+
+.novel-narration-rate-control:focus-within {
+    border-color: var(--reader-primary);
+    box-shadow: 0 0 0 2px var(--reader-primary-light);
+}
+
+.novel-narration-rate-current {
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--reader-text);
+    font-variant-numeric: tabular-nums;
+    min-width: 44px;
+    user-select: none;
+    line-height: 1;
+}
+
+.novel-narration-rate-slider {
     width: 100%;
+    min-width: 0;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+.novel-narration-rate-slider:focus {
+    outline: none;
+}
+
+.novel-narration-rate-slider:focus-visible::-webkit-slider-thumb {
+    outline: 2px solid var(--reader-primary);
+    outline-offset: 2px;
+}
+
+.novel-narration-rate-slider:focus-visible::-moz-range-thumb {
+    outline: 2px solid var(--reader-primary);
+    outline-offset: 2px;
+}
+
+.novel-narration-rate-slider::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    background: var(--reader-border);
+    border-radius: 2px;
+    transition: height 0.15s ease;
+}
+
+.novel-narration-rate-slider::-moz-range-track {
+    width: 100%;
+    height: 4px;
+    background: var(--reader-border);
+    border-radius: 2px;
+    transition: height 0.15s ease;
+}
+
+.novel-narration-rate-slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--reader-primary);
+    border: 2px solid var(--reader-surface);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+    margin-top: -5px;
+    transition: transform 0.12s ease, background-color 0.15s ease;
+}
+
+.novel-narration-rate-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--reader-primary);
+    border: 2px solid var(--reader-surface);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+    transition: transform 0.12s ease, background-color 0.15s ease;
+}
+
+.novel-narration-rate-slider:hover:not(:disabled)::-webkit-slider-thumb {
+    transform: scale(1.18);
+    background: var(--reader-primary-hover);
+}
+
+.novel-narration-rate-slider:hover:not(:disabled)::-moz-range-thumb {
+    transform: scale(1.18);
+    background: var(--reader-primary-hover);
+}
+
+.novel-narration-rate-dropdown-wrap {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--reader-text-secondary);
+    transition: background-color 0.15s ease, color 0.15s ease;
+    pointer-events: none;
+}
+
+.novel-narration-rate-chevron {
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+}
+
+/* Full-width transparent native select trigger with right-side pointer hit area */
+.novel-narration-rate-select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 2;
+    border: none;
+    outline: none;
+    margin: 0;
+    padding: 0;
+    /* Preserve full layout width for native popup sizing */
+    /* Restrict pointer hit-testing to right-side chevron trigger area (~32px) */
+    clip-path: inset(0 0 0 calc(100% - 32px));
+    -webkit-clip-path: inset(0 0 0 calc(100% - 32px));
+}
+
+.novel-narration-rate-select option {
+    font-family: var(--font-ui);
+    font-size: 13px;
+    font-weight: 500;
+    background-color: var(--reader-surface);
+    color: var(--reader-text);
+}
+
+.novel-narration-rate-select:hover ~ .novel-narration-rate-dropdown-wrap {
+    background-color: var(--reader-surface-soft);
+    color: var(--reader-text);
+}
+
+.novel-narration-rate-select:focus-visible ~ .novel-narration-rate-dropdown-wrap {
+    background-color: var(--reader-surface-soft);
+    color: var(--reader-primary);
+}
+
+.novel-narration-rate-control.is-disabled,
+.novel-narration-rate-slider:disabled,
+.novel-narration-rate-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 
 @media (max-width: 640px) {
