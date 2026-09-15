@@ -20,6 +20,14 @@ import java.lang.reflect.Field;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import com.universe.novel.infrastructure.narration.concurrency.NarrationTtsExecutionGate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,6 +50,7 @@ class VieNeuTtsAdapterTest {
 
     private RestClient.Builder restClientBuilder;
     private MockRestServiceServer mockServer;
+    private NarrationTtsExecutionGate gate;
     private VieNeuTtsAdapter adapter;
 
     @BeforeEach
@@ -50,7 +59,8 @@ class VieNeuTtsAdapterTest {
         mockServer = MockRestServiceServer.bindTo(realBuilder).build();
         restClientBuilder = Mockito.spy(realBuilder);
         Mockito.doReturn(restClientBuilder).when(restClientBuilder).requestFactory(any(ClientHttpRequestFactory.class));
-        adapter = new VieNeuTtsAdapter(BASE_URL, restClientBuilder);
+        gate = new NarrationTtsExecutionGate(1);
+        adapter = new VieNeuTtsAdapter(BASE_URL, restClientBuilder, gate);
     }
 
     @Test
@@ -191,7 +201,7 @@ class VieNeuTtsAdapterTest {
         MockRestServiceServer customServer = MockRestServiceServer.bindTo(realBuilder).build();
         RestClient.Builder customBuilder = Mockito.spy(realBuilder);
         Mockito.doReturn(customBuilder).when(customBuilder).requestFactory(any(ClientHttpRequestFactory.class));
-        VieNeuTtsAdapter customAdapter = new VieNeuTtsAdapter("http://custom-host:8000///", customBuilder);
+        VieNeuTtsAdapter customAdapter = new VieNeuTtsAdapter("http://custom-host:8000///", customBuilder, gate);
 
         customServer.expect(requestTo("http://custom-host:8000/api/voices"))
                 .andExpect(method(HttpMethod.GET))
@@ -212,7 +222,7 @@ class VieNeuTtsAdapterTest {
         Duration connectTimeout = Duration.ofSeconds(15);
         Duration readTimeout = Duration.ofSeconds(90);
 
-        new VieNeuTtsAdapter("http://localhost:9000", connectTimeout, readTimeout, spyBuilder);
+        new VieNeuTtsAdapter("http://localhost:9000", connectTimeout, readTimeout, spyBuilder, gate);
 
         ArgumentCaptor<ClientHttpRequestFactory> captor = ArgumentCaptor.forClass(ClientHttpRequestFactory.class);
         verify(spyBuilder).requestFactory(captor.capture());
@@ -297,7 +307,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "cf-client-id-123",
                 "cf-client-secret-456",
-                authBuilder
+                authBuilder,
+                gate
         );
 
         authServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
@@ -323,7 +334,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "cf-client-id-123",
                 "cf-client-secret-456",
-                authBuilder
+                authBuilder,
+                gate
         );
 
         byte[] expectedAudio = new byte[]{82, 73, 70, 70, 36, 0, 0, 0, 87, 65, 86, 69};
@@ -353,22 +365,22 @@ class VieNeuTtsAdapterTest {
         String sensitiveId = "SUPER_SECRET_ID_999";
         String sensitiveSecret = "SUPER_SECRET_KEY_888";
 
-        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, null, restClientBuilder))
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, null, restClientBuilder, gate))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
                 .hasMessageNotContaining(sensitiveId);
 
-        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, "   ", restClientBuilder))
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, sensitiveId, "   ", restClientBuilder, gate))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
                 .hasMessageNotContaining(sensitiveId);
 
-        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, null, sensitiveSecret, restClientBuilder))
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, null, sensitiveSecret, restClientBuilder, gate))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
                 .hasMessageNotContaining(sensitiveSecret);
 
-        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, "   ", sensitiveSecret, restClientBuilder))
+        assertThatThrownBy(() -> new VieNeuTtsAdapter(BASE_URL, "   ", sensitiveSecret, restClientBuilder, gate))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("both narration.tts.vieneu.cf-access-client-id and narration.tts.vieneu.cf-access-client-secret must be configured together")
                 .hasMessageNotContaining(sensitiveSecret);
@@ -385,7 +397,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "   ",
                 "   ",
-                wsBuilder
+                wsBuilder,
+                gate
         );
 
         wsServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
@@ -411,7 +424,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "  padded-client-id  ",
                 "  padded-client-secret  ",
-                trimBuilder
+                trimBuilder,
+                gate
         );
 
         trimServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
@@ -437,7 +451,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "\u2003\t padded-client-id \u2003",
                 "\u2003  padded-client-secret \u2003\n",
-                unicodeBuilder
+                unicodeBuilder,
+                gate
         );
 
         unicodeServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
@@ -459,7 +474,8 @@ class VieNeuTtsAdapterTest {
                 BASE_URL,
                 "\u2003\u2003",
                 "\u2003 \t \u2003",
-                wsBuilder
+                wsBuilder,
+                gate
         );
 
         wsServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
@@ -472,5 +488,142 @@ class VieNeuTtsAdapterTest {
         assertThat(wsVoices).isEmpty();
 
         wsServer.verify();
+    }
+
+    @Test
+    @DisplayName("synthesize() executes through NarrationTtsExecutionGate and releases permit after success")
+    void synthesizeExecutesThroughGateAndReleasesPermitOnSuccess() {
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess(new byte[]{1, 2, 3}, MediaType.valueOf("audio/wav")));
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        TtsSynthesisResult result = adapter.synthesize(new TtsSynthesisCommand("test", "voice-1"));
+
+        assertThat(result.audioBytes()).isEqualTo(new byte[]{1, 2, 3});
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("synthesize() releases permit if provider call throws TtsProviderException")
+    void synthesizeReleasesPermitOnProviderException() {
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withServerError());
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        assertThatThrownBy(() -> adapter.synthesize(new TtsSynthesisCommand("test", "voice-1")))
+                .isInstanceOf(TtsProviderException.class);
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+        mockServer.verify();
+    }
+
+    @Test
+    @DisplayName("Two concurrent synthesize() calls with capacity 1 never execute provider work simultaneously")
+    void concurrentSynthesizeCallsAreSerializedByGate() throws Exception {
+        AtomicInteger activeCalls = new AtomicInteger(0);
+        AtomicInteger maxConcurrentCalls = new AtomicInteger(0);
+        CountDownLatch firstCallStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstCall = new CountDownLatch(1);
+
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(request -> {
+                    int active = activeCalls.incrementAndGet();
+                    maxConcurrentCalls.accumulateAndGet(active, Math::max);
+                    firstCallStarted.countDown();
+                    try {
+                        releaseFirstCall.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    activeCalls.decrementAndGet();
+                    return withSuccess(new byte[]{1, 2, 3}, MediaType.valueOf("audio/wav")).createResponse(request);
+                });
+
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(request -> {
+                    int active = activeCalls.incrementAndGet();
+                    maxConcurrentCalls.accumulateAndGet(active, Math::max);
+                    activeCalls.decrementAndGet();
+                    return withSuccess(new byte[]{4, 5, 6}, MediaType.valueOf("audio/wav")).createResponse(request);
+                });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<TtsSynthesisResult> future1 = executor.submit(() ->
+                    adapter.synthesize(new TtsSynthesisCommand("first", "voice-1")));
+
+            assertThat(firstCallStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(gate.getAvailablePermits()).isEqualTo(0);
+
+            Future<TtsSynthesisResult> future2 = executor.submit(() ->
+                    adapter.synthesize(new TtsSynthesisCommand("second", "voice-1")));
+
+            Thread.sleep(100);
+            assertThat(gate.getQueueLength()).isEqualTo(1);
+            assertThat(maxConcurrentCalls.get()).isEqualTo(1);
+
+            releaseFirstCall.countDown();
+
+            TtsSynthesisResult result1 = future1.get(5, TimeUnit.SECONDS);
+            TtsSynthesisResult result2 = future2.get(5, TimeUnit.SECONDS);
+
+            assertThat(result1.audioBytes()).isEqualTo(new byte[]{1, 2, 3});
+            assertThat(result2.audioBytes()).isEqualTo(new byte[]{4, 5, 6});
+            assertThat(maxConcurrentCalls.get()).isEqualTo(1);
+            assertThat(gate.getAvailablePermits()).isEqualTo(1);
+            mockServer.verify();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("listVoices() is NOT serialized by the synthesis gate while synthesis is holding the permit")
+    void listVoicesIsNotSerializedBySynthesisGate() throws Exception {
+        CountDownLatch synthesisStarted = new CountDownLatch(1);
+        CountDownLatch releaseSynthesis = new CountDownLatch(1);
+
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/tts/generate"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(request -> {
+                    synthesisStarted.countDown();
+                    try {
+                        releaseSynthesis.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return withSuccess(new byte[]{1, 2, 3}, MediaType.valueOf("audio/wav")).createResponse(request);
+                });
+
+        mockServer.expect(requestTo("http://mock-vieneu:9000/api/voices"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<TtsSynthesisResult> synthesisFuture = executor.submit(() ->
+                    adapter.synthesize(new TtsSynthesisCommand("test", "voice-1")));
+
+            assertThat(synthesisStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(gate.getAvailablePermits()).isEqualTo(0);
+
+            List<TtsProviderVoice> voices = adapter.listVoices();
+            assertThat(voices).isEmpty();
+
+            releaseSynthesis.countDown();
+            TtsSynthesisResult result = synthesisFuture.get(5, TimeUnit.SECONDS);
+            assertThat(result.audioBytes()).isEqualTo(new byte[]{1, 2, 3});
+            assertThat(gate.getAvailablePermits()).isEqualTo(1);
+            mockServer.verify();
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }

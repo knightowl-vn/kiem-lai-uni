@@ -8,6 +8,7 @@ import com.universe.novel.application.narration.TtsProviderVoice;
 import com.universe.novel.application.narration.TtsSynthesisCommand;
 import com.universe.novel.application.narration.TtsSynthesisResult;
 import com.universe.novel.application.ports.TtsProviderPort;
+import com.universe.novel.infrastructure.narration.concurrency.NarrationTtsExecutionGate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * VieNeu HTTP implementation of {@link TtsProviderPort}.
@@ -42,6 +44,7 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
     private static final int MAX_ERROR_BODY_LENGTH = 500;
 
     private final RestClient restClient;
+    private final NarrationTtsExecutionGate ttsExecutionGate;
 
     @Autowired
     public VieNeuTtsAdapter(
@@ -50,8 +53,10 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
             @Value("${narration.tts.vieneu.read-timeout:120s}") Duration readTimeout,
             @Value("${narration.tts.vieneu.cf-access-client-id:}") String cfAccessClientId,
             @Value("${narration.tts.vieneu.cf-access-client-secret:}") String cfAccessClientSecret,
-            @Autowired(required = false) RestClient.Builder restClientBuilder
+            @Autowired(required = false) RestClient.Builder restClientBuilder,
+            NarrationTtsExecutionGate ttsExecutionGate
     ) {
+        this.ttsExecutionGate = Objects.requireNonNull(ttsExecutionGate, "ttsExecutionGate must not be null");
         String normalizedUrl = normalizeBaseUrl(baseUrl);
         RestClient.Builder builder = restClientBuilder != null ? restClientBuilder : RestClient.builder();
         
@@ -81,26 +86,28 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
         this.restClient = builder.baseUrl(normalizedUrl).build();
     }
 
-    public VieNeuTtsAdapter(String baseUrl, RestClient.Builder restClientBuilder) {
-        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), null, null, restClientBuilder);
+    public VieNeuTtsAdapter(String baseUrl, RestClient.Builder restClientBuilder, NarrationTtsExecutionGate ttsExecutionGate) {
+        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), null, null, restClientBuilder, ttsExecutionGate);
     }
 
     public VieNeuTtsAdapter(
             String baseUrl,
             Duration connectTimeout,
             Duration readTimeout,
-            RestClient.Builder restClientBuilder
+            RestClient.Builder restClientBuilder,
+            NarrationTtsExecutionGate ttsExecutionGate
     ) {
-        this(baseUrl, connectTimeout, readTimeout, null, null, restClientBuilder);
+        this(baseUrl, connectTimeout, readTimeout, null, null, restClientBuilder, ttsExecutionGate);
     }
 
     public VieNeuTtsAdapter(
             String baseUrl,
             String cfAccessClientId,
             String cfAccessClientSecret,
-            RestClient.Builder restClientBuilder
+            RestClient.Builder restClientBuilder,
+            NarrationTtsExecutionGate ttsExecutionGate
     ) {
-        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), cfAccessClientId, cfAccessClientSecret, restClientBuilder);
+        this(baseUrl, Duration.ofSeconds(10), Duration.ofSeconds(120), cfAccessClientId, cfAccessClientSecret, restClientBuilder, ttsExecutionGate);
     }
 
     private static String cleanCredential(String credential) {
@@ -156,6 +163,10 @@ public class VieNeuTtsAdapter implements TtsProviderPort {
             throw new IllegalArgumentException("Provider voice ID must not be null or blank");
         }
 
+        return ttsExecutionGate.execute(() -> performSynthesis(command));
+    }
+
+    private TtsSynthesisResult performSynthesis(TtsSynthesisCommand command) {
         try {
             VieNeuGenerateRequest requestPayload = new VieNeuGenerateRequest(
                     command.text(),
