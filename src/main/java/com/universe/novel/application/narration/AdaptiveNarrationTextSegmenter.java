@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
  *     <li>Decoupled from Markdown AST parsing via {@link ChapterNarrationBlockExtractorPort}.</li>
  *     <li>Preserves semantic block boundaries ("\n\n") between distinct blocks.</li>
  *     <li>Preserves sentence continuation (" ") between sentences within the same split block.</li>
- *     <li>Splits oversized blocks (> hardSplitThreshold) at sentence boundaries without cutting sentences.</li>
+ *     <li>Splits oversized blocks (> hardSplitThreshold) at sentence boundaries and enforces hardSplitThreshold as a strict upper bound on all emitted segments.</li>
  *     <li>Computes deterministic SHA-256 content hashes over exact UTF-8 segment text.</li>
  *     <li>Scales dynamically across short and very long chapters (~20,000+ characters) with variable segment counts.</li>
  * </ul>
@@ -111,12 +111,23 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
                 units.add(new SegmentUnit(trimmedBlock, blockIndex));
             } else {
                 List<String> sentences = splitSentences(trimmedBlock);
-                if (sentences.size() <= 1) {
-                    // Pathological oversized sentence kept intact without mid-sentence cut
-                    units.add(new SegmentUnit(trimmedBlock, blockIndex));
+                if (sentences.isEmpty()) {
+                    for (String chunk : splitOversizedUnit(trimmedBlock, hardSplitThreshold)) {
+                        units.add(new SegmentUnit(chunk, blockIndex));
+                    }
                 } else {
                     for (String sentence : sentences) {
-                        units.add(new SegmentUnit(sentence, blockIndex));
+                        if (sentence == null || sentence.isBlank()) {
+                            continue;
+                        }
+                        String trimmedSentence = sentence.trim();
+                        if (trimmedSentence.length() <= hardSplitThreshold) {
+                            units.add(new SegmentUnit(trimmedSentence, blockIndex));
+                        } else {
+                            for (String chunk : splitOversizedUnit(trimmedSentence, hardSplitThreshold)) {
+                                units.add(new SegmentUnit(chunk, blockIndex));
+                            }
+                        }
                     }
                 }
             }
@@ -149,22 +160,22 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
                 String delimiter = (unit.blockIndex() == lastPackedBlockIndex) ? " " : "\n\n";
                 int candidateLength = currentSegment.length() + delimiter.length() + unitText.length();
 
-                if (candidateLength <= targetMaxChars) {
+                if (candidateLength <= targetMaxChars && candidateLength <= hardSplitThreshold) {
                     currentSegment.append(delimiter).append(unitText);
                     lastPackedBlockIndex = unit.blockIndex();
-                } else if (candidateLength <= softMaxChars) {
+                } else if (candidateLength <= softMaxChars && candidateLength <= hardSplitThreshold) {
                     if (currentSegment.length() < targetMinChars) {
                         currentSegment.append(delimiter).append(unitText);
                         lastPackedBlockIndex = unit.blockIndex();
                     } else {
-                        flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
+                        segmentIndex = flushSegment(segments, currentSegment.toString(), segmentIndex, sourceBlockIndexes);
                         sourceBlockIndexes.clear();
                         currentSegment.setLength(0);
                         currentSegment.append(unitText);
                         lastPackedBlockIndex = unit.blockIndex();
                     }
                 } else {
-                    flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
+                    segmentIndex = flushSegment(segments, currentSegment.toString(), segmentIndex, sourceBlockIndexes);
                     sourceBlockIndexes.clear();
                     currentSegment.setLength(0);
                     currentSegment.append(unitText);
@@ -175,17 +186,25 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
         }
 
         if (!currentSegment.isEmpty()) {
-            flushSegment(segments, currentSegment.toString(), segmentIndex++, sourceBlockIndexes);
+            flushSegment(segments, currentSegment.toString(), segmentIndex, sourceBlockIndexes);
         }
 
         return List.copyOf(segments);
     }
 
-    private void flushSegment(List<NarrationTextSegmentPlan> segments, String rawText, int index, Set<Integer> sourceBlockIndexes) {
+    private int flushSegment(List<NarrationTextSegmentPlan> segments, String rawText, int nextIndex, Set<Integer> sourceBlockIndexes) {
         String normalized = normalizeSegmentText(rawText);
-        if (!normalized.isBlank()) {
-            segments.add(new NarrationTextSegmentPlan(NarrationTextSegment.of(index, normalized), List.copyOf(sourceBlockIndexes)));
+        if (normalized.isBlank()) {
+            return nextIndex;
         }
+        if (normalized.length() <= hardSplitThreshold) {
+            segments.add(new NarrationTextSegmentPlan(NarrationTextSegment.of(nextIndex++, normalized), List.copyOf(sourceBlockIndexes)));
+        } else {
+            for (String piece : splitOversizedUnit(normalized, hardSplitThreshold)) {
+                segments.add(new NarrationTextSegmentPlan(NarrationTextSegment.of(nextIndex++, piece), List.copyOf(sourceBlockIndexes)));
+            }
+        }
+        return nextIndex;
     }
 
     private String normalizeSegmentText(String text) {
@@ -288,6 +307,90 @@ public class AdaptiveNarrationTextSegmenter implements NarrationTextSegmenter {
         }
 
         return List.copyOf(sentences);
+    }
+
+    /**
+     * Splits an oversized unit into multiple chunks that each strictly satisfy length &lt;= maxChars.
+     * Splitting preferentially breaks at whitespace boundaries at or before maxChars.
+     * If no whitespace exists within the window (unbroken token), it hard-cuts at maxChars.
+     *
+     * @param text input oversized text
+     * @param maxChars maximum permitted characters per chunk (e.g. hardSplitThreshold)
+     * @return ordered non-empty chunks, each &lt;= maxChars
+     */
+    public static List<String> splitOversizedUnit(String text, int maxChars) {
+        if (text == null || text.isBlank() || maxChars <= 0) {
+            return List.of();
+        }
+
+        String trimmed = text.trim();
+        if (trimmed.length() <= maxChars) {
+            return List.of(trimmed);
+        }
+
+        List<String> chunks = new ArrayList<>();
+        int length = trimmed.length();
+        int start = 0;
+
+        while (start < length) {
+            // Skip leading whitespace if any
+            while (start < length && Character.isWhitespace(trimmed.charAt(start))) {
+                start++;
+            }
+            if (start >= length) {
+                break;
+            }
+
+            int remaining = length - start;
+            if (remaining <= maxChars) {
+                String chunk = trimmed.substring(start).trim();
+                if (!chunk.isEmpty()) {
+                    chunks.add(chunk);
+                }
+                break;
+            }
+
+            int targetEnd = start + maxChars;
+            // Prevent splitting UTF-16 surrogate pairs
+            if (targetEnd > start + 1 && Character.isHighSurrogate(trimmed.charAt(targetEnd - 1))) {
+                targetEnd--;
+            }
+
+            // If targetEnd falls right on a whitespace boundary
+            if (targetEnd < length && Character.isWhitespace(trimmed.charAt(targetEnd))) {
+                String chunk = trimmed.substring(start, targetEnd).trim();
+                if (!chunk.isEmpty()) {
+                    chunks.add(chunk);
+                }
+                start = targetEnd + 1;
+                continue;
+            }
+
+            // Search backward for the last whitespace boundary
+            int lastWhitespace = -1;
+            for (int i = targetEnd - 1; i > start; i--) {
+                if (Character.isWhitespace(trimmed.charAt(i))) {
+                    lastWhitespace = i;
+                    break;
+                }
+            }
+
+            if (lastWhitespace > start) {
+                // Break at whitespace boundary
+                String chunk = trimmed.substring(start, lastWhitespace).trim();
+                if (!chunk.isEmpty()) {
+                    chunks.add(chunk);
+                }
+                start = lastWhitespace + 1;
+            } else {
+                // Unbroken token: hard cut at targetEnd without trimming to preserve token integrity
+                String chunk = trimmed.substring(start, targetEnd);
+                chunks.add(chunk);
+                start = targetEnd;
+            }
+        }
+
+        return List.copyOf(chunks);
     }
 
     private static boolean isClosingQuoteOrBracket(char c) {

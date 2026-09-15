@@ -270,16 +270,90 @@ class AdaptiveNarrationTextSegmenterTest {
     }
 
     @Test
-    @DisplayName("10. Pathological single sentence exceeding threshold is kept intact rather than cut mid-sentence")
-    void pathologicalOversizedSentenceKeptIntact() {
+    @DisplayName("10a. Oversized sentence with whitespace splits at whitespace boundaries within hard threshold")
+    void oversizedSentenceWithWhitespaceSplitsAtWhitespaceBoundariesWithinThreshold() {
         String singleHugeSentence = "Trần Bình An bước đi " + "và bước đi tiếp tục đi mãi không dừng ".repeat(50);
-        assertThat(singleHugeSentence.length()).isGreaterThan(1500);
+        assertThat(singleHugeSentence.length()).isGreaterThan(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
 
         List<NarrationTextSegment> segments = segmenter.segment(singleHugeSentence);
 
+        assertThat(segments.size()).isGreaterThan(1);
+        assertThat(segments).allSatisfy(seg -> {
+            assertThat(seg.characterCount()).isLessThanOrEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+            assertThat(seg.text().length()).isEqualTo(seg.characterCount());
+            assertThat(seg.contentHash()).isEqualTo(NarrationTextSegment.computeSha256(seg.text()));
+        });
+        for (NarrationTextSegment seg : segments) {
+            assertThat(seg.text()).doesNotStartWith(" ");
+            assertThat(seg.text()).doesNotEndWith(" ");
+        }
+    }
+
+    @Test
+    @DisplayName("10b. Oversized unbroken token without whitespace splits at hard limit with zero data loss")
+    void oversizedTokenWithoutWhitespaceSplitsAtHardLimitWithoutDataLoss() {
+        String giantToken = "a".repeat(5000);
+        List<NarrationTextSegment> segments = segmenter.segment(giantToken);
+
+        assertThat(segments).hasSize(4);
+        assertThat(segments.get(0).characterCount()).isEqualTo(1500);
+        assertThat(segments.get(1).characterCount()).isEqualTo(1500);
+        assertThat(segments.get(2).characterCount()).isEqualTo(1500);
+        assertThat(segments.get(3).characterCount()).isEqualTo(500);
+        assertThat(segments).allSatisfy(seg -> {
+            assertThat(seg.characterCount()).isLessThanOrEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+            assertThat(seg.contentHash()).isEqualTo(NarrationTextSegment.computeSha256(seg.text()));
+        });
+
+        String concatenated = String.join("", segments.stream().map(NarrationTextSegment::text).toList());
+        assertThat(concatenated).isEqualTo(giantToken);
+    }
+
+    @Test
+    @DisplayName("10c. Text at exact hardSplitThreshold boundary stays as a single segment")
+    void exactHardSplitThresholdBoundaryStaysSingleSegment() {
+        String exactBoundaryText = "a".repeat(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+        List<NarrationTextSegment> segments = segmenter.segment(exactBoundaryText);
+
         assertThat(segments).hasSize(1);
-        assertThat(segments.get(0).characterCount()).isEqualTo(singleHugeSentence.trim().length());
-        assertThat(segments.get(0).text()).isEqualTo(singleHugeSentence.trim());
+        assertThat(segments.get(0).characterCount()).isEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+        assertThat(segments.get(0).text()).isEqualTo(exactBoundaryText);
+        assertThat(segments.get(0).contentHash()).isEqualTo(NarrationTextSegment.computeSha256(exactBoundaryText));
+    }
+
+    @Test
+    @DisplayName("10d. Text at hardSplitThreshold + 1 splits into segments strictly satisfying threshold")
+    void boundaryPlusOneSplitsIntoMultipleSegmentsWithinThreshold() {
+        String boundaryPlusOne = "a".repeat(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD + 1);
+        List<NarrationTextSegment> segments = segmenter.segment(boundaryPlusOne);
+
+        assertThat(segments).hasSize(2);
+        assertThat(segments.get(0).characterCount()).isEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+        assertThat(segments.get(1).characterCount()).isEqualTo(1);
+        assertThat(segments).allSatisfy(seg -> {
+            assertThat(seg.characterCount()).isLessThanOrEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+            assertThat(seg.contentHash()).isEqualTo(NarrationTextSegment.computeSha256(seg.text()));
+        });
+        String concatenated = String.join("", segments.stream().map(NarrationTextSegment::text).toList());
+        assertThat(concatenated).isEqualTo(boundaryPlusOne);
+    }
+
+    @Test
+    @DisplayName("10e. Pathological ~20,000-character text without punctuation strictly satisfies hard split threshold")
+    void pathologicalTwentyThousandCharactersWithoutPunctuationEnforcesHardThreshold() {
+        String word = "TrầnBìnhAn ";
+        int repeatCount = 20_000 / word.length() + 10;
+        String hugeTextWithoutPunctuation = word.repeat(repeatCount).trim();
+        assertThat(hugeTextWithoutPunctuation.length()).isGreaterThanOrEqualTo(20_000);
+
+        List<NarrationTextSegment> segments = segmenter.segment(hugeTextWithoutPunctuation);
+
+        assertThat(segments.size()).isGreaterThanOrEqualTo(14);
+        assertThat(segments).allSatisfy(seg -> {
+            assertThat(seg.characterCount()).isLessThanOrEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD);
+            assertThat(seg.characterCount()).isEqualTo(seg.text().length());
+            assertThat(seg.contentHash()).isEqualTo(NarrationTextSegment.computeSha256(seg.text()));
+        });
     }
 
     @Test
@@ -327,6 +401,8 @@ class AdaptiveNarrationTextSegmenterTest {
         List<NarrationTextSegment> segments = segmenter.segment(chapterContent);
 
         assertThat(segments.size()).isBetween(20, 35);
+        assertThat(segments).allSatisfy(s ->
+                assertThat(s.characterCount()).isLessThanOrEqualTo(AdaptiveNarrationTextSegmenter.DEFAULT_HARD_SPLIT_THRESHOLD));
 
         for (int i = 0; i < segments.size(); i++) {
             NarrationTextSegment seg = segments.get(i);
