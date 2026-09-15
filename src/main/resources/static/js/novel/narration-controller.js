@@ -57,7 +57,10 @@
         progressBar: '#novelNarrationProgressBar',
         progressFill: '#novelNarrationProgressFill',
         voiceSelect: '#novelNarrationVoiceSelect',
+        rateControl: '#novelNarrationRateControl',
         rateSelect: '#novelNarrationRateSelect',
+        rateSlider: '#novelNarrationRateSlider',
+        rateValue: '#novelNarrationRateValue',
         progressCurrent: '#novelNarrationProgressCurrent',
         progressTotal: '#novelNarrationProgressTotal',
         statusText: '#novelNarrationStatusText',
@@ -123,7 +126,10 @@
                 progressBar: null,
                 progressFill: null,
                 voiceSelect: null,
+                rateControl: null,
                 rateSelect: null,
+                rateSlider: null,
+                rateValue: null,
                 progressCurrent: null,
                 progressTotal: null,
                 statusText: null,
@@ -143,6 +149,7 @@
             this.isUnloaded = false;
             this.hasMeaningfulResume = false;
             this.isAutoplayContinuation = false;
+            this.rate = 1.0;
             this.followMode = typeof config.followMode === 'boolean' ? config.followMode : true;
             this.autoNext = typeof config.autoNext === 'boolean' ? config.autoNext : false;
             this.fallbackToDevice = typeof config.fallbackToDevice === 'boolean' ? config.fallbackToDevice : false;
@@ -187,6 +194,8 @@
             this._boundOnProgressBarKeydown = this._handleProgressBarKeydown.bind(this);
             this._boundOnVoiceChange = this._handleVoiceChange.bind(this);
             this._boundOnRateChange = this._handleRateChange.bind(this);
+            this._boundOnRateSliderInput = this._handleRateSliderInput.bind(this);
+            this._boundOnRateSliderChange = this._handleRateSliderChange.bind(this);
             this._boundOnFollowChange = this._handleFollowChange.bind(this);
             this._boundOnAutoNextChange = this._handleAutoNextChange.bind(this);
             this._boundOnFallbackChange = this._handleFallbackChange.bind(this);
@@ -358,7 +367,10 @@
             this.dom.progressBar = this.dom.player.querySelector(sel.progressBar);
             this.dom.progressFill = this.dom.player.querySelector(sel.progressFill);
             this.dom.voiceSelect = this.dom.player.querySelector(sel.voiceSelect);
+            this.dom.rateControl = this.dom.player.querySelector(sel.rateControl);
             this.dom.rateSelect = this.dom.player.querySelector(sel.rateSelect);
+            this.dom.rateSlider = this.dom.player.querySelector(sel.rateSlider);
+            this.dom.rateValue = this.dom.player.querySelector(sel.rateValue);
             this.dom.progressCurrent = this.dom.player.querySelector(sel.progressCurrent);
             this.dom.progressTotal = this.dom.player.querySelector(sel.progressTotal);
             this.dom.statusText = this.dom.player.querySelector(sel.statusText);
@@ -371,8 +383,17 @@
                 if (!this.dom.voiceSelect) {
                     this.dom.voiceSelect = this.dom.settingsPanel.querySelector(sel.voiceSelect);
                 }
+                if (!this.dom.rateControl) {
+                    this.dom.rateControl = this.dom.settingsPanel.querySelector(sel.rateControl);
+                }
                 if (!this.dom.rateSelect) {
                     this.dom.rateSelect = this.dom.settingsPanel.querySelector(sel.rateSelect);
+                }
+                if (!this.dom.rateSlider) {
+                    this.dom.rateSlider = this.dom.settingsPanel.querySelector(sel.rateSlider);
+                }
+                if (!this.dom.rateValue) {
+                    this.dom.rateValue = this.dom.settingsPanel.querySelector(sel.rateValue);
                 }
                 if (!this.dom.followToggle) {
                     this.dom.followToggle = this.dom.settingsPanel.querySelector(sel.followToggle);
@@ -434,8 +455,14 @@
                 this.dom.voiceSelect.disabled = true;
                 this.dom.voiceSelect.innerHTML = '<option value="">Không hỗ trợ giọng đọc</option>';
             }
+            if (this.dom.rateControl) {
+                this.dom.rateControl.classList.add('is-disabled');
+            }
             if (this.dom.rateSelect) {
                 this.dom.rateSelect.disabled = true;
+            }
+            if (this.dom.rateSlider) {
+                this.dom.rateSlider.disabled = true;
             }
             if (this.dom.followToggle) {
                 this.dom.followToggle.disabled = true;
@@ -680,13 +707,10 @@
             const prefs = this._loadPreferences();
             if (prefs) {
                 if (typeof prefs.rate === 'number' && Number.isFinite(prefs.rate)) {
-                    const clampedRate = Math.max(0.5, Math.min(2.0, prefs.rate));
-                    if (this.engine) {
-                        this.engine.setRate(clampedRate);
-                    }
-                    if (this.dom.rateSelect) {
-                        this.dom.rateSelect.value = String(clampedRate);
-                    }
+                    const clampedRate = Math.max(0.75, Math.min(2.0, prefs.rate));
+                    this.setPlaybackRate(clampedRate, false);
+                } else {
+                    this.setPlaybackRate(1.0, false);
                 }
                 if (typeof prefs.followMode === 'boolean') {
                     this.followMode = prefs.followMode;
@@ -724,6 +748,8 @@
                         };
                     }
                 }
+            } else {
+                this.setPlaybackRate(1.0, false);
             }
         }
 
@@ -930,6 +956,10 @@
             }
             if (this.dom.rateSelect) {
                 this.dom.rateSelect.addEventListener('change', this._boundOnRateChange);
+            }
+            if (this.dom.rateSlider) {
+                this.dom.rateSlider.addEventListener('input', this._boundOnRateSliderInput);
+                this.dom.rateSlider.addEventListener('change', this._boundOnRateSliderChange);
             }
             if (this.dom.followToggle) {
                 this.dom.followToggle.addEventListener('change', this._boundOnFollowChange);
@@ -1427,7 +1457,9 @@
                 const metadata = await this.chapterEngine.loadPlayback(chapterId, voiceKey, preloadedChapterMetadata);
                 assertCurrent();
                 if (metadata) {
-                    const currentRate = this.dom.rateSelect ? parseFloat(this.dom.rateSelect.value) || 1.0 : 1.0;
+                    const currentRate = (typeof this.rate === 'number' && Number.isFinite(this.rate))
+                        ? this.rate
+                        : (this.dom.rateSelect ? parseFloat(this.dom.rateSelect.value) || 1.0 : 1.0);
                     this.chapterEngine.setRate(currentRate);
                     this.chunks = this.chapterEngine.getSegments();
                     this.chapterEngine.seekBySeconds(0);
@@ -2308,7 +2340,9 @@
             this.engine = this.chapterEngine;
             this.activeEngine = this.chapterEngine;
 
-            const currentRate = this.dom && this.dom.rateSelect ? parseFloat(this.dom.rateSelect.value) || 1.0 : 1.0;
+            const currentRate = (typeof this.rate === 'number' && Number.isFinite(this.rate))
+                ? this.rate
+                : (this.dom && this.dom.rateSelect ? parseFloat(this.dom.rateSelect.value) || 1.0 : 1.0);
             if (typeof this.chapterEngine.setRate === 'function') {
                 this.chapterEngine.setRate(currentRate);
             }
@@ -3049,6 +3083,134 @@
         }
 
         /**
+         * Sets and synchronizes playback rate across canonical state, preset select,
+         * range slider, display badge, and active engines.
+         *
+         * @param {number|string} rate Target playback rate (0.75 to 2.0)
+         * @param {boolean} [persist=true] Whether to persist preference to localStorage
+         * @returns {number} The effective rate applied
+         */
+        setPlaybackRate(rate, persist = true) {
+            const parsed = parseFloat(rate);
+            if (!Number.isFinite(parsed)) {
+                return this.rate || 1.0;
+            }
+            const clamped = Math.max(0.75, Math.min(2.0, Math.round(parsed * 100) / 100));
+            this.rate = clamped;
+
+            // 1. Synchronize Preset <select> and custom option
+            if (this.dom.rateSelect) {
+                const PRESETS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+                const matchingPreset = PRESETS.find(p => Math.abs(p - clamped) < 0.001);
+
+                let customOption = null;
+                if (this.dom.rateSelect.options) {
+                    for (let i = 0; i < this.dom.rateSelect.options.length; i++) {
+                        const opt = this.dom.rateSelect.options[i];
+                        if (opt && ((opt.dataset && opt.dataset.custom === 'true') || (opt.classList && opt.classList.contains('novel-narration-rate-custom-option')))) {
+                            customOption = opt;
+                            break;
+                        }
+                    }
+                }
+
+                if (matchingPreset !== undefined) {
+                    // Exact preset: remove custom option if present
+                    if (customOption && customOption.parentNode) {
+                        customOption.parentNode.removeChild(customOption);
+                    }
+                    // Select the matching preset option
+                    let matchedOptValue = (matchingPreset === 1 || matchingPreset === 2) ? matchingPreset.toFixed(1) : String(matchingPreset);
+                    if (this.dom.rateSelect.options) {
+                        for (let i = 0; i < this.dom.rateSelect.options.length; i++) {
+                            const opt = this.dom.rateSelect.options[i];
+                            if (Math.abs(parseFloat(opt.value) - matchingPreset) < 0.001) {
+                                this.dom.rateSelect.selectedIndex = i;
+                                opt.selected = true;
+                                matchedOptValue = opt.value;
+                                break;
+                            }
+                        }
+                    }
+                    this.dom.rateSelect.value = matchedOptValue;
+                } else {
+                    // Non-preset custom rate: create or update single custom option
+                    const formattedDisplay = this._formatRateValue(clamped);
+                    if (!customOption) {
+                        if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
+                            customOption = document.createElement('option');
+                        } else {
+                            customOption = {
+                                dataset: {},
+                                classList: {
+                                    _classes: new Set(),
+                                    contains(c) { return this._classes.has(c); },
+                                    add(c) { this._classes.add(c); }
+                                }
+                            };
+                        }
+                        if (customOption.dataset) customOption.dataset.custom = 'true';
+                        if (customOption.classList) customOption.classList.add('novel-narration-rate-custom-option');
+                        this.dom.rateSelect.appendChild(customOption);
+                    }
+                    if (customOption) {
+                        customOption.value = String(clamped);
+                        customOption.textContent = 'Tùy chỉnh · ' + formattedDisplay;
+                        customOption.selected = true;
+                    }
+                    this.dom.rateSelect.value = String(clamped);
+                }
+            }
+
+            // 2. Synchronize Range Slider
+            if (this.dom.rateSlider) {
+                const sliderVal = (clamped === 1 || clamped === 2) ? clamped.toFixed(1) : String(clamped);
+                this.dom.rateSlider.value = sliderVal;
+                if (typeof this.dom.rateSlider.setAttribute === 'function') {
+                    this.dom.rateSlider.setAttribute('aria-valuenow', sliderVal);
+                    this.dom.rateSlider.setAttribute('aria-valuetext', clamped.toFixed(2) + ' lần');
+                }
+            }
+
+            // 3. Synchronize Value Badge
+            if (this.dom.rateValue) {
+                this.dom.rateValue.textContent = this._formatRateValue(clamped);
+            }
+
+            // 4. Apply to Engines
+            if (this.deviceEngine && typeof this.deviceEngine.setRate === 'function') {
+                this.deviceEngine.setRate(clamped);
+            }
+            if (this.chapterEngine && typeof this.chapterEngine.setRate === 'function') {
+                this.chapterEngine.setRate(clamped);
+            }
+            if (this.engine && this.engine !== this.deviceEngine && this.engine !== this.chapterEngine && typeof this.engine.setRate === 'function') {
+                this.engine.setRate(clamped);
+            }
+
+            // 5. Persist
+            if (persist) {
+                this._savePreferences();
+            }
+
+            return this.rate;
+        }
+
+        /**
+         * Formats rate number for display, e.g. 1.0 -> "1.0x", 1.15 -> "1.15x", 1.5 -> "1.5x"
+         * @param {number} rate
+         * @returns {string}
+         * @private
+         */
+        _formatRateValue(rate) {
+            const num = Number(rate);
+            if (num === 1) return '1.0x';
+            if (num === 2) return '2.0x';
+            if (num === 1.5) return '1.5x';
+            return num.toFixed(2) + 'x';
+        }
+
+        /**
          * Handles Rate selector change and persists preference globally.
          * Adjusts playback rate on active engines without re-requesting audio.
          * @private
@@ -3059,16 +3221,39 @@
             }
             const rateVal = parseFloat(this.dom.rateSelect.value);
             if (Number.isFinite(rateVal)) {
-                if (this.deviceEngine && typeof this.deviceEngine.setRate === 'function') {
-                    this.deviceEngine.setRate(rateVal);
-                }
-                if (this.chapterEngine && typeof this.chapterEngine.setRate === 'function') {
-                    this.chapterEngine.setRate(rateVal);
-                }
-                if (this.engine && this.engine !== this.deviceEngine && this.engine !== this.chapterEngine && typeof this.engine.setRate === 'function') {
-                    this.engine.setRate(rateVal);
-                }
-                this._savePreferences();
+                this.setPlaybackRate(rateVal, true);
+            }
+        }
+
+        /**
+         * Handles Rate slider live input (dragging).
+         * Immediately applies speed to active audio playback.
+         * @param {Event} event
+         * @private
+         */
+        _handleRateSliderInput(event) {
+            if (!this.dom.rateSlider) {
+                return;
+            }
+            const rateVal = parseFloat(this.dom.rateSlider.value);
+            if (Number.isFinite(rateVal)) {
+                this.setPlaybackRate(rateVal, false);
+            }
+        }
+
+        /**
+         * Handles Rate slider change commit (drag release / change).
+         * Persists user preference.
+         * @param {Event} event
+         * @private
+         */
+        _handleRateSliderChange(event) {
+            if (!this.dom.rateSlider) {
+                return;
+            }
+            const rateVal = parseFloat(this.dom.rateSlider.value);
+            if (Number.isFinite(rateVal)) {
+                this.setPlaybackRate(rateVal, true);
             }
         }
 
@@ -3125,12 +3310,9 @@
                     const prefs = JSON.parse(event.newValue);
                     if (prefs && prefs.version === 1) {
                         if (typeof prefs.rate === 'number' && Number.isFinite(prefs.rate)) {
-                            const clampedRate = Math.max(0.5, Math.min(2.0, prefs.rate));
+                            const clampedRate = Math.max(0.75, Math.min(2.0, prefs.rate));
                             if (this.engine && this.engine.getState() !== 'PLAYING') {
-                                this.engine.setRate(clampedRate);
-                                if (this.dom.rateSelect) {
-                                    this.dom.rateSelect.value = String(clampedRate);
-                                }
+                                this.setPlaybackRate(clampedRate, false);
                             }
                         }
                         if (typeof prefs.followMode === 'boolean') {
@@ -3207,7 +3389,9 @@
                 }
                 const payload = {
                     version: 1,
-                    rate: (this.engine && typeof this.engine.rate === 'number') ? this.engine.rate : 1.0,
+                    rate: (typeof this.rate === 'number' && Number.isFinite(this.rate))
+                        ? this.rate
+                        : ((this.engine && typeof this.engine.rate === 'number') ? this.engine.rate : 1.0),
                     followMode: Boolean(this.followMode),
                     autoNext: Boolean(this.autoNext),
                     fallbackToDevice: Boolean(this.fallbackToDevice),
@@ -4001,10 +4185,18 @@
             const currentLabel = this._formatPlaybackTime(currentTime);
             const durationLabel = this._formatPlaybackTime(duration);
 
-            if (this.dom.progressCurrent) this.dom.progressCurrent.textContent = currentLabel;
-            if (this.dom.progressTotal) this.dom.progressTotal.textContent = durationLabel;
+            if (this.dom.progressCurrent) {
+                this.dom.progressCurrent.hidden = false;
+                if (this.dom.progressCurrent.style) this.dom.progressCurrent.style.visibility = '';
+                this.dom.progressCurrent.textContent = currentLabel;
+            }
+            if (this.dom.progressTotal) {
+                this.dom.progressTotal.hidden = false;
+                if (this.dom.progressTotal.style) this.dom.progressTotal.style.visibility = '';
+                this.dom.progressTotal.textContent = durationLabel;
+            }
             if (this.dom.progressBar) {
-                this.dom.progressBar.setAttribute('aria-label', 'Ti\u1ebfn \u0111\u1ed9 audio c\u1ea3 ch\u01b0\u01a1ng');
+                this.dom.progressBar.setAttribute('aria-label', 'Tiến độ audio cả chương');
                 this.dom.progressBar.setAttribute('aria-valuenow', String(Number(percent.toFixed(2))));
                 this.dom.progressBar.setAttribute('aria-valuetext', currentLabel + ' / ' + durationLabel);
                 if (this.dom.progressFill) this.dom.progressFill.style.width = percent + '%';
@@ -4013,6 +4205,8 @@
 
         /**
          * Updates sentence progress display and horizontal progress bar in DOM.
+         * In DEVICE mode, textual current/total counters are hidden while relative progress bar
+         * and aria-valuetext are preserved.
          * @param {number} current
          * @param {number} total
          * @private
@@ -4022,10 +4216,14 @@
             const totalNum = Number(total) || 0;
 
             if (this.dom.progressCurrent) {
-                this.dom.progressCurrent.textContent = String(currentNum);
+                this.dom.progressCurrent.hidden = true;
+                if (this.dom.progressCurrent.style) this.dom.progressCurrent.style.visibility = 'hidden';
+                this.dom.progressCurrent.textContent = '';
             }
             if (this.dom.progressTotal) {
-                this.dom.progressTotal.textContent = String(totalNum);
+                this.dom.progressTotal.hidden = true;
+                if (this.dom.progressTotal.style) this.dom.progressTotal.style.visibility = 'hidden';
+                this.dom.progressTotal.textContent = '';
             }
 
             if (this.dom.progressBar) {
@@ -4139,6 +4337,10 @@
             }
             if (this.dom.rateSelect) {
                 this.dom.rateSelect.removeEventListener('change', this._boundOnRateChange);
+            }
+            if (this.dom.rateSlider) {
+                this.dom.rateSlider.removeEventListener('input', this._boundOnRateSliderInput);
+                this.dom.rateSlider.removeEventListener('change', this._boundOnRateSliderChange);
             }
             if (this.dom.followToggle) {
                 this.dom.followToggle.removeEventListener('change', this._boundOnFollowChange);

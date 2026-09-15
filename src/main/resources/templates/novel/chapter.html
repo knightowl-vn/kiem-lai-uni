@@ -342,7 +342,7 @@
 
         <div class="novel-narration-timeline">
             <span class="novel-narration-progress-time novel-narration-progress-time--current"
-                  id="novelNarrationProgressCurrent">0</span>
+                  id="novelNarrationProgressCurrent">0:00</span>
             <!-- Interactive chapter-time or legacy chunk seek slider -->
             <div class="novel-narration-progress-bar"
                  id="novelNarrationProgressBar"
@@ -360,7 +360,7 @@
                 </div>
             </div>
             <span class="novel-narration-progress-time novel-narration-progress-time--total"
-                  id="novelNarrationProgressTotal">0</span>
+                  id="novelNarrationProgressTotal">0:00</span>
         </div>
 
         <div class="novel-narration-dock">
@@ -568,21 +568,57 @@
                 </select>
             </div>
 
-            <!-- Rate Selector -->
+            <!-- Rate Controls (Unified Inline Control) -->
             <div class="novel-narration-setting-row">
-                <label for="novelNarrationRateSelect"
+                <label for="novelNarrationRateSlider"
                        class="novel-narration-setting-label">Tốc độ đọc</label>
-                <select id="novelNarrationRateSelect"
-                        class="novel-narration-select novel-narration-select--rate"
-                        aria-label="Tốc độ đọc">
-                    <option value="0.75">0.75x</option>
-                    <option value="1.0"
-                            selected>1.0x</option>
-                    <option value="1.25">1.25x</option>
-                    <option value="1.5">1.5x</option>
-                    <option value="1.75">1.75x</option>
-                    <option value="2.0">2.0x</option>
-                </select>
+                <div class="novel-narration-rate-control"
+                     id="novelNarrationRateControl">
+                    <span class="novel-narration-rate-current"
+                          id="novelNarrationRateValue"
+                          aria-live="polite">1.0x</span>
+                    <input type="range"
+                           id="novelNarrationRateSlider"
+                           class="novel-narration-rate-slider"
+                           min="0.75"
+                           max="2.0"
+                           step="0.05"
+                           value="1.0"
+                           aria-label="Điều chỉnh tốc độ đọc"
+                           aria-valuemin="0.75"
+                           aria-valuemax="2.0"
+                           aria-valuenow="1.0"
+                           aria-valuetext="1.0 lần">
+                    <select id="novelNarrationRateSelect"
+                            class="novel-narration-rate-select"
+                            aria-label="Tốc độ đọc cài sẵn"
+                            title="Chọn tốc độ đặt sẵn">
+                        <option value="0.75">0.75x</option>
+                        <option value="1.0"
+                                selected>1.0x</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x</option>
+                        <option value="1.75">1.75x</option>
+                        <option value="2.0">2.0x</option>
+                    </select>
+                    <div class="novel-narration-rate-dropdown-wrap"
+                         title="Chọn tốc độ đặt sẵn"
+                         aria-hidden="true">
+                        <svg class="novel-narration-rate-chevron"
+                             xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="13"
+                             height="13"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2.2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                </div>
             </div>
 
             <!-- Follow Mode Toggle -->
