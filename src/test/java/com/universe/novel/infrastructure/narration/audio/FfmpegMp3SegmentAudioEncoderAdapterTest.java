@@ -20,11 +20,16 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import com.universe.novel.infrastructure.narration.concurrency.NarrationFfmpegExecutionGate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +40,7 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final byte[] SOURCE_WAV = pcm16Wav(new short[]{0, 100, -100, 0});
     private static final byte[] ENCODED_MP3 = new byte[]{'I', 'D', '3', 4, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4};
+    private final NarrationFfmpegExecutionGate gate = new NarrationFfmpegExecutionGate(1);
 
     @Test
     @DisplayName("1 & 3 & 4 & 5 & 6 & 17: canonical FFmpeg command, output MIME, ownership, samples and sampleRate, no shell wrapper")
@@ -65,7 +71,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                     assertThat(audioFile).isEqualTo(outputFile);
                     assertThat(timeout).isEqualTo(TIMEOUT);
                     return new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 45);
-                }
+                },
+                gate
         );
 
         SegmentAudioEncodingResult result = adapter.encode(request);
@@ -151,7 +158,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                     processInvocations.incrementAndGet();
                     return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, "");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(new SegmentAudioEncodingRequest(
@@ -249,7 +257,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                     Files.write(outputFile, new byte[]{1, 2});
                     return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(1, "pcm_s16le decoding error");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -272,7 +281,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                 (cmd, stream, to) -> {
                     throw new IOException("Cannot run program ffmpeg: No such file");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -295,7 +305,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                     Files.write(outputFile, new byte[]{1, 2, 3});
                     throw new TimeoutException("simulated FFmpeg timeout");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -317,7 +328,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                 (cmd, stream, to) -> {
                     throw new InterruptedException("simulated interrupt");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -340,7 +352,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                 () -> outputFile,
                 Files::deleteIfExists,
                 (cmd, stream, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, ""),
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -366,7 +379,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                 (cmd, stream, to) -> {
                     throw new IOException("FFmpeg process execution failed");
                 },
-                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10)
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -393,7 +407,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                 },
                 (file, to) -> {
                     throw new IOException("ffprobe stream parse failure");
-                }
+                },
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -647,7 +662,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                         (cmd, to) -> {
                             throw new TimeoutException("simulated FFprobe timeout");
                         }
-                )
+                ),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -675,7 +691,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                         (cmd, to) -> {
                             throw new InterruptedException("simulated probe interrupt");
                         }
-                )
+                ),
+                gate
         );
 
         assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
@@ -1022,7 +1039,8 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
                     Files.write(outputFile, ENCODED_MP3);
                     return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, "");
                 },
-                (file, to) -> probeData
+                (file, to) -> probeData,
+                new NarrationFfmpegExecutionGate(1)
         );
     }
 
@@ -1148,6 +1166,147 @@ class FfmpegMp3SegmentAudioEncoderAdapterTest {
         @Override
         public boolean isAlive() {
             return false;
+        }
+    }
+
+    @Test
+    @DisplayName("Segment encode executes through NarrationFfmpegExecutionGate and releases permit on success")
+    void segmentEncodeExecutesThroughGateAndReleasesPermitOnSuccess() throws IOException {
+        Path outputFile = Files.createTempFile("seg_test_gate_success_", ".mp3");
+        FfmpegMp3SegmentAudioEncoderAdapter adapter = new FfmpegMp3SegmentAudioEncoderAdapter(
+                "ffmpeg",
+                "ffprobe",
+                TIMEOUT,
+                () -> outputFile,
+                Files::deleteIfExists,
+                (cmd, stream, to) -> {
+                    Files.write(outputFile, ENCODED_MP3);
+                    return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, "");
+                },
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
+        );
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        SegmentAudioEncodingResult result = adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV));
+        assertThat(result).isNotNull();
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        Files.deleteIfExists(outputFile);
+    }
+
+    @Test
+    @DisplayName("Permit is released when segment encode process fails")
+    void permitIsReleasedWhenSegmentEncodeProcessFails() throws IOException {
+        Path outputFile = Files.createTempFile("seg_test_gate_fail_", ".mp3");
+        FfmpegMp3SegmentAudioEncoderAdapter adapter = new FfmpegMp3SegmentAudioEncoderAdapter(
+                "ffmpeg",
+                "ffprobe",
+                TIMEOUT,
+                () -> outputFile,
+                Files::deleteIfExists,
+                (cmd, stream, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(1, "encoder crashed"),
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
+        );
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FFmpeg segment audio encoding failed");
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Permit is released when segment probe fails")
+    void permitIsReleasedWhenSegmentProbeFails() throws IOException {
+        Path outputFile = Files.createTempFile("seg_test_gate_probe_fail_", ".mp3");
+        FfmpegMp3SegmentAudioEncoderAdapter adapter = new FfmpegMp3SegmentAudioEncoderAdapter(
+                "ffmpeg",
+                "ffprobe",
+                TIMEOUT,
+                () -> outputFile,
+                Files::deleteIfExists,
+                (cmd, stream, to) -> {
+                    Files.write(outputFile, ENCODED_MP3);
+                    return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, "");
+                },
+                (file, to) -> {
+                    throw new IOException("probe parsing error");
+                },
+                gate
+        );
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        assertThatThrownBy(() -> adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to probe encoded segment audio");
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Two concurrent segment encode operations with capacity=1 never execute simultaneously")
+    void concurrentSegmentEncodesAreSerializedByGate() throws Exception {
+        AtomicInteger activeCalls = new AtomicInteger(0);
+        AtomicInteger maxConcurrentCalls = new AtomicInteger(0);
+        CountDownLatch firstCallEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstCall = new CountDownLatch(1);
+
+        FfmpegMp3SegmentAudioEncoderAdapter adapter = new FfmpegMp3SegmentAudioEncoderAdapter(
+                "ffmpeg",
+                "ffprobe",
+                TIMEOUT,
+                () -> Files.createTempFile("seg_concurrent_", ".mp3"),
+                Files::deleteIfExists,
+                (cmd, stream, to) -> {
+                    int current = activeCalls.incrementAndGet();
+                    maxConcurrentCalls.accumulateAndGet(current, Math::max);
+                    firstCallEntered.countDown();
+                    try {
+                        releaseFirstCall.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    Path out = Path.of(cmd.get(cmd.size() - 1));
+                    Files.write(out, ENCODED_MP3);
+                    activeCalls.decrementAndGet();
+                    return new FfmpegMp3SegmentAudioEncoderAdapter.EncoderProcessResult(0, "");
+                },
+                (file, to) -> new FfmpegMp3SegmentAudioEncoderAdapter.SegmentProbeData("mp3", 48000, 1, 10),
+                gate
+        );
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<SegmentAudioEncodingResult> f1 = executor.submit(() ->
+                    adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)));
+
+            assertThat(firstCallEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(gate.getAvailablePermits()).isEqualTo(0);
+
+            Future<SegmentAudioEncodingResult> f2 = executor.submit(() ->
+                    adapter.encode(SegmentAudioEncodingRequest.of("audio/wav", SOURCE_WAV)));
+
+            Thread.sleep(100);
+            assertThat(gate.getQueueLength()).isEqualTo(1);
+            assertThat(maxConcurrentCalls.get()).isEqualTo(1);
+
+            releaseFirstCall.countDown();
+
+            SegmentAudioEncodingResult res1 = f1.get(5, TimeUnit.SECONDS);
+            SegmentAudioEncodingResult res2 = f2.get(5, TimeUnit.SECONDS);
+
+            assertThat(res1).isNotNull();
+            assertThat(res2).isNotNull();
+            assertThat(maxConcurrentCalls.get()).isEqualTo(1);
+            assertThat(gate.getAvailablePermits()).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
         }
     }
 }

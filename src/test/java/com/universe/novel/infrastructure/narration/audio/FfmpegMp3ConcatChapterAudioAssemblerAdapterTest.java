@@ -11,6 +11,7 @@ import com.universe.novel.infrastructure.narration.audio.FfmpegMp3ConcatChapterA
 import com.universe.novel.infrastructure.narration.audio.FfmpegMp3ConcatChapterAudioAssemblerAdapter.ConcatProcessRunner;
 import com.universe.novel.infrastructure.narration.audio.FfmpegMp3ConcatChapterAudioAssemblerAdapter.TempWorkspaceDeleter;
 import com.universe.novel.infrastructure.narration.audio.FfmpegMp3ConcatChapterAudioAssemblerAdapter.TempWorkspaceFactory;
+import com.universe.novel.infrastructure.narration.concurrency.NarrationFfmpegExecutionGate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +46,12 @@ class FfmpegMp3ConcatChapterAudioAssemblerAdapterTest {
 
     private final List<Path> createdWorkspaces = new ArrayList<>();
     private final AtomicReference<Path> lastCreatedWorkspace = new AtomicReference<>();
+    private NarrationFfmpegExecutionGate gate;
+
+    @BeforeEach
+    void setUp() {
+        gate = new NarrationFfmpegExecutionGate(1);
+    }
 
     @AfterEach
     void tearDown() throws IOException {
@@ -607,7 +614,8 @@ class FfmpegMp3ConcatChapterAudioAssemblerAdapterTest {
                 },
                 failingDeleter,
                 runner,
-                probeRunner
+                probeRunner,
+                gate
         );
 
         ChapterAudioSegmentSource s1 = canonicalSource(SEGMENT_1_ID, 0, 1152L, new byte[]{1});
@@ -634,7 +642,8 @@ class FfmpegMp3ConcatChapterAudioAssemblerAdapterTest {
                 },
                 FfmpegMp3ConcatChapterAudioAssemblerAdapter::deleteRecursively,
                 runner,
-                probeRunner
+                probeRunner,
+                gate
         );
     }
 
@@ -644,8 +653,63 @@ class FfmpegMp3ConcatChapterAudioAssemblerAdapterTest {
                     writeChapterOutput(dir);
                     return new ConcatProcessResult(0, "");
                 },
-                (audioFile, to) -> new ChapterProbeData("mp3", 48000, 1, new BigDecimal("0.048"))
+                (audioFile, timeout) ->
+                        new ChapterProbeData("mp3", 48000, 1, new BigDecimal("0.024"))
         );
+    }
+
+    @Test
+    @DisplayName("Chapter concat and probe executes through NarrationFfmpegExecutionGate and releases permit on success")
+    void chapterConcatExecutesThroughGateAndReleasesPermitOnSuccess() {
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        FfmpegMp3ConcatChapterAudioAssemblerAdapter adapter = createDefaultAdapter();
+        ChapterAudioSegmentSource s1 = canonicalSource(SEGMENT_1_ID, 0, 1152L, new byte[]{1, 2, 3});
+
+        ChapterAudioAssemblyResult result = adapter.assemble(new ChapterAudioAssemblyRequest(List.of(s1)));
+        assertThat(result).isNotNull();
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Permit is released when concat process fails with exit code != 0")
+    void permitIsReleasedWhenConcatProcessFails() {
+        ConcatProcessRunner failingRunner = (cmd, dir, to) -> new ConcatProcessResult(1, "concat failed");
+        ChapterAudioProbeRunner dummyProbeRunner = (file, to) -> new ChapterProbeData("mp3", 48000, 1, new BigDecimal("0.024"));
+
+        FfmpegMp3ConcatChapterAudioAssemblerAdapter adapter = createAdapter(failingRunner, dummyProbeRunner);
+        ChapterAudioSegmentSource s1 = canonicalSource(SEGMENT_1_ID, 0, 1152L, new byte[]{1});
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        assertThatThrownBy(() -> adapter.assemble(new ChapterAudioAssemblyRequest(List.of(s1))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FFmpeg chapter audio concatenation failed");
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Permit is released when chapter probe fails with exception")
+    void permitIsReleasedWhenChapterProbeFails() {
+        ConcatProcessRunner runner = (cmd, dir, to) -> {
+            writeChapterOutput(dir);
+            return new ConcatProcessResult(0, "");
+        };
+        ChapterAudioProbeRunner failingProbeRunner = (file, to) -> {
+            throw new IOException("probe io error");
+        };
+
+        FfmpegMp3ConcatChapterAudioAssemblerAdapter adapter = createAdapter(runner, failingProbeRunner);
+        ChapterAudioSegmentSource s1 = canonicalSource(SEGMENT_1_ID, 0, 1152L, new byte[]{1});
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
+
+        assertThatThrownBy(() -> adapter.assemble(new ChapterAudioAssemblyRequest(List.of(s1))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to probe concatenated chapter audio with FFprobe");
+
+        assertThat(gate.getAvailablePermits()).isEqualTo(1);
     }
 
     private static ChapterAudioSegmentSource canonicalSource(
