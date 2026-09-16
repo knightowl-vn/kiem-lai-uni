@@ -103,7 +103,9 @@ public class SecurityBeanConfig {
                                 "/media/assets/*/content",
                                 "/media/assets/*/variants/*",
                                 "/api/novel/narration/voices",
-                                "/api/novel/chapters/*/narration/playback"
+                                "/api/novel/chapters/*/narration/playback",
+                                "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/*/thread"
                         )
                         .permitAll()
 
@@ -112,6 +114,25 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/narration/prepare"
                         )
                         .permitAll()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/*/replies"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.PATCH,
+                                "/api/novel/chapters/*/comments/*"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.DELETE,
+                                "/api/novel/chapters/*/comments/*"
+                        )
+                        .authenticated()
 
                         .requestMatchers(
                                 "/novel/bookmarks",
