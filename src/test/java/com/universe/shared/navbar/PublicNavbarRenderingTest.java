@@ -17,6 +17,7 @@ import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.entry.web.PublicWikiController;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
@@ -91,6 +92,9 @@ class PublicNavbarRenderingTest {
 
     @MockBean
     private WikiMarkdownRenderer wikiMarkdownRenderer;
+
+    @MockBean
+    private IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
 
     @MockBean
     private GetReaderNovelLandingUseCase getReaderNovelLandingUseCase;
