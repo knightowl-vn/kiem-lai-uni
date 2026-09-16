@@ -65,6 +65,18 @@ public class WikiArticleQueryAdapter
                 )
                 .map(this::toPublishedDTO);
     }
+
+    @Override
+    public boolean isPublished(UUID articleId) {
+        if (articleId == null) {
+            return false;
+        }
+
+        return repository.existsByIdAndStatus(
+                articleId.toString(),
+                ArticleStatus.PUBLISHED.name()
+        );
+    }
     @Override
     public Optional<PublishedWikiArticleDTO>
             findPublishedByArticleTypeAndSlug(

@@ -33,6 +33,14 @@ public interface WikiArticleQueryPort {
     );
 
     /**
+     * Kiểm tra nhanh bài viết theo ID có đang ở trạng thái PUBLISHED hay không.
+     * Tối ưu hiệu năng: không hydrate toàn bộ nội dung (content) bài viết.
+     */
+    boolean isPublished(
+            UUID articleId
+    );
+
+    /**
      * Lấy danh sách bài viết có phân trang và bộ lọc.
      */
     WikiArticlePageDTO findPage(

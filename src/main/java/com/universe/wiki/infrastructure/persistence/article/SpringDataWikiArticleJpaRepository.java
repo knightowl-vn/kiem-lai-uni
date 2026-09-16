@@ -37,6 +37,11 @@ public interface SpringDataWikiArticleJpaRepository
             String status
     );
 
+    boolean existsByIdAndStatus(
+            String id,
+            String status
+    );
+
     /**
      * Truy vấn danh sách bài Wiki dành cho trang quản trị.
      *
