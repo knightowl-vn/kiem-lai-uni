@@ -166,6 +166,13 @@
 			<version>${commonmark.version}</version>
 		</dependency>
 
+		<!-- HTML parser for Reader canonical block extraction -->
+		<dependency>
+			<groupId>org.jsoup</groupId>
+			<artifactId>jsoup</artifactId>
+			<version>1.23.2</version>
+		</dependency>
+
 		<!-- AWS SDK for Java v2 S3 API (Cloudflare R2) -->
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
