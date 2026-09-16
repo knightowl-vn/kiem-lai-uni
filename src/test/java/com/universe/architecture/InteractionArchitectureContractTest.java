@@ -133,4 +133,20 @@ public class InteractionArchitectureContractTest {
                     )
                     .because("External bounded contexts must not depend on Interaction internal implementation packages")
                     .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule novelAnchorMustNotDependOnInteraction =
+            noClasses()
+                    .that().resideInAPackage("com.universe.novel..anchor..")
+                    .should().dependOnClassesThat().resideInAPackage("com.universe.interaction..")
+                    .because("Novel anchor persistence is a Novel-owned sidecar referencing interaction comments only by scalar UUID")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule interactionMustNotDependOnNovelAnchor =
+            noClasses()
+                    .that().resideInAPackage("com.universe.interaction..")
+                    .should().dependOnClassesThat().resideInAPackage("com.universe.novel..anchor..")
+                    .because("Interaction comments must remain generic and unaware of Novel Reader anchor sidecars")
+                    .allowEmptyShould(true);
 }
