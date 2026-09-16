@@ -103,7 +103,9 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         AdminNovelProfileCommandController.class,
         MediaDeliveryController.class,
         com.universe.novel.entry.reader.PublicNovelManagedVoiceCatalogController.class,
-        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class
+        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class,
+        com.universe.wiki.entry.web.SavedWikiArticleController.class,
+        com.universe.wiki.entry.web.PublicWikiController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -208,6 +210,24 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.novel.application.narration.GetPublicManagedVoiceCatalogUseCase getPublicManagedVoiceCatalogUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.saved.SaveWikiArticleUseCase saveWikiArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.saved.UnsaveWikiArticleUseCase unsaveWikiArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublishedWikiArticleUseCase getPublishedArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.entry.web.support.ArticleTypePathMapper articleTypePathMapper;
+
+    @MockBean
+    private com.universe.wiki.application.article.render.WikiMarkdownRenderer wikiMarkdownRenderer;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -619,5 +639,122 @@ class SecurityAuthorizationTest {
                         .content("{\"voiceKey\": \"kiemlai-male-01\"}"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép truy cập danh sách Wiki công khai /wiki")
+    void shouldAllowAnonymousAccessToPublicWiki() throws Exception {
+        when(listPublishedArticlesUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO(
+                        List.of(), 0, 20, 0, 0, true, true
+                ));
+
+        mockMvc.perform(get("/wiki"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép truy cập chi tiết bài viết Wiki công khai /wiki/{type}/{slug}")
+    void shouldAllowAnonymousAccessToPublicWikiArticleDetail() throws Exception {
+        when(articleTypePathMapper.fromPath("character"))
+                .thenReturn(com.universe.wiki.domain.article.ArticleType.CHARACTER);
+        when(getPublishedArticleUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticleDTO(
+                        UUID.randomUUID(),
+                        "Trần Bình An",
+                        "tran-binh-an",
+                        "CHARACTER",
+                        "Tóm tắt",
+                        "Nội dung",
+                        Instant.now(),
+                        Instant.now()
+                ));
+        when(wikiMarkdownRenderer.render(any()))
+                .thenReturn(new com.universe.wiki.application.article.render.RenderedWikiContent("html", List.of()));
+        when(articleTypePathMapper.toPath(any()))
+                .thenReturn("character");
+
+        mockMvc.perform(get("/wiki/character/tran-binh-an"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi lưu bài viết Wiki POST /wiki/articles/{articleId}/save (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingSaveWikiArticle() throws Exception {
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi bỏ lưu bài viết Wiki DELETE /wiki/articles/{articleId}/save (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenDeletingSaveWikiArticle() throws Exception {
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST /wiki/articles/{articleId}/save không có CSRF bị chuyển hướng sang /access-denied")
+    void shouldRedirectToAccessDeniedWhenPostingSaveWikiArticleWithoutCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save")
+                        .with(requestIdentity(userId)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("DELETE /wiki/articles/{articleId}/save không có CSRF bị chuyển hướng sang /access-denied")
+    void shouldRedirectToAccessDeniedWhenDeletingSaveWikiArticleWithoutCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save")
+                        .with(requestIdentity(userId)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập lưu bài viết Wiki hợp lệ với CSRF trả về 204 No Content")
+    void shouldAllowAuthenticatedUserToSaveWikiArticleWithCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save")
+                        .with(csrf())
+                        .with(requestIdentity(userId)))
+                .andExpect(status().isNoContent());
+
+        verify(saveWikiArticleUseCase).execute(new com.universe.wiki.application.saved.SaveWikiArticleCommand(userId, articleId));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập bỏ lưu bài viết Wiki hợp lệ với CSRF trả về 204 No Content")
+    void shouldAllowAuthenticatedUserToUnsaveWikiArticleWithCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save")
+                        .with(csrf())
+                        .with(requestIdentity(userId)))
+                .andExpect(status().isNoContent());
+
+        verify(unsaveWikiArticleUseCase).execute(new com.universe.wiki.application.saved.UnsaveWikiArticleCommand(userId, articleId));
     }
 }

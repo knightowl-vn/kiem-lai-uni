@@ -88,9 +88,7 @@ public class SecurityBeanConfig {
                                 "/css/**",
                                 "/js/**",
                                 "/images/**",
-                                "/error",
-                                "/wiki",
-                                "/wiki/**"
+                                "/error"
                         )
                         .permitAll()
 
@@ -129,6 +127,17 @@ public class SecurityBeanConfig {
                         .requestMatchers(
                                 "/novel",
                                 "/novel/**"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                "/wiki/articles/*/save"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                "/wiki",
+                                "/wiki/**"
                         )
                         .permitAll()
 
