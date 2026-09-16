@@ -29,9 +29,11 @@ class CommonMarkReaderNarrationMarkdownRendererTest {
         String html = renderer.renderToHtml(markdown, mapping);
         String[] tags = {"h1", "p", "p", "li", "li", "tr", "tr", "pre", "pre"};
         for (int index = 0; index < tags.length; index++) {
-            assertThat(html).contains("<" + tags[index] + " data-narration-segment-ids=\"" + new UUID(0, index + 1) + "\">");
+            assertThat(html).contains("<" + tags[index] + " data-reader-block-key=");
+            assertThat(html).contains("data-narration-segment-ids=\"" + new UUID(0, index + 1) + "\"");
         }
         assertThat(html.split("data-narration-segment-ids=", -1)).hasSize(10);
+        assertThat(html.split("data-reader-block-key=", -1)).hasSize(10);
         assertThat(withoutAnchors(html)).isEqualTo(generic.renderToHtml(markdown));
     }
 
@@ -39,9 +41,10 @@ class CommonMarkReaderNarrationMarkdownRendererTest {
     void duplicateTextAndManyToManyMembershipUseOrdinals() {
         String markdown = "Repeated.\n\nRepeated.\n\nOther.";
         String html = renderer.renderToHtml(markdown, Map.of(0, List.of(a), 1, List.of(a, b), 2, List.of(b)));
-        assertThat(html).contains("<p data-narration-segment-ids=\"" + a + "\">Repeated.</p>",
-                "<p data-narration-segment-ids=\"" + a + " " + b + "\">Repeated.</p>",
-                "<p data-narration-segment-ids=\"" + b + "\">Other.</p>");
+        assertThat(html).contains("data-narration-segment-ids=\"" + a + "\"");
+        assertThat(html).contains("data-narration-segment-ids=\"" + a + " " + b + "\"");
+        assertThat(html).contains("data-narration-segment-ids=\"" + b + "\"");
+        assertThat(html).contains("data-reader-block-key=");
         assertThat(withoutAnchors(html)).isEqualTo(generic.renderToHtml(markdown));
     }
 

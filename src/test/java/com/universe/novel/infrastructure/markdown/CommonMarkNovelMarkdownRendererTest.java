@@ -14,8 +14,9 @@ class CommonMarkNovelMarkdownRendererTest {
 	void shouldRenderBasicMarkdown() {
 		String html = renderer.renderToHtml("## Tiêu đề\n\nĐoạn **in đậm** và _in nghiêng_.");
 
-		assertThat(html).contains("<h2>");
-		assertThat(html).contains("Tiêu đề");
+		assertThat(html).contains("<h2 data-reader-block-key=");
+		assertThat(html).contains("Tiêu đề</h2>");
+		assertThat(html).contains("<p data-reader-block-key=");
 		assertThat(html).contains("<strong>in đậm</strong>");
 		assertThat(html).contains("<em>in nghiêng</em>");
 	}
