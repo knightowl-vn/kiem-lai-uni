@@ -135,14 +135,23 @@ class ReadingHistoryPersistenceAdapterTest {
                 T0,
                 T0
         );
-        when(repository.findById(HISTORY_ID.toString())).thenReturn(Optional.of(existingEntity));
-        when(repository.saveAndFlush(any(ReadingHistoryJpaEntity.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+        ReadingHistoryJpaEntity refreshedEntity = new ReadingHistoryJpaEntity(
+                HISTORY_ID.toString(),
+                USER_ID.toString(),
+                CHAPTER_ID.toString(),
+                T0,
+                T1
+        );
+
+        when(repository.findById(HISTORY_ID.toString()))
+                .thenReturn(Optional.of(existingEntity))
+                .thenReturn(Optional.of(refreshedEntity));
 
         UserChapterReadingHistory saved = adapter.save(domain);
 
+        verify(repository).updateLastReadAtIfNewer(HISTORY_ID.toString(), T1);
         assertThat(existingEntity.getFirstReadAt()).isEqualTo(T0);
-        assertThat(existingEntity.getLastReadAt()).isEqualTo(T1);
+        assertThat(existingEntity.getLastReadAt()).isEqualTo(T0); // Preloaded entity is NOT mutated in-memory
         assertThat(saved.getFirstReadAt()).isEqualTo(T0);
         assertThat(saved.getLastReadAt()).isEqualTo(T1);
     }

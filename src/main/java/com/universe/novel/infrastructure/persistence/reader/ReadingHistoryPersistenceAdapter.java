@@ -46,28 +46,29 @@ public class ReadingHistoryPersistenceAdapter implements ReadingHistoryRepositor
         String historyId = history.getId().toString();
         Optional<ReadingHistoryJpaEntity> existingEntity = repository.findById(historyId);
 
-        ReadingHistoryJpaEntity entity;
         if (existingEntity.isPresent()) {
-            entity = existingEntity.get();
-            entity.setLastReadAt(history.getLastReadAt());
+            repository.updateLastReadAtIfNewer(historyId, history.getLastReadAt());
+            return repository.findById(historyId)
+                    .map(this::toDomain)
+                    .orElse(history);
         } else {
-            entity = new ReadingHistoryJpaEntity(
+            ReadingHistoryJpaEntity entity = new ReadingHistoryJpaEntity(
                     historyId,
                     history.getUserId().toString(),
                     history.getChapterId().toString(),
                     history.getFirstReadAt(),
                     history.getLastReadAt()
             );
-        }
 
-        try {
-            ReadingHistoryJpaEntity savedEntity = repository.saveAndFlush(entity);
-            return toDomain(savedEntity);
-        } catch (DataIntegrityViolationException ex) {
-            if (isDuplicateConstraintViolation(ex)) {
-                throw new DuplicateReadingHistoryException(history.getUserId(), history.getChapterId(), ex);
+            try {
+                ReadingHistoryJpaEntity savedEntity = repository.saveAndFlush(entity);
+                return toDomain(savedEntity);
+            } catch (DataIntegrityViolationException ex) {
+                if (isDuplicateConstraintViolation(ex)) {
+                    throw new DuplicateReadingHistoryException(history.getUserId(), history.getChapterId(), ex);
+                }
+                throw ex;
             }
-            throw ex;
         }
     }
 

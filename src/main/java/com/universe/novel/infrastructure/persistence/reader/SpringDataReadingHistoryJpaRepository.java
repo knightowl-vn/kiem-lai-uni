@@ -18,6 +18,19 @@ public interface SpringDataReadingHistoryJpaRepository
 
     boolean existsByUserIdAndChapterId(String userId, String chapterId);
 
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("""
+            UPDATE ReadingHistoryJpaEntity h
+            SET h.lastReadAt = :candidate
+            WHERE h.id = :id
+              AND h.lastReadAt < :candidate
+            """)
+    int updateLastReadAtIfNewer(
+            @Param("id") String id,
+            @Param("candidate") java.time.Instant candidate
+    );
+
     @Query(
             value = """
                     SELECT
@@ -35,7 +48,7 @@ public interface SpringDataReadingHistoryJpaRepository
                     WHERE h.user_id = :userId
                       AND c.status = 'PUBLISHED'
                       AND v.status = 'PUBLISHED'
-                    ORDER BY h.last_read_at DESC
+                    ORDER BY h.last_read_at DESC, h.id DESC
                     LIMIT 10
                     """,
             nativeQuery = true
@@ -55,7 +68,7 @@ public interface SpringDataReadingHistoryJpaRepository
                               SELECT id
                               FROM novel_reading_history
                               WHERE user_id = :userId
-                              ORDER BY last_read_at DESC
+                              ORDER BY last_read_at DESC, id DESC
                               LIMIT :retentionLimit
                           ) AS preserved_history
                       )

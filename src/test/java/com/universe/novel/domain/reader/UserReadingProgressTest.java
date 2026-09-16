@@ -85,9 +85,9 @@ class UserReadingProgressTest {
     }
 
     @Test
-    @DisplayName("Opening an older chapter updates lastOpened but preserves highest progress")
+    @DisplayName("Opening an older chapter with newer observedAt updates lastOpened but preserves highest progress")
     void shouldUpdateLastOpenedAndPreserveHighestWhenOpeningOlderChapter() {
-        // Initial state at Chapter 82
+        // Initial state at Chapter 82, updatedAt = T0
         UserReadingProgress progress = UserReadingProgress.createInitial(
                 PROGRESS_ID,
                 USER_ID,
@@ -96,7 +96,7 @@ class UserReadingProgressTest {
                 T0
         );
 
-        // Later opens Chapter 20
+        // Later opens Chapter 20 at T1 > T0
         boolean mutated = progress.recordChapterAccess(
                 CHAPTER_20_ID,
                 20,
@@ -111,8 +111,8 @@ class UserReadingProgressTest {
     }
 
     @Test
-    @DisplayName("Opening the same last-opened chapter is an idempotent no-op")
-    void shouldBeNoOpWhenOpeningSameLastOpenedChapter() {
+    @DisplayName("Reopening the same chapter at a newer time advances the observation watermark updatedAt")
+    void shouldAdvanceWatermarkWhenReopeningSameChapterAtNewerTime() {
         UserReadingProgress progress = UserReadingProgress.createInitial(
                 PROGRESS_ID,
                 USER_ID,
@@ -121,40 +121,89 @@ class UserReadingProgressTest {
                 T0
         );
 
-        // Access Chapter 20 again at T1
+        // Access Chapter 20 again at T1 > T0
         boolean mutated = progress.recordChapterAccess(
                 CHAPTER_20_ID,
                 20,
                 T1
         );
 
-        assertThat(mutated).isFalse();
+        assertThat(mutated).isTrue();
         assertThat(progress.getLastOpenedChapterId()).isEqualTo(CHAPTER_20_ID);
         assertThat(progress.getHighestReachedChapterNumber()).isEqualTo(20);
-        assertThat(progress.getUpdatedAt()).isEqualTo(T0); // Exactly preserved
+        assertThat(progress.getUpdatedAt()).isEqualTo(T1); // Advanced watermark
         assertThat(progress.getCreatedAt()).isEqualTo(T0);
     }
 
     @Test
-    @DisplayName("No-op preserves updatedAt exactly without touching timestamp")
-    void shouldPreserveUpdatedAtExactlyOnRepeatedAccess() {
+    @DisplayName("Exact duplicate event at the same timestamp is an idempotent no-op")
+    void shouldBeNoOpWhenExactDuplicateEventArrives() {
         UserReadingProgress progress = UserReadingProgress.createInitial(
                 PROGRESS_ID,
                 USER_ID,
-                CHAPTER_82_ID,
-                82,
+                CHAPTER_20_ID,
+                20,
                 T0
         );
 
-        // First transition: open older chapter 20 at T1
-        progress.recordChapterAccess(CHAPTER_20_ID, 20, T1);
-        assertThat(progress.getUpdatedAt()).isEqualTo(T1);
+        // Repeated access to chapter 20 at T0 (same timestamp) -> no-op
+        boolean mutated = progress.recordChapterAccess(CHAPTER_20_ID, 20, T0);
 
-        // Repeated access to chapter 20 at T2 -> no-op
-        boolean secondAccess = progress.recordChapterAccess(CHAPTER_20_ID, 20, T2);
+        assertThat(mutated).isFalse();
+        assertThat(progress.getUpdatedAt()).isEqualTo(T0);
+        assertThat(progress.getLastOpenedChapterId()).isEqualTo(CHAPTER_20_ID);
+    }
 
-        assertThat(secondAccess).isFalse();
-        assertThat(progress.getUpdatedAt()).isEqualTo(T1); // Retains T1, not updated to T2
+    @Test
+    @DisplayName("Stale delayed event with older observedAt cannot overwrite newer lastOpened pointer or regress updatedAt")
+    void shouldRejectStaleOlderObservedAtFromOverwritingLastOpened() {
+        // Current state: user intentional revisit to Chapter 20 at T2
+        UserReadingProgress progress = UserReadingProgress.rehydrate(
+                PROGRESS_ID,
+                USER_ID,
+                CHAPTER_20_ID,
+                101,
+                T0,
+                T2
+        );
+
+        // Stale delayed request from chapter 80 observed earlier at T1 < T2
+        boolean mutated = progress.recordChapterAccess(
+                CHAPTER_82_ID,
+                80,
+                T1
+        );
+
+        assertThat(mutated).isFalse();
+        assertThat(progress.getLastOpenedChapterId()).isEqualTo(CHAPTER_20_ID); // Preserved
+        assertThat(progress.getHighestReachedChapterNumber()).isEqualTo(101); // Preserved
+        assertThat(progress.getUpdatedAt()).isEqualTo(T2); // Not regressed to T1
+    }
+
+    @Test
+    @DisplayName("Stale delayed event with higher chapter number advances highest reached but preserves lastOpened pointer and watermark")
+    void shouldAdvanceHighestReachedEvenWhenStaleEventHasHigherChapterNumber() {
+        // Current state: user on Chapter 20 at T2, highest = 100
+        UserReadingProgress progress = UserReadingProgress.rehydrate(
+                PROGRESS_ID,
+                USER_ID,
+                CHAPTER_20_ID,
+                100,
+                T0,
+                T2
+        );
+
+        // Stale delayed request from Chapter 500 observed earlier at T1 < T2
+        boolean mutated = progress.recordChapterAccess(
+                CHAPTER_800_ID,
+                500,
+                T1
+        );
+
+        assertThat(mutated).isTrue();
+        assertThat(progress.getLastOpenedChapterId()).isEqualTo(CHAPTER_20_ID); // Still Chapter 20!
+        assertThat(progress.getHighestReachedChapterNumber()).isEqualTo(500); // Monotonic advance!
+        assertThat(progress.getUpdatedAt()).isEqualTo(T2); // Watermark preserved at T2!
     }
 
     @Test
