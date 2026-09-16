@@ -1,25 +1,39 @@
 package com.universe.interaction.infrastructure.persistence;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Spring Data JPA repository for {@link CommentJpaEntity}.
  *
  * <p>Supports:
  * <ul>
+ *   <li>Pessimistic row locking for concurrency-safe mutation orchestration;</li>
  *   <li>Zero-based slice pagination for active root comments, avoiding COUNT(*) queries;</li>
  *   <li>Flat retrieval of thread replies ordered chronologically.</li>
  * </ul>
  */
 @Repository
 public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEntity, String> {
+
+    /**
+     * Retrieves an existing comment row by ID with an exclusive pessimistic write lock (SELECT ... FOR UPDATE).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT c FROM CommentJpaEntity c
+            WHERE c.id = :id
+            """)
+    Optional<CommentJpaEntity> findByIdForUpdate(@Param("id") String id);
 
     /**
      * Retrieves a pageable slice of active root comments for a given target.

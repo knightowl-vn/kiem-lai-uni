@@ -17,13 +17,23 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,6 +62,9 @@ class CommentPersistenceAdapterMySQLTest {
 
     @Autowired
     private CommentPersistenceAdapter adapter;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     @AfterEach
@@ -460,5 +473,132 @@ class CommentPersistenceAdapterMySQLTest {
         assertThatThrownBy(() -> adapter.findThreadReplies(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Thread root comment ID cannot be null.");
+    }
+
+    // =========================================================================
+    // 5. PESSIMISTIC LOCKING (FIND BY ID FOR UPDATE) & CONCURRENCY
+    // =========================================================================
+
+    @Test
+    @DisplayName("Should throw IllegalArgumentException when findByIdForUpdate is called with null ID inside an active transaction")
+    void shouldThrowWhenFindByIdForUpdateWithNullId() {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        assertThatThrownBy(() -> txTemplate.execute(status -> adapter.findByIdForUpdate(null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Comment ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("Should fail fast with IllegalTransactionStateException when findByIdForUpdate is called without an active transaction")
+    void shouldFailFastWhenFindByIdForUpdateCalledWithoutActiveTransaction() {
+        UUID commentId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> adapter.findByIdForUpdate(commentId))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("Should return empty Optional when findByIdForUpdate is called with missing ID")
+    void shouldReturnEmptyOptionalWhenFindByIdForUpdateWithMissingId() {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Optional<Comment> result = txTemplate.execute(status -> adapter.findByIdForUpdate(UUID.randomUUID()));
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Should return domain aggregate when findByIdForUpdate is called with existing ID")
+    void shouldReturnAggregateWhenFindByIdForUpdateWithExistingId() {
+        UUID commentId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.novelChapter(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+        Instant createdAt = Instant.parse("2026-09-16T10:00:00Z");
+        Comment root = Comment.createRoot(commentId, target, authorId, "Root for update", createdAt);
+        adapter.save(root);
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Optional<Comment> found = txTemplate.execute(status -> adapter.findByIdForUpdate(commentId));
+        assertThat(found).isPresent();
+        assertThat(found.get().getId()).isEqualTo(commentId);
+        assertThat(found.get().getBody()).isEqualTo("Root for update");
+        assertThat(found.get().getStatus()).isEqualTo(CommentStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("Should serialize concurrent mutations and prevent stale resurrection via findByIdForUpdate")
+    void shouldSerializeConcurrentMutationsAndPreventStaleResurrectionWithFindByIdForUpdate() throws Exception {
+        UUID commentId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.novelChapter(UUID.randomUUID());
+        UUID authorId = UUID.randomUUID();
+        Instant t1 = Instant.parse("2026-09-16T10:00:00Z");
+        Comment root = Comment.createRoot(commentId, target, authorId, "Initial content", t1);
+        adapter.save(root);
+
+        CountDownLatch thread1LockedRow = new CountDownLatch(1);
+        CountDownLatch thread2AttemptingLock = new CountDownLatch(1);
+        AtomicBoolean thread2ObservedTombstone = new AtomicBoolean(false);
+
+        TransactionTemplate txTemplate1 = new TransactionTemplate(transactionManager);
+        txTemplate1.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txTemplate2 = new TransactionTemplate(transactionManager);
+        txTemplate2.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> future1 = executor.submit(() -> {
+                txTemplate1.execute(status -> {
+                    Comment comment = adapter.findByIdForUpdate(commentId).orElseThrow();
+                    thread1LockedRow.countDown();
+                    try {
+                        thread2AttemptingLock.await(5, TimeUnit.SECONDS);
+                        // Brief pause allowing thread 2 to reach and block on findByIdForUpdate
+                        Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    comment.delete(Instant.parse("2026-09-16T10:05:00Z"));
+                    adapter.save(comment);
+                    return null;
+                });
+            });
+
+            Future<?> future2 = executor.submit(() -> {
+                try {
+                    thread1LockedRow.await(5, TimeUnit.SECONDS);
+                    thread2AttemptingLock.countDown();
+                    txTemplate2.execute(status -> {
+                        // Blocks in MySQL InnoDB until txTemplate1 commits
+                        Comment comment = adapter.findByIdForUpdate(commentId).orElseThrow();
+                        if (comment.isDeleted()) {
+                            thread2ObservedTombstone.set(true);
+                        } else {
+                            comment.edit("Stale overwrite", Instant.parse("2026-09-16T10:06:00Z"));
+                            adapter.save(comment);
+                        }
+                        return null;
+                    });
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
+            future1.get(10, TimeUnit.SECONDS);
+            future2.get(10, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(thread2ObservedTombstone.get()).isTrue();
+        Comment finalComment = adapter.findById(commentId).orElseThrow();
+        assertThat(finalComment.isDeleted()).isTrue();
+        assertThat(finalComment.getStatus()).isEqualTo(CommentStatus.DELETED);
+        assertThat(finalComment.getBody()).isNull();
     }
 }

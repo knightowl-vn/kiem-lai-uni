@@ -8,6 +8,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -58,6 +59,15 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
             throw new IllegalArgumentException("Comment ID cannot be null.");
         }
         return repository.findById(commentId.toString()).map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<Comment> findByIdForUpdate(UUID commentId) {
+        if (commentId == null) {
+            throw new IllegalArgumentException("Comment ID cannot be null.");
+        }
+        return repository.findByIdForUpdate(commentId.toString()).map(mapper::toDomain);
     }
 
     @Override

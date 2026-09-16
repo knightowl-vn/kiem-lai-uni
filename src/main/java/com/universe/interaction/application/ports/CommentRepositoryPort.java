@@ -36,6 +36,18 @@ public interface CommentRepositoryPort {
     Optional<Comment> findById(UUID commentId);
 
     /**
+     * Finds a comment by its ID with an exclusive row lock for update,
+     * supporting both ACTIVE comments and DELETED tombstones.
+     *
+     * <p>Callers must invoke this method inside an active mutation transaction
+     * so that the exclusive lock remains held through validation, mutation, and save.
+     *
+     * @param commentId unique identifier of the comment (cannot be null)
+     * @return optional containing the domain comment if found, empty otherwise
+     */
+    Optional<Comment> findByIdForUpdate(UUID commentId);
+
+    /**
      * Finds active root comments for the given target using zero-based slice pagination.
      *
      * <p>Roots have {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
