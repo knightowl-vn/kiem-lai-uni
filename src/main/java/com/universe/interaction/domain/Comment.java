@@ -12,7 +12,7 @@ import java.util.UUID;
  *   <li>Stable UUID identity;</li>
  *   <li>Generic comment target (targetType + scalar targetId);</li>
  *   <li>Author user ID (scalar UUID);</li>
- *   <li>V1 single-depth hierarchy (root comments vs direct replies);</li>
+ *   <li>Nested reply ancestry (parentCommentId + threadRootCommentId);</li>
  *   <li>Body content validation and editing;</li>
  *   <li>Lifecycle state: {@link CommentStatus#ACTIVE} &rarr; {@link CommentStatus#DELETED} (tombstone);</li>
  *   <li>Lifecycle timestamps and temporal consistency.</li>
@@ -26,6 +26,7 @@ public final class Comment {
     private final CommentTarget target;
     private final UUID authorUserId;
     private final UUID parentCommentId;
+    private final UUID threadRootCommentId;
     private String body;
     private CommentStatus status;
     private final Instant createdAt;
@@ -37,6 +38,7 @@ public final class Comment {
             CommentTarget target,
             UUID authorUserId,
             UUID parentCommentId,
+            UUID threadRootCommentId,
             String body,
             CommentStatus status,
             Instant createdAt,
@@ -46,10 +48,22 @@ public final class Comment {
         this.id = Objects.requireNonNull(id, "Comment ID cannot be null.");
         this.target = Objects.requireNonNull(target, "Comment target cannot be null.");
         this.authorUserId = Objects.requireNonNull(authorUserId, "Author user ID cannot be null.");
+
+        if ((parentCommentId == null) != (threadRootCommentId == null)) {
+            throw new IllegalArgumentException(
+                    "Comment thread hierarchy mismatch: parentCommentId and threadRootCommentId must both be null or both be non-null."
+            );
+        }
+
         if (parentCommentId != null && parentCommentId.equals(id)) {
             throw new IllegalArgumentException("A comment cannot be its own parent.");
         }
+        if (threadRootCommentId != null && threadRootCommentId.equals(id)) {
+            throw new IllegalArgumentException("A comment cannot be its own thread root.");
+        }
+
         this.parentCommentId = parentCommentId;
+        this.threadRootCommentId = threadRootCommentId;
         this.status = Objects.requireNonNull(status, "Comment status cannot be null.");
         this.createdAt = Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
         this.updatedAt = Objects.requireNonNull(updatedAt, "UpdatedAt timestamp cannot be null.");
@@ -96,6 +110,7 @@ public final class Comment {
                 target,
                 authorUserId,
                 null,
+                null,
                 body,
                 CommentStatus.ACTIVE,
                 createdAt,
@@ -105,62 +120,48 @@ public final class Comment {
     }
 
     /**
-     * Creates a new reply to an active root comment in ACTIVE status.
-     * Inherits the target from the root comment.
+     * Creates a new reply to an active comment (root or reply) in ACTIVE status.
+     * Inherits the target from the parent comment.
      */
     public static Comment createReply(
             UUID id,
-            Comment root,
-            UUID authorUserId,
-            String body,
-            Instant createdAt
-    ) {
-        Objects.requireNonNull(root, "Root comment cannot be null.");
-        return createReply(id, root, root.getTarget(), authorUserId, body, createdAt);
-    }
-
-    /**
-     * Creates a new reply to an active root comment with an explicit target.
-     * The target must match the root comment's target.
-     */
-    public static Comment createReply(
-            UUID id,
-            Comment root,
-            CommentTarget target,
+            Comment parent,
             UUID authorUserId,
             String body,
             Instant createdAt
     ) {
         Objects.requireNonNull(id, "Comment ID cannot be null.");
-        Objects.requireNonNull(root, "Root comment cannot be null.");
-        Objects.requireNonNull(target, "Comment target cannot be null.");
+        Objects.requireNonNull(parent, "Parent comment cannot be null.");
         Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
 
-        if (Objects.equals(id, root.getId())) {
-            throw new IllegalArgumentException("Reply ID cannot be the same as root comment ID.");
+        if (Objects.equals(id, parent.getId())) {
+            throw new IllegalArgumentException("Reply ID cannot be the same as parent comment ID.");
         }
 
-        if (!root.isRoot()) {
-            throw new IllegalArgumentException("Cannot reply to a reply. Only root comments can receive replies.");
+        if (parent.isDeleted()) {
+            throw new IllegalStateException("Cannot reply to a deleted comment.");
         }
 
-        if (root.isDeleted()) {
-            throw new IllegalStateException("Cannot reply to a deleted root comment.");
+        UUID threadRootCommentId = parent.isRoot()
+                ? parent.getId()
+                : parent.getThreadRootCommentId();
+
+        if (Objects.equals(id, threadRootCommentId)) {
+            throw new IllegalArgumentException("Reply ID cannot be the same as thread root comment ID.");
         }
 
-        if (!Objects.equals(target, root.getTarget())) {
-            throw new IllegalArgumentException("Reply target must match root comment target.");
+        if (createdAt.isBefore(parent.getUpdatedAt())) {
+            throw new IllegalArgumentException("Reply createdAt cannot be before parent updatedAt.");
         }
 
-        if (createdAt.isBefore(root.getUpdatedAt())) {
-            throw new IllegalArgumentException("Reply createdAt cannot be before root updatedAt.");
-        }
+        CommentTarget target = parent.getTarget();
 
         return new Comment(
                 id,
                 target,
                 authorUserId,
-                root.getId(),
+                parent.getId(),
+                threadRootCommentId,
                 body,
                 CommentStatus.ACTIVE,
                 createdAt,
@@ -177,6 +178,7 @@ public final class Comment {
             CommentTarget target,
             UUID authorUserId,
             UUID parentCommentId,
+            UUID threadRootCommentId,
             String body,
             CommentStatus status,
             Instant createdAt,
@@ -188,6 +190,7 @@ public final class Comment {
                 target,
                 authorUserId,
                 parentCommentId,
+                threadRootCommentId,
                 body,
                 status,
                 createdAt,
@@ -275,6 +278,10 @@ public final class Comment {
         return parentCommentId;
     }
 
+    public UUID getThreadRootCommentId() {
+        return threadRootCommentId;
+    }
+
     public String getBody() {
         return body;
     }
@@ -331,6 +338,7 @@ public final class Comment {
                 ", target=" + target +
                 ", authorUserId=" + authorUserId +
                 ", parentCommentId=" + parentCommentId +
+                ", threadRootCommentId=" + threadRootCommentId +
                 ", status=" + status +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +

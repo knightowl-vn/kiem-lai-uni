@@ -79,6 +79,7 @@ class CommentPersistenceMapperTest {
             assertThat(jpaEntity.getTargetId()).isEqualTo(CHAPTER_ID.toString());
             assertThat(jpaEntity.getAuthorUserId()).isEqualTo(AUTHOR_USER_ID.toString());
             assertThat(jpaEntity.getParentCommentId()).isNull();
+            assertThat(jpaEntity.getThreadRootCommentId()).isNull();
             assertThat(jpaEntity.getBody()).isEqualTo("Line 1\nLine 2 with   spaces");
             assertThat(jpaEntity.getStatus()).isEqualTo("ACTIVE");
             assertThat(jpaEntity.getCreatedAt()).isEqualTo(T1);
@@ -93,6 +94,7 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getTargetId()).isEqualTo(CHAPTER_ID);
             assertThat(reconstituted.getAuthorUserId()).isEqualTo(AUTHOR_USER_ID);
             assertThat(reconstituted.getParentCommentId()).isNull();
+            assertThat(reconstituted.getThreadRootCommentId()).isNull();
             assertThat(reconstituted.isRoot()).isTrue();
             assertThat(reconstituted.isReply()).isFalse();
             assertThat(reconstituted.getBody()).isEqualTo("Line 1\nLine 2 with   spaces");
@@ -110,7 +112,7 @@ class CommentPersistenceMapperTest {
     class ActiveReplyRoundTripTests {
 
         @Test
-        @DisplayName("maps ACTIVE reply to JPA entity and back to domain preserving parentCommentId")
+        @DisplayName("maps ACTIVE reply to JPA entity and back to domain preserving parentCommentId and threadRootCommentId")
         void shouldMapActiveReplyRoundTrip() {
             Comment root = Comment.createRoot(
                     ROOT_ID,
@@ -135,6 +137,7 @@ class CommentPersistenceMapperTest {
             assertThat(jpaEntity.getTargetId()).isEqualTo(ARTICLE_ID.toString());
             assertThat(jpaEntity.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID.toString());
             assertThat(jpaEntity.getParentCommentId()).isEqualTo(ROOT_ID.toString());
+            assertThat(jpaEntity.getThreadRootCommentId()).isEqualTo(ROOT_ID.toString());
             assertThat(jpaEntity.getBody()).isEqualTo("Reply to wiki comment");
             assertThat(jpaEntity.getStatus()).isEqualTo("ACTIVE");
             assertThat(jpaEntity.getCreatedAt()).isEqualTo(T2);
@@ -149,6 +152,7 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getTargetId()).isEqualTo(ARTICLE_ID);
             assertThat(reconstituted.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID);
             assertThat(reconstituted.getParentCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reconstituted.getThreadRootCommentId()).isEqualTo(ROOT_ID);
             assertThat(reconstituted.isRoot()).isFalse();
             assertThat(reconstituted.isReply()).isTrue();
             assertThat(reconstituted.getBody()).isEqualTo("Reply to wiki comment");
@@ -156,6 +160,56 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getCreatedAt()).isEqualTo(T2);
             assertThat(reconstituted.getUpdatedAt()).isEqualTo(T2);
             assertThat(reconstituted.getDeletedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("maps ACTIVE nested reply preserving parentCommentId and threadRootCommentId")
+        void shouldMapActiveNestedReplyRoundTrip() {
+            Comment root = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    "Root novel comment",
+                    T1
+            );
+
+            Comment replyB = Comment.createReply(
+                    REPLY_ID,
+                    root,
+                    REPLY_AUTHOR_USER_ID,
+                    "Reply B",
+                    T2
+            );
+
+            UUID replyCId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            UUID authorC = UUID.fromString("88888888-8888-8888-8888-888888888888");
+            Comment replyC = Comment.createReply(
+                    replyCId,
+                    replyB,
+                    authorC,
+                    "Nested reply C to reply B",
+                    T3
+            );
+
+            CommentJpaEntity jpaEntity = mapper.toJpaEntity(replyC);
+
+            assertThat(jpaEntity.getId()).isEqualTo(replyCId.toString());
+            assertThat(jpaEntity.getTargetType()).isEqualTo("NOVEL_CHAPTER");
+            assertThat(jpaEntity.getTargetId()).isEqualTo(CHAPTER_ID.toString());
+            assertThat(jpaEntity.getAuthorUserId()).isEqualTo(authorC.toString());
+            assertThat(jpaEntity.getParentCommentId()).isEqualTo(REPLY_ID.toString());
+            assertThat(jpaEntity.getThreadRootCommentId()).isEqualTo(ROOT_ID.toString());
+            assertThat(jpaEntity.getBody()).isEqualTo("Nested reply C to reply B");
+            assertThat(jpaEntity.getStatus()).isEqualTo("ACTIVE");
+
+            Comment reconstituted = mapper.toDomain(jpaEntity);
+
+            assertThat(reconstituted.getId()).isEqualTo(replyCId);
+            assertThat(reconstituted.getParentCommentId()).isEqualTo(REPLY_ID);
+            assertThat(reconstituted.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reconstituted.isRoot()).isFalse();
+            assertThat(reconstituted.isReply()).isTrue();
+            assertThat(reconstituted.getBody()).isEqualTo("Nested reply C to reply B");
         }
     }
 
@@ -179,6 +233,7 @@ class CommentPersistenceMapperTest {
 
             assertThat(jpaEntity.getId()).isEqualTo(ROOT_ID.toString());
             assertThat(jpaEntity.getParentCommentId()).isNull();
+            assertThat(jpaEntity.getThreadRootCommentId()).isNull();
             assertThat(jpaEntity.getBody()).isNull();
             assertThat(jpaEntity.getStatus()).isEqualTo("DELETED");
             assertThat(jpaEntity.getCreatedAt()).isEqualTo(T1);
@@ -191,6 +246,7 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getTarget()).isEqualTo(NOVEL_CHAPTER_TARGET);
             assertThat(reconstituted.getAuthorUserId()).isEqualTo(AUTHOR_USER_ID);
             assertThat(reconstituted.getParentCommentId()).isNull();
+            assertThat(reconstituted.getThreadRootCommentId()).isNull();
             assertThat(reconstituted.getBody()).isNull();
             assertThat(reconstituted.getStatus()).isEqualTo(CommentStatus.DELETED);
             assertThat(reconstituted.isDeleted()).isTrue();
@@ -206,7 +262,7 @@ class CommentPersistenceMapperTest {
     class DeletedReplyTombstoneRoundTripTests {
 
         @Test
-        @DisplayName("maps DELETED reply tombstone preserving parentCommentId and author while body is null")
+        @DisplayName("maps DELETED reply tombstone preserving parentCommentId, threadRootCommentId, and author while body is null")
         void shouldMapDeletedReplyTombstoneRoundTrip() {
             Comment root = Comment.createRoot(
                     ROOT_ID,
@@ -228,6 +284,7 @@ class CommentPersistenceMapperTest {
 
             assertThat(jpaEntity.getId()).isEqualTo(REPLY_ID.toString());
             assertThat(jpaEntity.getParentCommentId()).isEqualTo(ROOT_ID.toString());
+            assertThat(jpaEntity.getThreadRootCommentId()).isEqualTo(ROOT_ID.toString());
             assertThat(jpaEntity.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID.toString());
             assertThat(jpaEntity.getBody()).isNull();
             assertThat(jpaEntity.getStatus()).isEqualTo("DELETED");
@@ -239,6 +296,7 @@ class CommentPersistenceMapperTest {
 
             assertThat(reconstituted.getId()).isEqualTo(REPLY_ID);
             assertThat(reconstituted.getParentCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reconstituted.getThreadRootCommentId()).isEqualTo(ROOT_ID);
             assertThat(reconstituted.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID);
             assertThat(reconstituted.getBody()).isNull();
             assertThat(reconstituted.getStatus()).isEqualTo(CommentStatus.DELETED);
@@ -247,6 +305,52 @@ class CommentPersistenceMapperTest {
             assertThat(reconstituted.getCreatedAt()).isEqualTo(T2);
             assertThat(reconstituted.getUpdatedAt()).isEqualTo(T3);
             assertThat(reconstituted.getDeletedAt()).isEqualTo(T3);
+        }
+
+        @Test
+        @DisplayName("maps DELETED nested reply preserving parentCommentId and threadRootCommentId while body is null")
+        void shouldMapDeletedNestedReplyTombstoneRoundTrip() {
+            Comment root = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    "Root body",
+                    T1
+            );
+            Comment replyB = Comment.createReply(
+                    REPLY_ID,
+                    root,
+                    REPLY_AUTHOR_USER_ID,
+                    "Reply B body",
+                    T2
+            );
+            UUID replyCId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            UUID authorC = UUID.fromString("88888888-8888-8888-8888-888888888888");
+            Comment replyC = Comment.createReply(
+                    replyCId,
+                    replyB,
+                    authorC,
+                    "Reply C body",
+                    T3
+            );
+            replyC.delete(Instant.parse("2026-09-16T13:00:00Z"));
+
+            CommentJpaEntity jpaEntity = mapper.toJpaEntity(replyC);
+
+            assertThat(jpaEntity.getId()).isEqualTo(replyCId.toString());
+            assertThat(jpaEntity.getParentCommentId()).isEqualTo(REPLY_ID.toString());
+            assertThat(jpaEntity.getThreadRootCommentId()).isEqualTo(ROOT_ID.toString());
+            assertThat(jpaEntity.getBody()).isNull();
+            assertThat(jpaEntity.getStatus()).isEqualTo("DELETED");
+
+            Comment reconstituted = mapper.toDomain(jpaEntity);
+
+            assertThat(reconstituted.getId()).isEqualTo(replyCId);
+            assertThat(reconstituted.getParentCommentId()).isEqualTo(REPLY_ID);
+            assertThat(reconstituted.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reconstituted.getBody()).isNull();
+            assertThat(reconstituted.isDeleted()).isTrue();
+            assertThat(reconstituted.isReply()).isTrue();
         }
     }
 
@@ -262,6 +366,7 @@ class CommentPersistenceMapperTest {
                     "NOVEL_CHAPTER",
                     CHAPTER_ID.toString(),
                     AUTHOR_USER_ID.toString(),
+                    null,
                     null,
                     "Valid body",
                     "ACTIVE",
@@ -280,6 +385,7 @@ class CommentPersistenceMapperTest {
                     "not-a-uuid",
                     AUTHOR_USER_ID.toString(),
                     null,
+                    null,
                     "Valid body",
                     "ACTIVE",
                     T1,
@@ -296,6 +402,7 @@ class CommentPersistenceMapperTest {
                     "NOVEL_CHAPTER",
                     CHAPTER_ID.toString(),
                     "not-a-uuid",
+                    null,
                     null,
                     "Valid body",
                     "ACTIVE",
@@ -314,6 +421,7 @@ class CommentPersistenceMapperTest {
                     CHAPTER_ID.toString(),
                     AUTHOR_USER_ID.toString(),
                     "not-a-uuid",
+                    ROOT_ID.toString(),
                     "Valid body",
                     "ACTIVE",
                     T1,
@@ -324,6 +432,24 @@ class CommentPersistenceMapperTest {
             assertThatThrownBy(() -> mapper.toDomain(invalidParentId))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Parent comment ID in database has invalid UUID format");
+
+            CommentJpaEntity invalidThreadRootId = new CommentJpaEntity(
+                    ROOT_ID.toString(),
+                    "NOVEL_CHAPTER",
+                    CHAPTER_ID.toString(),
+                    AUTHOR_USER_ID.toString(),
+                    ROOT_ID.toString(),
+                    "not-a-uuid",
+                    "Valid body",
+                    "ACTIVE",
+                    T1,
+                    T1,
+                    null
+            );
+
+            assertThatThrownBy(() -> mapper.toDomain(invalidThreadRootId))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Thread root comment ID in database has invalid UUID format");
         }
     }
 
@@ -339,6 +465,7 @@ class CommentPersistenceMapperTest {
                     "DONGHUA_EPISODE",
                     CHAPTER_ID.toString(),
                     AUTHOR_USER_ID.toString(),
+                    null,
                     null,
                     "Valid body",
                     "ACTIVE",
@@ -365,6 +492,7 @@ class CommentPersistenceMapperTest {
                     "NOVEL_CHAPTER",
                     CHAPTER_ID.toString(),
                     AUTHOR_USER_ID.toString(),
+                    null,
                     null,
                     "Valid body",
                     "MODERATED",
@@ -431,6 +559,7 @@ class CommentPersistenceMapperTest {
                     CHAPTER_ID.toString(),
                     AUTHOR_USER_ID.toString(),
                     null,
+                    null,
                     "Non-null body on deleted",
                     "DELETED",
                     T1,
@@ -453,6 +582,7 @@ class CommentPersistenceMapperTest {
                     AUTHOR_USER_ID.toString(),
                     null,
                     null,
+                    null,
                     "DELETED",
                     T1,
                     T3,
@@ -462,6 +592,28 @@ class CommentPersistenceMapperTest {
             assertThatThrownBy(() -> mapper.toDomain(mismatchedTimestamps))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("UpdatedAt timestamp must equal deletedAt timestamp for a DELETED comment");
+        }
+
+        @Test
+        @DisplayName("rehydration via toDomain enforces thread hierarchy invariants")
+        void shouldEnforceThreadHierarchyInvariantsViaToDomain() {
+            CommentJpaEntity hierarchyMismatchEntity = new CommentJpaEntity(
+                    REPLY_ID.toString(),
+                    "NOVEL_CHAPTER",
+                    CHAPTER_ID.toString(),
+                    AUTHOR_USER_ID.toString(),
+                    ROOT_ID.toString(),
+                    null, // thread_root_comment_id is null while parent is present
+                    "Body",
+                    "ACTIVE",
+                    T1,
+                    T1,
+                    null
+            );
+
+            assertThatThrownBy(() -> mapper.toDomain(hierarchyMismatchEntity))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment thread hierarchy mismatch");
         }
     }
 }

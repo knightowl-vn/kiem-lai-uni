@@ -59,6 +59,13 @@ public class CommentJpaEntity {
     private String parentCommentId;
 
     @Column(
+            name = "thread_root_comment_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String threadRootCommentId;
+
+    @Column(
             name = "body",
             columnDefinition = "TEXT"
     )
@@ -97,6 +104,7 @@ public class CommentJpaEntity {
             String targetId,
             String authorUserId,
             String parentCommentId,
+            String threadRootCommentId,
             String body,
             String status,
             Instant createdAt,
@@ -108,6 +116,7 @@ public class CommentJpaEntity {
         this.targetId = targetId;
         this.authorUserId = authorUserId;
         this.parentCommentId = parentCommentId;
+        this.threadRootCommentId = threadRootCommentId;
         this.body = body;
         this.status = status;
         this.createdAt = createdAt;
@@ -153,6 +162,14 @@ public class CommentJpaEntity {
 
     public void setParentCommentId(String parentCommentId) {
         this.parentCommentId = parentCommentId;
+    }
+
+    public String getThreadRootCommentId() {
+        return threadRootCommentId;
+    }
+
+    public void setThreadRootCommentId(String threadRootCommentId) {
+        this.threadRootCommentId = threadRootCommentId;
     }
 
     public String getBody() {
@@ -216,6 +233,7 @@ public class CommentJpaEntity {
                 ", targetId='" + targetId + '\'' +
                 ", authorUserId='" + authorUserId + '\'' +
                 ", parentCommentId='" + parentCommentId + '\'' +
+                ", threadRootCommentId='" + threadRootCommentId + '\'' +
                 ", body='" + (body != null ? "[PROTECTED]" : "null") + '\'' +
                 ", status='" + status + '\'' +
                 ", createdAt=" + createdAt +

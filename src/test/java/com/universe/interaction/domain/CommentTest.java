@@ -69,6 +69,7 @@ class CommentTest {
             assertThat(comment.getTargetId()).isEqualTo(CHAPTER_ID);
             assertThat(comment.getAuthorUserId()).isEqualTo(AUTHOR_USER_ID);
             assertThat(comment.getParentCommentId()).isNull();
+            assertThat(comment.getThreadRootCommentId()).isNull();
             assertThat(comment.getBody()).isEqualTo("This is a root comment on a novel chapter.");
             assertThat(comment.getStatus()).isEqualTo(CommentStatus.ACTIVE);
             assertThat(comment.getCreatedAt()).isEqualTo(T1);
@@ -110,6 +111,7 @@ class CommentTest {
             assertThat(reply.getTargetId()).isEqualTo(CHAPTER_ID);
             assertThat(reply.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID);
             assertThat(reply.getParentCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reply.getThreadRootCommentId()).isEqualTo(ROOT_ID);
             assertThat(reply.getBody()).isEqualTo("This is a reply to the root comment.");
             assertThat(reply.getStatus()).isEqualTo(CommentStatus.ACTIVE);
             assertThat(reply.getCreatedAt()).isEqualTo(T2);
@@ -123,45 +125,83 @@ class CommentTest {
     }
 
     @Nested
-    @DisplayName("3. Reply-to-Reply Rejection")
-    class ReplyToReplyRejectionTests {
+    @DisplayName("3. Nested Reply Creation (Arbitrary Logical Depth)")
+    class NestedReplyTests {
 
         @Test
-        @DisplayName("createReply rejects replying to a comment that is already a reply")
-        void shouldRejectReplyToReply() {
-            Comment root = Comment.createRoot(
+        @DisplayName("createReply supports nested replies inheriting threadRootCommentId and target across chain")
+        void shouldSupportArbitraryNestedReplies() {
+            Comment rootA = Comment.createRoot(
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
-                    "Root comment",
+                    "Root comment A",
                     T1
             );
 
-            Comment reply = Comment.createReply(
+            // B replies to A
+            Comment replyB = Comment.createReply(
                     REPLY_ID,
-                    root,
+                    rootA,
                     REPLY_AUTHOR_USER_ID,
-                    "Reply comment",
+                    "Reply B to root A",
                     T2
             );
 
-            UUID nestedReplyId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            assertThat(replyB.getId()).isEqualTo(REPLY_ID);
+            assertThat(replyB.getParentCommentId()).isEqualTo(ROOT_ID);
+            assertThat(replyB.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(replyB.getTarget()).isEqualTo(NOVEL_CHAPTER_TARGET);
+            assertThat(replyB.getTargetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
+            assertThat(replyB.getTargetId()).isEqualTo(CHAPTER_ID);
+            assertThat(replyB.isRoot()).isFalse();
+            assertThat(replyB.isReply()).isTrue();
 
-            assertThatThrownBy(() -> Comment.createReply(
-                    nestedReplyId,
-                    reply,
-                    AUTHOR_USER_ID,
-                    "Attempted nested reply",
+            // C replies to B
+            UUID replyCId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            UUID userC = UUID.fromString("88888888-8888-8888-8888-888888888888");
+            Comment replyC = Comment.createReply(
+                    replyCId,
+                    replyB,
+                    userC,
+                    "Reply C to reply B",
                     T3
-            ))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Cannot reply to a reply");
+            );
+
+            assertThat(replyC.getId()).isEqualTo(replyCId);
+            assertThat(replyC.getParentCommentId()).isEqualTo(REPLY_ID);
+            assertThat(replyC.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(replyC.getTarget()).isEqualTo(NOVEL_CHAPTER_TARGET);
+            assertThat(replyC.getTargetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
+            assertThat(replyC.getTargetId()).isEqualTo(CHAPTER_ID);
+            assertThat(replyC.isRoot()).isFalse();
+            assertThat(replyC.isReply()).isTrue();
+
+            // D replies to C
+            UUID replyDId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+            UUID userD = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+            Comment replyD = Comment.createReply(
+                    replyDId,
+                    replyC,
+                    userD,
+                    "Reply D to reply C",
+                    T4
+            );
+
+            assertThat(replyD.getId()).isEqualTo(replyDId);
+            assertThat(replyD.getParentCommentId()).isEqualTo(replyCId);
+            assertThat(replyD.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(replyD.getTarget()).isEqualTo(NOVEL_CHAPTER_TARGET);
+            assertThat(replyD.getTargetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
+            assertThat(replyD.getTargetId()).isEqualTo(CHAPTER_ID);
+            assertThat(replyD.isRoot()).isFalse();
+            assertThat(replyD.isReply()).isTrue();
         }
     }
 
     @Nested
-    @DisplayName("4. Reply to DELETED Root Rejection")
-    class ReplyToDeletedRootRejectionTests {
+    @DisplayName("4. Reply to DELETED Parent Rejection")
+    class ReplyToDeletedParentRejectionTests {
 
         @Test
         @DisplayName("createReply rejects replying to a DELETED root comment")
@@ -184,40 +224,46 @@ class CommentTest {
                     T3
             ))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Cannot reply to a deleted root comment");
+                    .hasMessageContaining("Cannot reply to a deleted comment");
         }
-    }
-
-    @Nested
-    @DisplayName("5. Mismatched Reply Target Rejection")
-    class MismatchedReplyTargetRejectionTests {
 
         @Test
-        @DisplayName("createReply with explicit target rejects a target different from root target")
-        void shouldRejectMismatchedReplyTarget() {
+        @DisplayName("createReply rejects replying to a DELETED reply comment")
+        void shouldRejectReplyToDeletedReply() {
             Comment root = Comment.createRoot(
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
-                    "Root on novel chapter",
+                    "Root comment",
                     T1
             );
 
-            assertThatThrownBy(() -> Comment.createReply(
+            Comment reply = Comment.createReply(
                     REPLY_ID,
                     root,
-                    WIKI_ARTICLE_TARGET,
                     REPLY_AUTHOR_USER_ID,
-                    "Reply with mismatched wiki target",
+                    "Reply comment",
                     T2
+            );
+
+            reply.delete(T3);
+
+            UUID nestedReplyId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+
+            assertThatThrownBy(() -> Comment.createReply(
+                    nestedReplyId,
+                    reply,
+                    AUTHOR_USER_ID,
+                    "Reply to deleted reply",
+                    T4
             ))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Reply target must match root comment target");
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Cannot reply to a deleted comment");
         }
     }
 
     @Nested
-    @DisplayName("6. Predicates")
+    @DisplayName("5. Predicates")
     class PredicateTests {
 
         @Test
@@ -362,10 +408,56 @@ class CommentTest {
             assertThat(reply.isDeleted()).isTrue();
             assertThat(reply.getBody()).isNull();
             assertThat(reply.getParentCommentId()).isEqualTo(ROOT_ID);
+            assertThat(reply.getThreadRootCommentId()).isEqualTo(ROOT_ID);
             assertThat(reply.getAuthorUserId()).isEqualTo(REPLY_AUTHOR_USER_ID);
             assertThat(reply.getDeletedAt()).isEqualTo(T3);
             assertThat(reply.getUpdatedAt()).isEqualTo(T3);
             assertThat(reply.getCreatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("delete on a nested reply transitions it to DELETED while preserving ancestry metadata")
+        void shouldDeleteNestedReplyPreservingAncestryMetadata() {
+            Comment rootA = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    "Root comment A",
+                    T1
+            );
+
+            Comment replyB = Comment.createReply(
+                    REPLY_ID,
+                    rootA,
+                    REPLY_AUTHOR_USER_ID,
+                    "Reply B",
+                    T2
+            );
+
+            UUID replyCId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            UUID userC = UUID.fromString("88888888-8888-8888-8888-888888888888");
+            Comment replyC = Comment.createReply(
+                    replyCId,
+                    replyB,
+                    userC,
+                    "Nested reply C body",
+                    T3
+            );
+
+            replyC.delete(T4);
+
+            assertThat(replyC.getStatus()).isEqualTo(CommentStatus.DELETED);
+            assertThat(replyC.isActive()).isFalse();
+            assertThat(replyC.isDeleted()).isTrue();
+            assertThat(replyC.getBody()).isNull();
+            assertThat(replyC.getParentCommentId()).isEqualTo(REPLY_ID);
+            assertThat(replyC.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(replyC.getAuthorUserId()).isEqualTo(userC);
+            assertThat(replyC.getCreatedAt()).isEqualTo(T3);
+            assertThat(replyC.getDeletedAt()).isEqualTo(T4);
+            assertThat(replyC.getUpdatedAt()).isEqualTo(T4);
+            assertThat(replyC.isRoot()).isFalse();
+            assertThat(replyC.isReply()).isTrue();
         }
     }
 
@@ -651,16 +743,34 @@ class CommentTest {
                     null
             )).isInstanceOf(NullPointerException.class);
 
-            // Self-referencing reply ID rejected
+            // Self-referencing reply ID rejected (same as parent ID)
             assertThatThrownBy(() -> Comment.createReply(
                     ROOT_ID,
                     root,
                     REPLY_AUTHOR_USER_ID,
-                    "Reply body with root ID",
+                    "Reply body with parent ID",
                     T2
             ))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Reply ID cannot be the same as root comment ID");
+                    .hasMessageContaining("Reply ID cannot be the same as parent comment ID");
+
+            // Self-referencing reply ID rejected (same as thread root ID on nested reply)
+            Comment validReply = Comment.createReply(
+                    REPLY_ID,
+                    root,
+                    REPLY_AUTHOR_USER_ID,
+                    "Valid reply",
+                    T2
+            );
+            assertThatThrownBy(() -> Comment.createReply(
+                    ROOT_ID,
+                    validReply,
+                    AUTHOR_USER_ID,
+                    "Nested reply with thread root ID",
+                    T3
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Reply ID cannot be the same as thread root comment ID");
         }
 
         @Test
@@ -733,7 +843,7 @@ class CommentTest {
         }
 
         @Test
-        @DisplayName("createReply rejects createdAt before current root updatedAt")
+        @DisplayName("createReply rejects createdAt before current parent updatedAt")
         void shouldRejectTemporalRegressionOnCreateReply() {
             Comment root = Comment.createRoot(
                     ROOT_ID,
@@ -754,7 +864,7 @@ class CommentTest {
                     T2
             ))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Reply createdAt cannot be before root updatedAt");
+                    .hasMessageContaining("Reply createdAt cannot be before parent updatedAt");
 
             // Reply at T3 (matching root.updatedAt) => accepted
             Comment replyAtT3 = Comment.createReply(
@@ -776,6 +886,19 @@ class CommentTest {
                     T4
             );
             assertThat(replyAtT4.getCreatedAt()).isEqualTo(T4);
+
+            // Also test on nested reply: edit replyAtT3 at T4, nested reply at T3 rejected
+            replyAtT3.edit("Edited reply at T4", T4);
+            UUID nestedReplyId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+            assertThatThrownBy(() -> Comment.createReply(
+                    nestedReplyId,
+                    replyAtT3,
+                    AUTHOR_USER_ID,
+                    "Nested reply before parent updatedAt",
+                    T3
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Reply createdAt cannot be before parent updatedAt");
         }
     }
 
@@ -784,12 +907,13 @@ class CommentTest {
     class RehydrationTests {
 
         @Test
-        @DisplayName("rehydrate reconstitutes an ACTIVE comment")
+        @DisplayName("rehydrate reconstitutes an ACTIVE root comment")
         void shouldRehydrateActiveComment() {
             Comment comment = Comment.rehydrate(
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     "Rehydrated body",
                     CommentStatus.ACTIVE,
@@ -801,8 +925,41 @@ class CommentTest {
             assertThat(comment.getId()).isEqualTo(ROOT_ID);
             assertThat(comment.getStatus()).isEqualTo(CommentStatus.ACTIVE);
             assertThat(comment.getBody()).isEqualTo("Rehydrated body");
+            assertThat(comment.getParentCommentId()).isNull();
+            assertThat(comment.getThreadRootCommentId()).isNull();
+            assertThat(comment.isRoot()).isTrue();
+            assertThat(comment.isReply()).isFalse();
             assertThat(comment.getCreatedAt()).isEqualTo(T1);
             assertThat(comment.getUpdatedAt()).isEqualTo(T2);
+            assertThat(comment.getDeletedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("rehydrate reconstitutes an ACTIVE nested reply comment")
+        void shouldRehydrateActiveNestedReplyComment() {
+            UUID nestedReplyId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            Comment comment = Comment.rehydrate(
+                    nestedReplyId,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    REPLY_ID,
+                    ROOT_ID,
+                    "Nested reply body",
+                    CommentStatus.ACTIVE,
+                    T2,
+                    T3,
+                    null
+            );
+
+            assertThat(comment.getId()).isEqualTo(nestedReplyId);
+            assertThat(comment.getParentCommentId()).isEqualTo(REPLY_ID);
+            assertThat(comment.getThreadRootCommentId()).isEqualTo(ROOT_ID);
+            assertThat(comment.isRoot()).isFalse();
+            assertThat(comment.isReply()).isTrue();
+            assertThat(comment.getBody()).isEqualTo("Nested reply body");
+            assertThat(comment.getStatus()).isEqualTo(CommentStatus.ACTIVE);
+            assertThat(comment.getCreatedAt()).isEqualTo(T2);
+            assertThat(comment.getUpdatedAt()).isEqualTo(T3);
             assertThat(comment.getDeletedAt()).isNull();
         }
 
@@ -815,6 +972,7 @@ class CommentTest {
                     AUTHOR_USER_ID,
                     null,
                     null,
+                    null,
                     CommentStatus.DELETED,
                     T1,
                     T3,
@@ -824,6 +982,8 @@ class CommentTest {
             assertThat(comment.getId()).isEqualTo(ROOT_ID);
             assertThat(comment.getStatus()).isEqualTo(CommentStatus.DELETED);
             assertThat(comment.getBody()).isNull();
+            assertThat(comment.getParentCommentId()).isNull();
+            assertThat(comment.getThreadRootCommentId()).isNull();
             assertThat(comment.getCreatedAt()).isEqualTo(T1);
             assertThat(comment.getUpdatedAt()).isEqualTo(T3);
             assertThat(comment.getDeletedAt()).isEqualTo(T3);
@@ -837,6 +997,7 @@ class CommentTest {
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     "Non-null body on deleted",
                     CommentStatus.DELETED,
@@ -857,6 +1018,7 @@ class CommentTest {
                     AUTHOR_USER_ID,
                     null,
                     null,
+                    null,
                     CommentStatus.ACTIVE,
                     T1,
                     T1,
@@ -869,6 +1031,7 @@ class CommentTest {
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     "   ",
                     CommentStatus.ACTIVE,
@@ -888,6 +1051,7 @@ class CommentTest {
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
                     ROOT_ID,
+                    ROOT_ID,
                     "Self parent body",
                     CommentStatus.ACTIVE,
                     T1,
@@ -899,6 +1063,63 @@ class CommentTest {
         }
 
         @Test
+        @DisplayName("rehydrate rejects self-thread-root comment")
+        void shouldRejectSelfThreadRootOnRehydrate() {
+            assertThatThrownBy(() -> Comment.rehydrate(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    REPLY_ID,
+                    ROOT_ID,
+                    "Self thread root body",
+                    CommentStatus.ACTIVE,
+                    T1,
+                    T1,
+                    null
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("A comment cannot be its own thread root");
+        }
+
+        @Test
+        @DisplayName("rehydrate rejects hierarchy mismatch when parentCommentId is present but threadRootCommentId is null")
+        void shouldRejectHierarchyMismatchWhenParentPresentButThreadRootNull() {
+            assertThatThrownBy(() -> Comment.rehydrate(
+                    REPLY_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    ROOT_ID,
+                    null,
+                    "Body",
+                    CommentStatus.ACTIVE,
+                    T1,
+                    T1,
+                    null
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment thread hierarchy mismatch");
+        }
+
+        @Test
+        @DisplayName("rehydrate rejects hierarchy mismatch when threadRootCommentId is present but parentCommentId is null")
+        void shouldRejectHierarchyMismatchWhenThreadRootPresentButParentNull() {
+            assertThatThrownBy(() -> Comment.rehydrate(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    null,
+                    ROOT_ID,
+                    "Body",
+                    CommentStatus.ACTIVE,
+                    T1,
+                    T1,
+                    null
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment thread hierarchy mismatch");
+        }
+
+        @Test
         @DisplayName("rehydrate rejects DELETED comment when updatedAt does not equal deletedAt")
         void shouldRejectDeletedRehydrateWhenUpdatedAtDoesNotEqualDeletedAt() {
             // updatedAt (T3) != deletedAt (T2)
@@ -906,6 +1127,7 @@ class CommentTest {
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     null,
                     CommentStatus.DELETED,
@@ -921,6 +1143,7 @@ class CommentTest {
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     null,
                     CommentStatus.DELETED,
@@ -941,6 +1164,7 @@ class CommentTest {
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
                     null,
+                    null,
                     "Body",
                     CommentStatus.ACTIVE,
                     T2,
@@ -954,6 +1178,7 @@ class CommentTest {
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
                     null,
+                    null,
                     "Body",
                     CommentStatus.ACTIVE,
                     T1,
@@ -966,6 +1191,7 @@ class CommentTest {
                     ROOT_ID,
                     NOVEL_CHAPTER_TARGET,
                     AUTHOR_USER_ID,
+                    null,
                     null,
                     null,
                     CommentStatus.DELETED,

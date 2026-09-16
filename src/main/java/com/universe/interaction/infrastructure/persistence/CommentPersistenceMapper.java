@@ -39,6 +39,7 @@ public class CommentPersistenceMapper {
                 domain.getTargetId().toString(),
                 domain.getAuthorUserId().toString(),
                 domain.getParentCommentId() != null ? domain.getParentCommentId().toString() : null,
+                domain.getThreadRootCommentId() != null ? domain.getThreadRootCommentId().toString() : null,
                 domain.getBody(),
                 domain.getStatus().name(),
                 domain.getCreatedAt(),
@@ -63,6 +64,9 @@ public class CommentPersistenceMapper {
         UUID parentCommentId = entity.getParentCommentId() != null
                 ? parseUuid(entity.getParentCommentId(), "Parent comment ID")
                 : null;
+        UUID threadRootCommentId = entity.getThreadRootCommentId() != null
+                ? parseUuid(entity.getThreadRootCommentId(), "Thread root comment ID")
+                : null;
         CommentStatus status = parseStatus(entity.getStatus());
 
         return Comment.rehydrate(
@@ -70,6 +74,7 @@ public class CommentPersistenceMapper {
                 target,
                 authorUserId,
                 parentCommentId,
+                threadRootCommentId,
                 entity.getBody(),
                 status,
                 entity.getCreatedAt(),
