@@ -1,0 +1,60 @@
+package com.universe.interaction.infrastructure.persistence;
+
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+/**
+ * Spring Data JPA repository for {@link CommentJpaEntity}.
+ *
+ * <p>Supports:
+ * <ul>
+ *   <li>Zero-based slice pagination for active root comments, avoiding COUNT(*) queries;</li>
+ *   <li>Flat retrieval of thread replies ordered chronologically.</li>
+ * </ul>
+ */
+@Repository
+public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEntity, String> {
+
+    /**
+     * Retrieves a pageable slice of active root comments for a given target.
+     *
+     * <p>Roots are characterized by {@code parent_comment_id IS NULL}.
+     * Deterministic ordering by {@code created_at DESC, id DESC} uses the composite index
+     * {@code idx_interaction_comments_target_parent_created_id}.
+     */
+    @Query("""
+            SELECT c FROM CommentJpaEntity c
+            WHERE c.targetType = :targetType
+              AND c.targetId = :targetId
+              AND c.parentCommentId IS NULL
+              AND c.status = 'ACTIVE'
+            ORDER BY c.createdAt DESC, c.id DESC
+            """)
+    Slice<CommentJpaEntity> findActiveRoots(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId,
+            Pageable pageable
+    );
+
+    /**
+     * Retrieves all replies belonging to a given thread root.
+     *
+     * <p>Includes both ACTIVE and DELETED replies.
+     * Deterministic ordering by {@code created_at ASC, id ASC} uses the composite index
+     * {@code idx_interaction_comments_thread_root_created_id}.
+     */
+    @Query("""
+            SELECT c FROM CommentJpaEntity c
+            WHERE c.threadRootCommentId = :threadRootCommentId
+            ORDER BY c.createdAt ASC, c.id ASC
+            """)
+    List<CommentJpaEntity> findThreadReplies(
+            @Param("threadRootCommentId") String threadRootCommentId
+    );
+}
