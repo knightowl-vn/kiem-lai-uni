@@ -5,6 +5,7 @@ import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.shared.time.ClockPort;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -13,6 +14,7 @@ import java.util.Objects;
 /**
  * Use case to edit an active comment's body by its author.
  */
+@Service
 public class EditCommentUseCase {
 
     private final CommentRepositoryPort commentRepositoryPort;

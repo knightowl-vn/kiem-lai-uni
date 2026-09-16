@@ -9,6 +9,7 @@ import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -18,6 +19,7 @@ import java.util.UUID;
 /**
  * Use case to orchestrate reply creation under a root or nested reply comment.
  */
+@Service
 public class ReplyCommentUseCase {
 
     private final CommentRepositoryPort commentRepositoryPort;
