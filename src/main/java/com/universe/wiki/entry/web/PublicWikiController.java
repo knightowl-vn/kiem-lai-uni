@@ -1,5 +1,7 @@
 package com.universe.wiki.entry.web;
 
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.wiki.application.article.query.published.GetPublishedWikiArticleQuery;
 import com.universe.wiki.application.article.query.published.GetPublishedWikiArticleUseCase;
 import com.universe.wiki.application.article.query.published.ListPublishedWikiArticlesQuery;
@@ -8,6 +10,7 @@ import com.universe.wiki.application.article.query.published.ListPublishedWikiAr
 import com.universe.wiki.application.article.render.RenderedWikiContent;
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 
+import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 
@@ -15,6 +18,7 @@ import com.universe.wiki.domain.article.ArticleType;
 
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 
@@ -22,6 +26,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.Objects;
+import java.util.Optional;
 
 @Controller
 @RequestMapping("/wiki")
@@ -37,13 +44,17 @@ public class PublicWikiController {
 
 	private final WikiMarkdownRenderer wikiMarkdownRenderer;
 
+	private final IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
+
 	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
 
 			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
 
 			ArticleTypePathMapper articleTypePathMapper,
 
-			WikiMarkdownRenderer wikiMarkdownRenderer) {
+			WikiMarkdownRenderer wikiMarkdownRenderer,
+
+			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase) {
 		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
 
 		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
@@ -51,6 +62,11 @@ public class PublicWikiController {
 		this.articleTypePathMapper = articleTypePathMapper;
 
 		this.wikiMarkdownRenderer = wikiMarkdownRenderer;
+
+		this.isWikiArticleSavedUseCase = Objects.requireNonNull(
+				isWikiArticleSavedUseCase,
+				"IsWikiArticleSavedUseCase không được để trống."
+		);
 	}
 
 	/**
@@ -102,6 +118,8 @@ public class PublicWikiController {
 
 			@PathVariable String slug,
 
+			HttpServletRequest request,
+
 			Model model) {
 		ArticleType resolvedArticleType = articleTypePathMapper.fromPath(articleType);
 
@@ -110,11 +128,23 @@ public class PublicWikiController {
 
 		RenderedWikiContent renderedContent = wikiMarkdownRenderer.render(article.content());
 
+		boolean isSaved = false;
+		Optional<AuthenticatedRequestIdentity> identityOptional =
+				AuthenticatedRequestIdentityAccessor.find(request);
+		if (identityOptional.isPresent()) {
+			isSaved = isWikiArticleSavedUseCase.execute(
+					identityOptional.get().userId(),
+					article.id()
+			);
+		}
+
 		model.addAttribute("article", article);
 
 		model.addAttribute("articleTypePath", articleTypePathMapper.toPath(resolvedArticleType));
 
 		model.addAttribute("renderedContent", renderedContent);
+
+		model.addAttribute("isSaved", isSaved);
 
 		return "wiki/public/detail";
 	}

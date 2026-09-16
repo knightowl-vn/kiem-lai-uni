@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Bài viết Wiki đã lưu | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/wiki/wiki.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='wiki')}"></div>
+
+<main class="container py-5 wiki-saved-main">
+
+    <div class="wiki-saved-container">
+
+        <!-- Breadcrumb -->
+        <nav class="wiki-saved-breadcrumb mb-4" aria-label="Breadcrumb">
+            <a th:href="@{/home}">Trang chủ</a>
+            <span class="wiki-breadcrumb-separator" aria-hidden="true">/</span>
+            <a th:href="@{/wiki}">Wiki</a>
+            <span class="wiki-breadcrumb-separator" aria-hidden="true">/</span>
+            <span aria-current="page">Bài viết đã lưu</span>
+        </nav>
+
+        <!-- Header -->
+        <header class="wiki-saved-header mb-4">
+            <h1 class="wiki-saved-title">
+                <svg class="wiki-saved-header-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="28"
+                     height="28"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+                <span>Bài viết Wiki đã lưu</span>
+            </h1>
+            <p class="wiki-saved-subtitle text-secondary">
+                Danh sách các bài viết Wiki bạn đã lưu để tra cứu và xem lại bất cứ lúc nào.
+            </p>
+        </header>
+
+        <!-- Saved Articles List -->
+        <div th:if="${!savedPage.items.isEmpty()}"
+             id="wikiSavedList"
+             class="wiki-saved-list"
+             th:attr="data-current-page=${savedPage.page}"
+             role="list">
+
+            <div th:each="item : ${savedPage.items}"
+                 class="wiki-saved-item"
+                 th:classappend="${!item.available} ? ' wiki-saved-item--unavailable' : ''"
+                 role="listitem">
+
+                <!-- AVAILABLE ITEM -->
+                <div th:if="${item.available}" class="wiki-saved-item-content">
+                    <div class="wiki-saved-item-top">
+                        <span class="wiki-public-type-badge"
+                              th:text="${#strings.replace(item.articleType, '_', ' ')}">
+                            CHARACTER
+                        </span>
+                        <span th:if="${item.savedAt != null}"
+                              class="wiki-saved-time"
+                              th:text="${'Đã lưu: ' + #temporals.format(item.savedAt, 'dd/MM/yyyy HH:mm')}">
+                            Đã lưu: 15/08/2026 10:30
+                        </span>
+                    </div>
+
+                    <h2 class="wiki-saved-item-title">
+                        <a th:href="@{/wiki/{type}/{slug}(
+                            type=${item.articleTypePath},
+                            slug=${item.slug}
+                        )}"
+                           class="wiki-saved-title-link"
+                           th:text="${item.title}">
+                            Tiêu đề bài viết
+                        </a>
+                    </h2>
+
+                    <p th:if="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}"
+                       class="wiki-saved-item-summary"
+                       th:text="${item.summary}">
+                        Tóm tắt ngắn gọn bài viết.
+                    </p>
+
+                    <div class="wiki-saved-item-actions">
+                        <a th:href="@{/wiki/{type}/{slug}(
+                            type=${item.articleTypePath},
+                            slug=${item.slug}
+                        )}"
+                           class="wiki-saved-read-btn">
+                            Xem bài viết
+                        </a>
+
+                        <button type="button"
+                                class="wiki-saved-remove-btn js-wiki-unsave-btn"
+                                th:attr="data-article-id=${item.articleId},
+                                         data-unsave-url=@{/wiki/articles/{id}/save(id=${item.articleId})},
+                                         data-csrf-token=${_csrf != null ? _csrf.token : ''},
+                                         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}"
+                                aria-label="Bỏ lưu bài viết">
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                 viewBox="0 0 24 24"
+                                 width="16"
+                                 height="16"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 stroke-width="2"
+                                 stroke-linecap="round"
+                                 stroke-linejoin="round"
+                                 aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                            <span>Bỏ lưu</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- UNAVAILABLE TOMBSTONE -->
+                <div th:unless="${item.available}" class="wiki-saved-item-content wiki-saved-tombstone">
+                    <div class="wiki-saved-tombstone-body">
+                        <div class="wiki-saved-tombstone-info">
+                            <span class="wiki-saved-tombstone-icon" aria-hidden="true">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                     viewBox="0 0 24 24"
+                                     width="20"
+                                     height="20"
+                                     fill="none"
+                                     stroke="currentColor"
+                                     stroke-width="2"
+                                     stroke-linecap="round"
+                                     stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                                </svg>
+                            </span>
+                            <span class="wiki-saved-tombstone-text">Bài viết không còn khả dụng</span>
+                        </div>
+
+                        <div class="wiki-saved-item-actions">
+                            <button type="button"
+                                    class="wiki-saved-remove-btn js-wiki-unsave-btn"
+                                    th:attr="data-article-id=${item.articleId},
+                                             data-unsave-url=@{/wiki/articles/{id}/save(id=${item.articleId})},
+                                             data-csrf-token=${_csrf != null ? _csrf.token : ''},
+                                             data-csrf-header=${_csrf != null ? _csrf.headerName : ''}"
+                                    aria-label="Bỏ lưu bài viết">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                     viewBox="0 0 24 24"
+                                     width="16"
+                                     height="16"
+                                     fill="none"
+                                     stroke="currentColor"
+                                     stroke-width="2"
+                                     stroke-linecap="round"
+                                     stroke-linejoin="round"
+                                     aria-hidden="true">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                                <span>Bỏ lưu</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Empty State -->
+        <div id="wikiSavedEmpty"
+             class="wiki-saved-empty"
+             th:if="${savedPage.items.isEmpty()}">
+            <div class="wiki-saved-empty-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="48"
+                     height="48"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round">
+                    <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+                </svg>
+            </div>
+            <h2 class="wiki-saved-empty-title">Bạn chưa lưu bài viết Wiki nào.</h2>
+            <p class="wiki-saved-empty-text">
+                Khi đọc bài viết Wiki, bạn có thể bấm nút "Lưu bài viết" để lưu lại và truy cập nhanh bất cứ lúc nào.
+            </p>
+            <a th:href="@{/wiki}" class="wiki-saved-empty-cta">
+                Khám phá Kiếm Lai Wiki
+            </a>
+        </div>
+
+        <!-- Pagination -->
+        <nav th:if="${savedPage.totalPages > 1}"
+             class="wiki-public-pagination mt-5"
+             aria-label="Phân trang bài viết đã lưu">
+
+            <!-- PREVIOUS -->
+            <a th:if="${!savedPage.first}"
+               class="wiki-public-pagination-button"
+               th:href="@{/wiki/saved(page=${savedPage.page - 1})}">
+                ← Trang trước
+            </a>
+            <span th:if="${savedPage.first}"
+                  class="wiki-public-pagination-button is-disabled"
+                  aria-disabled="true">
+                ← Trang trước
+            </span>
+
+            <!-- CURRENT PAGE -->
+            <div class="wiki-public-pagination-status">
+                <span>Trang</span>
+                <strong th:text="${savedPage.page + 1}">1</strong>
+                <span>/</span>
+                <strong th:text="${savedPage.totalPages}">2</strong>
+            </div>
+
+            <!-- NEXT -->
+            <a th:if="${!savedPage.last}"
+               class="wiki-public-pagination-button"
+               th:href="@{/wiki/saved(page=${savedPage.page + 1})}">
+                Trang sau →
+            </a>
+            <span th:if="${savedPage.last}"
+                  class="wiki-public-pagination-button is-disabled"
+                  aria-disabled="true">
+                Trang sau →
+            </span>
+
+        </nav>
+
+    </div>
+
+</main>
+
+<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/wiki/wiki-saved.js}" defer></script>
+
+</body>
+</html>

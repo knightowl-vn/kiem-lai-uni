@@ -229,6 +229,12 @@ class SecurityAuthorizationTest {
     @MockBean
     private com.universe.wiki.application.article.render.WikiMarkdownRenderer wikiMarkdownRenderer;
 
+    @MockBean
+    private com.universe.wiki.application.saved.ListSavedWikiArticlesUseCase listSavedWikiArticlesUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.saved.IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -756,5 +762,28 @@ class SecurityAuthorizationTest {
                 .andExpect(status().isNoContent());
 
         verify(unsaveWikiArticleUseCase).execute(new com.universe.wiki.application.saved.UnsaveWikiArticleCommand(userId, articleId));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /wiki/saved (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingWikiSavedPage() throws Exception {
+        mockMvc.perform(get("/wiki/saved"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập được phép truy cập /wiki/saved")
+    void shouldAllowAuthenticatedUserToAccessWikiSavedPage() throws Exception {
+        UUID userId = UUID.randomUUID();
+        when(listSavedWikiArticlesUseCase.execute(userId, 0, 20))
+                .thenReturn(new com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO(
+                        List.of(), 0, 20, 0, 0, true, true
+                ));
+
+        mockMvc.perform(get("/wiki/saved").with(requestIdentity(userId)))
+                .andExpect(status().isOk());
     }
 }

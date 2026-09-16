@@ -28,6 +28,11 @@ import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.entry.web.support
         .ArticleTypePathMapper;
 
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
+import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,6 +41,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.ui.ExtendedModelMap;
 
 import java.time.Instant;
@@ -44,9 +50,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -55,6 +63,11 @@ class PublicWikiControllerTest {
     private static final UUID ARTICLE_ID =
             UUID.fromString(
                     "11111111-1111-1111-1111-111111111111"
+            );
+
+    private static final UUID USER_ID =
+            UUID.fromString(
+                    "99999999-9999-9999-9999-999999999999"
             );
 
     private static final Instant PUBLISHED_AT =
@@ -83,6 +96,10 @@ class PublicWikiControllerTest {
     private WikiMarkdownRenderer
             wikiMarkdownRenderer;
 
+    @Mock
+    private IsWikiArticleSavedUseCase
+            isWikiArticleSavedUseCase;
+
     private PublicWikiController
             controller;
 
@@ -93,7 +110,8 @@ class PublicWikiControllerTest {
                         listPublishedArticlesUseCase,
                         getPublishedArticleUseCase,
                         articleTypePathMapper,
-                        wikiMarkdownRenderer
+                        wikiMarkdownRenderer,
+                        isWikiArticleSavedUseCase
                 );
     }
 
@@ -337,10 +355,14 @@ class PublicWikiControllerTest {
         ExtendedModelMap model =
                 new ExtendedModelMap();
 
+        MockHttpServletRequest request =
+                new MockHttpServletRequest();
+
         String viewName =
                 controller.detailPage(
                         "character",
                         "tran-binh-an",
+                        request,
                         model
                 );
 
@@ -373,6 +395,17 @@ class PublicWikiControllerTest {
                 renderedContent
         );
 
+        assertThat(
+                model.getAttribute(
+                        "isSaved"
+                )
+        ).isEqualTo(
+                false
+        );
+
+        verify(isWikiArticleSavedUseCase, never())
+                .execute(any(), any());
+
         verify(getPublishedArticleUseCase)
                 .execute(
                         new GetPublishedWikiArticleQuery(
@@ -386,6 +419,200 @@ class PublicWikiControllerTest {
         ).render(
                 article.content()
         );
+    }
+
+    @Test
+    @DisplayName(
+            "Chi tiết bài viết cho người dùng đã đăng nhập: isSaved = true khi bài viết đã được lưu"
+    )
+    void shouldExposeSavedTrueWhenUserHasSavedArticle() {
+        PublishedWikiArticleDTO article =
+                createPublishedDTO();
+
+        RenderedWikiContent renderedContent =
+                new RenderedWikiContent(
+                        "<h1>Trần Bình An</h1>",
+                        List.of()
+                );
+
+        when(
+                articleTypePathMapper.fromPath(
+                        "character"
+                )
+        ).thenReturn(
+                ArticleType.CHARACTER
+        );
+
+        when(
+                getPublishedArticleUseCase.execute(
+                        any(GetPublishedWikiArticleQuery.class)
+                )
+        ).thenReturn(
+                article
+        );
+
+        when(
+                articleTypePathMapper.toPath(
+                        ArticleType.CHARACTER
+                )
+        ).thenReturn(
+                "character"
+        );
+
+        when(
+                wikiMarkdownRenderer.render(
+                        article.content()
+                )
+        ).thenReturn(
+                renderedContent
+        );
+
+        when(
+                isWikiArticleSavedUseCase.execute(
+                        USER_ID,
+                        ARTICLE_ID
+                )
+        ).thenReturn(
+                true
+        );
+
+        MockHttpServletRequest request =
+                new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request,
+                new AuthenticatedRequestIdentity(
+                        USER_ID,
+                        "reader@universe.local",
+                        "Reader",
+                        null,
+                        UserStatus.ACTIVE,
+                        UserRole.USER
+                )
+        );
+
+        ExtendedModelMap model =
+                new ExtendedModelMap();
+
+        String viewName =
+                controller.detailPage(
+                        "character",
+                        "tran-binh-an",
+                        request,
+                        model
+                );
+
+        assertThat(viewName)
+                .isEqualTo(
+                        "wiki/public/detail"
+                );
+
+        assertThat(
+                model.getAttribute(
+                        "isSaved"
+                )
+        ).isEqualTo(
+                true
+        );
+
+        verify(isWikiArticleSavedUseCase)
+                .execute(USER_ID, ARTICLE_ID);
+    }
+
+    @Test
+    @DisplayName(
+            "Chi tiết bài viết cho người dùng đã đăng nhập: isSaved = false khi bài viết chưa được lưu"
+    )
+    void shouldExposeSavedFalseWhenUserHasNotSavedArticle() {
+        PublishedWikiArticleDTO article =
+                createPublishedDTO();
+
+        RenderedWikiContent renderedContent =
+                new RenderedWikiContent(
+                        "<h1>Trần Bình An</h1>",
+                        List.of()
+                );
+
+        when(
+                articleTypePathMapper.fromPath(
+                        "character"
+                )
+        ).thenReturn(
+                ArticleType.CHARACTER
+        );
+
+        when(
+                getPublishedArticleUseCase.execute(
+                        any(GetPublishedWikiArticleQuery.class)
+                )
+        ).thenReturn(
+                article
+        );
+
+        when(
+                articleTypePathMapper.toPath(
+                        ArticleType.CHARACTER
+                )
+        ).thenReturn(
+                "character"
+        );
+
+        when(
+                wikiMarkdownRenderer.render(
+                        article.content()
+                )
+        ).thenReturn(
+                renderedContent
+        );
+
+        when(
+                isWikiArticleSavedUseCase.execute(
+                        USER_ID,
+                        ARTICLE_ID
+                )
+        ).thenReturn(
+                false
+        );
+
+        MockHttpServletRequest request =
+                new MockHttpServletRequest();
+        AuthenticatedRequestIdentityTestSupport.attach(
+                request,
+                new AuthenticatedRequestIdentity(
+                        USER_ID,
+                        "reader@universe.local",
+                        "Reader",
+                        null,
+                        UserStatus.ACTIVE,
+                        UserRole.USER
+                )
+        );
+
+        ExtendedModelMap model =
+                new ExtendedModelMap();
+
+        String viewName =
+                controller.detailPage(
+                        "character",
+                        "tran-binh-an",
+                        request,
+                        model
+                );
+
+        assertThat(viewName)
+                .isEqualTo(
+                        "wiki/public/detail"
+                );
+
+        assertThat(
+                model.getAttribute(
+                        "isSaved"
+                )
+        ).isEqualTo(
+                false
+        );
+
+        verify(isWikiArticleSavedUseCase)
+                .execute(USER_ID, ARTICLE_ID);
     }
 
     private PublishedWikiArticlePageDTO

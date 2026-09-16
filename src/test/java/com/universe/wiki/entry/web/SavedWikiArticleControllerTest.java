@@ -5,10 +5,14 @@ import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
+import com.universe.wiki.application.saved.ListSavedWikiArticlesUseCase;
 import com.universe.wiki.application.saved.SaveWikiArticleCommand;
 import com.universe.wiki.application.saved.SaveWikiArticleUseCase;
 import com.universe.wiki.application.saved.UnsaveWikiArticleCommand;
 import com.universe.wiki.application.saved.UnsaveWikiArticleUseCase;
+import com.universe.wiki.contracts.dto.saved.SavedWikiArticleItemDTO;
+import com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO;
+import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,7 +27,11 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.ui.ConcurrentModel;
+import org.springframework.ui.Model;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,9 +42,13 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SavedWikiArticleController Tests")
@@ -52,14 +64,21 @@ class SavedWikiArticleControllerTest {
     @Mock
     private UnsaveWikiArticleUseCase unsaveWikiArticleUseCase;
 
+    @Mock
+    private ListSavedWikiArticlesUseCase listSavedWikiArticlesUseCase;
+
+    private ArticleTypePathMapper articleTypePathMapper;
     private SavedWikiArticleController controller;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
+        articleTypePathMapper = new ArticleTypePathMapper();
         controller = new SavedWikiArticleController(
                 saveWikiArticleUseCase,
-                unsaveWikiArticleUseCase
+                unsaveWikiArticleUseCase,
+                listSavedWikiArticlesUseCase,
+                articleTypePathMapper
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -104,7 +123,7 @@ class SavedWikiArticleControllerTest {
         @Test
         @DisplayName("Ném NullPointerException khi SaveWikiArticleUseCase là null")
         void shouldThrowWhenSaveUseCaseIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(null, unsaveWikiArticleUseCase))
+            assertThatThrownBy(() -> new SavedWikiArticleController(null, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, articleTypePathMapper))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("SaveWikiArticleUseCase");
         }
@@ -112,9 +131,25 @@ class SavedWikiArticleControllerTest {
         @Test
         @DisplayName("Ném NullPointerException khi UnsaveWikiArticleUseCase là null")
         void shouldThrowWhenUnsaveUseCaseIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, null))
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, null, listSavedWikiArticlesUseCase, articleTypePathMapper))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("UnsaveWikiArticleUseCase");
+        }
+
+        @Test
+        @DisplayName("Ném NullPointerException khi ListSavedWikiArticlesUseCase là null")
+        void shouldThrowWhenListUseCaseIsNull() {
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, null, articleTypePathMapper))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("ListSavedWikiArticlesUseCase");
+        }
+
+        @Test
+        @DisplayName("Ném NullPointerException khi ArticleTypePathMapper là null")
+        void shouldThrowWhenArticleTypePathMapperIsNull() {
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("ArticleTypePathMapper");
         }
     }
 
@@ -301,6 +336,96 @@ class SavedWikiArticleControllerTest {
                     .andExpect(status().isBadRequest());
 
             verifyNoInteractions(unsaveWikiArticleUseCase);
+        }
+    }
+
+    @Nested
+    @DisplayName("4. GET /wiki/saved")
+    class GetSavedArticlesPageTests {
+
+        @Test
+        @DisplayName("Thành công: người dùng đã đăng nhập xem trang bài viết đã lưu, giải quyết canonical articleTypePath")
+        void shouldReturnSavedArticlesViewWhenAuthenticated() {
+            MockHttpServletRequest request = authenticatedRequest();
+            Model model = new ConcurrentModel();
+
+            SavedWikiArticleItemDTO availableItem = SavedWikiArticleItemDTO.available(
+                    UUID.randomUUID(),
+                    ARTICLE_ID,
+                    Instant.now(),
+                    "Tiêu Hạnh",
+                    "tieu-hanh",
+                    "CHARACTER",
+                    "Tóm tắt Tiêu Hạnh"
+            );
+            SavedWikiArticlePageDTO expectedPage = new SavedWikiArticlePageDTO(
+                    List.of(availableItem), 0, 20, 1, 1, true, true
+            );
+            when(listSavedWikiArticlesUseCase.execute(USER_ID, 0, 20))
+                    .thenReturn(expectedPage);
+
+            String view = controller.savedArticlesPage(0, request, model);
+
+            assertThat(view).isEqualTo("wiki/public/saved");
+            SavedWikiArticlePageViewModel savedPage =
+                    (SavedWikiArticlePageViewModel) model.getAttribute("savedPage");
+            assertThat(savedPage).isNotNull();
+            assertThat(savedPage.items()).hasSize(1);
+            assertThat(savedPage.items().get(0).articleTypePath()).isEqualTo("character");
+            assertThat(savedPage.items().get(0).title()).isEqualTo("Tiêu Hạnh");
+            assertThat(model.getAttribute("pageTitle")).isEqualTo("Bài viết Wiki đã lưu");
+
+            verify(listSavedWikiArticlesUseCase).execute(USER_ID, 0, 20);
+        }
+
+        @Test
+        @DisplayName("Chuẩn hóa phân trang: số trang âm tự động được giới hạn về 0")
+        void shouldClampNegativePageToZero() {
+            MockHttpServletRequest request = authenticatedRequest();
+            Model model = new ConcurrentModel();
+
+            SavedWikiArticlePageDTO expectedPage = new SavedWikiArticlePageDTO(
+                    List.of(), 0, 20, 0, 0, true, true
+            );
+            when(listSavedWikiArticlesUseCase.execute(USER_ID, 0, 20))
+                    .thenReturn(expectedPage);
+
+            String view = controller.savedArticlesPage(-5, request, model);
+
+            assertThat(view).isEqualTo("wiki/public/saved");
+            verify(listSavedWikiArticlesUseCase).execute(USER_ID, 0, 20);
+        }
+
+        @Test
+        @DisplayName("Chưa đăng nhập: chuyển hướng về /login khi không có danh tính trong request")
+        void shouldRedirectToLoginWhenAnonymous() {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            Model model = new ConcurrentModel();
+
+            String view = controller.savedArticlesPage(0, request, model);
+
+            assertThat(view).isEqualTo("redirect:/login");
+            verifyNoInteractions(listSavedWikiArticlesUseCase);
+        }
+
+        @Test
+        @DisplayName("Spring MVC mapping: GET /wiki/saved định tuyến thành công với MockMvc")
+        void shouldRouteGetSavedViaMockMvc() throws Exception {
+            SavedWikiArticlePageDTO expectedPage = new SavedWikiArticlePageDTO(
+                    List.of(), 1, 20, 30, 2, false, true
+            );
+            when(listSavedWikiArticlesUseCase.execute(USER_ID, 1, 20))
+                    .thenReturn(expectedPage);
+
+            mockMvc.perform(get("/wiki/saved")
+                            .param("page", "1")
+                            .with(attachRequestIdentity(USER_ID)))
+                    .andExpect(status().isOk())
+                    .andExpect(view().name("wiki/public/saved"))
+                    .andExpect(model().attributeExists("savedPage"))
+                    .andExpect(model().attribute("pageTitle", "Bài viết Wiki đã lưu"));
+
+            verify(listSavedWikiArticlesUseCase).execute(USER_ID, 1, 20);
         }
     }
 }

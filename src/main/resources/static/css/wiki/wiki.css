@@ -392,6 +392,53 @@ blockquote p {
 	color: var(--bs-primary);
 }
 
+.wiki-public-utility-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.wiki-save-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	height: 38px;
+	padding: 0 14px;
+	border: 1px solid var(--border-color);
+	border-radius: 9px;
+	background: var(--surface-bg);
+	color: var(--text-secondary);
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+	box-shadow: 0 2px 8px var(--shadow-color);
+	transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wiki-save-btn:hover {
+	background: var(--surface-secondary);
+	border-color: var(--bs-primary);
+	color: var(--bs-primary);
+}
+
+.wiki-save-btn .wiki-save-icon-filled {
+	display: none;
+}
+
+.wiki-save-btn.is-saved {
+	border-color: var(--bs-primary);
+	color: var(--bs-primary);
+	background: var(--surface-secondary);
+}
+
+.wiki-save-btn.is-saved .wiki-save-icon-outline {
+	display: none;
+}
+
+.wiki-save-btn.is-saved .wiki-save-icon-filled {
+	display: inline-block;
+}
+
 .wiki-reading-settings-wrapper {
 	position: relative;
 	display: inline-flex;
@@ -1852,5 +1899,269 @@ a.is-parent-active:not(.is-active) {
 	}
 	.wiki-public-not-found-primary, .wiki-public-not-found-secondary {
 		width: 100%;
+	}
+}
+
+/* =========================================================
+   WIKI SAVED ARTICLES PAGE
+   ========================================================= */
+.wiki-saved-main {
+	max-width: 900px;
+	margin: 0 auto;
+}
+
+.wiki-saved-container {
+	width: 100%;
+}
+
+.wiki-saved-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 0.875rem;
+	color: var(--text-secondary);
+}
+
+.wiki-saved-breadcrumb a {
+	color: var(--text-secondary);
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.wiki-saved-breadcrumb a:hover {
+	color: var(--bs-primary);
+}
+
+.wiki-breadcrumb-separator {
+	color: var(--text-secondary);
+	opacity: 0.5;
+}
+
+.wiki-saved-header {
+	margin-bottom: 28px;
+}
+
+.wiki-saved-title {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: 1.75rem;
+	font-weight: 700;
+	color: var(--text-primary);
+	margin-bottom: 8px;
+}
+
+.wiki-saved-header-icon {
+	color: var(--bs-primary);
+	flex-shrink: 0;
+}
+
+.wiki-saved-subtitle {
+	font-size: 0.95rem;
+	color: var(--text-secondary);
+	margin: 0;
+}
+
+.wiki-saved-list {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.wiki-saved-item {
+	background: var(--surface-bg);
+	border: 1px solid var(--border-color);
+	border-radius: 12px;
+	padding: 20px 24px;
+	box-shadow: 0 2px 8px var(--shadow-color);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wiki-saved-item:hover {
+	border-color: var(--bs-primary);
+}
+
+.wiki-saved-item-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 10px;
+}
+
+.wiki-saved-time {
+	font-size: 0.825rem;
+	color: var(--text-secondary);
+}
+
+.wiki-saved-item-title {
+	margin: 0 0 8px;
+	font-size: 1.25rem;
+	font-weight: 600;
+}
+
+.wiki-saved-title-link {
+	color: var(--text-primary);
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.wiki-saved-title-link:hover {
+	color: var(--bs-primary);
+}
+
+.wiki-saved-item-summary {
+	margin: 0 0 16px;
+	font-size: 0.925rem;
+	color: var(--text-secondary);
+	line-height: 1.6;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.wiki-saved-item-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.wiki-saved-read-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 6px 14px;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--surface-bg);
+	background: var(--text-primary);
+	border-radius: 7px;
+	text-decoration: none;
+	transition: opacity 0.15s ease;
+}
+
+.wiki-saved-read-btn:hover {
+	opacity: 0.88;
+	color: var(--surface-bg);
+}
+
+.wiki-saved-remove-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	font-size: 0.85rem;
+	font-weight: 500;
+	color: var(--text-secondary);
+	background: transparent;
+	border: 1px solid var(--border-color);
+	border-radius: 7px;
+	cursor: pointer;
+	transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.wiki-saved-remove-btn:hover {
+	color: #ef4444;
+	border-color: #ef4444;
+	background: rgba(239, 68, 68, 0.05);
+}
+
+/* Tombstone for unavailable items */
+.wiki-saved-item--unavailable {
+	border-style: dashed;
+	background: var(--surface-secondary);
+	opacity: 0.85;
+}
+
+.wiki-saved-tombstone-body {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+
+.wiki-saved-tombstone-info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--text-secondary);
+	font-style: italic;
+	font-size: 0.95rem;
+}
+
+.wiki-saved-tombstone-icon {
+	color: var(--text-secondary);
+	display: flex;
+	align-items: center;
+}
+
+/* Empty State */
+.wiki-saved-empty {
+	text-align: center;
+	padding: 64px 20px;
+	background: var(--surface-bg);
+	border: 1px solid var(--border-color);
+	border-radius: 16px;
+	box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.wiki-saved-empty-icon {
+	color: var(--text-secondary);
+	margin-bottom: 20px;
+	opacity: 0.6;
+}
+
+.wiki-saved-empty-title {
+	font-size: 1.35rem;
+	font-weight: 700;
+	color: var(--text-primary);
+	margin-bottom: 10px;
+}
+
+.wiki-saved-empty-text {
+	font-size: 0.95rem;
+	color: var(--text-secondary);
+	max-width: 480px;
+	margin: 0 auto 24px;
+	line-height: 1.6;
+}
+
+.wiki-saved-empty-cta {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 10px 22px;
+	font-size: 0.9rem;
+	font-weight: 600;
+	color: var(--surface-bg);
+	background: var(--bs-primary);
+	border-radius: 8px;
+	text-decoration: none;
+	transition: opacity 0.15s ease;
+}
+
+.wiki-saved-empty-cta:hover {
+	opacity: 0.9;
+	color: var(--surface-bg);
+}
+
+@media (max-width: 575.98px) {
+	.wiki-saved-item {
+		padding: 16px;
+	}
+	.wiki-saved-item-top {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
+	}
+	.wiki-saved-tombstone-body {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.wiki-saved-item-actions {
+		width: 100%;
+		justify-content: flex-start;
 	}
 }

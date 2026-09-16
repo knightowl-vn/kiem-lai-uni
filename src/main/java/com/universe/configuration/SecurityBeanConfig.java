@@ -131,7 +131,9 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
-                                "/wiki/articles/*/save"
+                                "/wiki/articles/*/save",
+                                "/wiki/saved",
+                                "/wiki/saved/**"
                         )
                         .authenticated()
 
