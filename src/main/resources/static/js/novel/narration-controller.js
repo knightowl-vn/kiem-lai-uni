@@ -3811,7 +3811,7 @@
         /**
          * Validates that the fetched document contains all required reader DOM fragments and non-empty chapter ID.
          * @param {Document} doc
-         * @returns {{valid: boolean, reason?: string, newChapterId?: string, bodyEl?: Element, breadcrumbEl?: Element, headerEl?: Element, navTopEl?: Element, navBottomEl?: Element, title?: string}}
+         * @returns {{valid: boolean, reason?: string, newChapterId?: string, contentVersion?: number, bodyEl?: Element, breadcrumbEl?: Element, headerEl?: Element, navTopEl?: Element, navBottomEl?: Element, title?: string}}
          * @private
          */
         _validateFetchedChapterDocument(doc) {
@@ -3832,6 +3832,12 @@
             const newChapterId = (bodyEl.getAttribute('data-chapter-id') || (bodyEl.dataset && bodyEl.dataset.chapterId) || '').trim();
             if (!newChapterId) {
                 return { valid: false, reason: 'Missing data-chapter-id on chapter body' };
+            }
+
+            const rawContentVersion = ((typeof bodyEl.getAttribute === 'function' ? bodyEl.getAttribute('data-content-version') : null) || (bodyEl.dataset && bodyEl.dataset.contentVersion) || '').toString().trim();
+            const contentVersion = Number(rawContentVersion);
+            if (!rawContentVersion || !Number.isInteger(contentVersion) || contentVersion <= 0) {
+                return { valid: false, reason: 'Missing or invalid data-content-version on chapter body' };
             }
 
             const breadcrumbEl = doc.querySelector('.novel-chapter-breadcrumb');
@@ -3858,6 +3864,7 @@
                 valid: true,
                 title: title,
                 newChapterId: newChapterId,
+                contentVersion: contentVersion,
                 bodyEl: bodyEl,
                 breadcrumbEl: breadcrumbEl,
                 headerEl: headerEl,
@@ -3874,6 +3881,11 @@
          * @private
          */
         _applyChapterTransition(fetchedDoc, nextUrl, validation, continuationIntent, preloadedChapterMetadata = null, preloadedPlaybackAvailability = 'unknown') {
+            const contentVersion = validation ? validation.contentVersion : undefined;
+            if (!Number.isInteger(contentVersion) || contentVersion <= 0) {
+                throw new Error('Missing or invalid contentVersion on validation object for chapter transition: ' + contentVersion);
+            }
+
             this._cancelNextChapterPreload();
             this._invalidateChapterPlayback();
             const newChapterId = validation.newChapterId;
@@ -3882,6 +3894,7 @@
             if (this.dom.body) {
                 this.dom.body.innerHTML = validation.bodyEl.innerHTML;
                 this.dom.body.setAttribute('data-chapter-id', newChapterId);
+                this.dom.body.setAttribute('data-content-version', String(contentVersion));
             }
             if (this.dom.player) {
                 this.dom.player.setAttribute('data-chapter-id', newChapterId);
@@ -4005,7 +4018,8 @@
                     detail: {
                         chapterId: newChapterId,
                         slug: chapterSlug,
-                        url: nextUrl
+                        url: nextUrl,
+                        contentVersion: contentVersion
                     }
                 }));
             }

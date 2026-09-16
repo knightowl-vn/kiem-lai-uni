@@ -30,9 +30,17 @@ public interface ReaderChapterDetailQueryPort {
             String title,
             String slug,
             String rawContent,
+            long contentVersion,
             String volumeTitle,
             String volumeSlug,
             int volumeSortOrder
     ) {
+        public ReaderChapterRecord {
+            if (contentVersion < 1L) {
+                throw new IllegalArgumentException(
+                        "Content version phải lớn hơn hoặc bằng 1."
+                );
+            }
+        }
     }
 }

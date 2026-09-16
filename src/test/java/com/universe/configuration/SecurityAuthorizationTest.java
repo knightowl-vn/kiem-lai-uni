@@ -367,6 +367,7 @@ class SecurityAuthorizationTest {
                 "Khởi Đầu",
                 slug,
                 "<p>Nội dung chương</p>",
+                1L,
                 volume,
                 null,
                 null,

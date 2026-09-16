@@ -158,6 +158,7 @@ public interface SpringDataChapterJpaRepository
                         c.title as title,
                         c.slug as slug,
                         c.content as content,
+                        c.content_version as contentVersion,
                         v.title as volumeTitle,
                         v.slug as volumeSlug,
                         v.sort_order as volumeSortOrder

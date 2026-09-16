@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +57,7 @@ class ReaderChapterDetailQueryPersistenceAdapterTest {
         when(projection.getTitle()).thenReturn("Chương 10");
         when(projection.getSlug()).thenReturn("chuong-10");
         when(projection.getContent()).thenReturn("Nội dung chương 10 markdown");
+        when(projection.getContentVersion()).thenReturn(3L);
         when(projection.getVolumeTitle()).thenReturn("Quyển 1");
         when(projection.getVolumeSlug()).thenReturn("quyen-1");
         when(projection.getVolumeSortOrder()).thenReturn(1);
@@ -74,9 +76,26 @@ class ReaderChapterDetailQueryPersistenceAdapterTest {
         assertThat(record.title()).isEqualTo("Chương 10");
         assertThat(record.slug()).isEqualTo("chuong-10");
         assertThat(record.rawContent()).isEqualTo("Nội dung chương 10 markdown");
+        assertThat(record.contentVersion()).isEqualTo(3L);
         assertThat(record.volumeTitle()).isEqualTo("Quyển 1");
         assertThat(record.volumeSlug()).isEqualTo("quyen-1");
         assertThat(record.volumeSortOrder()).isEqualTo(1);
+
+        verify(chapterRepository).findPublishedReaderChapterBySlug("chuong-10");
+    }
+
+    @Test
+    @DisplayName("Ném NullPointerException khi ReaderChapterDetailProjection trả về contentVersion là null")
+    void shouldThrowExceptionWhenContentVersionIsNull() {
+        ReaderChapterDetailProjection projection = mock(ReaderChapterDetailProjection.class);
+        when(projection.getContentVersion()).thenReturn(null);
+
+        when(chapterRepository.findPublishedReaderChapterBySlug("chuong-10"))
+                .thenReturn(Optional.of(projection));
+
+        assertThatThrownBy(() -> adapter.findPublishedChapterBySlug("chuong-10"))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("Content version của chapter không được null.");
 
         verify(chapterRepository).findPublishedReaderChapterBySlug("chuong-10");
     }

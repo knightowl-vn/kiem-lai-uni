@@ -56,7 +56,7 @@ class PublicReaderRenderedChapterLoaderTest {
 	}
 
 	private ReaderChapterRecord record(String rawContent) {
-		return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Title", "slug", rawContent, "VolTitle", "vol-slug",
+		return new ReaderChapterRecord(CHAPTER_ID, VOLUME_ID, 1, "Title", "slug", rawContent, 5L, "VolTitle", "vol-slug",
 				1);
 	}
 
@@ -97,6 +97,7 @@ class PublicReaderRenderedChapterLoaderTest {
 
 		assertThat(result.cacheable()).isTrue();
 		assertThat(result.snapshot().contentHtml()).isEqualTo("<p>Rendered Narration</p>");
+		assertThat(result.snapshot().contentVersion()).isEqualTo(5L);
 	}
 
 	@Test

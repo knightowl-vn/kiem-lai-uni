@@ -10,6 +10,7 @@ import com.universe.novel.infrastructure.persistence.chapter.SpringDataChapterJp
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -80,6 +81,11 @@ public class ReaderChapterDetailQueryPersistenceAdapter
     private ReaderChapterRecord toChapterRecord(
             ReaderChapterDetailProjection projection
     ) {
+        Long contentVersion = Objects.requireNonNull(
+                projection.getContentVersion(),
+                "Content version của chapter không được null."
+        );
+
         return new ReaderChapterRecord(
                 UUID.fromString(
                         projection.getId()
@@ -91,6 +97,7 @@ public class ReaderChapterDetailQueryPersistenceAdapter
                 projection.getTitle(),
                 projection.getSlug(),
                 projection.getContent(),
+                contentVersion,
                 projection.getVolumeTitle(),
                 projection.getVolumeSlug(),
                 projection.getVolumeSortOrder()

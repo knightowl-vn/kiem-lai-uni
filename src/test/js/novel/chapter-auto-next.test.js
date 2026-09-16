@@ -324,7 +324,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
             title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
-        }, '/url', { newChapterId: '456', title: 'Doc', bodyEl: { innerHTML: '' } }, { mode: 'managed', voiceKey: 'voice-B' }); // request voice-B
+        }, '/url', { newChapterId: '456', contentVersion: 1, title: 'Doc', bodyEl: { innerHTML: '' } }, { mode: 'managed', voiceKey: 'voice-B' }); // request voice-B
 
         assert.strictEqual(playCalled, true, "ChapterAudioEngine.play(0) should be invoked when it is authoritative");
     });
@@ -370,7 +370,7 @@ test('H.9H1 Chapter Audio Auto-Next Tests', async (t) => {
             title: 'Doc',
             body: {}, getElementById: () => ({}), querySelector: () => null,
             dataset: { chapterId: '456', chapterNumber: '2' }
-        }, '/url', { newChapterId: '456', title: 'Doc', bodyEl: { innerHTML: '<p>hello</p>' } }, capturedIntent);
+        }, '/url', { newChapterId: '456', contentVersion: 1, title: 'Doc', bodyEl: { innerHTML: '<p>hello</p>' } }, capturedIntent);
 
         assert.strictEqual(selectManagedCalled, false, 'should bypass managed retry');
         assert.strictEqual(controller.activeEngineType, 'device');
@@ -1408,6 +1408,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         ctrl._validateFetchedChapterDocument = () => ({
             valid: true,
             newChapterId: '2',
+            contentVersion: 1,
             title: 'Chapter 2',
             bodyEl: { innerHTML: '<p>Next</p>' },
             breadcrumbEl: { innerHTML: 'Next' },
@@ -1460,6 +1461,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
                 validation: {
                     valid: true,
                     newChapterId: '2',
+                    contentVersion: 1,
                     title: 'Chapter 2',
                     bodyEl: { innerHTML: '<p>Next</p>' },
                     breadcrumbEl: { innerHTML: 'Next' },
@@ -1769,6 +1771,7 @@ test('H.9H2B2 Consume Validated Preload in Auto-Next Transition', async (t) => {
         const validation = {
             valid: true,
             newChapterId: '2',
+            contentVersion: 1,
             title: 'Chapter 2',
             bodyEl: { innerHTML: '<p>Chapter 2</p>' },
             breadcrumbEl: { innerHTML: '<span>C2</span>' },
@@ -3025,6 +3028,7 @@ test('H.9I2A ChapterAudio Unavailable Authority & Fallback Tests', async (t) => 
 
             const validation = {
                 newChapterId: 'chap-2',
+                contentVersion: 1,
                 title: 'Chapter 2',
                 bodyEl: { innerHTML: '<p>Chapter 2 prose</p>' }
             };
@@ -3089,6 +3093,7 @@ test('H.9I2A ChapterAudio Unavailable Authority & Fallback Tests', async (t) => 
 
             const validation = {
                 newChapterId: 'chap-2',
+                contentVersion: 1,
                 title: 'Chapter 2',
                 bodyEl: { innerHTML: '<p>Chapter 2 prose</p>' }
             };
@@ -3265,6 +3270,7 @@ test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) =
         ctrl._validateFetchedChapterDocument = () => ({
             valid: true,
             newChapterId: '2',
+            contentVersion: 1,
             title: 'Chapter 2',
             bodyEl: { innerHTML: '<p>Next</p>' },
             breadcrumbEl: { innerHTML: 'Next' },
@@ -3299,6 +3305,7 @@ test('H.9I3 ChapterAudio Availability Probe & Negative Reuse Tests', async (t) =
                 validation: {
                     valid: true,
                     newChapterId: '2',
+                    contentVersion: 1,
                     title: 'Chapter 2',
                     bodyEl: { innerHTML: '<p>Next</p>' },
                     breadcrumbEl: { innerHTML: 'Next' },
@@ -4585,6 +4592,7 @@ test('H.9I5C2B Auto Next Managed Chapter Preparation Tests', async (t) => {
         ctrl._validateFetchedChapterDocument = () => ({
             valid: true,
             newChapterId: '2',
+            contentVersion: 1,
             title: 'Chapter 2',
             bodyEl: { innerHTML: '<p>Next</p>' },
             breadcrumbEl: { innerHTML: 'Next' },
@@ -4615,6 +4623,7 @@ test('H.9I5C2B Auto Next Managed Chapter Preparation Tests', async (t) => {
                 validation: {
                     valid: true,
                     newChapterId: '2',
+                    contentVersion: 1,
                     title: 'Chapter 2',
                     bodyEl: { innerHTML: '<p>Next</p>' },
                     breadcrumbEl: { innerHTML: 'Next' },
@@ -5274,6 +5283,7 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         ctrl._validateFetchedChapterDocument = () => ({
             valid: true,
             newChapterId: '2',
+            contentVersion: 1,
             title: 'Chapter 2',
             bodyEl: { innerHTML: '<p>Next</p>' },
             breadcrumbEl: { innerHTML: 'Next' },
@@ -5303,6 +5313,7 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
                 validation: {
                     valid: true,
                     newChapterId: '2',
+                    contentVersion: 1,
                     title: 'Chapter 2',
                     bodyEl: { innerHTML: '<p>Next</p>' },
                     breadcrumbEl: { innerHTML: 'Next' },
@@ -5573,6 +5584,7 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         ctrl._validateFetchedChapterDocument = () => ({
             valid: true,
             newChapterId: '3',
+            contentVersion: 1,
             title: 'Chapter 3',
             bodyEl: { innerHTML: '<p>Ch3</p>' },
             breadcrumbEl: { innerHTML: 'Ch3' },
@@ -5614,5 +5626,201 @@ test('H.9J1A Auto Next Managed Build Grace → Device Fallback Tests', async (t)
         assert.strictEqual(ctrl.activeEngineType, 'managed');
         assert.strictEqual(ctrl.engine, ctrl.chapterEngine);
         assert.strictEqual(ctrl._playCalledCount(), 1, 'Managed playback started immediately');
+    });
+});
+
+test('MS-05E1A Novel Reader ContentVersion Seamless Transition Tests', async (t) => {
+    function createDoc(contentVersionAttr, chapterIdAttr = 'ch-2') {
+        const bodyEl = {
+            getAttribute: (attr) => {
+                if (attr === 'data-chapter-id') return chapterIdAttr;
+                if (attr === 'data-content-version') return contentVersionAttr;
+                return null;
+            },
+            dataset: {
+                chapterId: chapterIdAttr,
+                contentVersion: contentVersionAttr
+            },
+            innerHTML: '<p>Chapter 2 text</p>'
+        };
+        const el = () => ({ innerHTML: '' });
+        return {
+            title: 'Chương 2: Căn Duyên',
+            querySelector: (sel) => {
+                if (sel === '.novel-reader-chapter-body') return bodyEl;
+                if (sel === '.novel-chapter-breadcrumb') return el();
+                if (sel === '.novel-chapter-header') return el();
+                if (sel === '.novel-chapter-nav--top') return el();
+                if (sel === '.novel-chapter-nav--bottom') return el();
+                return null;
+            }
+        };
+    }
+
+    function createTestEnv() {
+        const listeners = {};
+        const eventsDispatched = [];
+        const env = {
+            console,
+            setTimeout,
+            clearTimeout,
+            document: {
+                title: 'Chapter 1',
+                querySelector: () => null,
+                querySelectorAll: () => [],
+                getElementById: () => null,
+                addEventListener: (evt, cb) => { (listeners[evt] = listeners[evt] || []).push(cb); },
+                removeEventListener: () => {},
+                dispatchEvent: (evt) => { eventsDispatched.push(evt); }
+            },
+            window: {
+                innerWidth: 1024,
+                innerHeight: 768,
+                addEventListener: () => {},
+                removeEventListener: () => {},
+                location: { href: 'http://localhost/novel/chapters/chuong-1' },
+                history: { pushState: () => {} }
+            },
+            URL: globalThis.URL,
+            CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
+            eventsDispatched
+        };
+        const controllerSrc = fs.readFileSync('src/main/resources/static/js/novel/narration-controller.js', 'utf8');
+        vm.runInNewContext(controllerSrc, env);
+        return env;
+    }
+
+    await t.test('1. _validateFetchedChapterDocument accepts valid positive contentVersion', () => {
+        const env = createTestEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        const doc = createDoc('3');
+        const validation = ctrl._validateFetchedChapterDocument(doc);
+        assert.strictEqual(validation.valid, true);
+        assert.strictEqual(validation.newChapterId, 'ch-2');
+        assert.strictEqual(validation.contentVersion, 3);
+    });
+
+    await t.test('2. _validateFetchedChapterDocument rejects missing, zero, negative, and invalid contentVersion', () => {
+        const env = createTestEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+
+        // Missing
+        const vMissing = ctrl._validateFetchedChapterDocument(createDoc(null));
+        assert.strictEqual(vMissing.valid, false);
+        assert.match(vMissing.reason, /data-content-version/);
+
+        // Zero
+        const vZero = ctrl._validateFetchedChapterDocument(createDoc('0'));
+        assert.strictEqual(vZero.valid, false);
+        assert.match(vZero.reason, /data-content-version/);
+
+        // Negative
+        const vNeg = ctrl._validateFetchedChapterDocument(createDoc('-5'));
+        assert.strictEqual(vNeg.valid, false);
+        assert.match(vNeg.reason, /data-content-version/);
+
+        // Non-numeric
+        const vNaN = ctrl._validateFetchedChapterDocument(createDoc('invalid'));
+        assert.strictEqual(vNaN.valid, false);
+        assert.match(vNaN.reason, /data-content-version/);
+
+        // Decimal
+        const vDec = ctrl._validateFetchedChapterDocument(createDoc('1.5'));
+        assert.strictEqual(vDec.valid, false);
+        assert.match(vDec.reason, /data-content-version/);
+    });
+
+    await t.test('3. _applyChapterTransition updates DOM data-content-version and dispatches enriched kiemlai:chapter-changed', () => {
+        const env = createTestEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        const bodyAttrs = {};
+        ctrl.dom = {
+            body: {
+                setAttribute: (k, v) => { bodyAttrs[k] = v; },
+                innerHTML: ''
+            },
+            player: { setAttribute: () => {} }
+        };
+        ctrl._cancelNextChapterPreload = () => {};
+        ctrl._invalidateChapterPlayback = () => {};
+        ctrl._updateProgressDisplay = () => {};
+        ctrl._updateNavButtons = () => {};
+        ctrl._clearSavedResume = () => {};
+        ctrl._clearHighlight = () => {};
+
+        const validation = {
+            valid: true,
+            title: 'Chương 2',
+            newChapterId: 'chapter-uuid-2',
+            contentVersion: 7,
+            bodyEl: { innerHTML: '<p>New text</p>' }
+        };
+
+        const fetchedDoc = {
+            getElementById: () => null,
+            querySelector: () => null
+        };
+
+        ctrl._applyChapterTransition(fetchedDoc, '/novel/chapters/chuong-2', validation, null);
+
+        // Asserts DOM update
+        assert.strictEqual(bodyAttrs['data-chapter-id'], 'chapter-uuid-2');
+        assert.strictEqual(bodyAttrs['data-content-version'], '7');
+
+        // Asserts event dispatch
+        assert.strictEqual(env.eventsDispatched.length, 1);
+        const event = env.eventsDispatched[0];
+        assert.strictEqual(event.type, 'kiemlai:chapter-changed');
+        assert.strictEqual(event.detail.chapterId, 'chapter-uuid-2');
+        assert.strictEqual(event.detail.slug, 'chuong-2');
+        assert.strictEqual(event.detail.url, '/novel/chapters/chuong-2');
+        assert.strictEqual(event.detail.contentVersion, 7);
+    });
+
+    await t.test('4. _applyChapterTransition rejects invalid contentVersion before DOM mutation and event dispatch', () => {
+        const env = createTestEnv();
+        const ctrl = new env.NarrationController.NarrationController({});
+        const bodyAttrs = {
+            'data-chapter-id': 'chapter-uuid-1',
+            'data-content-version': '5'
+        };
+        let bodyInnerHtml = '<p>Chapter 1 text</p>';
+        ctrl.dom = {
+            body: {
+                setAttribute: (k, v) => { bodyAttrs[k] = v; },
+                get innerHTML() { return bodyInnerHtml; },
+                set innerHTML(val) { bodyInnerHtml = val; }
+            },
+            player: { setAttribute: () => {} }
+        };
+        let preloadCancelled = false;
+        ctrl._cancelNextChapterPreload = () => { preloadCancelled = true; };
+        ctrl._invalidateChapterPlayback = () => {};
+
+        const invalidValidation = {
+            valid: true,
+            title: 'Chương 2',
+            newChapterId: 'chapter-uuid-2',
+            // Missing contentVersion
+            bodyEl: { innerHTML: '<p>Chapter 2 text</p>' }
+        };
+
+        const fetchedDoc = {
+            getElementById: () => null,
+            querySelector: () => null
+        };
+
+        assert.throws(() => {
+            ctrl._applyChapterTransition(fetchedDoc, '/novel/chapters/chuong-2', invalidValidation, null);
+        }, /contentVersion/);
+
+        // Asserts rejection occurs before cancelling/invalidation and DOM mutation
+        assert.strictEqual(preloadCancelled, false, 'Should fail before _cancelNextChapterPreload');
+        assert.strictEqual(bodyInnerHtml, '<p>Chapter 1 text</p>', 'Body innerHTML must not be updated');
+        assert.strictEqual(bodyAttrs['data-chapter-id'], 'chapter-uuid-1', 'Chapter ID must not be updated');
+        assert.strictEqual(bodyAttrs['data-content-version'], '5', 'Must not silently set data-content-version="1" or fabricate a version');
+
+        // Asserts no kiemlai:chapter-changed event dispatched
+        assert.strictEqual(env.eventsDispatched.length, 0, 'Must not dispatch kiemlai:chapter-changed');
     });
 });

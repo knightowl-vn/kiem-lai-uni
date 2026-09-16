@@ -273,7 +273,7 @@
          CHAPTER BODY (RENDERED MARKDOWN HTML)
          ===================================================== -->
     <article class="novel-reader-chapter-body"
-             th:attr="data-chapter-id=${chapter.id}"
+             th:attr="data-chapter-id=${chapter.id},data-content-version=${chapter.contentVersion}"
              th:utext="${chapter.contentHtml}">
         <p>Nội dung chương...</p>
     </article>

@@ -102,6 +102,7 @@ class ReaderChapterPageControllerTest {
                 "Khởi Đầu",
                 slug,
                 "<p>Nội dung chương 1.</p>",
+                1L,
                 volume,
                 null,
                 next,

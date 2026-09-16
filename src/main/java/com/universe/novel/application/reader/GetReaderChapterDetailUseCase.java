@@ -78,6 +78,7 @@ public class GetReaderChapterDetailUseCase {
 				snapshot.title(),
 				snapshot.slug(),
 				snapshot.contentHtml(),
+				snapshot.contentVersion(),
 				snapshot.volume(),
 				previousChapter,
 				nextChapter,
