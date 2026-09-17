@@ -78,9 +78,15 @@ public class CommentThreadVisibilityResolver {
         for (Comment reply : replies) {
             if (visibleIds.contains(reply.getId())) {
                 UUID parentId = reply.getParentCommentId();
-                UUID replyToAuthorUserId = parentId.equals(root.getId())
-                        ? root.getAuthorUserId()
-                        : replyMap.get(parentId).getAuthorUserId();
+                UUID replyToAuthorUserId;
+                if (parentId.equals(root.getId())) {
+                    replyToAuthorUserId = root.getAuthorUserId();
+                } else {
+                    Comment parentComment = replyMap.get(parentId);
+                    replyToAuthorUserId = (parentComment != null && parentComment.isActive())
+                            ? parentComment.getAuthorUserId()
+                            : null;
+                }
 
                 CommentReadItem item = reply.isActive()
                         ? CommentReadItem.fromActiveReply(reply, replyToAuthorUserId)

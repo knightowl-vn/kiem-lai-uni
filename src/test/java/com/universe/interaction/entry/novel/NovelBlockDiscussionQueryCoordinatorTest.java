@@ -219,6 +219,12 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         var tombstoneReplyDto = thread.replies().get(1);
         assertThat(tombstoneReplyDto.tombstone()).isTrue();
         assertThat(tombstoneReplyDto.author()).isNull();
+        assertThat(tombstoneReplyDto.authorUserId()).isNull();
+        assertThat(tombstoneReplyDto.replyToAuthorUserId()).isNull();
+        assertThat(tombstoneReplyDto.canEdit()).isFalse();
+        assertThat(tombstoneReplyDto.canDelete()).isFalse();
+        assertThat(tombstoneReplyDto.id()).isEqualTo(tombstoneReplyId);
+        assertThat(tombstoneReplyDto.parentCommentId()).isEqualTo(rootId);
 
         // Exactly one batch query to Identity, with only visible active user IDs
         verify(userIdentityContract).findPublicProfilesByIds(Set.of(userRoot, userActiveReply));
@@ -331,33 +337,45 @@ class NovelBlockDiscussionQueryCoordinatorTest {
                         otherUserId, new UserPublicProfileDTO(otherUserId, "Other User", null)
                 ));
 
-        // 1. Authenticated as Root Owner: root canEdit=true, others canEdit=false
+        // 1. Authenticated as Root Owner: root canEdit=true, canDelete=true; others false
         ChapterBlockDiscussionResponseDTO resRootOwner = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerRootId);
         var threadRootOwner = resRootOwner.threads().get(0);
         assertThat(threadRootOwner.root().canEdit()).isTrue(); // A: owner root => canEdit true
+        assertThat(threadRootOwner.root().canDelete()).isTrue(); // A: owner root => canDelete true
         assertThat(threadRootOwner.replies().get(0).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadRootOwner.replies().get(0).canDelete()).isFalse(); // C: non-owner reply => canDelete false
         assertThat(threadRootOwner.replies().get(1).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadRootOwner.replies().get(1).canDelete()).isFalse(); // C: non-owner reply => canDelete false
         assertThat(threadRootOwner.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+        assertThat(threadRootOwner.replies().get(2).canDelete()).isFalse(); // E: tombstone => canDelete false
 
-        // 2. Authenticated as Reply1 Owner: root canEdit=false, reply1 canEdit=true, others canEdit=false
+        // 2. Authenticated as Reply1 Owner: root false, reply1 canEdit=true, canDelete=true; others false
         ChapterBlockDiscussionResponseDTO resReplyOwner = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerReply1Id);
         var threadReplyOwner = resReplyOwner.threads().get(0);
         assertThat(threadReplyOwner.root().canEdit()).isFalse(); // C: non-owner root => canEdit false
+        assertThat(threadReplyOwner.root().canDelete()).isFalse(); // C: non-owner root => canDelete false
         assertThat(threadReplyOwner.replies().get(0).canEdit()).isTrue(); // B: owner reply => canEdit true
+        assertThat(threadReplyOwner.replies().get(0).canDelete()).isTrue(); // B: owner reply => canDelete true
         assertThat(threadReplyOwner.replies().get(1).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadReplyOwner.replies().get(1).canDelete()).isFalse(); // C: non-owner reply => canDelete false
         assertThat(threadReplyOwner.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+        assertThat(threadReplyOwner.replies().get(2).canDelete()).isFalse(); // E: tombstone => canDelete false
 
-        // 3. Guest (null viewerUserId): all canEdit=false
+        // 3. Guest (null viewerUserId): all canEdit=false, canDelete=false
         ChapterBlockDiscussionResponseDTO resGuest = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, null);
         var threadGuest = resGuest.threads().get(0);
         assertThat(threadGuest.root().canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.root().canDelete()).isFalse(); // D: guest => canDelete false
         assertThat(threadGuest.replies().get(0).canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.replies().get(0).canDelete()).isFalse(); // D: guest => canDelete false
         assertThat(threadGuest.replies().get(1).canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.replies().get(1).canDelete()).isFalse(); // D: guest => canDelete false
         assertThat(threadGuest.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+        assertThat(threadGuest.replies().get(2).canDelete()).isFalse(); // E: tombstone => canDelete false
     }
 
     @Test
-    @DisplayName("Should preserve canEdit capability even when Identity public profile lookup is missing")
+    @DisplayName("Should preserve canEdit and canDelete capability even when Identity public profile lookup is missing")
     void shouldPreserveCanEditEvenWhenIdentityProfileIsMissing() {
         UUID rootId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         UUID ownerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
@@ -375,11 +393,76 @@ class NovelBlockDiscussionQueryCoordinatorTest {
 
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerId);
 
-        // F: Missing Identity profile does not affect canEdit
+        // F: Missing Identity profile does not affect canEdit or canDelete
         assertThat(response.threads().get(0).root().canEdit()).isTrue();
+        assertThat(response.threads().get(0).root().canDelete()).isTrue();
         assertThat(response.threads().get(0).root().author().displayName()).isEqualTo("Người dùng");
 
-        // G: Exactly one batch query to Identity, no extra query for canEdit
+        // G: Exactly one batch query to Identity, no extra query for capabilities
         verify(userIdentityContract).findPublicProfilesByIds(Set.of(ownerId));
+    }
+
+    @Test
+    @DisplayName("Public DTO regression: active child of deleted parent has replyToAuthorUserId=null while preserving parentCommentId")
+    void shouldSuppressDeletedParentAttributionOnActiveChildInPublicDto() {
+        UUID rootId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID userRoot = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID userB = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        UUID userC = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+        UUID bId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID cId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+        Instant now = Instant.now();
+        Comment rootComment = Comment.createRoot(rootId, CommentTarget.novelChapter(CHAPTER_ID), userRoot, "Root text", now);
+        Comment bComment = Comment.createReply(bId, rootComment, userB, "Deleted B text", now);
+        Comment cComment = Comment.createReply(cId, bComment, userC, "Active child text", now.plusSeconds(60));
+        bComment.delete(now.plusSeconds(90));
+
+        CommentReadItem rootItem = CommentReadItem.fromRoot(rootComment);
+        CommentReadItem bItem = CommentReadItem.fromTombstoneReply(bComment, userRoot);
+        CommentReadItem cItem = CommentReadItem.fromActiveReply(cComment, null);
+
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(bItem, cItem));
+
+        ChapterBlockDiscussionAnchorView anchorView = new ChapterBlockDiscussionAnchorView(
+                CHAPTER_ID, CONTENT_VERSION, BLOCK_KEY, CANONICAL_TEXT, List.of(rootId)
+        );
+
+        when(getChapterBlockDiscussionAnchorsUseCase.execute(CHAPTER_ID, BLOCK_KEY)).thenReturn(anchorView);
+        when(getCommentThreadsByRootIdsUseCase.execute(CommentTarget.novelChapter(CHAPTER_ID), List.of(rootId)))
+                .thenReturn(List.of(threadView));
+
+        // Deleted B author MUST NOT be queried in Identity
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(userRoot, userC)))
+                .thenReturn(Map.of(
+                        userRoot, new UserPublicProfileDTO(userRoot, "Root User", null),
+                        userC, new UserPublicProfileDTO(userC, "Child C User", null)
+                ));
+
+        ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, null);
+
+        var thread = response.threads().get(0);
+        assertThat(thread.replies()).hasSize(2);
+
+        // Tombstone B verification
+        var bDto = thread.replies().get(0);
+        assertThat(bDto.id()).isEqualTo(bId);
+        assertThat(bDto.tombstone()).isTrue();
+        assertThat(bDto.authorUserId()).isNull();
+        assertThat(bDto.replyToAuthorUserId()).isNull();
+        assertThat(bDto.author()).isNull();
+        assertThat(bDto.canEdit()).isFalse();
+        assertThat(bDto.canDelete()).isFalse();
+
+        // Active Child C verification
+        var cDto = thread.replies().get(1);
+        assertThat(cDto.id()).isEqualTo(cId);
+        assertThat(cDto.tombstone()).isFalse();
+        assertThat(cDto.parentCommentId()).isEqualTo(bId); // Preserved structural ancestry
+        assertThat(cDto.replyToAuthorUserId()).isNull();   // Deleted B author UUID suppressed!
+        assertThat(cDto.authorUserId()).isEqualTo(userC);
+
+        verify(userIdentityContract).findPublicProfilesByIds(Set.of(userRoot, userC));
     }
 }

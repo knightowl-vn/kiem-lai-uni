@@ -139,12 +139,14 @@ class CommentReadItemTest {
     }
 
     @Test
-    @DisplayName("Should enforce invariant that reply comments must have replyToAuthorUserId")
-    void shouldEnforceReplyInvariants() {
+    @DisplayName("Should allow reply comments to have null replyToAuthorUserId when parent author attribution is suppressed")
+    void shouldAllowReplyWithNullReplyToAuthorUserId() {
         UUID id = UUID.randomUUID();
-        assertThatThrownBy(() -> new CommentReadItem(id, AUTHOR_B, ROOT_ID, null, "Body", false, T0, T0))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Reply comment must have replyToAuthorUserId");
+        CommentReadItem item = new CommentReadItem(id, AUTHOR_B, ROOT_ID, null, "Body", false, T0, T0);
+        assertThat(item.getId()).isEqualTo(id);
+        assertThat(item.getParentCommentId()).isEqualTo(ROOT_ID);
+        assertThat(item.getReplyToAuthorUserId()).isNull();
+        assertThat(item.isReply()).isTrue();
     }
 
     @Test

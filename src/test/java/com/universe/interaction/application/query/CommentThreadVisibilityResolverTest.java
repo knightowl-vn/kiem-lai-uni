@@ -107,7 +107,7 @@ class CommentThreadVisibilityResolverTest {
         assertThat(itemC.isTombstone()).isFalse();
         assertThat(itemC.getBody()).isEqualTo("Reply C");
         assertThat(itemC.getParentCommentId()).isEqualTo(replyBId);
-        assertThat(itemC.getReplyToAuthorUserId()).isEqualTo(AUTHOR_B);
+        assertThat(itemC.getReplyToAuthorUserId()).isNull(); // Deleted parent B author is suppressed
     }
 
     @Test
@@ -138,13 +138,14 @@ class CommentThreadVisibilityResolverTest {
         assertThat(itemC.getId()).isEqualTo(cId);
         assertThat(itemC.isTombstone()).isTrue();
         assertThat(itemC.getBody()).isNull();
-        assertThat(itemC.getReplyToAuthorUserId()).isEqualTo(AUTHOR_B);
+        assertThat(itemC.getReplyToAuthorUserId()).isNull(); // Deleted parent B author is suppressed
 
         CommentReadItem itemD = items.get(2);
         assertThat(itemD.getId()).isEqualTo(dId);
         assertThat(itemD.isTombstone()).isFalse();
         assertThat(itemD.getBody()).isEqualTo("D body");
-        assertThat(itemD.getReplyToAuthorUserId()).isEqualTo(AUTHOR_C);
+        assertThat(itemD.getParentCommentId()).isEqualTo(cId);
+        assertThat(itemD.getReplyToAuthorUserId()).isNull(); // Deleted parent C author is suppressed
     }
 
     @Test

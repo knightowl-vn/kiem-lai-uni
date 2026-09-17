@@ -169,13 +169,13 @@ public class NovelBlockDiscussionQueryCoordinator {
             Map<UUID, UserPublicProfileDTO> authorsMap,
             UUID viewerUserId
     ) {
-        boolean canEdit = viewerUserId != null &&
-                !item.tombstone() &&
-                viewerUserId.equals(item.authorUserId());
+        if (item == null) {
+            return null;
+        }
 
         if (item.tombstone()) {
             // Tombstone replies have no author presentation to prevent identity re-introduction
-            return CommentReadDTO.from(item, null, false);
+            return CommentReadDTO.from(item, viewerUserId);
         }
 
         UUID authorId = item.authorUserId();
@@ -187,6 +187,6 @@ public class NovelBlockDiscussionQueryCoordinator {
             authorDTO = CommentAuthorDTO.fallback(authorId);
         }
 
-        return CommentReadDTO.from(item, authorDTO, canEdit);
+        return CommentReadDTO.from(item, authorDTO, viewerUserId);
     }
 }

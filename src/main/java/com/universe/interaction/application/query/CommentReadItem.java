@@ -52,11 +52,9 @@ public record CommentReadItem(
             if (tombstone) {
                 throw new IllegalArgumentException("Root comment cannot be a tombstone: " + id);
             }
-        } else {
-            if (replyToAuthorUserId == null) {
-                throw new IllegalArgumentException("Reply comment must have replyToAuthorUserId: " + id);
-            }
         }
+        // Note: For replies (parentCommentId != null), replyToAuthorUserId may be null when the immediate parent
+        // is deleted/tombstoned so that deleted-parent author attribution is intentionally suppressed for privacy.
     }
 
     /**
@@ -87,7 +85,6 @@ public record CommentReadItem(
      */
     public static CommentReadItem fromActiveReply(Comment reply, UUID replyToAuthorUserId) {
         Objects.requireNonNull(reply, "Reply comment cannot be null.");
-        Objects.requireNonNull(replyToAuthorUserId, "replyToAuthorUserId cannot be null.");
         if (!reply.isReply()) {
             throw new CommentThreadIntegrityException("Comment is not a reply: " + reply.getId());
         }
@@ -111,7 +108,6 @@ public record CommentReadItem(
      */
     public static CommentReadItem fromTombstoneReply(Comment reply, UUID replyToAuthorUserId) {
         Objects.requireNonNull(reply, "Reply comment cannot be null.");
-        Objects.requireNonNull(replyToAuthorUserId, "replyToAuthorUserId cannot be null.");
         if (!reply.isReply()) {
             throw new CommentThreadIntegrityException("Comment is not a reply: " + reply.getId());
         }

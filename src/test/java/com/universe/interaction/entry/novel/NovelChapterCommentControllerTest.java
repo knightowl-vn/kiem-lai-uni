@@ -223,7 +223,8 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.items[0].parentCommentId").doesNotExist())
                 .andExpect(jsonPath("$.items[0].replyToAuthorUserId").doesNotExist())
                 .andExpect(jsonPath("$.items[0].tombstone").value(false))
-                .andExpect(jsonPath("$.items[0].canEdit").value(false));
+                .andExpect(jsonPath("$.items[0].canEdit").value(false))
+                .andExpect(jsonPath("$.items[0].canDelete").value(false));
     }
 
     @Test
@@ -263,12 +264,14 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.root.id").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.root.body").value("Root body"))
                 .andExpect(jsonPath("$.root.canEdit").value(false))
+                .andExpect(jsonPath("$.root.canDelete").value(false))
                 .andExpect(jsonPath("$.replies[0].id").value(REPLY_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].parentCommentId").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].replyToAuthorUserId").value(USER_1_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].body").value("Reply body"))
                 .andExpect(jsonPath("$.replies[0].tombstone").value(false))
-                .andExpect(jsonPath("$.replies[0].canEdit").value(false));
+                .andExpect(jsonPath("$.replies[0].canEdit").value(false))
+                .andExpect(jsonPath("$.replies[0].canDelete").value(false));
     }
 
     @Test
@@ -404,7 +407,8 @@ class NovelChapterCommentControllerTest {
                         .param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(ROOT_COMMENT_ID.toString()))
-                .andExpect(jsonPath("$.items[0].canEdit").value(true));
+                .andExpect(jsonPath("$.items[0].canEdit").value(true))
+                .andExpect(jsonPath("$.items[0].canDelete").value(true));
     }
 
     @Test
@@ -427,7 +431,8 @@ class NovelChapterCommentControllerTest {
                         .param("size", "20"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(ROOT_COMMENT_ID.toString()))
-                .andExpect(jsonPath("$.items[0].canEdit").value(false));
+                .andExpect(jsonPath("$.items[0].canEdit").value(false))
+                .andExpect(jsonPath("$.items[0].canDelete").value(false));
     }
 
     @Test
@@ -458,10 +463,17 @@ class NovelChapterCommentControllerTest {
                         .with(authenticatedIdentity(USER_1_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.root.canEdit").value(true))
+                .andExpect(jsonPath("$.root.canDelete").value(true))
                 .andExpect(jsonPath("$.replies[0].canEdit").value(true))
+                .andExpect(jsonPath("$.replies[0].canDelete").value(true))
                 .andExpect(jsonPath("$.replies[1].canEdit").value(false))
+                .andExpect(jsonPath("$.replies[1].canDelete").value(false))
                 .andExpect(jsonPath("$.replies[2].tombstone").value(true))
-                .andExpect(jsonPath("$.replies[2].canEdit").value(false));
+                .andExpect(jsonPath("$.replies[2].authorUserId").doesNotExist())
+                .andExpect(jsonPath("$.replies[2].replyToAuthorUserId").doesNotExist())
+                .andExpect(jsonPath("$.replies[2].author").doesNotExist())
+                .andExpect(jsonPath("$.replies[2].canEdit").value(false))
+                .andExpect(jsonPath("$.replies[2].canDelete").value(false));
     }
 
     @Test
@@ -487,7 +499,9 @@ class NovelChapterCommentControllerTest {
                         .with(authenticatedIdentity(USER_2_ID)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.root.canEdit").value(false))
-                .andExpect(jsonPath("$.replies[0].canEdit").value(false));
+                .andExpect(jsonPath("$.root.canDelete").value(false))
+                .andExpect(jsonPath("$.replies[0].canEdit").value(false))
+                .andExpect(jsonPath("$.replies[0].canDelete").value(false));
     }
 
     // =========================================================================
@@ -1460,16 +1474,18 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.threads[0].root.id").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.threads[0].root.body").value("Root comment body"))
                 .andExpect(jsonPath("$.threads[0].root.canEdit").value(false))
+                .andExpect(jsonPath("$.threads[0].root.canDelete").value(false))
                 .andExpect(jsonPath("$.threads[0].replies[0].id").value(REPLY_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.threads[0].replies[0].body").value("Reply body"))
-                .andExpect(jsonPath("$.threads[0].replies[0].canEdit").value(false));
+                .andExpect(jsonPath("$.threads[0].replies[0].canEdit").value(false))
+                .andExpect(jsonPath("$.threads[0].replies[0].canDelete").value(false));
 
         verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey, null);
     }
 
     @Test
     @WithMockUser(username = "reader@universe.local", roles = "USER")
-    @DisplayName("GET block discussion: authenticated user forwards viewer UUID and exposes canEdit")
+    @DisplayName("GET block discussion: authenticated user forwards viewer UUID and exposes canEdit and canDelete")
     void shouldAllowAuthenticatedToGetBlockDiscussion() throws Exception {
         String blockKey = "blk-intro-1";
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
@@ -1485,7 +1501,8 @@ class NovelChapterCommentControllerTest {
                 NOW,
                 NOW,
                 null,
-                true // canEdit = true for owner
+                true, // canEdit = true for owner
+                true  // canDelete = true for owner
         );
         CommentThreadResponseDTO threadDTO = new CommentThreadResponseDTO(rootDTO, List.of());
 
@@ -1510,7 +1527,8 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.blockKey").value(blockKey))
                 .andExpect(jsonPath("$.threadCount").value(1))
                 .andExpect(jsonPath("$.commentCount").value(1))
-                .andExpect(jsonPath("$.threads[0].root.canEdit").value(true));
+                .andExpect(jsonPath("$.threads[0].root.canEdit").value(true))
+                .andExpect(jsonPath("$.threads[0].root.canDelete").value(true));
 
         verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey, USER_1_ID);
     }
