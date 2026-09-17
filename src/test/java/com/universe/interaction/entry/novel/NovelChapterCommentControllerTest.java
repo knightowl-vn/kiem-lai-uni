@@ -34,6 +34,7 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
+import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.novel.application.exceptions.ReaderBlockNotFoundException;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
@@ -221,7 +222,8 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.items[0].body").value("Root comment body"))
                 .andExpect(jsonPath("$.items[0].parentCommentId").doesNotExist())
                 .andExpect(jsonPath("$.items[0].replyToAuthorUserId").doesNotExist())
-                .andExpect(jsonPath("$.items[0].tombstone").value(false));
+                .andExpect(jsonPath("$.items[0].tombstone").value(false))
+                .andExpect(jsonPath("$.items[0].canEdit").value(false));
     }
 
     @Test
@@ -260,11 +262,13 @@ class NovelChapterCommentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.root.id").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.root.body").value("Root body"))
+                .andExpect(jsonPath("$.root.canEdit").value(false))
                 .andExpect(jsonPath("$.replies[0].id").value(REPLY_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].parentCommentId").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].replyToAuthorUserId").value(USER_1_ID.toString()))
                 .andExpect(jsonPath("$.replies[0].body").value("Reply body"))
-                .andExpect(jsonPath("$.replies[0].tombstone").value(false));
+                .andExpect(jsonPath("$.replies[0].tombstone").value(false))
+                .andExpect(jsonPath("$.replies[0].canEdit").value(false));
     }
 
     @Test
@@ -378,6 +382,112 @@ class NovelChapterCommentControllerTest {
                 .andExpect(status().isOk());
 
         verify(listCommentRootsUseCase).execute(target, 0, 50);
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Authenticated owner receives canEdit=true when listing root comments")
+    void shouldListRootCommentsAsAuthenticatedOwnerWithCanEditTrue() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Owner comment body", NOW);
+        CommentReadItem item = CommentReadItem.fromRoot(root);
+        CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
+
+        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(ROOT_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.items[0].canEdit").value(true));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Authenticated non-owner receives canEdit=false when listing root comments")
+    void shouldListRootCommentsAsAuthenticatedNonOwnerWithCanEditFalse() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Owner comment body", NOW);
+        CommentReadItem item = CommentReadItem.fromRoot(root);
+        CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
+
+        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
+                        .with(authenticatedIdentity(USER_2_ID))
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(ROOT_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.items[0].canEdit").value(false));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Authenticated owner receives accurate canEdit across thread root and replies including tombstones")
+    void shouldReadCommentThreadAsAuthenticatedOwner() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).executeRoot(ROOT_COMMENT_ID, target);
+
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Owner root body", NOW);
+        Comment replyByOwner = Comment.createReply(REPLY_COMMENT_ID, root, USER_1_ID, "Owner reply body", NOW.plusSeconds(30));
+        Comment replyByOther = Comment.createReply(UUID.randomUUID(), root, USER_2_ID, "Other reply body", NOW.plusSeconds(60));
+        Comment tombstoneReply = Comment.createReply(UUID.randomUUID(), root, USER_1_ID, "Temp body", NOW.plusSeconds(90));
+        tombstoneReply.delete(NOW.plusSeconds(120));
+
+        CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+        CommentReadItem reply1Item = CommentReadItem.fromActiveReply(replyByOwner, USER_1_ID);
+        CommentReadItem reply2Item = CommentReadItem.fromActiveReply(replyByOther, USER_1_ID);
+        CommentReadItem reply3Item = CommentReadItem.fromTombstoneReply(tombstoneReply, USER_1_ID);
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(reply1Item, reply2Item, reply3Item));
+
+        when(getCommentThreadUseCase.execute(ROOT_COMMENT_ID)).thenReturn(threadView);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/thread")
+                        .with(authenticatedIdentity(USER_1_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.root.canEdit").value(true))
+                .andExpect(jsonPath("$.replies[0].canEdit").value(true))
+                .andExpect(jsonPath("$.replies[1].canEdit").value(false))
+                .andExpect(jsonPath("$.replies[2].tombstone").value(true))
+                .andExpect(jsonPath("$.replies[2].canEdit").value(false));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Authenticated non-owner receives canEdit=false for all items in comment thread")
+    void shouldReadCommentThreadAsAuthenticatedNonOwner() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).executeRoot(ROOT_COMMENT_ID, target);
+
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Root body", NOW);
+        Comment reply = Comment.createReply(REPLY_COMMENT_ID, root, USER_1_ID, "Reply body", NOW.plusSeconds(60));
+
+        CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+        CommentReadItem replyItem = CommentReadItem.fromActiveReply(reply, USER_1_ID);
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(replyItem));
+
+        when(getCommentThreadUseCase.execute(ROOT_COMMENT_ID)).thenReturn(threadView);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/thread")
+                        .with(authenticatedIdentity(USER_2_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.root.canEdit").value(false))
+                .andExpect(jsonPath("$.replies[0].canEdit").value(false));
     }
 
     // =========================================================================
@@ -1337,7 +1447,7 @@ class NovelChapterCommentControllerTest {
                 List.of(CommentThreadResponseDTO.from(threadView))
         );
 
-        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey, null))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
@@ -1349,30 +1459,47 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.threadCount").value(1))
                 .andExpect(jsonPath("$.threads[0].root.id").value(ROOT_COMMENT_ID.toString()))
                 .andExpect(jsonPath("$.threads[0].root.body").value("Root comment body"))
+                .andExpect(jsonPath("$.threads[0].root.canEdit").value(false))
                 .andExpect(jsonPath("$.threads[0].replies[0].id").value(REPLY_COMMENT_ID.toString()))
-                .andExpect(jsonPath("$.threads[0].replies[0].body").value("Reply body"));
+                .andExpect(jsonPath("$.threads[0].replies[0].body").value("Reply body"))
+                .andExpect(jsonPath("$.threads[0].replies[0].canEdit").value(false));
 
-        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey, null);
     }
 
     @Test
     @WithMockUser(username = "reader@universe.local", roles = "USER")
-    @DisplayName("GET block discussion: authenticated user can retrieve discussion for valid published block")
+    @DisplayName("GET block discussion: authenticated user forwards viewer UUID and exposes canEdit")
     void shouldAllowAuthenticatedToGetBlockDiscussion() throws Exception {
         String blockKey = "blk-intro-1";
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentReadDTO rootDTO = new CommentReadDTO(
+                ROOT_COMMENT_ID,
+                USER_1_ID,
+                null,
+                null,
+                "Owner comment text",
+                false,
+                NOW,
+                NOW,
+                null,
+                true // canEdit = true for owner
+        );
+        CommentThreadResponseDTO threadDTO = new CommentThreadResponseDTO(rootDTO, List.of());
 
         ChapterBlockDiscussionResponseDTO responseDTO = new ChapterBlockDiscussionResponseDTO(
                 CHAPTER_A_ID,
                 2L,
                 blockKey,
                 "Canonical text",
-                0,
-                List.of()
+                1,
+                1,
+                List.of(threadDTO)
         );
 
-        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey, USER_1_ID))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey)
@@ -1381,10 +1508,11 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.chapterId").value(CHAPTER_A_ID.toString()))
                 .andExpect(jsonPath("$.contentVersion").value(2))
                 .andExpect(jsonPath("$.blockKey").value(blockKey))
-                .andExpect(jsonPath("$.threadCount").value(0))
-                .andExpect(jsonPath("$.threads").isEmpty());
+                .andExpect(jsonPath("$.threadCount").value(1))
+                .andExpect(jsonPath("$.commentCount").value(1))
+                .andExpect(jsonPath("$.threads[0].root.canEdit").value(true));
 
-        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey, USER_1_ID);
     }
 
     @Test
@@ -1398,7 +1526,7 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
                 .andExpect(status().isNotFound());
 
-        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any());
+        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any(), any());
     }
 
     @Test
@@ -1409,13 +1537,13 @@ class NovelChapterCommentControllerTest {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
 
-        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey, null))
                 .thenThrow(new ReaderBlockNotFoundException(CHAPTER_A_ID, blockKey));
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
                 .andExpect(status().isNotFound());
 
-        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey, null);
     }
 
     @Test
@@ -1428,7 +1556,7 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/   "))
                 .andExpect(status().isBadRequest());
 
-        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any());
+        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any(), any());
     }
 
     @Test
@@ -1439,7 +1567,7 @@ class NovelChapterCommentControllerTest {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
 
-        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey, null))
                 .thenThrow(new IllegalStateException("Duplicate block key"));
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))

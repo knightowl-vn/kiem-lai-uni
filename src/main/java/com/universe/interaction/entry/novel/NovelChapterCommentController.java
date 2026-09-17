@@ -138,7 +138,8 @@ public class NovelChapterCommentController {
     public ResponseEntity<CommentSliceResponseDTO> listRootComments(
             @PathVariable UUID chapterId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest request
     ) {
         if (chapterId == null || page < 0 || size <= 0) {
             return ResponseEntity.badRequest().build();
@@ -151,11 +152,15 @@ public class NovelChapterCommentController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
+
         CommentTarget target = CommentTarget.novelChapter(chapterId);
         CommentReadSlice slice = listCommentRootsUseCase.execute(target, page, size);
 
         List<CommentReadDTO> items = slice.items().stream()
-                .map(CommentReadDTO::from)
+                .map(item -> CommentReadDTO.from(item, viewerUserId))
                 .toList();
 
         return ResponseEntity.ok(new CommentSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
@@ -249,7 +254,8 @@ public class NovelChapterCommentController {
     @GetMapping("/blocks/{blockKey}")
     public ResponseEntity<ChapterBlockDiscussionResponseDTO> getBlockDiscussion(
             @PathVariable UUID chapterId,
-            @PathVariable String blockKey
+            @PathVariable String blockKey,
+            HttpServletRequest request
     ) {
         if (chapterId == null || blockKey == null || blockKey.trim().isEmpty()) {
             return ResponseEntity.badRequest().build();
@@ -259,8 +265,12 @@ public class NovelChapterCommentController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
+
         ChapterBlockDiscussionResponseDTO response =
-                novelBlockDiscussionQueryCoordinator.getBlockDiscussion(chapterId, blockKey.trim());
+                novelBlockDiscussionQueryCoordinator.getBlockDiscussion(chapterId, blockKey.trim(), viewerUserId);
 
         return ResponseEntity.ok(response);
     }
@@ -272,7 +282,8 @@ public class NovelChapterCommentController {
     @GetMapping("/{rootCommentId}/thread")
     public ResponseEntity<CommentThreadResponseDTO> getCommentThread(
             @PathVariable UUID chapterId,
-            @PathVariable UUID rootCommentId
+            @PathVariable UUID rootCommentId,
+            HttpServletRequest request
     ) {
         if (chapterId == null || rootCommentId == null) {
             return ResponseEntity.badRequest().build();
@@ -285,8 +296,12 @@ public class NovelChapterCommentController {
         CommentTarget expectedTarget = CommentTarget.novelChapter(chapterId);
         validateCommentTargetScopeUseCase.executeRoot(rootCommentId, expectedTarget);
 
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
+
         CommentThreadView threadView = getCommentThreadUseCase.execute(rootCommentId);
-        return ResponseEntity.ok(CommentThreadResponseDTO.from(threadView));
+        return ResponseEntity.ok(CommentThreadResponseDTO.from(threadView, viewerUserId));
     }
 
     /**

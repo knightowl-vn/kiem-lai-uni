@@ -3247,4 +3247,433 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         }
     });
 
+    test('61. active root comment with canEdit: true renders edit button', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-edit-test-1',
+                                authorUserId: 'user-owner',
+                                body: 'My own comment',
+                                tombstone: false,
+                                canEdit: true,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'Author Me' }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const editBtn = rootEl.querySelector('.novel-comment-edit-btn');
+        assert.notStrictEqual(editBtn, null);
+        assert.strictEqual(editBtn.getAttribute('data-action'), 'edit');
+        assert.strictEqual(editBtn.getAttribute('data-comment-id'), 'root-edit-test-1');
+        assert.strictEqual(editBtn.getAttribute('data-root-id'), 'root-edit-test-1');
+        assert.strictEqual(editBtn.textContent, 'Chỉnh sửa');
+    });
+
+    test('62. active root comment with canEdit: false does NOT render edit button', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-noedit-test-1',
+                                authorUserId: 'user-other',
+                                body: 'Someone else comment',
+                                tombstone: false,
+                                canEdit: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'Other Person' }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const editBtn = rootEl.querySelector('.novel-comment-edit-btn');
+        assert.strictEqual(editBtn, null);
+    });
+
+    test('63. active reply comment with canEdit: true renders edit button carrying semantic IDs', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-reply-edit-test-1';
+        const REPLY_ID = 'reply-edit-test-1';
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-other',
+                                body: 'Root comment',
+                                tombstone: false,
+                                canEdit: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'Other Person' }
+                            },
+                            replies: [
+                                {
+                                id: REPLY_ID,
+                                authorUserId: 'user-owner',
+                                parentCommentId: ROOT_ID,
+                                body: 'My reply',
+                                tombstone: false,
+                                canEdit: true,
+                                createdAt: '2026-09-17T10:05:00Z',
+                                updatedAt: '2026-09-17T10:05:00Z',
+                                author: { displayName: 'Author Me' }
+                            }
+                        ]
+                    }
+                ]
+            })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const editBtn = replyEl.querySelector('.novel-comment-edit-btn');
+        assert.notStrictEqual(editBtn, null);
+        assert.strictEqual(editBtn.getAttribute('data-action'), 'edit');
+        assert.strictEqual(editBtn.getAttribute('data-comment-id'), REPLY_ID);
+        assert.strictEqual(editBtn.getAttribute('data-reply-id'), REPLY_ID);
+        assert.strictEqual(editBtn.getAttribute('data-root-id'), ROOT_ID);
+        assert.strictEqual(editBtn.textContent, 'Chỉnh sửa');
+    });
+
+    test('64. tombstone reply never renders edit button even if canEdit is mistakenly true', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-tomb-test-1';
+        const REPLY_ID = 'reply-tomb-test-1';
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                body: 'Root',
+                                tombstone: false,
+                                canEdit: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: REPLY_ID,
+                                    parentCommentId: ROOT_ID,
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    canEdit: true,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:06:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const editBtn = replyEl.querySelector('.novel-comment-edit-btn');
+        assert.strictEqual(editBtn, null);
+    });
+
+    test('65. active comment with updatedAt > createdAt renders đã chỉnh sửa label', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-edited-1',
+                                body: 'Root edited body',
+                                tombstone: false,
+                                canEdit: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:15:00Z',
+                                author: { displayName: 'User 1' }
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-edited-1',
+                                    parentCommentId: 'root-edited-1',
+                                    body: 'Reply edited body',
+                                    tombstone: false,
+                                    canEdit: false,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:20:00Z',
+                                    author: { displayName: 'User 2' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+        const rootEditedLabel = rootEl.querySelector('.novel-comment-edited');
+        assert.notStrictEqual(rootEditedLabel, null);
+        assert.strictEqual(rootEditedLabel.textContent, 'đã chỉnh sửa');
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+        const replyEditedLabel = replyEl.querySelector('.novel-comment-edited');
+        assert.notStrictEqual(replyEditedLabel, null);
+        assert.strictEqual(replyEditedLabel.textContent, 'đã chỉnh sửa');
+    });
+
+    test('66. active comment with updatedAt == createdAt does NOT render đã chỉnh sửa label', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-not-edited-1',
+                                body: 'Root pristine body',
+                                tombstone: false,
+                                canEdit: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'User 1' }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+        const rootEditedLabel = rootEl.querySelector('.novel-comment-edited');
+        assert.strictEqual(rootEditedLabel, null);
+    });
+
+    test('67. tombstone comment does NOT render đã chỉnh sửa label even if updatedAt > createdAt', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                body: 'Root',
+                                tombstone: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-tomb-1',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    createdAt: '2026-09-17T10:00:00Z',
+                                    updatedAt: '2026-09-17T10:30:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+        const replyEditedLabel = replyEl.querySelector('.novel-comment-edited');
+        assert.strictEqual(replyEditedLabel, null);
+    });
+
+    test('68. isCommentEdited unit tests for null, malformed, identical, and strictly greater timestamps', () => {
+        assert.strictEqual(drawerModule.isCommentEdited(null), false);
+        assert.strictEqual(drawerModule.isCommentEdited({}), false);
+        assert.strictEqual(drawerModule.isCommentEdited({ createdAt: '2026-09-17T10:00:00Z' }), false);
+        assert.strictEqual(drawerModule.isCommentEdited({ updatedAt: '2026-09-17T10:00:00Z' }), false);
+        assert.strictEqual(drawerModule.isCommentEdited({ createdAt: 'bad', updatedAt: 'bad' }), false);
+        assert.strictEqual(drawerModule.isCommentEdited({
+            createdAt: '2026-09-17T10:00:00Z',
+            updatedAt: '2026-09-17T10:00:00Z'
+        }), false);
+        assert.strictEqual(drawerModule.isCommentEdited({
+            createdAt: '2026-09-17T10:05:00Z',
+            updatedAt: '2026-09-17T10:00:00Z'
+        }), false);
+        assert.strictEqual(drawerModule.isCommentEdited({
+            createdAt: '2026-09-17T10:00:00Z',
+            updatedAt: '2026-09-17T10:00:01Z'
+        }), true);
+    });
+
 });

@@ -288,4 +288,98 @@ class NovelBlockDiscussionQueryCoordinatorTest {
 
         verify(getCommentThreadsByRootIdsUseCase, never()).execute(any(), any());
     }
+
+    @Test
+    @DisplayName("Should compute canEdit capability accurately for owner root, owner reply, non-owner, guest, and tombstone")
+    void shouldComputeCanEditCapabilityAccurately() {
+        UUID rootId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID reply1Id = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID reply2Id = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID replyTombstoneId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        UUID ownerRootId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID ownerReply1Id = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        UUID otherUserId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+
+        ChapterBlockDiscussionAnchorView anchorView = new ChapterBlockDiscussionAnchorView(
+                CHAPTER_ID, CONTENT_VERSION, BLOCK_KEY, CANONICAL_TEXT, List.of(rootId)
+        );
+
+        Instant now = Instant.now();
+        Comment rootComment = Comment.createRoot(rootId, CommentTarget.novelChapter(CHAPTER_ID), ownerRootId, "Root comment", now);
+        Comment reply1Comment = Comment.createReply(reply1Id, rootComment, ownerReply1Id, "Reply 1", now);
+        Comment reply2Comment = Comment.createReply(reply2Id, rootComment, otherUserId, "Reply 2", now);
+        Comment tombstoneComment = Comment.createReply(replyTombstoneId, rootComment, otherUserId, "Temp", now);
+        tombstoneComment.delete(now);
+
+        CommentThreadView threadView = new CommentThreadView(
+                CommentReadItem.fromRoot(rootComment),
+                List.of(
+                        CommentReadItem.fromActiveReply(reply1Comment, ownerRootId),
+                        CommentReadItem.fromActiveReply(reply2Comment, ownerRootId),
+                        CommentReadItem.fromTombstoneReply(tombstoneComment, ownerRootId)
+                )
+        );
+
+        when(getChapterBlockDiscussionAnchorsUseCase.execute(CHAPTER_ID, BLOCK_KEY)).thenReturn(anchorView);
+        when(getCommentThreadsByRootIdsUseCase.execute(CommentTarget.novelChapter(CHAPTER_ID), List.of(rootId)))
+                .thenReturn(List.of(threadView));
+        when(userIdentityContract.findPublicProfilesByIds(any()))
+                .thenReturn(Map.of(
+                        ownerRootId, new UserPublicProfileDTO(ownerRootId, "Owner Root", null),
+                        ownerReply1Id, new UserPublicProfileDTO(ownerReply1Id, "Owner Reply", null),
+                        otherUserId, new UserPublicProfileDTO(otherUserId, "Other User", null)
+                ));
+
+        // 1. Authenticated as Root Owner: root canEdit=true, others canEdit=false
+        ChapterBlockDiscussionResponseDTO resRootOwner = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerRootId);
+        var threadRootOwner = resRootOwner.threads().get(0);
+        assertThat(threadRootOwner.root().canEdit()).isTrue(); // A: owner root => canEdit true
+        assertThat(threadRootOwner.replies().get(0).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadRootOwner.replies().get(1).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadRootOwner.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+
+        // 2. Authenticated as Reply1 Owner: root canEdit=false, reply1 canEdit=true, others canEdit=false
+        ChapterBlockDiscussionResponseDTO resReplyOwner = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerReply1Id);
+        var threadReplyOwner = resReplyOwner.threads().get(0);
+        assertThat(threadReplyOwner.root().canEdit()).isFalse(); // C: non-owner root => canEdit false
+        assertThat(threadReplyOwner.replies().get(0).canEdit()).isTrue(); // B: owner reply => canEdit true
+        assertThat(threadReplyOwner.replies().get(1).canEdit()).isFalse(); // C: non-owner reply => canEdit false
+        assertThat(threadReplyOwner.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+
+        // 3. Guest (null viewerUserId): all canEdit=false
+        ChapterBlockDiscussionResponseDTO resGuest = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, null);
+        var threadGuest = resGuest.threads().get(0);
+        assertThat(threadGuest.root().canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.replies().get(0).canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.replies().get(1).canEdit()).isFalse(); // D: guest => canEdit false
+        assertThat(threadGuest.replies().get(2).canEdit()).isFalse(); // E: tombstone => canEdit false
+    }
+
+    @Test
+    @DisplayName("Should preserve canEdit capability even when Identity public profile lookup is missing")
+    void shouldPreserveCanEditEvenWhenIdentityProfileIsMissing() {
+        UUID rootId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID ownerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        ChapterBlockDiscussionAnchorView anchorView = new ChapterBlockDiscussionAnchorView(
+                CHAPTER_ID, CONTENT_VERSION, BLOCK_KEY, CANONICAL_TEXT, List.of(rootId)
+        );
+
+        Comment rootComment = Comment.createRoot(rootId, CommentTarget.novelChapter(CHAPTER_ID), ownerId, "Thread root", Instant.now());
+        CommentThreadView threadView = new CommentThreadView(CommentReadItem.fromRoot(rootComment), Collections.emptyList());
+
+        when(getChapterBlockDiscussionAnchorsUseCase.execute(CHAPTER_ID, BLOCK_KEY)).thenReturn(anchorView);
+        when(getCommentThreadsByRootIdsUseCase.execute(CommentTarget.novelChapter(CHAPTER_ID), List.of(rootId)))
+                .thenReturn(List.of(threadView));
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(ownerId))).thenReturn(Map.of());
+
+        ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, ownerId);
+
+        // F: Missing Identity profile does not affect canEdit
+        assertThat(response.threads().get(0).root().canEdit()).isTrue();
+        assertThat(response.threads().get(0).root().author().displayName()).isEqualTo("Người dùng");
+
+        // G: Exactly one batch query to Identity, no extra query for canEdit
+        verify(userIdentityContract).findPublicProfilesByIds(Set.of(ownerId));
+    }
 }

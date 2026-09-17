@@ -208,6 +208,28 @@
     }
 
     /**
+     * Checks if an active comment has been edited by comparing createdAt and updatedAt timestamps.
+     *
+     * @param {Object} comment
+     * @returns {boolean}
+     */
+    function isCommentEdited(comment) {
+        if (!comment || typeof comment !== 'object') {
+            return false;
+        }
+        if (!comment.createdAt || !comment.updatedAt) {
+            return false;
+        }
+        try {
+            const createdMs = new Date(comment.createdAt).getTime();
+            const updatedMs = new Date(comment.updatedAt).getTime();
+            return Number.isFinite(createdMs) && Number.isFinite(updatedMs) && updatedMs > createdMs;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
      * Clears all children of a container element safely.
      *
      * @param {Element} container
@@ -706,6 +728,13 @@
                 rootHeader.appendChild(rootTime);
             }
 
+            if (!thread.root.tombstone && isCommentEdited(thread.root)) {
+                const rootEdited = doc.createElement('span');
+                rootEdited.className = 'novel-comment-edited';
+                rootEdited.textContent = 'đã chỉnh sửa';
+                rootHeader.appendChild(rootEdited);
+            }
+
             // Root Body (rendered safely as textContent)
             const rootBody = doc.createElement('div');
             rootBody.className = 'novel-comment-body';
@@ -729,8 +758,21 @@
                 rootReplyBtn.setAttribute('data-author-name', thread.root.author.displayName.trim());
             }
             rootReplyBtn.textContent = 'Trả lời';
-
             rootActions.appendChild(rootReplyBtn);
+
+            if (thread.root.canEdit === true) {
+                const rootEditBtn = doc.createElement('button');
+                rootEditBtn.type = 'button';
+                rootEditBtn.className = 'novel-comment-edit-btn';
+                rootEditBtn.setAttribute('data-action', 'edit');
+                if (thread.root.id) {
+                    rootEditBtn.setAttribute('data-comment-id', String(thread.root.id));
+                    rootEditBtn.setAttribute('data-root-id', String(thread.root.id));
+                }
+                rootEditBtn.textContent = 'Chỉnh sửa';
+                rootActions.appendChild(rootEditBtn);
+            }
+
             rootEl.appendChild(rootActions);
             threadCard.appendChild(rootEl);
 
@@ -796,6 +838,13 @@
                             replyHeader.appendChild(replyTime);
                         }
 
+                        if (!isTombstone && isCommentEdited(reply)) {
+                            const replyEdited = doc.createElement('span');
+                            replyEdited.className = 'novel-comment-edited';
+                            replyEdited.textContent = 'đã chỉnh sửa';
+                            replyHeader.appendChild(replyEdited);
+                        }
+
                         const replyBody = doc.createElement('div');
                         replyBody.className = 'novel-comment-body';
 
@@ -858,6 +907,23 @@
                         replyBtn.textContent = 'Trả lời';
 
                         replyActions.appendChild(replyBtn);
+
+                        if (!isTombstone && reply.canEdit === true) {
+                            const replyEditBtn = doc.createElement('button');
+                            replyEditBtn.type = 'button';
+                            replyEditBtn.className = 'novel-comment-edit-btn';
+                            replyEditBtn.setAttribute('data-action', 'edit');
+                            if (reply.id) {
+                                replyEditBtn.setAttribute('data-comment-id', String(reply.id));
+                                replyEditBtn.setAttribute('data-reply-id', String(reply.id));
+                            }
+                            if (thread.root.id) {
+                                replyEditBtn.setAttribute('data-root-id', String(thread.root.id));
+                            }
+                            replyEditBtn.textContent = 'Chỉnh sửa';
+                            replyActions.appendChild(replyEditBtn);
+                        }
+
                         replyEl.appendChild(replyActions);
                     }
 
@@ -1325,6 +1391,7 @@
         formatCommentCount,
         formatThreadCount,
         formatTimestamp,
+        isCommentEdited,
         openDiscussion,
         closeDrawer,
         retryFetch,

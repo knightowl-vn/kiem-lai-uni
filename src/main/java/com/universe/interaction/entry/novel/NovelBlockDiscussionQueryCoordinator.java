@@ -65,6 +65,19 @@ public class NovelBlockDiscussionQueryCoordinator {
      * @return immutable {@link ChapterBlockDiscussionResponseDTO}
      */
     public ChapterBlockDiscussionResponseDTO getBlockDiscussion(UUID chapterId, String blockKey) {
+        return getBlockDiscussion(chapterId, blockKey, null);
+    }
+
+    /**
+     * Resolves the block discussion response for a chapter block, optionally computing canEdit
+     * capabilities based on the authenticated viewer's userId.
+     *
+     * @param chapterId scalar UUID of the chapter
+     * @param blockKey canonical Reader block key
+     * @param viewerUserId optional scalar UUID of the authenticated viewer (null for guests)
+     * @return immutable {@link ChapterBlockDiscussionResponseDTO}
+     */
+    public ChapterBlockDiscussionResponseDTO getBlockDiscussion(UUID chapterId, String blockKey, UUID viewerUserId) {
         if (chapterId == null) {
             throw new IllegalArgumentException("chapterId cannot be null");
         }
@@ -113,7 +126,7 @@ public class NovelBlockDiscussionQueryCoordinator {
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
 
         List<CommentThreadResponseDTO> threads = threadViews.stream()
-                .map(threadView -> toEnrichedThreadDTO(threadView, authorsMap))
+                .map(threadView -> toEnrichedThreadDTO(threadView, authorsMap, viewerUserId))
                 .toList();
 
         int commentCount = 0;
@@ -141,22 +154,28 @@ public class NovelBlockDiscussionQueryCoordinator {
 
     private CommentThreadResponseDTO toEnrichedThreadDTO(
             CommentThreadView threadView,
-            Map<UUID, UserPublicProfileDTO> authorsMap
+            Map<UUID, UserPublicProfileDTO> authorsMap,
+            UUID viewerUserId
     ) {
-        CommentReadDTO rootDTO = toEnrichedCommentDTO(threadView.root(), authorsMap);
+        CommentReadDTO rootDTO = toEnrichedCommentDTO(threadView.root(), authorsMap, viewerUserId);
         List<CommentReadDTO> replyDTOs = threadView.replies().stream()
-                .map(replyItem -> toEnrichedCommentDTO(replyItem, authorsMap))
+                .map(replyItem -> toEnrichedCommentDTO(replyItem, authorsMap, viewerUserId))
                 .toList();
         return new CommentThreadResponseDTO(rootDTO, replyDTOs);
     }
 
     private CommentReadDTO toEnrichedCommentDTO(
             CommentReadItem item,
-            Map<UUID, UserPublicProfileDTO> authorsMap
+            Map<UUID, UserPublicProfileDTO> authorsMap,
+            UUID viewerUserId
     ) {
+        boolean canEdit = viewerUserId != null &&
+                !item.tombstone() &&
+                viewerUserId.equals(item.authorUserId());
+
         if (item.tombstone()) {
             // Tombstone replies have no author presentation to prevent identity re-introduction
-            return CommentReadDTO.from(item, null);
+            return CommentReadDTO.from(item, null, false);
         }
 
         UUID authorId = item.authorUserId();
@@ -168,6 +187,6 @@ public class NovelBlockDiscussionQueryCoordinator {
             authorDTO = CommentAuthorDTO.fallback(authorId);
         }
 
-        return CommentReadDTO.from(item, authorDTO);
+        return CommentReadDTO.from(item, authorDTO, canEdit);
     }
 }
