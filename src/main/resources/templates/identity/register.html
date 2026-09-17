@@ -65,7 +65,18 @@
 							<hr class="flex-grow-1">
 						</div>
 
-						<a th:href="@{/oauth2/authorization/google}"
+						<a th:if="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+							th:href="@{/oauth2/authorization/google(returnTo=${param.returnTo})}"
+							class="btn btn-outline-dark w-100
+           d-flex align-items-center justify-content-center gap-2">
+
+							<img
+							src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+							alt="Google" width="20" height="20"> <span>Đăng ký
+								bằng Google</span>
+						</a>
+						<a th:unless="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+							th:href="@{/oauth2/authorization/google}"
 							class="btn btn-outline-dark w-100
            d-flex align-items-center justify-content-center gap-2">
 

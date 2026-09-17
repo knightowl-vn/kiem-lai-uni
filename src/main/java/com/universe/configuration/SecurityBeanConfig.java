@@ -6,6 +6,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
@@ -17,16 +19,16 @@ import com.universe.identity.infrastructure.security.BrowserNavigationRequestMat
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.FormLoginAuthenticationSuccessHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.identity.infrastructure.security.OAuth2AuthenticationFailureHandler;
+import com.universe.identity.infrastructure.security.OAuth2ReturnToStore;
 import com.universe.identity.infrastructure.security.SafeReturnToValidator;
+import com.universe.identity.infrastructure.security.StateCorrelationOAuth2AuthorizationRequestRepository;
 
 @Configuration
 public class SecurityBeanConfig {
 
     private static final int REMEMBER_ME_VALIDITY_SECONDS =
             14 * 24 * 60 * 60;
-
-    private final GoogleOAuthSuccessHandler
-            googleOAuthSuccessHandler;
 
     private final AccountStatusFilter
             accountStatusFilter;
@@ -36,7 +38,6 @@ public class SecurityBeanConfig {
     private final boolean secureCookie;
 
     public SecurityBeanConfig(
-            GoogleOAuthSuccessHandler googleOAuthSuccessHandler,
             AccountStatusFilter accountStatusFilter,
 
             @Value("${security.remember-me.key}")
@@ -45,9 +46,6 @@ public class SecurityBeanConfig {
             @Value("${security.remember-me.secure-cookie:false}")
             boolean secureCookie
     ) {
-        this.googleOAuthSuccessHandler =
-                googleOAuthSuccessHandler;
-
         this.accountStatusFilter =
                 accountStatusFilter;
 
@@ -81,6 +79,33 @@ public class SecurityBeanConfig {
     }
 
     @Bean
+    public OAuth2ReturnToStore oAuth2ReturnToStore() {
+        return new OAuth2ReturnToStore();
+    }
+
+    @Bean
+    public AuthorizationRequestRepository<OAuth2AuthorizationRequest> oAuth2AuthorizationRequestRepository(
+            OAuth2ReturnToStore oAuth2ReturnToStore,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new StateCorrelationOAuth2AuthorizationRequestRepository(
+                oAuth2ReturnToStore,
+                safeReturnToValidator
+        );
+    }
+
+    @Bean
+    public OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler(
+            OAuth2ReturnToStore oAuth2ReturnToStore,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new OAuth2AuthenticationFailureHandler(
+                oAuth2ReturnToStore,
+                safeReturnToValidator
+        );
+    }
+
+    @Bean
     public FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler(
             RequestCache requestCache,
             SafeReturnToValidator safeReturnToValidator
@@ -93,7 +118,10 @@ public class SecurityBeanConfig {
             HttpSecurity http,
             RequestCache requestCache,
             FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler,
-            CustomAuthenticationFailureHandler authenticationFailureHandler
+            CustomAuthenticationFailureHandler authenticationFailureHandler,
+            GoogleOAuthSuccessHandler googleOAuthSuccessHandler,
+            AuthorizationRequestRepository<OAuth2AuthorizationRequest> oAuth2AuthorizationRequestRepository,
+            OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler
     ) throws Exception {
 
         http
@@ -266,10 +294,17 @@ public class SecurityBeanConfig {
 
                 .oauth2Login(oauth2 -> oauth2
                         .loginPage("/login")
+                        .authorizationEndpoint(auth -> auth
+                                .authorizationRequestRepository(
+                                        oAuth2AuthorizationRequestRepository
+                                )
+                        )
                         .successHandler(
                                 googleOAuthSuccessHandler
                         )
-                        .failureUrl("/login?oauthError")
+                        .failureHandler(
+                                oAuth2AuthenticationFailureHandler
+                        )
                 )
 
                 .logout(logout -> logout

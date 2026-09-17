@@ -225,6 +225,9 @@ class SecurityLoginRedirectIntegrationTest {
     void verifySingleBeanOwnership() {
         assertThat(applicationContext.getBeansOfType(SafeReturnToValidator.class)).hasSize(1);
         assertThat(applicationContext.getBeansOfType(FormLoginAuthenticationSuccessHandler.class)).hasSize(1);
+        assertThat(applicationContext.getBeansOfType(OAuth2ReturnToStore.class)).hasSize(1);
+        assertThat(applicationContext.getBeansOfType(StateCorrelationOAuth2AuthorizationRequestRepository.class)).hasSize(1);
+        assertThat(applicationContext.getBeansOfType(OAuth2AuthenticationFailureHandler.class)).hasSize(1);
     }
 
     @Test
@@ -307,5 +310,31 @@ class SecurityLoginRedirectIntegrationTest {
                         .with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/login?error&returnTo=%2Fnovel%2Fchapters%2Fquyen-1-chuong-10%3FdiscussionBlock%3Dblk-1%26intent%3Dreply"));
+    }
+
+    @Test
+    @DisplayName("GET /login with returnTo renders Google OAuth link preserving returnTo")
+    void loginPagePreservesReturnToInGoogleOAuthLink() throws Exception {
+        String target = "/novel/chapters/quyen-1-chuong-10?discussionBlock=blk-1";
+        mockMvc.perform(get("/login").param("returnTo", target))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/google?returnTo=/novel/chapters/quyen-1-chuong-10?discussionBlock%3Dblk-1\"")));
+
+        mockMvc.perform(get("/login"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/google\"")));
+    }
+
+    @Test
+    @DisplayName("GET /register with returnTo renders Google OAuth link preserving returnTo")
+    void registerPagePreservesReturnToInGoogleOAuthLink() throws Exception {
+        String target = "/novel/chapters/quyen-1-chuong-10?discussionBlock=blk-1";
+        mockMvc.perform(get("/register").param("returnTo", target))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/google?returnTo=/novel/chapters/quyen-1-chuong-10?discussionBlock%3Dblk-1\"")));
+
+        mockMvc.perform(get("/register"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/oauth2/authorization/google\"")));
     }
 }
