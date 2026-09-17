@@ -29,10 +29,28 @@ public record CommentReadDTO(
         String body,
         boolean tombstone,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        CommentAuthorDTO author
 ) {
 
+    public CommentReadDTO(
+            UUID id,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID replyToAuthorUserId,
+            String body,
+            boolean tombstone,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, null);
+    }
+
     public static CommentReadDTO from(CommentReadItem item) {
+        return from(item, null);
+    }
+
+    public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author) {
         Objects.requireNonNull(item, "CommentReadItem cannot be null.");
         return new CommentReadDTO(
                 item.id(),
@@ -42,7 +60,22 @@ public record CommentReadDTO(
                 item.body(),
                 item.tombstone(),
                 item.createdAt(),
-                item.updatedAt()
+                item.updatedAt(),
+                author
+        );
+    }
+
+    public CommentReadDTO withAuthor(CommentAuthorDTO author) {
+        return new CommentReadDTO(
+                this.id,
+                this.authorUserId,
+                this.parentCommentId,
+                this.replyToAuthorUserId,
+                this.body,
+                this.tombstone,
+                this.createdAt,
+                this.updatedAt,
+                author
         );
     }
 }

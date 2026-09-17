@@ -2032,4 +2032,483 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(failedEvents.length, 0);
     });
 
+    test('44. Comment author presentation renders valid avatar image and display name for root and replies', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Hàn Lập',
+                                    avatarUrl: 'https://cdn.example.com/avatars/hanlap.png'
+                                }
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-1',
+                                    authorUserId: 'user-reply',
+                                    body: 'Reply comment',
+                                    tombstone: false,
+                                    createdAt: '2026-09-17T12:05:00Z',
+                                    author: {
+                                        userId: 'user-reply',
+                                        displayName: 'Nam Cung Uyển',
+                                        avatarUrl: 'https://cdn.example.com/avatars/namcunguyen.jpg'
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // Root comment author verification
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const rootAuthor = rootEl.querySelector('.novel-comment-author');
+        assert.notStrictEqual(rootAuthor, null);
+        assert.strictEqual(rootAuthor.textContent, 'Hàn Lập');
+
+        const rootAvatar = rootEl.querySelector('img.novel-comment-avatar');
+        assert.notStrictEqual(rootAvatar, null);
+        assert.strictEqual(rootAvatar.getAttribute('src'), 'https://cdn.example.com/avatars/hanlap.png');
+        assert.strictEqual(rootAvatar.getAttribute('alt'), 'Hàn Lập');
+        assert.strictEqual(rootAvatar.getAttribute('referrerpolicy'), 'no-referrer');
+
+        // Reply author verification
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const replyAuthor = replyEl.querySelector('.novel-comment-author');
+        assert.notStrictEqual(replyAuthor, null);
+        assert.strictEqual(replyAuthor.textContent, 'Nam Cung Uyển');
+
+        const replyAvatar = replyEl.querySelector('img.novel-comment-avatar');
+        assert.notStrictEqual(replyAvatar, null);
+        assert.strictEqual(replyAvatar.getAttribute('src'), 'https://cdn.example.com/avatars/namcunguyen.jpg');
+        assert.strictEqual(replyAvatar.getAttribute('alt'), 'Nam Cung Uyển');
+        assert.strictEqual(replyAvatar.getAttribute('referrerpolicy'), 'no-referrer');
+    });
+
+    test('45. Comment author presentation renders initial letter fallback when avatar is null or empty', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Bạch Tiểu Thuần',
+                                    avatarUrl: null
+                                }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const imgAvatar = rootEl.querySelector('img.novel-comment-avatar');
+        assert.strictEqual(imgAvatar, null);
+
+        const fallback = rootEl.querySelector('.novel-comment-avatar--fallback');
+        assert.notStrictEqual(fallback, null);
+        assert.strictEqual(fallback.textContent, 'B');
+        assert.strictEqual(fallback.getAttribute('aria-hidden'), 'true');
+    });
+
+    test('46. Comment author presentation sanitizes unsafe avatar URLs and falls back safely', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Attacker',
+                                    avatarUrl: 'javascript:alert(1)'
+                                }
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-1',
+                                    authorUserId: 'user-reply',
+                                    body: 'Reply with protocol-relative URL',
+                                    tombstone: false,
+                                    createdAt: '2026-09-17T12:05:00Z',
+                                    author: {
+                                        userId: 'user-reply',
+                                        displayName: 'Attacker2',
+                                        avatarUrl: '//evil.com/avatar.jpg'
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // Root javascript: URL was rejected and rendered fallback
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.strictEqual(rootEl.querySelector('img.novel-comment-avatar'), null);
+        const rootFallback = rootEl.querySelector('.novel-comment-avatar--fallback');
+        assert.notStrictEqual(rootFallback, null);
+        assert.strictEqual(rootFallback.textContent, 'A');
+
+        // Reply //evil.com URL was rejected and rendered fallback
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.strictEqual(replyEl.querySelector('img.novel-comment-avatar'), null);
+        const replyFallback = replyEl.querySelector('.novel-comment-avatar--fallback');
+        assert.notStrictEqual(replyFallback, null);
+        assert.strictEqual(replyFallback.textContent, 'A');
+    });
+
+    test('47. Comment author display name containing HTML/scripts is safely escaped via textContent', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: '<script>alert("xss")</script>',
+                                    avatarUrl: null
+                                }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        const authorEl = rootEl.querySelector('.novel-comment-author');
+        assert.strictEqual(authorEl.textContent, '<script>alert("xss")</script>');
+        assert.strictEqual(rootEl.querySelector('script'), null);
+    });
+
+    test('48. Missing or blank author/displayName falls back to "Người dùng"', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: null
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-1',
+                                    authorUserId: 'user-reply',
+                                    body: 'Reply with blank displayName',
+                                    tombstone: false,
+                                    createdAt: '2026-09-17T12:05:00Z',
+                                    author: {
+                                        userId: 'user-reply',
+                                        displayName: '   ',
+                                        avatarUrl: null
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const rootAuthor = content.querySelector('.novel-comment--root .novel-comment-author');
+        assert.strictEqual(rootAuthor.textContent, 'Người dùng');
+
+        const replyAuthor = content.querySelector('.novel-comment--reply .novel-comment-author');
+        assert.strictEqual(replyAuthor.textContent, 'Người dùng');
+    });
+
+    test('49. Image onerror replaces img with fallback placeholder', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-1',
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Trần Bình An',
+                                    avatarUrl: 'https://cdn.example.com/broken.jpg'
+                                }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        const img = rootEl.querySelector('img.novel-comment-avatar');
+        assert.notStrictEqual(img, null);
+
+        // Simulate image load error
+        img.onerror();
+
+        // Image should be replaced with fallback placeholder
+        assert.strictEqual(rootEl.querySelector('img.novel-comment-avatar'), null);
+        const fallback = rootEl.querySelector('.novel-comment-avatar--fallback');
+        assert.notStrictEqual(fallback, null);
+        assert.strictEqual(fallback.textContent, 'T');
+    });
+
+    test('50. regression: threadCard exposes data-root-id and MUST NOT expose data-comment-id; root and reply expose exact comment identities', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        const ROOT_ID = 'root-uuid-1111';
+        const REPLY_ID = 'reply-uuid-2222';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Root comment',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Tiêu Viêm',
+                                    avatarUrl: 'https://cdn.example.com/tieuviem.png'
+                                }
+                            },
+                            replies: [
+                                {
+                                    id: REPLY_ID,
+                                    authorUserId: 'user-reply',
+                                    body: 'Reply comment',
+                                    tombstone: false,
+                                    createdAt: '2026-09-17T12:05:00Z',
+                                    author: {
+                                        userId: 'user-reply',
+                                        displayName: 'Dược Lão',
+                                        avatarUrl: null
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // Thread container contract
+        const threadCard = content.querySelector('.novel-block-discussion-thread');
+        assert.notStrictEqual(threadCard, null);
+        assert.strictEqual(threadCard.getAttribute('data-root-id'), ROOT_ID);
+        assert.strictEqual(threadCard.getAttribute('data-comment-id'), null);
+        assert.strictEqual(threadCard.getAttribute('data-thread-id'), null);
+
+        // Root comment contract
+        const rootEl = threadCard.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+        assert.strictEqual(rootEl.getAttribute('data-comment-id'), ROOT_ID);
+        assert.strictEqual(rootEl.querySelector('.novel-comment-author').textContent, 'Tiêu Viêm');
+        assert.strictEqual(rootEl.querySelector('img.novel-comment-avatar').getAttribute('src'), 'https://cdn.example.com/tieuviem.png');
+
+        // Reply comment contract
+        const replyEl = threadCard.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+        assert.strictEqual(replyEl.getAttribute('data-reply-id'), REPLY_ID);
+        assert.strictEqual(replyEl.getAttribute('data-comment-id'), REPLY_ID);
+        assert.strictEqual(replyEl.querySelector('.novel-comment-author').textContent, 'Dược Lão');
+        assert.strictEqual(replyEl.querySelector('.novel-comment-avatar--fallback').textContent, 'D');
+    });
+
 });

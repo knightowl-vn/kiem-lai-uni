@@ -1,7 +1,9 @@
 package com.universe.identity.application.query;
 
+import com.universe.identity.application.ports.UserPublicProfileQueryPort;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.contracts.dto.UserDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.identity.domain.Email;
 import com.universe.identity.domain.User;
@@ -9,7 +11,10 @@ import com.universe.identity.domain.User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -18,11 +23,16 @@ public class UserIdentityQueryService
         implements UserIdentityContract {
 
     private final UserRepositoryPort userRepository;
+    private final UserPublicProfileQueryPort userPublicProfileQueryPort;
 
     public UserIdentityQueryService(
-            UserRepositoryPort userRepository
+            UserRepositoryPort userRepository,
+            UserPublicProfileQueryPort userPublicProfileQueryPort
     ) {
-        this.userRepository = userRepository;
+        this.userRepository = Objects.requireNonNull(userRepository, "UserRepositoryPort cannot be null");
+        this.userPublicProfileQueryPort = Objects.requireNonNull(
+                userPublicProfileQueryPort, "UserPublicProfileQueryPort cannot be null"
+        );
     }
 
     @Override
@@ -56,6 +66,17 @@ public class UserIdentityQueryService
             UUID userId
     ) {
         return findById(userId).isPresent();
+    }
+
+    @Override
+    public Map<UUID, UserPublicProfileDTO> findPublicProfilesByIds(
+            Set<UUID> userIds
+    ) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userPublicProfileQueryPort.findPublicProfilesByIds(userIds);
     }
 
     private UserDTO toDto(

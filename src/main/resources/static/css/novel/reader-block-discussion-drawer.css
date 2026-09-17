@@ -390,6 +390,31 @@ body.has-block-discussion-open {
     gap: 0.5rem;
 }
 
+.novel-comment-avatar {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background-color: var(--reader-surface-soft, #f3f4f6);
+}
+
+.novel-comment-avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--reader-surface-soft, #e5e7eb);
+    color: var(--reader-text-muted, #6b7280);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    user-select: none;
+}
+
 .novel-comment-author {
     font-size: 0.8125rem;
     font-weight: 600;

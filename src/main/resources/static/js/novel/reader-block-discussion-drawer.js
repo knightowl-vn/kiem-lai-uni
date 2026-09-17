@@ -549,6 +549,94 @@
     }
 
     /**
+     * Sanitizes an avatar URL ensuring safe protocols (http, https, or same-origin path).
+     * Disallows dangerous protocols (javascript:, data:, vbscript:, blob:, etc.)
+     * and disallows protocol-relative URLs (//evil.com).
+     *
+     * @param {string} url
+     * @returns {string|null}
+     */
+    function sanitizeAvatarUrl(url) {
+        if (typeof url !== 'string') {
+            return null;
+        }
+        const trimmed = url.trim();
+        if (!trimmed) {
+            return null;
+        }
+        const lower = trimmed.toLowerCase();
+        if (lower.startsWith('https://') || lower.startsWith('http://')) {
+            return trimmed;
+        }
+        if (lower.startsWith('/') && !lower.startsWith('//')) {
+            return trimmed;
+        }
+        return null;
+    }
+
+    /**
+     * Creates an avatar fallback element with the first initial of the display name.
+     *
+     * @param {string} displayName
+     * @param {Document} doc
+     * @returns {Element}
+     */
+    function createAvatarFallback(displayName, doc) {
+        const fallback = doc.createElement('span');
+        fallback.className = 'novel-comment-avatar novel-comment-avatar--fallback';
+        fallback.setAttribute('aria-hidden', 'true');
+        const trimmed = (typeof displayName === 'string') ? displayName.trim() : '';
+        const firstChar = trimmed ? trimmed.charAt(0).toUpperCase() : 'U';
+        fallback.textContent = firstChar;
+        return fallback;
+    }
+
+    /**
+     * Renders author presentation (avatar and displayName) into comment header.
+     *
+     * @param {Element} headerEl
+     * @param {Object|null} author
+     * @param {Document} doc
+     */
+    function renderAuthorPresentation(headerEl, author, doc) {
+        const authorObj = (author && typeof author === 'object') ? author : null;
+        const rawName = (authorObj && typeof authorObj.displayName === 'string') ? authorObj.displayName.trim() : '';
+        const displayName = rawName || 'Người dùng';
+        const rawAvatar = (authorObj && typeof authorObj.avatarUrl === 'string') ? authorObj.avatarUrl.trim() : '';
+        const sanitizedAvatar = sanitizeAvatarUrl(rawAvatar);
+
+        if (sanitizedAvatar) {
+            const avatarImg = doc.createElement('img');
+            avatarImg.className = 'novel-comment-avatar';
+            avatarImg.src = sanitizedAvatar;
+            avatarImg.setAttribute('src', sanitizedAvatar);
+            avatarImg.alt = displayName;
+            avatarImg.setAttribute('alt', displayName);
+            avatarImg.setAttribute('referrerpolicy', 'no-referrer');
+            avatarImg.onerror = function () {
+                const parent = avatarImg.parentNode;
+                if (parent) {
+                    const fallback = createAvatarFallback(displayName, doc);
+                    if (typeof parent.replaceChild === 'function') {
+                        parent.replaceChild(fallback, avatarImg);
+                    } else if (typeof parent.removeChild === 'function') {
+                        parent.removeChild(avatarImg);
+                        parent.appendChild(fallback);
+                    }
+                }
+            };
+            headerEl.appendChild(avatarImg);
+        } else {
+            headerEl.appendChild(createAvatarFallback(displayName, doc));
+        }
+
+        const authorSpan = doc.createElement('span');
+        authorSpan.className = 'novel-comment-author';
+        authorSpan.textContent = displayName;
+        headerEl.appendChild(authorSpan);
+    }
+
+    /**
      * Renders visible discussion threads and flat replies in response order.
      *
      * @param {Element} container
@@ -561,10 +649,15 @@
             return;
         }
 
+        if (!Array.isArray(threads) || threads.length === 0) {
+            renderEmptyState(container);
+            return;
+        }
+
         const listContainer = doc.createElement('div');
         listContainer.className = 'novel-block-discussion-threads';
         listContainer.setAttribute('role', 'feed');
-        listContainer.setAttribute('aria-label', 'Các thảo luận của đoạn văn');
+        listContainer.setAttribute('aria-label', 'Danh sách thảo luận');
 
         for (let i = 0; i < threads.length; i++) {
             const thread = threads[i];
@@ -592,10 +685,7 @@
             const rootHeader = doc.createElement('header');
             rootHeader.className = 'novel-comment-header';
 
-            const rootAuthor = doc.createElement('span');
-            rootAuthor.className = 'novel-comment-author';
-            rootAuthor.textContent = 'Người dùng';
-            rootHeader.appendChild(rootAuthor);
+            renderAuthorPresentation(rootHeader, thread.root.author, doc);
 
             const rootTimeStr = formatTimestamp(thread.root.createdAt);
             if (rootTimeStr) {
@@ -653,10 +743,7 @@
                         const replyHeader = doc.createElement('header');
                         replyHeader.className = 'novel-comment-header';
 
-                        const replyAuthor = doc.createElement('span');
-                        replyAuthor.className = 'novel-comment-author';
-                        replyAuthor.textContent = 'Người dùng';
-                        replyHeader.appendChild(replyAuthor);
+                        renderAuthorPresentation(replyHeader, reply.author, doc);
 
                         const replyTimeStr = formatTimestamp(reply.createdAt);
                         if (replyTimeStr) {
