@@ -28,9 +28,12 @@ import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
+import com.universe.interaction.entry.dto.CreateInlineCommentRequest;
 import com.universe.interaction.entry.dto.EditCommentRequest;
+import com.universe.interaction.entry.dto.InlineTextAnchorRequest;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
+import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import jakarta.servlet.http.HttpServletRequest;
@@ -89,6 +92,7 @@ public class NovelChapterCommentController {
     private final ReplyCommentUseCase replyCommentUseCase;
     private final EditCommentUseCase editCommentUseCase;
     private final DeleteCommentUseCase deleteCommentUseCase;
+    private final NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -100,7 +104,8 @@ public class NovelChapterCommentController {
             CreateRootCommentUseCase createRootCommentUseCase,
             ReplyCommentUseCase replyCommentUseCase,
             EditCommentUseCase editCommentUseCase,
-            DeleteCommentUseCase deleteCommentUseCase
+            DeleteCommentUseCase deleteCommentUseCase,
+            NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -112,6 +117,7 @@ public class NovelChapterCommentController {
         this.replyCommentUseCase = Objects.requireNonNull(replyCommentUseCase, "ReplyCommentUseCase cannot be null.");
         this.editCommentUseCase = Objects.requireNonNull(editCommentUseCase, "EditCommentUseCase cannot be null.");
         this.deleteCommentUseCase = Objects.requireNonNull(deleteCommentUseCase, "DeleteCommentUseCase cannot be null.");
+        this.novelInlineCommentCreationCoordinator = Objects.requireNonNull(novelInlineCommentCreationCoordinator, "NovelInlineCommentCreationCoordinator cannot be null.");
     }
 
     /**
@@ -251,6 +257,47 @@ public class NovelChapterCommentController {
     }
 
     /**
+     * POST /api/novel/chapters/{chapterId}/comments/inline
+     * Creates an inline comment with anchored selected text on the chapter.
+     */
+    @PostMapping("/inline")
+    public ResponseEntity<CommentCreatedResponse> createInlineComment(
+            @PathVariable UUID chapterId,
+            @RequestBody(required = false) CreateInlineCommentRequest requestBody,
+            HttpServletRequest request
+    ) {
+        if (chapterId == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (requestBody == null || requestBody.anchor() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        UUID actorUserId = resolveAuthenticatedActor(request);
+        validateBody(requestBody.body());
+
+        InlineTextAnchorRequest anchor = requestBody.anchor();
+        if (anchor.blockKey() == null || anchor.blockKey().trim().isEmpty() ||
+                anchor.contentVersion() < 1L ||
+                anchor.startOffset() < 0 ||
+                anchor.endOffset() <= anchor.startOffset()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        UUID commentId = novelInlineCommentCreationCoordinator.createInlineComment(
+                actorUserId,
+                chapterId,
+                requestBody.body(),
+                anchor.contentVersion(),
+                anchor.blockKey(),
+                anchor.startOffset(),
+                anchor.endOffset()
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(new CommentCreatedResponse(commentId));
+    }
+
+    /**
      * POST /api/novel/chapters/{chapterId}/comments/{parentCommentId}/replies
      * Creates a reply under the specified parent comment.
      */
@@ -354,6 +401,11 @@ public class NovelChapterCommentController {
     @ExceptionHandler({CommentNotFoundException.class, CommentTargetNotEligibleException.class})
     public ResponseEntity<Void> handleNotFound(Exception ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+    }
+
+    @ExceptionHandler(ChapterCommentAnchorVersionConflictException.class)
+    public ResponseEntity<Void> handleVersionConflict(ChapterCommentAnchorVersionConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 
     @ExceptionHandler(CommentMutationForbiddenException.class)

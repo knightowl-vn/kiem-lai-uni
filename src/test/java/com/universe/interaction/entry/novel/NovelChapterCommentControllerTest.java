@@ -34,6 +34,7 @@ import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
+import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
 import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
@@ -150,6 +151,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase;
+
+    @MockBean
+    private NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -940,5 +944,329 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
+    }
+
+    // =========================================================================
+    // 7. CREATE INLINE COMMENT MUTATION TESTS
+    // =========================================================================
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: creates inline comment with 201 Created and trusted actor")
+    void shouldCreateInlineCommentSuccessfully() throws Exception {
+        when(novelInlineCommentCreationCoordinator.createInlineComment(
+                eq(USER_1_ID),
+                eq(CHAPTER_A_ID),
+                eq("Inline comment text"),
+                eq(1L),
+                eq("blk-1"),
+                eq(5),
+                eq(15)
+        )).thenReturn(ROOT_COMMENT_ID);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Inline comment text",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 5,
+                                    "endOffset": 15
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(ROOT_COMMENT_ID.toString()));
+
+        verify(novelInlineCommentCreationCoordinator).createInlineComment(
+                USER_1_ID, CHAPTER_A_ID, "Inline comment text", 1L, "blk-1", 5, 15
+        );
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: ignores client-provided actor identity and uses authenticated principal")
+    void shouldIgnoreClientActorIdentityWhenCreatingInlineComment() throws Exception {
+        when(novelInlineCommentCreationCoordinator.createInlineComment(
+                any(), any(), any(), any(long.class), any(), any(int.class), any(int.class)
+        )).thenReturn(ROOT_COMMENT_ID);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "actorUserId": "99999999-9999-9999-9999-999999999999",
+                                  "body": "Inline comment text",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 5,
+                                    "endOffset": 15
+                                  }
+                                }
+                                """))
+                .andExpect(status().isCreated());
+
+        verify(novelInlineCommentCreationCoordinator).createInlineComment(
+                eq(USER_1_ID), eq(CHAPTER_A_ID), eq("Inline comment text"), eq(1L), eq("blk-1"), eq(5), eq(15)
+        );
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects when CSRF token is missing")
+    void shouldRejectInlineCommentWhenCsrfMissing() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "CSRF missing body",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("POST inline comment: rejects anonymous user")
+    void shouldRedirectAnonymousWhenCreatingInlineComment() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Anonymous comment",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().is3xxRedirection());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when body is blank")
+    void shouldRejectInlineCommentWhenBodyIsBlank() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "   ",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when anchor is missing")
+    void shouldRejectInlineCommentWhenAnchorMissing() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Valid body"
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when anchor contentVersion is invalid")
+    void shouldRejectInlineCommentWhenContentVersionInvalid() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Valid body",
+                                  "anchor": {
+                                    "contentVersion": 0,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when anchor blockKey is blank")
+    void shouldRejectInlineCommentWhenBlockKeyBlank() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Valid body",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "   ",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when startOffset is negative")
+    void shouldRejectInlineCommentWhenStartOffsetNegative() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Valid body",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": -1,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when startOffset >= endOffset")
+    void shouldRejectInlineCommentWhenOffsetsInvalid() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Valid body",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 5,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when payload is malformed JSON")
+    void shouldRejectInlineCommentWhenMalformedJson() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{invalid-json"))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: returns 409 Conflict when anchor version conflict occurs")
+    void shouldReturn409WhenAnchorVersionConflict() throws Exception {
+        when(novelInlineCommentCreationCoordinator.createInlineComment(
+                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), eq(1L), any(), any(int.class), any(int.class)
+        )).thenThrow(new ChapterCommentAnchorVersionConflictException(CHAPTER_A_ID, 1L, 2L));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Inline comment",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: returns 404 Not Found when chapter is not eligible")
+    void shouldReturn404WhenChapterNotEligibleForInlineComment() throws Exception {
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        when(novelInlineCommentCreationCoordinator.createInlineComment(
+                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), any(long.class), any(), any(int.class), any(int.class)
+        )).thenThrow(new CommentTargetNotEligibleException(target));
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "Inline comment",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1",
+                                    "startOffset": 0,
+                                    "endOffset": 5
+                                  }
+                                }
+                                """))
+                .andExpect(status().isNotFound());
     }
 }

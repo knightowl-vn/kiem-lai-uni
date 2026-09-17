@@ -119,6 +119,7 @@ public class SecurityBeanConfig {
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.POST,
                                 "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/inline",
                                 "/api/novel/chapters/*/comments/*/replies"
                         )
                         .authenticated()
