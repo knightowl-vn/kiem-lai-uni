@@ -16,18 +16,23 @@ import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
 import com.universe.interaction.entry.dto.EditCommentRequest;
+import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
+import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
+import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,9 +51,13 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -74,6 +83,8 @@ public class NovelChapterCommentController {
     private final ListCommentRootsUseCase listCommentRootsUseCase;
     private final GetCommentThreadUseCase getCommentThreadUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
+    private final FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase;
+    private final ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase;
     private final CreateRootCommentUseCase createRootCommentUseCase;
     private final ReplyCommentUseCase replyCommentUseCase;
     private final EditCommentUseCase editCommentUseCase;
@@ -84,6 +95,8 @@ public class NovelChapterCommentController {
             ListCommentRootsUseCase listCommentRootsUseCase,
             GetCommentThreadUseCase getCommentThreadUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
+            FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase,
+            ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase,
             CreateRootCommentUseCase createRootCommentUseCase,
             ReplyCommentUseCase replyCommentUseCase,
             EditCommentUseCase editCommentUseCase,
@@ -93,6 +106,8 @@ public class NovelChapterCommentController {
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
         this.getCommentThreadUseCase = Objects.requireNonNull(getCommentThreadUseCase, "GetCommentThreadUseCase cannot be null.");
         this.validateCommentTargetScopeUseCase = Objects.requireNonNull(validateCommentTargetScopeUseCase, "ValidateCommentTargetScopeUseCase cannot be null.");
+        this.findVisibleRootCommentIdsUseCase = Objects.requireNonNull(findVisibleRootCommentIdsUseCase, "FindVisibleRootCommentIdsUseCase cannot be null.");
+        this.resolveChapterCommentAnchorsForChapterUseCase = Objects.requireNonNull(resolveChapterCommentAnchorsForChapterUseCase, "ResolveChapterCommentAnchorsForChapterUseCase cannot be null.");
         this.createRootCommentUseCase = Objects.requireNonNull(createRootCommentUseCase, "CreateRootCommentUseCase cannot be null.");
         this.replyCommentUseCase = Objects.requireNonNull(replyCommentUseCase, "ReplyCommentUseCase cannot be null.");
         this.editCommentUseCase = Objects.requireNonNull(editCommentUseCase, "EditCommentUseCase cannot be null.");
@@ -128,6 +143,63 @@ public class NovelChapterCommentController {
                 .toList();
 
         return ResponseEntity.ok(new CommentSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
+    }
+
+    /**
+     * GET /api/novel/chapters/{chapterId}/comments/indicators
+     * Returns inline discussion indicators for Reader blocks in document order.
+     *
+     * <p>Preserves indicator invariants:
+     * <ul>
+     *   <li>Indicator count = visible anchored ROOT discussion thread count;</li>
+     *   <li>Only CURRENT or RELOCATED anchors with non-null resolvedBlockKey are included;</li>
+     *   <li>STALE, unanchored roots, deleted roots, and replies are ignored;</li>
+     *   <li>Ordered by current Reader block document order;</li>
+     *   <li>Blocks with 0 count are omitted.</li>
+     * </ul>
+     */
+    @GetMapping("/indicators")
+    public ResponseEntity<List<ChapterCommentBlockIndicatorDTO>> getCommentIndicators(
+            @PathVariable UUID chapterId
+    ) {
+        if (chapterId == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        CommentTarget target = CommentTarget.novelChapter(chapterId);
+        Set<UUID> visibleRootIds = findVisibleRootCommentIdsUseCase.execute(target);
+        if (visibleRootIds.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+
+        ChapterAnchorResolutionBulkView bulkView = resolveChapterCommentAnchorsForChapterUseCase.execute(chapterId);
+        if (bulkView.resolutions().isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+
+        Map<String, Integer> counts = new HashMap<>();
+        for (ChapterAnchorResolutionBulkView.ResolutionRow res : bulkView.resolutions()) {
+            if (visibleRootIds.contains(res.rootCommentId())
+                    && (res.status() == ChapterCommentAnchorResolutionStatus.CURRENT
+                    || res.status() == ChapterCommentAnchorResolutionStatus.RELOCATED)
+                    && res.resolvedBlockKey() != null) {
+                counts.merge(res.resolvedBlockKey(), 1, Integer::sum);
+            }
+        }
+
+        List<ChapterCommentBlockIndicatorDTO> indicators = new ArrayList<>();
+        for (String blockKey : bulkView.orderedBlockKeys()) {
+            Integer count = counts.get(blockKey);
+            if (count != null && count > 0) {
+                indicators.add(new ChapterCommentBlockIndicatorDTO(blockKey, count));
+            }
+        }
+
+        return ResponseEntity.ok(indicators);
     }
 
     /**

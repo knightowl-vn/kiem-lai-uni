@@ -71,4 +71,22 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     List<CommentJpaEntity> findThreadReplies(
             @Param("threadRootCommentId") String threadRootCommentId
     );
+
+    /**
+     * Retrieves the IDs of all active root comments for a given target.
+     *
+     * <p>Roots are characterized by {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
+     * Returns only scalar IDs to avoid entity hydration overhead.
+     */
+    @Query("""
+            SELECT c.id FROM CommentJpaEntity c
+            WHERE c.targetType = :targetType
+              AND c.targetId = :targetId
+              AND c.parentCommentId IS NULL
+              AND c.status = 'ACTIVE'
+            """)
+    List<String> findActiveRootCommentIds(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId
+    );
 }

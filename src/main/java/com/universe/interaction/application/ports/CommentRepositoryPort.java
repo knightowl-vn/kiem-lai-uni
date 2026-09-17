@@ -70,4 +70,14 @@ public interface CommentRepositoryPort {
      * @return list of reply domain comments
      */
     List<Comment> findThreadReplies(UUID threadRootCommentId);
+
+    /**
+     * Finds the IDs of all active root comments for the given target.
+     *
+     * <p>Roots have {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
+     *
+     * @param target target entity (cannot be null)
+     * @return list of active root comment IDs
+     */
+    List<UUID> findActiveRootCommentIds(CommentTarget target);
 }

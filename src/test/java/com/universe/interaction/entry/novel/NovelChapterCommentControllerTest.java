@@ -24,13 +24,17 @@ import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
+import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
+import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -140,6 +144,12 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private DeleteCommentUseCase deleteCommentUseCase;
+
+    @MockBean
+    private FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase;
+
+    @MockBean
+    private ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -814,5 +824,121 @@ class NovelChapterCommentControllerTest {
         verify(replyCommentUseCase, never()).execute(any());
         verify(editCommentUseCase, never()).execute(any());
         verify(deleteCommentUseCase, never()).execute(any());
+    }
+
+    // =========================================================================
+    // GET /api/novel/chapters/{chapterId}/comments/indicators
+    // =========================================================================
+
+    @Test
+    @DisplayName("GET indicators: returns 404 when chapter is not published")
+    void shouldReturn404WhenChapterNotPublishedForIndicators() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
+                .andExpect(status().isNotFound());
+
+        verify(findVisibleRootCommentIdsUseCase, never()).execute(any());
+        verify(resolveChapterCommentAnchorsForChapterUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("GET indicators: returns empty array when no active root comments exist")
+    void shouldReturnEmptyListWhenNoActiveRoots() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        when(findVisibleRootCommentIdsUseCase.execute(target)).thenReturn(java.util.Set.of());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        verify(resolveChapterCommentAnchorsForChapterUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("GET indicators: returns empty array when active roots have no anchors")
+    void shouldReturnEmptyListWhenNoAnchors() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        when(findVisibleRootCommentIdsUseCase.execute(target)).thenReturn(java.util.Set.of(ROOT_COMMENT_ID));
+
+        when(resolveChapterCommentAnchorsForChapterUseCase.execute(CHAPTER_A_ID))
+                .thenReturn(new ChapterAnchorResolutionBulkView(List.of(), List.of("blk-1")));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    @DisplayName("GET indicators: returns indicators in Reader block document order, correctly counting visible roots")
+    void shouldReturnIndicatorsInReaderBlockDocumentOrderWithCorrectCounts() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        UUID root1 = UUID.fromString("10000000-0000-0000-0000-000000000001");
+        UUID root2 = UUID.fromString("20000000-0000-0000-0000-000000000002");
+        UUID root3 = UUID.fromString("30000000-0000-0000-0000-000000000003");
+        UUID root4Stale = UUID.fromString("40000000-0000-0000-0000-000000000004");
+        UUID rootUnanchored = UUID.fromString("50000000-0000-0000-0000-000000000005");
+        UUID rootDeleted = UUID.fromString("60000000-0000-0000-0000-000000000006");
+
+        // Active roots contains root1, root2, root3, root4Stale, rootUnanchored (NOT rootDeleted)
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        when(findVisibleRootCommentIdsUseCase.execute(target))
+                .thenReturn(java.util.Set.of(root1, root2, root3, root4Stale, rootUnanchored));
+
+        // Reader block document order: blk-doc-1, blk-doc-2, blk-doc-3
+        List<String> orderedBlocks = List.of("blk-doc-1", "blk-doc-2", "blk-doc-3");
+
+        // Resolutions:
+        // root1: CURRENT on blk-doc-2
+        // root2: CURRENT on blk-doc-1
+        // root3: RELOCATED on blk-doc-2 (same block as root1: one CURRENT + one RELOCATED -> threadCount == 2)
+        // root4Stale: STALE (no resolved block)
+        // rootDeleted: CURRENT on blk-doc-1 (should be filtered out because not in active roots)
+        List<ChapterAnchorResolutionBulkView.ResolutionRow> resolutions = List.of(
+                new ChapterAnchorResolutionBulkView.ResolutionRow(root1, ChapterCommentAnchorResolutionStatus.CURRENT, "blk-doc-2"),
+                new ChapterAnchorResolutionBulkView.ResolutionRow(root2, ChapterCommentAnchorResolutionStatus.CURRENT, "blk-doc-1"),
+                new ChapterAnchorResolutionBulkView.ResolutionRow(root3, ChapterCommentAnchorResolutionStatus.RELOCATED, "blk-doc-2"),
+                new ChapterAnchorResolutionBulkView.ResolutionRow(root4Stale, ChapterCommentAnchorResolutionStatus.STALE, null),
+                new ChapterAnchorResolutionBulkView.ResolutionRow(rootDeleted, ChapterCommentAnchorResolutionStatus.CURRENT, "blk-doc-1")
+        );
+
+        when(resolveChapterCommentAnchorsForChapterUseCase.execute(CHAPTER_A_ID))
+                .thenReturn(new ChapterAnchorResolutionBulkView(resolutions, orderedBlocks));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$.length()").value(2))
+                // Document order item 0: blk-doc-1 (threadCount = 1)
+                .andExpect(jsonPath("$[0].blockKey").value("blk-doc-1"))
+                .andExpect(jsonPath("$[0].threadCount").value(1))
+                // Document order item 1: blk-doc-2 (threadCount = 2)
+                .andExpect(jsonPath("$[1].blockKey").value("blk-doc-2"))
+                .andExpect(jsonPath("$[1].threadCount").value(2));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET indicators: allows anonymous access without redirect")
+    void shouldAllowAnonymousAccessToIndicators() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        when(findVisibleRootCommentIdsUseCase.execute(target)).thenReturn(java.util.Set.of());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
     }
 }

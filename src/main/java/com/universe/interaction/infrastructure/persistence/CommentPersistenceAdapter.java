@@ -107,4 +107,18 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
                 .map(mapper::toDomain)
                 .toList();
     }
+
+    @Override
+    public List<UUID> findActiveRootCommentIds(CommentTarget target) {
+        if (target == null) {
+            throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+
+        return repository.findActiveRootCommentIds(
+                target.type().name(),
+                target.targetId().toString()
+        ).stream()
+                .map(UUID::fromString)
+                .toList();
+    }
 }

@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -119,5 +120,35 @@ class ChapterCommentAnchorPersistenceAdapterTest {
         assertThatThrownBy(() -> adapter.findByRootCommentId(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Root comment ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("findByChapterId: returns list of mapped domain anchors for chapter")
+    void shouldReturnAnchorsForChapter() {
+        ChapterCommentAnchor domain = ChapterCommentAnchor.createBlock(
+                ROOT_COMMENT_ID,
+                CHAPTER_ID,
+                1L,
+                "blk-0000000000000001-1",
+                "Text",
+                NOW
+        );
+        ChapterCommentAnchorJpaEntity entity = mapper.toJpaEntity(domain);
+        when(repository.findByChapterId(CHAPTER_ID.toString())).thenReturn(List.of(entity));
+
+        List<ChapterCommentAnchor> results = adapter.findByChapterId(CHAPTER_ID);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getRootCommentId()).isEqualTo(ROOT_COMMENT_ID);
+        assertThat(results.get(0).getChapterId()).isEqualTo(CHAPTER_ID);
+        verify(repository).findByChapterId(CHAPTER_ID.toString());
+    }
+
+    @Test
+    @DisplayName("findByChapterId: throws IllegalArgumentException when chapterId is null")
+    void shouldThrowWhenChapterIdIsNull() {
+        assertThatThrownBy(() -> adapter.findByChapterId(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Chapter ID cannot be null.");
     }
 }

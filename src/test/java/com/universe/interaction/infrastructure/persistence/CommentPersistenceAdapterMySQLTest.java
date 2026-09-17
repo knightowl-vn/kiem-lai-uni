@@ -601,4 +601,45 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(finalComment.getStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(finalComment.getBody()).isNull();
     }
+
+    // =========================================================================
+    // 6. FIND ACTIVE ROOT COMMENT IDS
+    // =========================================================================
+
+    @Test
+    @DisplayName("findActiveRootCommentIds: returns only active root IDs for the target, ignoring deleted roots, replies, and other targets")
+    void shouldFindOnlyActiveRootCommentIds() {
+        UUID chapter1 = UUID.randomUUID();
+        UUID chapter2 = UUID.randomUUID();
+        CommentTarget target1 = CommentTarget.novelChapter(chapter1);
+        CommentTarget target2 = CommentTarget.novelChapter(chapter2);
+        UUID authorId = UUID.randomUUID();
+
+        // 1. Active root on target1
+        UUID activeRoot1 = UUID.randomUUID();
+        Comment savedRoot1 = adapter.save(Comment.createRoot(activeRoot1, target1, authorId, "Active root 1", Instant.parse("2026-09-16T10:00:00Z")));
+
+        // 2. Another active root on target1
+        UUID activeRoot2 = UUID.randomUUID();
+        adapter.save(Comment.createRoot(activeRoot2, target1, authorId, "Active root 2", Instant.parse("2026-09-16T10:01:00Z")));
+
+        // 3. Deleted root on target1
+        UUID deletedRoot = UUID.randomUUID();
+        Comment delRoot = Comment.createRoot(deletedRoot, target1, authorId, "Deleted root", Instant.parse("2026-09-16T10:02:00Z"));
+        delRoot.delete(Instant.parse("2026-09-16T10:03:00Z"));
+        adapter.save(delRoot);
+
+        // 4. Reply under activeRoot1 on target1
+        UUID replyId = UUID.randomUUID();
+        adapter.save(Comment.createReply(replyId, savedRoot1, authorId, "Reply 1", Instant.parse("2026-09-16T10:04:00Z")));
+
+        // 5. Active root on target2
+        UUID activeRootTarget2 = UUID.randomUUID();
+        adapter.save(Comment.createRoot(activeRootTarget2, target2, authorId, "Root on target2", Instant.parse("2026-09-16T10:05:00Z")));
+
+        List<UUID> rootIds = adapter.findActiveRootCommentIds(target1);
+
+        assertThat(rootIds).containsExactlyInAnyOrder(activeRoot1, activeRoot2);
+        assertThat(rootIds).doesNotContain(deletedRoot, replyId, activeRootTarget2);
+    }
 }

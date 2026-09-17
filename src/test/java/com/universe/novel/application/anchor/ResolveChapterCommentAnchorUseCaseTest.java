@@ -45,7 +45,7 @@ class ResolveChapterCommentAnchorUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new ResolveChapterCommentAnchorUseCase(anchorRepositoryPort, resolutionSourcePort);
+        useCase = new ResolveChapterCommentAnchorUseCase(anchorRepositoryPort, resolutionSourcePort, new ChapterCommentAnchorResolver());
     }
 
     // =========================================================================
