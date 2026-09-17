@@ -7,6 +7,7 @@ const {
     BLOCK_KEY_ATTR,
     THREAD_COUNT_ATTR,
     INDICATOR_CLASS,
+    EVENT_INDICATORS_UPDATED,
     buildIndicatorsUrl,
     clearIndicators,
     applyIndicators,
@@ -686,6 +687,37 @@ describe('MS-05E5E2 Novel Reader Block Comment Indicator UI', () => {
 
         // Assert: NO additional B fetch!
         assert.strictEqual(fetchedUrls.length, 2);
+    });
+
+    test('12. Producer test: applyIndicators dispatches kiemlai:comment-indicators-updated for non-empty and empty lists', () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'ch-indicators-event'
+        });
+        const p1 = createBlock('p', 'blk-1', 'Đoạn thử sự kiện');
+        chapterBody.appendChild(p1);
+
+        const fakeDoc = new FakeDocument(chapterBody);
+        chapterBody.ownerDocument = fakeDoc;
+
+        const dispatchedEvents = [];
+        fakeDoc.addEventListener(EVENT_INDICATORS_UPDATED, (e) => {
+            dispatchedEvents.push(e);
+        });
+
+        // 1. Apply non-empty indicator list
+        applyIndicators(chapterBody, [{ blockKey: 'blk-1', threadCount: 5 }]);
+
+        assert.strictEqual(dispatchedEvents.length, 1);
+        assert.strictEqual(dispatchedEvents[0].type, EVENT_INDICATORS_UPDATED);
+        assert.deepStrictEqual(dispatchedEvents[0].detail, { chapterId: 'ch-indicators-event' });
+
+        // 2. Apply empty indicator list
+        applyIndicators(chapterBody, []);
+
+        assert.strictEqual(dispatchedEvents.length, 2);
+        assert.strictEqual(dispatchedEvents[1].type, EVENT_INDICATORS_UPDATED);
+        assert.deepStrictEqual(dispatchedEvents[1].detail, { chapterId: 'ch-indicators-event' });
     });
 
 });

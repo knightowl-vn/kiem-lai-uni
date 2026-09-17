@@ -1,0 +1,91 @@
+/* =========================================================
+   WATTPAD-STYLE NOVEL READER BLOCK COMMENT AFFORDANCE (MS-05E5F2)
+   ========================================================= */
+
+.reader-comment-affordance-btn {
+    position: fixed;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.45rem;
+    min-width: 1.75rem;
+    min-height: 1.75rem;
+    box-sizing: border-box;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 999px;
+    background-color: var(--reader-bg, #ffffff);
+    color: var(--reader-text-muted, #6b7280);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+    font-family: var(--font-ui, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 1050;
+    touch-action: manipulation;
+    opacity: 0;
+    transform: scale(0.92);
+    transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.reader-comment-affordance-btn.is-visible {
+    display: inline-flex;
+    opacity: 1;
+    transform: scale(1);
+}
+
+.reader-comment-affordance-btn:hover {
+    background-color: var(--reader-primary-light, #e0f2fe);
+    border-color: var(--reader-primary, #0284c7);
+    color: var(--reader-primary, #0284c7);
+    transform: scale(1.05);
+}
+
+.reader-comment-affordance-btn:active {
+    transform: scale(0.96);
+}
+
+.reader-comment-affordance-btn:focus-visible {
+    outline: 2px solid var(--reader-primary, #0284c7);
+    outline-offset: 2px;
+}
+
+/* Has discussion threads: highlighted accent badge */
+.reader-comment-affordance-btn.has-comments {
+    color: var(--reader-primary, #0284c7);
+    background-color: var(--reader-primary-light, #f0f9ff);
+    border-color: var(--reader-primary, #0284c7);
+}
+
+/* Icon */
+.reader-comment-affordance-btn .reader-comment-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+/* Badge (count or plus) */
+.reader-comment-affordance-btn .reader-comment-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.reader-comment-affordance-btn .reader-comment-badge--plus {
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .reader-comment-affordance-btn {
+        transition: none;
+        transform: none;
+    }
+    .reader-comment-affordance-btn:hover {
+        transform: none;
+    }
+}

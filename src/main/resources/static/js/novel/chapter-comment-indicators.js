@@ -3,13 +3,14 @@
  *
  * Responsibilities:
  * - Query inline discussion indicators from GET /api/novel/chapters/{chapterId}/comments/indicators.
- * - Display thread counts next to canonical Reader semantic blocks.
+ * - Manage chapter-scoped indicator loading, idempotency, and fetch race safety.
+ * - Apply indicator data to canonical blocks via data-comment-thread-count and reader-block-has-comments.
+ * - Dispatch 'kiemlai:comment-indicators-updated' so consumer affordances (e.g. reader-comment-affordance.js)
+ *   can reflect real-time counts.
  * - Preserve Canonical Text Invariant: blockElement.textContent for elements with
- *   data-reader-block-key must NEVER change! Uses CSS generated content (::after) via
- *   attributes and classes (data-comment-thread-count, reader-block-has-comments).
- * - Scoped strictly to the chapter container; never cross-contaminates multiple chapters.
- * - Idempotent, race-safe, and quietly handles network/HTTP errors.
- * - Listens for 'kiemlai:chapter-changed' for seamless chapter navigation.
+ *   data-reader-block-key must NEVER change! Never inject DOM nodes into canonical blocks.
+ * - Visual interactive button and hover/tap affordance are owned separately by reader-comment-affordance.js.
+ * - Listens for 'kiemlai:chapter-changed' for continuous reader chapter transitions.
  */
 (function (root, factory) {
     'use strict';
@@ -64,6 +65,26 @@
     }
 
     /**
+     * Dispatches custom event to notify listeners (e.g. comment affordance) that indicators were updated.
+     *
+     * @param {Element} chapterBody
+     */
+    function notifyIndicatorsUpdated(chapterBody) {
+        const targetDoc = (chapterBody && chapterBody.ownerDocument) || (typeof document !== 'undefined' ? document : null);
+        if (targetDoc && typeof targetDoc.dispatchEvent === 'function') {
+            const chapterId = (
+                (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
+                (chapterBody.dataset && chapterBody.dataset.chapterId) ||
+                ''
+            ).trim();
+            const event = (typeof CustomEvent === 'function')
+                ? new CustomEvent('kiemlai:comment-indicators-updated', { detail: { chapterId: chapterId } })
+                : { type: 'kiemlai:comment-indicators-updated', detail: { chapterId: chapterId } };
+            targetDoc.dispatchEvent(event);
+        }
+    }
+
+    /**
      * Applies indicator counts to matching canonical blocks inside a chapter element.
      * Crucial invariant: never appends DOM nodes or text nodes inside canonical blocks.
      *
@@ -78,6 +99,7 @@
         clearIndicators(chapterBody);
 
         if (indicators.length === 0) {
+            notifyIndicatorsUpdated(chapterBody);
             return;
         }
 
@@ -129,6 +151,8 @@
                 }
             }
         }
+
+        notifyIndicatorsUpdated(chapterBody);
     }
 
     /**
@@ -293,9 +317,11 @@
         BLOCK_KEY_ATTR,
         THREAD_COUNT_ATTR,
         INDICATOR_CLASS,
+        EVENT_INDICATORS_UPDATED: 'kiemlai:comment-indicators-updated',
         buildIndicatorsUrl,
         clearIndicators,
         applyIndicators,
+        notifyIndicatorsUpdated,
         loadChapterIndicators,
         initChapterCommentIndicators,
         bindChapterEvents
