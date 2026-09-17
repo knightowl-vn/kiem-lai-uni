@@ -5,6 +5,7 @@ import com.universe.interaction.domain.CommentTarget;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -104,4 +105,14 @@ public interface CommentRepositoryPort {
      * @return list of reply domain comments
      */
     List<Comment> findThreadRepliesByRootIds(Collection<UUID> threadRootCommentIds);
+
+    /**
+     * Counts visible active replies grouped by thread root ID.
+     *
+     * <p>Excludes tombstones and deleted replies.
+     *
+     * @param threadRootCommentIds collection of thread root comment IDs
+     * @return map of root comment UUID to active reply count
+     */
+    Map<UUID, Long> countActiveRepliesByThreadRootIds(Collection<UUID> threadRootCommentIds);
 }

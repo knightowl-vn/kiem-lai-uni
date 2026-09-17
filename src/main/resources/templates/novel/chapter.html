@@ -754,6 +754,7 @@
        aria-modal="true"
        aria-labelledby="novelBlockDiscussionTitle"
        aria-hidden="true"
+       th:attr="data-chapter-slug=${chapter.slug},data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'}"
        hidden>
 
     <header class="novel-block-discussion-header">
@@ -812,6 +813,31 @@
         <!-- Dynamically populated: loading, empty, error, or threads -->
     </section>
 
+    <!-- Guest Reply Auth Modal (MS-05E5G4A) -->
+    <div id="novelCommentAuthModal"
+         class="novel-comment-auth-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="novelCommentAuthModalTitle"
+         hidden>
+        <div class="novel-comment-auth-modal-backdrop" data-action="close-auth-modal"></div>
+        <div class="novel-comment-auth-modal-card">
+            <h3 id="novelCommentAuthModalTitle" class="novel-comment-auth-modal-title">Đăng nhập để trả lời</h3>
+            <p class="novel-comment-auth-modal-message">Vui lòng đăng nhập hoặc tạo tài khoản để phản hồi bình luận.</p>
+            <div class="novel-comment-auth-modal-actions">
+                <a id="novelCommentAuthLoginLink"
+                   href="/login"
+                   class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--primary">Đăng nhập</a>
+                <a id="novelCommentAuthRegisterLink"
+                   href="/register"
+                   class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--secondary">Tạo tài khoản</a>
+                <button type="button"
+                        id="novelCommentAuthCancelBtn"
+                        class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--cancel">Hủy</button>
+            </div>
+        </div>
+    </div>
+
 </aside>
 
 
@@ -837,6 +863,8 @@
 <script th:src="@{/js/novel/reader-block-discussion-drawer.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-block-discussion-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-reply-composer.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-block-discussion-restore.js}"
         defer></script>

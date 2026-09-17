@@ -705,7 +705,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(drawerModule.getActiveContext().contentVersion, 5);
     });
 
-    test('12. threadCount reflects root threads only and updates count display', async () => {
+    test('12. threadCount reflects root threads only and count display reflects commentCount', async () => {
         const { doc, count } = setupChapterDOM();
 
         drawerModule.initReaderBlockDiscussionDrawer(doc, {
@@ -718,6 +718,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
                     blockKey: 'blk-0123456789abcdef-1',
                     canonicalText: 'Text',
                     threadCount: 2,
+                    commentCount: 4,
                     threads: [
                         { root: { id: 'r1', body: 'Root 1' }, replies: [{ id: 'rep1', body: 'Reply 1' }, { id: 'rep2', body: 'Reply 2' }] },
                         { root: { id: 'r2', body: 'Root 2' }, replies: [] }
@@ -739,7 +740,56 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
 
         await new Promise(r => setTimeout(r, 10));
 
-        assert.strictEqual(count.textContent, '2 thảo luận');
+        assert.strictEqual(drawerModule.getActiveContext().threadCount, 2);
+        assert.strictEqual(drawerModule.getActiveContext().commentCount, 4);
+        assert.strictEqual(count.textContent, '4 bình luận');
+    });
+
+    test('12b. 1 root + 2 active replies + 1 tombstone displays 3 bình luận and preserves threadCount=1', async () => {
+        const { doc, count } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    commentCount: 3,
+                    threads: [
+                        {
+                            root: { id: 'r1', body: 'Root 1' },
+                            replies: [
+                                { id: 'rep1', body: 'Active Reply 1' },
+                                { id: 'rep2', body: 'Active Reply 2' },
+                                { id: 'rep3', body: null, tombstone: true }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1,
+                commentCount: 3
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(drawerModule.getActiveContext().threadCount, 1);
+        assert.strictEqual(drawerModule.getActiveContext().commentCount, 3);
+        assert.strictEqual(count.textContent, '3 bình luận');
     });
 
     test('13 & 14 & 34. root and reply bodies rendered safely as text (no script execution)', async () => {
@@ -1696,7 +1746,8 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             chapterId: '11111111-1111-1111-1111-111111111111',
             contentVersion: 3,
             blockKey: 'blk-0123456789abcdef-1',
-            threadCount: 2
+            threadCount: 2,
+            commentCount: 0
         });
 
         // 2. Failed GET
@@ -2509,6 +2560,691 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(replyEl.getAttribute('data-comment-id'), REPLY_ID);
         assert.strictEqual(replyEl.querySelector('.novel-comment-author').textContent, 'Dược Lão');
         assert.strictEqual(replyEl.querySelector('.novel-comment-avatar--fallback').textContent, 'D');
+    });
+
+    test('51. active root comment renders Reply button carrying semantic IDs', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-reply-btn-test';
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Root body',
+                                createdAt: '2026-09-17T12:00:00Z',
+                                author: {
+                                    userId: 'user-root',
+                                    displayName: 'Hàn Lập',
+                                    avatarUrl: null
+                                }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+        const replyBtn = rootEl.querySelector('.novel-comment-reply-btn');
+        assert.notStrictEqual(replyBtn, null);
+        assert.strictEqual(replyBtn.getAttribute('data-action'), 'reply');
+        assert.strictEqual(replyBtn.getAttribute('data-comment-id'), ROOT_ID);
+        assert.strictEqual(replyBtn.getAttribute('data-root-id'), ROOT_ID);
+        assert.strictEqual(replyBtn.getAttribute('data-author-name'), 'Hàn Lập');
+        assert.strictEqual(replyBtn.textContent, 'Trả lời');
+    });
+
+    test('52. active reply comment renders Reply button carrying semantic IDs', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-parent';
+        const REPLY_ID = 'reply-child';
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Root',
+                                createdAt: '2026-09-17T12:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: REPLY_ID,
+                                    authorUserId: 'user-reply',
+                                    body: 'Reply',
+                                    tombstone: false,
+                                    createdAt: '2026-09-17T12:05:00Z',
+                                    author: {
+                                        userId: 'user-reply',
+                                        displayName: 'Nam Cung Uyển',
+                                        avatarUrl: null
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+        const replyBtn = replyEl.querySelector('.novel-comment-reply-btn');
+        assert.notStrictEqual(replyBtn, null);
+        assert.strictEqual(replyBtn.getAttribute('data-action'), 'reply');
+        assert.strictEqual(replyBtn.getAttribute('data-comment-id'), REPLY_ID);
+        assert.strictEqual(replyBtn.getAttribute('data-reply-id'), REPLY_ID);
+        assert.strictEqual(replyBtn.getAttribute('data-root-id'), ROOT_ID);
+        assert.strictEqual(replyBtn.getAttribute('data-author-name'), 'Nam Cung Uyển');
+        assert.strictEqual(replyBtn.textContent, 'Trả lời');
+    });
+
+    test('53. tombstone reply does NOT render Reply button', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-parent-2';
+        const TOMBSTONE_ID = 'tombstone-reply-id';
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Root',
+                                createdAt: '2026-09-17T12:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: TOMBSTONE_ID,
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    status: 'DELETED',
+                                    createdAt: '2026-09-17T12:05:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+        assert.strictEqual(replyEl.classList.contains('is-tombstone'), true);
+        const replyBtn = replyEl.querySelector('.novel-comment-reply-btn');
+        assert.strictEqual(replyBtn, null);
+    });
+
+    test('54. direct reply to root (parentCommentId == root.id) renders body normally with no mention element', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-54';
+        const REPLY_ID = 'reply-54';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Bình luận gốc',
+                                author: { displayName: 'Tiêu Viêm' }
+                            },
+                            replies: [
+                                {
+                                    id: REPLY_ID,
+                                    parentCommentId: ROOT_ID,
+                                    authorUserId: 'user-reply',
+                                    body: 'Phản hồi trực tiếp cho gốc',
+                                    author: { displayName: 'Dược Lão' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        // A. Direct reply to root MUST NOT render mention element
+        const mentionEl = replyEl.querySelector('.novel-comment-reply-mention');
+        assert.strictEqual(mentionEl, null);
+
+        // Body renders normally
+        const bodyEl = replyEl.querySelector('.novel-comment-body');
+        assert.strictEqual(bodyEl.textContent, 'Phản hồi trực tiếp cho gốc');
+        assert.strictEqual(bodyEl.textContent.includes('@Tiêu Viêm'), false);
+    });
+
+    test('55. nested reply (parentCommentId == another reply.id) renders @immediateParentDisplayName inline without mutating body or adding parent preview', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-55';
+        const PARENT_REPLY_ID = 'reply-55-parent';
+        const CHILD_REPLY_ID = 'reply-55-child';
+
+        const childReplyData = {
+            id: CHILD_REPLY_ID,
+            parentCommentId: PARENT_REPLY_ID,
+            authorUserId: 'user-c',
+            body: 'Nội dung phản hồi con',
+            author: { displayName: 'Hải Ba Đông' }
+        };
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Bình luận gốc',
+                                author: { displayName: 'Tiêu Viêm' }
+                            },
+                            replies: [
+                                {
+                                    id: PARENT_REPLY_ID,
+                                    parentCommentId: ROOT_ID,
+                                    authorUserId: 'user-b',
+                                    body: 'Đoạn văn phản hồi cha rất dài cần được bảo toàn',
+                                    author: { displayName: 'Dược Lão' }
+                                },
+                                childReplyData
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replies = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 2);
+
+        const childReplyEl = replies[1];
+        assert.strictEqual(childReplyEl.getAttribute('data-reply-id'), CHILD_REPLY_ID);
+
+        // B. Nested reply renders @immediateParentDisplayName
+        const mentionEl = childReplyEl.querySelector('.novel-comment-reply-mention');
+        assert.notStrictEqual(mentionEl, null);
+        assert.strictEqual(mentionEl.textContent, '@Dược Lão');
+
+        // Body text element renders child reply body
+        const bodyTextEl = childReplyEl.querySelector('.novel-comment-reply-body-text');
+        assert.notStrictEqual(bodyTextEl, null);
+        assert.strictEqual(bodyTextEl.textContent, 'Nội dung phản hồi con');
+
+        // D. No parent body preview or quote rendered
+        assert.strictEqual(childReplyEl.textContent.includes('Đoạn văn phản hồi cha'), false);
+        assert.strictEqual(childReplyEl.querySelector('.novel-comment-body-preview'), null);
+        assert.strictEqual(childReplyEl.querySelector('blockquote'), null);
+
+        // E. Persisted/read data object body itself was NOT mutated
+        assert.strictEqual(childReplyData.body, 'Nội dung phản hồi con');
+    });
+
+    test('56. deeply nested reply references IMMEDIATE parent author, not thread root author or grandparent author', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-56';
+        const R1_ID = 'rep-1';
+        const R2_ID = 'rep-2';
+        const R3_ID = 'rep-3';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: ROOT_ID,
+                                authorUserId: 'user-root',
+                                body: 'Gốc',
+                                author: { displayName: 'Tổ Thụ' }
+                            },
+                            replies: [
+                                {
+                                    id: R1_ID,
+                                    parentCommentId: ROOT_ID,
+                                    authorUserId: 'user-1',
+                                    body: 'Phản hồi 1',
+                                    author: { displayName: 'Cha' }
+                                },
+                                {
+                                    id: R2_ID,
+                                    parentCommentId: R1_ID,
+                                    authorUserId: 'user-2',
+                                    body: 'Phản hồi 2',
+                                    author: { displayName: 'Con' }
+                                },
+                                {
+                                    id: R3_ID,
+                                    parentCommentId: R2_ID,
+                                    authorUserId: 'user-3',
+                                    body: 'Phản hồi 3',
+                                    author: { displayName: 'Cháu' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replies = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 3);
+
+        const r1El = replies[0];
+        const r2El = replies[1];
+        const r3El = replies[2];
+
+        // R1 is direct reply to root -> no mention
+        assert.strictEqual(r1El.querySelector('.novel-comment-reply-mention'), null);
+
+        // R2 replies to R1 -> mentions @Cha
+        assert.strictEqual(r2El.querySelector('.novel-comment-reply-mention').textContent, '@Cha');
+        assert.strictEqual(r2El.textContent.includes('@Tổ Thụ'), false);
+
+        // C. R3 replies to R2 -> mentions @Con (immediate parent), NEVER @Tổ Thụ (root) or @Cha (grandparent)
+        const r3Mention = r3El.querySelector('.novel-comment-reply-mention');
+        assert.notStrictEqual(r3Mention, null);
+        assert.strictEqual(r3Mention.textContent, '@Con');
+        assert.strictEqual(r3El.textContent.includes('@Tổ Thụ'), false);
+        assert.strictEqual(r3El.textContent.includes('@Cha'), false);
+    });
+
+    test('57. HTML-like parent displayName is safely escaped via textContent and rendered as text', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-57';
+        const P_ID = 'rep-p';
+        const C_ID = 'rep-c';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: ROOT_ID, author: { displayName: 'Root' } },
+                            replies: [
+                                {
+                                    id: P_ID,
+                                    parentCommentId: ROOT_ID,
+                                    body: 'Parent body',
+                                    author: { displayName: '<script>alert("xss")</script>' }
+                                },
+                                {
+                                    id: C_ID,
+                                    parentCommentId: P_ID,
+                                    body: 'Child body',
+                                    author: { displayName: 'NormalChild' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // F. No script elements injected into DOM
+        assert.strictEqual(content.querySelector('script'), null);
+
+        const childReplyEl = content.querySelectorAll('.novel-comment--reply')[1];
+        const mentionEl = childReplyEl.querySelector('.novel-comment-reply-mention');
+        assert.notStrictEqual(mentionEl, null);
+        assert.strictEqual(mentionEl.textContent, '@<script>alert("xss")</script>');
+    });
+
+    test('58. missing parent renders body normally with no mention element', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-58';
+        const ORPHAN_ID = 'rep-orphan';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: ROOT_ID, author: { displayName: 'Root' } },
+                            replies: [
+                                {
+                                    id: ORPHAN_ID,
+                                    parentCommentId: 'missing-parent-uuid-999',
+                                    body: 'Phản hồi có cha bị mất',
+                                    author: { displayName: 'Mồ Côi' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const orphanEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(orphanEl, null);
+
+        // G. Missing parent -> no mention element
+        assert.strictEqual(orphanEl.querySelector('.novel-comment-reply-mention'), null);
+        assert.strictEqual(orphanEl.querySelector('.novel-comment-body').textContent, 'Phản hồi có cha bị mất');
+    });
+
+    test('59. tombstoned / deleted immediate parent does NOT leak deleted author identity', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-59';
+        const TOMB_PARENT_ID = 'tomb-59';
+        const CHILD_ID = 'child-59';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: ROOT_ID, author: { displayName: 'Root' } },
+                            replies: [
+                                {
+                                    id: TOMB_PARENT_ID,
+                                    parentCommentId: ROOT_ID,
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    status: 'DELETED',
+                                    author: { displayName: 'NguoiBiMat' }
+                                },
+                                {
+                                    id: CHILD_ID,
+                                    parentCommentId: TOMB_PARENT_ID,
+                                    body: 'Phản hồi con của bình luận đã xóa',
+                                    author: { displayName: 'NguoiDungB' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replies = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 2);
+
+        const childEl = replies[1];
+
+        // H. Tombstoned parent -> NO mention element, NO author leak
+        assert.strictEqual(childEl.querySelector('.novel-comment-reply-mention'), null);
+        assert.strictEqual(childEl.textContent.includes('NguoiBiMat'), false);
+        assert.strictEqual(childEl.textContent.includes('@Người dùng'), false);
+        assert.strictEqual(childEl.querySelector('.novel-comment-body').textContent, 'Phản hồi con của bình luận đã xóa');
+    });
+
+    test('60. all replies remain in the same flat replies container with intact A3 DOM contracts', async () => {
+        const { doc, content } = setupChapterDOM();
+        const ROOT_ID = 'root-60';
+        const R1_ID = 'r1-60';
+        const R2_ID = 'r2-60';
+        const R3_ID = 'r3-60';
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: () => Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: ROOT_ID, author: { displayName: 'Author Root' } },
+                            replies: [
+                                { id: R1_ID, parentCommentId: ROOT_ID, body: 'Reply 1', author: { displayName: 'Author 1' } },
+                                { id: R2_ID, parentCommentId: R1_ID, body: 'Reply 2', author: { displayName: 'Author 2' } },
+                                { id: R3_ID, parentCommentId: R2_ID, body: 'Reply 3', author: { displayName: 'Author 3' } }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const threadCard = content.querySelector('.novel-block-discussion-thread');
+        assert.notStrictEqual(threadCard, null);
+
+        // J. Thread container contract
+        assert.strictEqual(threadCard.getAttribute('data-root-id'), ROOT_ID);
+        assert.strictEqual(threadCard.getAttribute('data-comment-id'), null);
+        assert.strictEqual(threadCard.getAttribute('data-thread-id'), null);
+
+        // Root comment contract
+        const rootEl = threadCard.querySelector('.novel-comment--root');
+        assert.strictEqual(rootEl.getAttribute('data-comment-id'), ROOT_ID);
+
+        // I. Flat replies container contract
+        const repliesContainer = threadCard.querySelector('.novel-comment-replies');
+        assert.notStrictEqual(repliesContainer, null);
+
+        const replyArticles = repliesContainer.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replyArticles.length, 3);
+
+        // All replies are direct children of repliesContainer (no nested reply DOM trees)
+        assert.strictEqual(repliesContainer.childNodes.length, 3);
+        assert.strictEqual(repliesContainer.childNodes[0], replyArticles[0]);
+        assert.strictEqual(repliesContainer.childNodes[1], replyArticles[1]);
+        assert.strictEqual(repliesContainer.childNodes[2], replyArticles[2]);
+
+        // J. Reply comment and button contracts
+        for (let i = 0; i < replyArticles.length; i++) {
+            const el = replyArticles[i];
+            const expectedId = [R1_ID, R2_ID, R3_ID][i];
+            assert.strictEqual(el.getAttribute('data-reply-id'), expectedId);
+            assert.strictEqual(el.getAttribute('data-comment-id'), expectedId);
+
+            const btn = el.querySelector('.novel-comment-reply-btn');
+            assert.notStrictEqual(btn, null);
+            assert.strictEqual(btn.getAttribute('data-action'), 'reply');
+            assert.strictEqual(btn.getAttribute('data-comment-id'), expectedId);
+            assert.strictEqual(btn.getAttribute('data-reply-id'), expectedId);
+            assert.strictEqual(btn.getAttribute('data-root-id'), ROOT_ID);
+        }
     });
 
 });

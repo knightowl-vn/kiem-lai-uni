@@ -157,17 +157,27 @@
     }
 
     /**
-     * Formats thread count label.
+     * Formats comment count label (e.g. '3 bình luận').
+     *
+     * @param {number} count
+     * @returns {string}
+     */
+    function formatCommentCount(count) {
+        const num = Number(count);
+        if (!Number.isSafeInteger(num) || num < 0) {
+            return '';
+        }
+        return num + ' bình luận';
+    }
+
+    /**
+     * Formats thread count label (backward compatibility alias for formatCommentCount).
      *
      * @param {number} count
      * @returns {string}
      */
     function formatThreadCount(count) {
-        const num = Number(count);
-        if (!Number.isSafeInteger(num) || num < 0) {
-            return '';
-        }
-        return num + ' thảo luận';
+        return formatCommentCount(count);
     }
 
     /**
@@ -703,11 +713,43 @@
 
             rootEl.appendChild(rootHeader);
             rootEl.appendChild(rootBody);
+
+            const rootActions = doc.createElement('div');
+            rootActions.className = 'novel-comment-actions';
+
+            const rootReplyBtn = doc.createElement('button');
+            rootReplyBtn.type = 'button';
+            rootReplyBtn.className = 'novel-comment-reply-btn';
+            rootReplyBtn.setAttribute('data-action', 'reply');
+            if (thread.root.id) {
+                rootReplyBtn.setAttribute('data-comment-id', String(thread.root.id));
+                rootReplyBtn.setAttribute('data-root-id', String(thread.root.id));
+            }
+            if (thread.root.author && typeof thread.root.author.displayName === 'string' && thread.root.author.displayName.trim()) {
+                rootReplyBtn.setAttribute('data-author-name', thread.root.author.displayName.trim());
+            }
+            rootReplyBtn.textContent = 'Trả lời';
+
+            rootActions.appendChild(rootReplyBtn);
+            rootEl.appendChild(rootActions);
             threadCard.appendChild(rootEl);
 
             // Replies container (flat visual level)
             const replies = Array.isArray(thread.replies) ? thread.replies : [];
             if (replies.length > 0) {
+                // Construct in-memory comment lookup for immediate parent resolution
+                const commentLookup = Object.create(null);
+                if (thread.root && thread.root.id) {
+                    commentLookup[String(thread.root.id)] = thread.root;
+                }
+                for (let k = 0; k < replies.length; k++) {
+                    const rep = replies[k];
+                    if (rep && rep.id) {
+                        commentLookup[String(rep.id)] = rep;
+                    }
+                }
+                const rootId = (thread.root && thread.root.id) ? String(thread.root.id) : '';
+
                 const repliesContainer = doc.createElement('div');
                 repliesContainer.className = 'novel-comment-replies';
                 repliesContainer.setAttribute('role', 'group');
@@ -756,10 +798,67 @@
 
                         const replyBody = doc.createElement('div');
                         replyBody.className = 'novel-comment-body';
-                        replyBody.textContent = reply.body || '';
+
+                        // Resolve immediate parent for Wattpad-style nested reply mention
+                        let parentDisplayName = null;
+                        const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
+                        if (parentId && parentId !== rootId) {
+                            const immediateParent = commentLookup[parentId];
+                            if (immediateParent) {
+                                const isParentTombstone = immediateParent.tombstone === true || immediateParent.status === 'DELETED';
+                                if (!isParentTombstone) {
+                                    const parentAuthor = (immediateParent.author && typeof immediateParent.author === 'object')
+                                        ? immediateParent.author
+                                        : null;
+                                    const rawParentName = (parentAuthor && typeof parentAuthor.displayName === 'string')
+                                        ? parentAuthor.displayName.trim()
+                                        : '';
+                                    if (rawParentName) {
+                                        parentDisplayName = rawParentName;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (parentDisplayName) {
+                            const mentionSpan = doc.createElement('span');
+                            mentionSpan.className = 'novel-comment-reply-mention';
+                            mentionSpan.textContent = '@' + parentDisplayName;
+
+                            const bodyTextSpan = doc.createElement('span');
+                            bodyTextSpan.className = 'novel-comment-reply-body-text';
+                            bodyTextSpan.textContent = reply.body || '';
+
+                            replyBody.appendChild(mentionSpan);
+                            replyBody.appendChild(bodyTextSpan);
+                        } else {
+                            replyBody.textContent = reply.body || '';
+                        }
 
                         replyEl.appendChild(replyHeader);
                         replyEl.appendChild(replyBody);
+
+                        const replyActions = doc.createElement('div');
+                        replyActions.className = 'novel-comment-actions';
+
+                        const replyBtn = doc.createElement('button');
+                        replyBtn.type = 'button';
+                        replyBtn.className = 'novel-comment-reply-btn';
+                        replyBtn.setAttribute('data-action', 'reply');
+                        if (reply.id) {
+                            replyBtn.setAttribute('data-comment-id', String(reply.id));
+                            replyBtn.setAttribute('data-reply-id', String(reply.id));
+                        }
+                        if (thread.root.id) {
+                            replyBtn.setAttribute('data-root-id', String(thread.root.id));
+                        }
+                        if (reply.author && typeof reply.author.displayName === 'string' && reply.author.displayName.trim()) {
+                            replyBtn.setAttribute('data-author-name', reply.author.displayName.trim());
+                        }
+                        replyBtn.textContent = 'Trả lời';
+
+                        replyActions.appendChild(replyBtn);
+                        replyEl.appendChild(replyActions);
                     }
 
                     repliesContainer.appendChild(replyEl);
@@ -854,17 +953,39 @@
             passageEl.textContent = data.canonicalText;
         }
 
-        // 2. Authoritative thread count
+        // 2. Authoritative thread count and comment count
         const threadCount = (typeof data.threadCount === 'number' && Number.isSafeInteger(data.threadCount) && data.threadCount >= 0)
             ? data.threadCount
             : data.threads.length;
 
+        let commentCount = (typeof data.commentCount === 'number' && Number.isSafeInteger(data.commentCount) && data.commentCount >= 0)
+            ? data.commentCount
+            : null;
+
+        if (commentCount === null) {
+            commentCount = 0;
+            for (let i = 0; i < data.threads.length; i++) {
+                const t = data.threads[i];
+                if (t && t.root) {
+                    commentCount += 1;
+                }
+                if (t && Array.isArray(t.replies)) {
+                    for (let j = 0; j < t.replies.length; j++) {
+                        if (t.replies[j] && !t.replies[j].tombstone) {
+                            commentCount += 1;
+                        }
+                    }
+                }
+            }
+        }
+
         if (activeContext) {
             activeContext.threadCount = threadCount;
+            activeContext.commentCount = commentCount;
         }
 
         if (countEl) {
-            countEl.textContent = formatThreadCount(threadCount);
+            countEl.textContent = formatCommentCount(commentCount);
         }
 
         // 3. Render threads or empty state
@@ -883,7 +1004,8 @@
                 chapterId: requestedChapterId,
                 contentVersion: data.contentVersion,
                 blockKey: requestedBlockKey,
-                threadCount: threadCount
+                threadCount: threadCount,
+                commentCount: commentCount
             };
             const event = (typeof CustomEvent === 'function')
                 ? new CustomEvent(EVENT_DISCUSSION_LOADED, { detail: eventPayload })
@@ -981,7 +1103,10 @@
         if (!activeContext) {
             return;
         }
-        renderProvisionalState(activeContext.canonicalText, activeContext.threadCount);
+        const countToDisplay = (typeof activeContext.commentCount === 'number' && Number.isSafeInteger(activeContext.commentCount) && activeContext.commentCount >= 0)
+            ? activeContext.commentCount
+            : activeContext.threadCount;
+        renderProvisionalState(activeContext.canonicalText, countToDisplay);
         fetchBlockDiscussion(activeContext.chapterId, activeContext.blockKey);
     }
 
@@ -1022,11 +1147,27 @@
         const threadCount = Number(detail.threadCount);
         const canonicalText = detail.canonicalText;
 
+        const rawCommentCount = detail.commentCount;
+        let commentCount = null;
+        if (typeof rawCommentCount === 'number' && Number.isSafeInteger(rawCommentCount) && rawCommentCount >= 0) {
+            commentCount = rawCommentCount;
+        } else if (typeof rawCommentCount === 'string') {
+            const trimmed = rawCommentCount.trim();
+            if (/^\d+$/.test(trimmed)) {
+                const num = Number(trimmed);
+                if (Number.isSafeInteger(num) && num >= 0) {
+                    commentCount = num;
+                }
+            }
+        }
+        const initialCommentCount = commentCount !== null ? commentCount : threadCount;
+
         activeContext = {
             chapterId: chapterId,
             blockKey: blockKey,
             contentVersion: contentVersion,
             threadCount: threadCount,
+            commentCount: initialCommentCount,
             canonicalText: canonicalText,
             authoritative: false
         };
@@ -1035,7 +1176,7 @@
         showDrawerUI();
 
         // 2. Immediately display provisional passage text & count
-        renderProvisionalState(canonicalText, threadCount);
+        renderProvisionalState(canonicalText, initialCommentCount);
 
         // 3. Issue GET request
         fetchBlockDiscussion(chapterId, blockKey);
@@ -1181,6 +1322,7 @@
         isValidDiscussionDetail,
         isValidServerResponse,
         isUsableFocusTarget,
+        formatCommentCount,
         formatThreadCount,
         formatTimestamp,
         openDiscussion,

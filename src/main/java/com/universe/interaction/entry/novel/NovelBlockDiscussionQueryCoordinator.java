@@ -84,6 +84,7 @@ public class NovelBlockDiscussionQueryCoordinator {
                     anchorView.blockKey(),
                     anchorView.canonicalText(),
                     0,
+                    0,
                     List.of()
             );
         }
@@ -115,12 +116,25 @@ public class NovelBlockDiscussionQueryCoordinator {
                 .map(threadView -> toEnrichedThreadDTO(threadView, authorsMap))
                 .toList();
 
+        int commentCount = 0;
+        for (CommentThreadView threadView : threadViews) {
+            commentCount += 1;
+            if (threadView.replies() != null) {
+                for (CommentReadItem reply : threadView.replies()) {
+                    if (reply != null && !reply.tombstone()) {
+                        commentCount += 1;
+                    }
+                }
+            }
+        }
+
         return new ChapterBlockDiscussionResponseDTO(
                 anchorView.chapterId(),
                 anchorView.contentVersion(),
                 anchorView.blockKey(),
                 anchorView.canonicalText(),
                 threads.size(),
+                commentCount,
                 threads
         );
     }

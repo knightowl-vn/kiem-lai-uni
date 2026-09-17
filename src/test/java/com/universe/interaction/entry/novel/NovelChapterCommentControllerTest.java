@@ -24,6 +24,7 @@ import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
@@ -151,6 +152,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase;
+
+    @MockBean
+    private CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase;
 
     @MockBean
     private ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase;
@@ -590,6 +594,90 @@ class NovelChapterCommentControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous user cannot reply to comment (redirected to login or rejected)")
+    void shouldRedirectAnonymousWhenReplying() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"Anonymous reply\"}"))
+                .andExpect(status().is3xxRedirection());
+
+        verify(replyCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should ignore client-provided actorUserId in reply payload and preserve trusted actor")
+    void shouldPreserveTrustedActorWhenMaliciousActorInReplyJson() throws Exception {
+        UUID maliciousUserId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
+
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Root body", NOW);
+        Comment reply = Comment.createReply(REPLY_COMMENT_ID, root, USER_2_ID, "Reply body", NOW.plusSeconds(10));
+        when(replyCommentUseCase.execute(any(ReplyCommentCommand.class))).thenReturn(reply);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_2_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"Reply body\", \"actorUserId\": \"" + maliciousUserId + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(REPLY_COMMENT_ID.toString()));
+
+        ArgumentCaptor<ReplyCommentCommand> captor = ArgumentCaptor.forClass(ReplyCommentCommand.class);
+        verify(replyCommentUseCase).execute(captor.capture());
+        assertThat(captor.getValue().actorUserId()).isEqualTo(USER_2_ID);
+        assertThat(captor.getValue().actorUserId()).isNotEqualTo(maliciousUserId);
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject reply when body is blank")
+    void shouldRejectReplyWhenBodyIsBlank() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_2_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"   \"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(replyCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reply to active nested reply comment with 201 Created and correct ancestry")
+    void shouldReplyToNestedReplySuccessfully() throws Exception {
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).execute(REPLY_COMMENT_ID, target);
+
+        UUID nestedReplyId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Root body", NOW);
+        Comment parentReply = Comment.createReply(REPLY_COMMENT_ID, root, USER_2_ID, "Parent reply", NOW.plusSeconds(10));
+        Comment childReply = Comment.createReply(nestedReplyId, parentReply, USER_1_ID, "Nested child reply", NOW.plusSeconds(20));
+
+        when(replyCommentUseCase.execute(any(ReplyCommentCommand.class))).thenReturn(childReply);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + REPLY_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"Nested child reply\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(nestedReplyId.toString()));
+
+        verify(validateCommentTargetScopeUseCase).execute(REPLY_COMMENT_ID, target);
+
+        ArgumentCaptor<ReplyCommentCommand> captor = ArgumentCaptor.forClass(ReplyCommentCommand.class);
+        verify(replyCommentUseCase).execute(captor.capture());
+        assertThat(captor.getValue().actorUserId()).isEqualTo(USER_1_ID);
+        assertThat(captor.getValue().parentCommentId()).isEqualTo(REPLY_COMMENT_ID);
+        assertThat(captor.getValue().body()).isEqualTo("Nested child reply");
+    }
+
     // =========================================================================
     // 4. EDIT MUTATION TESTS
     // =========================================================================
@@ -925,16 +1013,30 @@ class NovelChapterCommentControllerTest {
         when(resolveChapterCommentAnchorsForChapterUseCase.execute(CHAPTER_A_ID))
                 .thenReturn(new ChapterAnchorResolutionBulkView(resolutions, orderedBlocks));
 
+        // Mock reply counts: root1 has 2 replies, root2 has 1 reply, root3 has 0 replies
+        when(countVisibleActiveRepliesByRootIdsUseCase.execute(any()))
+                .thenReturn(java.util.Map.of(
+                        root1, 2L,
+                        root2, 1L
+                ));
+
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/indicators"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$.length()").value(2))
-                // Document order item 0: blk-doc-1 (threadCount = 1)
+                // Document order item 0: blk-doc-1 (threadCount = 1, commentCount = 1 root + 1 reply = 2)
                 .andExpect(jsonPath("$[0].blockKey").value("blk-doc-1"))
                 .andExpect(jsonPath("$[0].threadCount").value(1))
-                // Document order item 1: blk-doc-2 (threadCount = 2)
+                .andExpect(jsonPath("$[0].commentCount").value(2))
+                // Document order item 1: blk-doc-2 (threadCount = 2 roots, commentCount = 2 roots + 2 replies = 4)
                 .andExpect(jsonPath("$[1].blockKey").value("blk-doc-2"))
-                .andExpect(jsonPath("$[1].threadCount").value(2));
+                .andExpect(jsonPath("$[1].threadCount").value(2))
+                .andExpect(jsonPath("$[1].commentCount").value(4));
+
+        // Verify only anchored visible roots (root1, root2, root3) were queried for reply counts
+        ArgumentCaptor<java.util.Collection<UUID>> queriedRootsCaptor = ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(countVisibleActiveRepliesByRootIdsUseCase).execute(queriedRootsCaptor.capture());
+        assertThat(queriedRootsCaptor.getValue()).containsExactlyInAnyOrder(root1, root2, root3);
     }
 
     @Test

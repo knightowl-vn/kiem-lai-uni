@@ -400,6 +400,46 @@ describe('MS-05E5E2 Novel Reader Block Comment Indicator UI', () => {
         }
     });
 
+    test('4b. preserves threadCount and commentCount distinctly on block attributes', () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'ch-uuid-123'
+        });
+        const p1 = createBlock('p', 'blk-1', 'Đoạn văn 1');
+        chapterBody.appendChild(p1);
+
+        // 1 root + 2 active replies: threadCount=1, commentCount=3
+        const indicators = [
+            { blockKey: 'blk-1', threadCount: 1, commentCount: 3 }
+        ];
+
+        applyIndicators(chapterBody, indicators);
+
+        // threadCount is strictly root count (1), commentCount is active comments count (3)
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '1');
+        assert.strictEqual(p1.getAttribute('data-comment-count'), '3');
+        assert.strictEqual(p1.classList.contains(INDICATOR_CLASS), true);
+    });
+
+    test('4c. legacy payload without commentCount falls back to threadCount for data-comment-count', () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'ch-uuid-123'
+        });
+        const p1 = createBlock('p', 'blk-legacy', 'Đoạn văn legacy');
+        chapterBody.appendChild(p1);
+
+        const indicators = [
+            { blockKey: 'blk-legacy', threadCount: 2 }
+        ];
+
+        applyIndicators(chapterBody, indicators);
+
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '2');
+        assert.strictEqual(p1.getAttribute('data-comment-count'), '2');
+        assert.strictEqual(p1.classList.contains(INDICATOR_CLASS), true);
+    });
+
     test('5. Chapter scoping: independent indicators across multiple chapter containers', async () => {
         const chapterBodyA = new FakeElement('article', {
             'class': 'novel-reader-chapter-body',

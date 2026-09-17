@@ -126,4 +126,21 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     List<CommentJpaEntity> findThreadRepliesByRootIds(
             @Param("threadRootCommentIds") Collection<String> threadRootCommentIds
     );
+
+    /**
+     * Counts visible active replies grouped by thread root ID.
+     *
+     * <p>Excludes tombstones (DELETED replies) and non-reply records.
+     * Returns pairs of [threadRootCommentId, count].
+     */
+    @Query("""
+            SELECT c.threadRootCommentId, COUNT(c)
+            FROM CommentJpaEntity c
+            WHERE c.threadRootCommentId IN :threadRootCommentIds
+              AND c.status = 'ACTIVE'
+            GROUP BY c.threadRootCommentId
+            """)
+    List<Object[]> countActiveRepliesByThreadRootIds(
+            @Param("threadRootCommentIds") Collection<String> threadRootCommentIds
+    );
 }

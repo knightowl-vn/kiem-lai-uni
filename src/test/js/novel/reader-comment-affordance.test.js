@@ -389,7 +389,7 @@ describe('MS-05E5F2 Wattpad-Style Novel Reader Block Comment Affordance', () => 
 
         affordanceModule.showAffordance(p2); // p2 has count 3
 
-        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 3 thảo luận của đoạn này');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 3 bình luận của đoạn này');
         assert.ok(btn.innerHTML.includes('reader-comment-badge--count'));
         assert.ok(btn.innerHTML.includes('3'));
         assert.strictEqual(btn.classList.contains('has-comments'), true);
@@ -426,6 +426,20 @@ describe('MS-05E5F2 Wattpad-Style Novel Reader Block Comment Affordance', () => 
         assert.strictEqual(affordanceModule.parseThreadCount({ getAttribute: () => '   ' }), 0);
         assert.strictEqual(affordanceModule.parseThreadCount({ getAttribute: () => null }), 0);
         assert.strictEqual(affordanceModule.parseThreadCount(null), 0);
+
+        // Direct unit checks for parseCommentCount with fallback
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? '3' : '1' }), 3);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? ' 3 ' : '1' }), 3);
+        // Missing commentCount falls back to threadCount
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-thread-count' ? '2' : null }), 2);
+        // Malformed commentCount falls back to threadCount
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? 'abc' : '2' }), 2);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? '-1' : '2' }), 2);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? '0' : '2' }), 2);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? '1.5' : '2' }), 2);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: (attr) => attr === 'data-comment-count' ? '3abc' : '2' }), 2);
+        assert.strictEqual(affordanceModule.parseCommentCount({ getAttribute: () => null }), 0);
+        assert.strictEqual(affordanceModule.parseCommentCount(null), 0);
     });
 
     test('7. switching active block updates count/context', () => {
@@ -439,7 +453,7 @@ describe('MS-05E5F2 Wattpad-Style Novel Reader Block Comment Affordance', () => 
         // Switch to p2 (3 count)
         affordanceModule.showAffordance(p2);
         assert.strictEqual(affordanceModule.getActiveBlock(), p2);
-        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 3 thảo luận của đoạn này');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 3 bình luận của đoạn này');
     });
 
     test('8. button click dispatches exactly one kiemlai:block-discussion-requested event', () => {
@@ -655,7 +669,7 @@ describe('MS-05E5F2 Wattpad-Style Novel Reader Block Comment Affordance', () => 
         doc.dispatchEvent({ type: affordanceModule.EVENT_INDICATORS_UPDATED, detail: { chapterId: 'ch-uuid-1' } });
 
         // Affordance reflects updated count 4 without closing
-        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 4 thảo luận của đoạn này');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 4 bình luận của đoạn này');
         assert.ok(btn.innerHTML.includes('4'));
         assert.strictEqual(btn.classList.contains('has-comments'), true);
     });
@@ -805,9 +819,95 @@ describe('MS-05E5F2 Wattpad-Style Novel Reader Block Comment Affordance', () => 
         });
 
         // Affordance is now updated to 7
-        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 7 thảo luận của đoạn này');
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 7 bình luận của đoạn này');
         assert.ok(btn.innerHTML.includes('7'));
         assert.strictEqual(btn.classList.contains('has-comments'), true);
+    });
+
+    test('23. threadCount=1 and commentCount=3 shows badge 3, aria-label 3 bình luận, and dispatches {threadCount: 1, commentCount: 3}', () => {
+        const btn = affordanceModule.initReaderCommentAffordance(doc);
+
+        const pDistinct = createBlock('p', 'blk-distinct', 'Nội dung khối');
+        pDistinct.setAttribute('data-comment-thread-count', '1');
+        pDistinct.setAttribute('data-comment-count', '3');
+        chapterBody.appendChild(pDistinct);
+
+        affordanceModule.showAffordance(pDistinct);
+
+        // Badge displays commentCount (3)
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 3 bình luận của đoạn này');
+        assert.ok(btn.innerHTML.includes('reader-comment-badge--count'));
+        assert.ok(btn.innerHTML.includes('3'));
+        assert.strictEqual(btn.classList.contains('has-comments'), true);
+
+        // Click dispatches threadCount=1, commentCount=3
+        let receivedDetail = null;
+        doc.addEventListener(affordanceModule.EVENT_DISCUSSION_REQUESTED, (e) => {
+            receivedDetail = e.detail;
+        });
+        btn.dispatchEvent('click');
+
+        assert.ok(receivedDetail);
+        assert.strictEqual(receivedDetail.threadCount, 1);
+        assert.strictEqual(receivedDetail.commentCount, 3);
+        assert.strictEqual(receivedDetail.blockKey, 'blk-distinct');
+    });
+
+    test('24. legacy block with only data-comment-thread-count="2" falls back to badge 2 and event {threadCount: 2, commentCount: 2}', () => {
+        const btn = affordanceModule.initReaderCommentAffordance(doc);
+
+        const pLegacy = createBlock('p', 'blk-legacy-2', 'Khối legacy');
+        pLegacy.setAttribute('data-comment-thread-count', '2');
+        chapterBody.appendChild(pLegacy);
+
+        affordanceModule.showAffordance(pLegacy);
+
+        // Badge displays 2
+        assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 2 bình luận của đoạn này');
+        assert.ok(btn.innerHTML.includes('2'));
+
+        let receivedDetail = null;
+        doc.addEventListener(affordanceModule.EVENT_DISCUSSION_REQUESTED, (e) => {
+            receivedDetail = e.detail;
+        });
+        btn.dispatchEvent('click');
+
+        assert.ok(receivedDetail);
+        assert.strictEqual(receivedDetail.threadCount, 2);
+        assert.strictEqual(receivedDetail.commentCount, 2);
+    });
+
+    test('25. malformed data-comment-count falls back to valid threadCount for badge and dispatch', () => {
+        const btn = affordanceModule.initReaderCommentAffordance(doc);
+
+        const malformedValues = ['abc', '-1', '0', '1.5', '3junk', ''];
+
+        for (const malformed of malformedValues) {
+            const pMalformed = createBlock('p', 'blk-malformed-' + malformed, 'Khối malformed');
+            pMalformed.setAttribute('data-comment-thread-count', '4');
+            pMalformed.setAttribute('data-comment-count', malformed);
+            chapterBody.appendChild(pMalformed);
+
+            affordanceModule.showAffordance(pMalformed);
+
+            // Badge displays 4
+            assert.strictEqual(btn.getAttribute('aria-label'), 'Mở 4 bình luận của đoạn này');
+            assert.ok(btn.innerHTML.includes('4'));
+
+            let receivedDetail = null;
+            const onRequested = (e) => {
+                receivedDetail = e.detail;
+            };
+            doc.addEventListener(affordanceModule.EVENT_DISCUSSION_REQUESTED, onRequested);
+            btn.dispatchEvent('click');
+
+            assert.ok(receivedDetail, 'Detail should be dispatched for malformed commentCount');
+            assert.strictEqual(receivedDetail.threadCount, 4);
+            assert.strictEqual(receivedDetail.commentCount, 4);
+
+            // Cleanup listener for next iteration
+            doc.listeners[affordanceModule.EVENT_DISCUSSION_REQUESTED] = [];
+        }
     });
 
 });

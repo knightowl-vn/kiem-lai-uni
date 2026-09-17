@@ -434,6 +434,18 @@ body.has-block-discussion-open {
     word-break: break-word;
 }
 
+/* Mention Presentation (MS-05E5G4A-UX1) */
+.novel-comment-reply-mention {
+    display: inline;
+    font-weight: 600;
+    color: var(--reader-primary, #0284c7);
+    margin-right: 0.35em;
+}
+
+.novel-comment-reply-body-text {
+    display: inline;
+}
+
 /* Replies (Flat single-level indentation) */
 .novel-comment-replies {
     display: flex;
@@ -497,4 +509,229 @@ body.has-block-discussion-open {
     outline-offset: 2px;
     background-color: var(--reader-target-bg, rgba(180, 83, 9, 0.08));
     transition: outline-color 0.4s ease, background-color 0.4s ease;
+}
+
+/* =========================================================
+   REPLY ACTIONS & COMPOSER (MS-05E5G4A)
+   ========================================================= */
+.novel-comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.35rem;
+}
+
+.novel-comment-reply-btn {
+    background: none;
+    border: none;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.775rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, #6b7280);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.novel-comment-reply-btn:hover {
+    color: var(--accent, #b45309);
+    background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+.novel-comment-reply-btn:focus-visible {
+    outline: 2px solid var(--accent, #b45309);
+    outline-offset: 1px;
+}
+
+/* Inline Reply Composer Form */
+.novel-reply-composer {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: var(--reader-card-bg, rgba(0, 0, 0, 0.02));
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 6px;
+}
+
+.novel-reply-composer-context {
+    font-size: 0.775rem;
+    color: var(--reader-text-muted, #6b7280);
+    margin-bottom: 0.35rem;
+}
+
+.novel-reply-composer-target-name {
+    color: var(--reader-text-main, #1f2937);
+    font-weight: 600;
+}
+
+.novel-reply-composer-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 4px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    color: var(--reader-text-main, #1f2937);
+    background: var(--reader-input-bg, #ffffff);
+}
+
+.novel-reply-composer-input:focus {
+    outline: none;
+    border-color: var(--accent, #b45309);
+    box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.15);
+}
+
+.novel-reply-composer-status {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    min-height: 1rem;
+}
+
+.novel-reply-composer-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-reply-composer-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-reply-composer-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+    margin-top: 0.35rem;
+}
+
+.novel-reply-composer-submit {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #ffffff;
+    background-color: var(--accent, #b45309);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.novel-reply-composer-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.novel-reply-composer-cancel {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, #6b7280);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.novel-reply-composer-cancel:hover {
+    color: var(--reader-text-main, #1f2937);
+}
+
+/* Guest Reply Auth Modal */
+.novel-comment-auth-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.novel-comment-auth-modal[hidden] {
+    display: none !important;
+}
+
+.novel-comment-auth-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+}
+
+.novel-comment-auth-modal-card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 380px;
+    background: var(--reader-card-bg, #ffffff);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    padding: 1.25rem;
+    border: 1px solid var(--reader-border, #e5e7eb);
+}
+
+.novel-comment-auth-modal-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem 0;
+    color: var(--reader-text-main, #1f2937);
+}
+
+.novel-comment-auth-modal-message {
+    font-size: 0.85rem;
+    color: var(--reader-text-muted, #4b5563);
+    margin: 0 0 1rem 0;
+    line-height: 1.4;
+}
+
+.novel-comment-auth-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.novel-comment-auth-modal-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.825rem;
+    font-weight: 500;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.novel-comment-auth-modal-btn--primary {
+    background-color: var(--accent, #b45309);
+    color: #ffffff;
+    border-color: var(--accent, #b45309);
+}
+
+.novel-comment-auth-modal-btn--primary:hover {
+    opacity: 0.9;
+    color: #ffffff;
+}
+
+.novel-comment-auth-modal-btn--secondary {
+    background-color: transparent;
+    color: var(--reader-text-main, #374151);
+    border-color: var(--reader-border, #d1d5db);
+}
+
+.novel-comment-auth-modal-btn--secondary:hover {
+    background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
+}
+
+.novel-comment-auth-modal-btn--cancel {
+    background-color: transparent;
+    color: var(--reader-text-muted, #6b7280);
+    border-color: transparent;
+}
+
+.novel-comment-auth-modal-btn--cancel:hover {
+    color: var(--reader-text-main, #1f2937);
 }

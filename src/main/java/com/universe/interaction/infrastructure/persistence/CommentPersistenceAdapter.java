@@ -12,7 +12,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -168,5 +170,31 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
         return entities.stream()
                 .map(mapper::toDomain)
                 .toList();
+    }
+
+    @Override
+    public Map<UUID, Long> countActiveRepliesByThreadRootIds(Collection<UUID> threadRootCommentIds) {
+        if (threadRootCommentIds == null || threadRootCommentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> idStrings = threadRootCommentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Object[]> rows = repository.countActiveRepliesByThreadRootIds(idStrings);
+        Map<UUID, Long> result = new HashMap<>();
+        for (Object[] row : rows) {
+            String rootIdStr = (String) row[0];
+            Number count = (Number) row[1];
+            if (rootIdStr != null && count != null) {
+                result.put(UUID.fromString(rootIdStr), count.longValue());
+            }
+        }
+        return result;
     }
 }

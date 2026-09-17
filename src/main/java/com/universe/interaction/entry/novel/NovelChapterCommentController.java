@@ -16,6 +16,7 @@ import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
@@ -90,6 +91,7 @@ public class NovelChapterCommentController {
     private final GetCommentThreadUseCase getCommentThreadUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase;
+    private final CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase;
     private final ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase;
     private final CreateRootCommentUseCase createRootCommentUseCase;
     private final ReplyCommentUseCase replyCommentUseCase;
@@ -104,6 +106,7 @@ public class NovelChapterCommentController {
             GetCommentThreadUseCase getCommentThreadUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
             FindVisibleRootCommentIdsUseCase findVisibleRootCommentIdsUseCase,
+            CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase,
             ResolveChapterCommentAnchorsForChapterUseCase resolveChapterCommentAnchorsForChapterUseCase,
             CreateRootCommentUseCase createRootCommentUseCase,
             ReplyCommentUseCase replyCommentUseCase,
@@ -117,6 +120,7 @@ public class NovelChapterCommentController {
         this.getCommentThreadUseCase = Objects.requireNonNull(getCommentThreadUseCase, "GetCommentThreadUseCase cannot be null.");
         this.validateCommentTargetScopeUseCase = Objects.requireNonNull(validateCommentTargetScopeUseCase, "ValidateCommentTargetScopeUseCase cannot be null.");
         this.findVisibleRootCommentIdsUseCase = Objects.requireNonNull(findVisibleRootCommentIdsUseCase, "FindVisibleRootCommentIdsUseCase cannot be null.");
+        this.countVisibleActiveRepliesByRootIdsUseCase = Objects.requireNonNull(countVisibleActiveRepliesByRootIdsUseCase, "CountVisibleActiveRepliesByRootIdsUseCase cannot be null.");
         this.resolveChapterCommentAnchorsForChapterUseCase = Objects.requireNonNull(resolveChapterCommentAnchorsForChapterUseCase, "ResolveChapterCommentAnchorsForChapterUseCase cannot be null.");
         this.createRootCommentUseCase = Objects.requireNonNull(createRootCommentUseCase, "CreateRootCommentUseCase cannot be null.");
         this.replyCommentUseCase = Objects.requireNonNull(replyCommentUseCase, "ReplyCommentUseCase cannot be null.");
@@ -163,9 +167,10 @@ public class NovelChapterCommentController {
      *
      * <p>Preserves indicator invariants:
      * <ul>
-     *   <li>Indicator count = visible anchored ROOT discussion thread count;</li>
+     *   <li>threadCount = visible anchored ROOT discussion thread count;</li>
+     *   <li>commentCount = total visible active comments (roots + visible active replies);</li>
      *   <li>Only CURRENT or RELOCATED anchors with non-null resolvedBlockKey are included;</li>
-     *   <li>STALE, unanchored roots, deleted roots, and replies are ignored;</li>
+     *   <li>STALE, unanchored roots, deleted roots, and tombstones are ignored;</li>
      *   <li>Ordered by current Reader block document order;</li>
      *   <li>Blocks with 0 count are omitted.</li>
      * </ul>
@@ -193,21 +198,44 @@ public class NovelChapterCommentController {
             return ResponseEntity.ok(List.of());
         }
 
-        Map<String, Integer> counts = new HashMap<>();
+        List<UUID> anchoredVisibleRootIds = new ArrayList<>();
+        List<ChapterAnchorResolutionBulkView.ResolutionRow> anchoredResolutions = new ArrayList<>();
         for (ChapterAnchorResolutionBulkView.ResolutionRow res : bulkView.resolutions()) {
             if (visibleRootIds.contains(res.rootCommentId())
                     && (res.status() == ChapterCommentAnchorResolutionStatus.CURRENT
                     || res.status() == ChapterCommentAnchorResolutionStatus.RELOCATED)
                     && res.resolvedBlockKey() != null) {
-                counts.merge(res.resolvedBlockKey(), 1, Integer::sum);
+                anchoredVisibleRootIds.add(res.rootCommentId());
+                anchoredResolutions.add(res);
             }
+        }
+
+        if (anchoredResolutions.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+
+        // Single batch query for active replies across all anchored roots (zero N+1)
+        Map<UUID, Long> replyCountsByRootId = countVisibleActiveRepliesByRootIdsUseCase.execute(anchoredVisibleRootIds);
+
+        Map<String, Integer> threadCounts = new HashMap<>();
+        Map<String, Integer> commentCounts = new HashMap<>();
+        for (ChapterAnchorResolutionBulkView.ResolutionRow res : anchoredResolutions) {
+            String blockKey = res.resolvedBlockKey();
+            threadCounts.merge(blockKey, 1, Integer::sum);
+            long activeReplies = replyCountsByRootId.getOrDefault(res.rootCommentId(), 0L);
+            commentCounts.merge(blockKey, 1 + (int) activeReplies, Integer::sum);
         }
 
         List<ChapterCommentBlockIndicatorDTO> indicators = new ArrayList<>();
         for (String blockKey : bulkView.orderedBlockKeys()) {
-            Integer count = counts.get(blockKey);
-            if (count != null && count > 0) {
-                indicators.add(new ChapterCommentBlockIndicatorDTO(blockKey, count));
+            Integer tCount = threadCounts.get(blockKey);
+            Integer cCount = commentCounts.get(blockKey);
+            if (tCount != null && tCount > 0) {
+                indicators.add(new ChapterCommentBlockIndicatorDTO(
+                        blockKey,
+                        tCount,
+                        cCount != null ? cCount : tCount
+                ));
             }
         }
 

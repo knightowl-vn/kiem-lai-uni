@@ -109,6 +109,7 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         assertThat(response.blockKey()).isEqualTo(BLOCK_KEY);
         assertThat(response.canonicalText()).isEqualTo(CANONICAL_TEXT);
         assertThat(response.threadCount()).isZero();
+        assertThat(response.commentCount()).isZero();
         assertThat(response.threads()).isEmpty();
 
         verify(getChapterBlockDiscussionAnchorsUseCase).execute(CHAPTER_ID, BLOCK_KEY);
@@ -198,6 +199,8 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY);
 
         assertThat(response.threads()).hasSize(1);
+        assertThat(response.threadCount()).isEqualTo(1);
+        assertThat(response.commentCount()).isEqualTo(2);
         var thread = response.threads().get(0);
 
         // Root author verified

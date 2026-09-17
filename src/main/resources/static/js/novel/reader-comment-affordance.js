@@ -29,6 +29,7 @@
     const READER_BODY_SELECTOR = '.novel-reader-chapter-body';
     const BLOCK_KEY_ATTR = 'data-reader-block-key';
     const THREAD_COUNT_ATTR = 'data-comment-thread-count';
+    const COMMENT_COUNT_ATTR = 'data-comment-count';
     const AFFORDANCE_BTN_CLASS = 'reader-comment-affordance-btn';
     const EVENT_DISCUSSION_REQUESTED = 'kiemlai:block-discussion-requested';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
@@ -70,6 +71,32 @@
     }
 
     /**
+     * Parses comment count integer from canonical block attribute data-comment-count.
+     * Falls back to parseThreadCount(block) if missing or malformed.
+     *
+     * @param {Element} block
+     * @returns {number}
+     */
+    function parseCommentCount(block) {
+        if (!block || typeof block.getAttribute !== 'function') {
+            return parseThreadCount(block);
+        }
+        const raw = block.getAttribute(COMMENT_COUNT_ATTR);
+        if (typeof raw !== 'string') {
+            return parseThreadCount(block);
+        }
+        const trimmed = raw.trim();
+        if (!/^\d+$/.test(trimmed)) {
+            return parseThreadCount(block);
+        }
+        const num = Number(trimmed);
+        if (!Number.isSafeInteger(num) || num <= 0) {
+            return parseThreadCount(block);
+        }
+        return num;
+    }
+
+    /**
      * Parses contentVersion positive integer strictly from raw string attribute.
      * Rejects floats, scientific notation, negative numbers, zero, or trailing garbage.
      *
@@ -104,7 +131,7 @@
         const iconSvg = '<svg class="reader-comment-icon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 
         if (count > 0) {
-            affordanceBtn.setAttribute('aria-label', 'Mở ' + count + ' thảo luận của đoạn này');
+            affordanceBtn.setAttribute('aria-label', 'Mở ' + count + ' bình luận của đoạn này');
             affordanceBtn.innerHTML = iconSvg + '<span class="reader-comment-badge reader-comment-badge--count" aria-hidden="true">' + count + '</span>';
             if (affordanceBtn.classList && typeof affordanceBtn.classList.add === 'function') {
                 affordanceBtn.classList.add('has-comments');
@@ -200,7 +227,7 @@
         }
         clearHideTimer();
         activeBlock = block;
-        const count = parseThreadCount(block);
+        const count = parseCommentCount(block);
         updateButtonContent(count);
         positionButton(block);
         if (affordanceBtn) {
@@ -278,6 +305,7 @@
         }
 
         const threadCount = parseThreadCount(activeBlock);
+        const commentCount = parseCommentCount(activeBlock);
         const canonicalText = activeBlock.textContent || '';
 
         const detail = {
@@ -285,6 +313,7 @@
             contentVersion: contentVersion,
             blockKey: blockKey,
             threadCount: threadCount,
+            commentCount: commentCount,
             canonicalText: canonicalText
         };
 
@@ -578,7 +607,7 @@
             if (currentChapterId !== updatedChapterId) {
                 return;
             }
-            const count = parseThreadCount(activeBlock);
+            const count = parseCommentCount(activeBlock);
             updateButtonContent(count);
             positionButton(activeBlock);
         });
@@ -613,11 +642,13 @@
         READER_BODY_SELECTOR,
         BLOCK_KEY_ATTR,
         THREAD_COUNT_ATTR,
+        COMMENT_COUNT_ATTR,
         AFFORDANCE_BTN_CLASS,
         EVENT_DISCUSSION_REQUESTED,
         EVENT_CHAPTER_CHANGED,
         EVENT_INDICATORS_UPDATED,
         parseThreadCount,
+        parseCommentCount,
         parseContentVersion,
         updateButtonContent,
         positionButton,

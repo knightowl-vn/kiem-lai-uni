@@ -30,6 +30,7 @@
     const READER_BODY_SELECTOR = '.novel-reader-chapter-body';
     const BLOCK_KEY_ATTR = 'data-reader-block-key';
     const THREAD_COUNT_ATTR = 'data-comment-thread-count';
+    const COMMENT_COUNT_ATTR = 'data-comment-count';
     const INDICATOR_CLASS = 'reader-block-has-comments';
     const INDICATORS_API_BASE = '/api/novel/chapters';
 
@@ -52,7 +53,7 @@
         if (!chapterBody || typeof chapterBody.querySelectorAll !== 'function') {
             return;
         }
-        const decorated = chapterBody.querySelectorAll('.' + INDICATOR_CLASS + ', [' + THREAD_COUNT_ATTR + ']');
+        const decorated = chapterBody.querySelectorAll('.' + INDICATOR_CLASS + ', [' + THREAD_COUNT_ATTR + '], [' + COMMENT_COUNT_ATTR + ']');
         for (let i = 0; i < decorated.length; i++) {
             const el = decorated[i];
             if (el.classList && typeof el.classList.remove === 'function') {
@@ -60,6 +61,7 @@
             }
             if (typeof el.removeAttribute === 'function') {
                 el.removeAttribute(THREAD_COUNT_ATTR);
+                el.removeAttribute(COMMENT_COUNT_ATTR);
             }
         }
     }
@@ -133,13 +135,21 @@
                 continue;
             }
 
-            const threadCount = item.threadCount;
-            if (typeof threadCount !== 'number' ||
-                !Number.isFinite(threadCount) ||
-                !Number.isInteger(threadCount) ||
-                threadCount <= 0) {
+            const rawThreadCount = item.threadCount;
+            if (typeof rawThreadCount !== 'number' ||
+                !Number.isFinite(rawThreadCount) ||
+                !Number.isInteger(rawThreadCount) ||
+                rawThreadCount <= 0) {
                 continue;
             }
+
+            const rawCommentCount = item.commentCount;
+            const validCommentCount = (typeof rawCommentCount === 'number' &&
+                Number.isFinite(rawCommentCount) &&
+                Number.isInteger(rawCommentCount) &&
+                rawCommentCount > 0)
+                ? rawCommentCount
+                : rawThreadCount;
 
             const targetBlock = blockMap.get(blockKey);
             if (targetBlock) {
@@ -147,7 +157,8 @@
                     targetBlock.classList.add(INDICATOR_CLASS);
                 }
                 if (typeof targetBlock.setAttribute === 'function') {
-                    targetBlock.setAttribute(THREAD_COUNT_ATTR, String(threadCount));
+                    targetBlock.setAttribute(THREAD_COUNT_ATTR, String(rawThreadCount));
+                    targetBlock.setAttribute(COMMENT_COUNT_ATTR, String(validCommentCount));
                 }
             }
         }
@@ -416,6 +427,7 @@
         READER_BODY_SELECTOR,
         BLOCK_KEY_ATTR,
         THREAD_COUNT_ATTR,
+        COMMENT_COUNT_ATTR,
         INDICATOR_CLASS,
         EVENT_INDICATORS_UPDATED: 'kiemlai:comment-indicators-updated',
         buildIndicatorsUrl,
