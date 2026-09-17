@@ -52,7 +52,7 @@
 					         data-save-url=@{/wiki/articles/{id}/save(id=${article.id})},
 					         data-saved=${isSaved ? 'true' : 'false'},
 					         data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
-					         data-login-url=@{/login},
+					         data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug})},
 					         data-csrf-token=${_csrf != null ? _csrf.token : ''},
 					         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}"
 					th:classappend="${isSaved} ? ' is-saved' : ''"

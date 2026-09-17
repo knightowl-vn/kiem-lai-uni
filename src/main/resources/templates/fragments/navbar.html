@@ -120,8 +120,8 @@
 
 					<div class="profile-dropdown-divider"></div>
 
-					<a th:href="@{/login}" class="profile-dropdown-item"> Đăng nhập
-					</a> <a th:href="@{/register}" class="profile-dropdown-item"> Đăng
+					<a th:href="@{/login}" class="profile-dropdown-item js-navbar-auth-link" data-auth-type="login"> Đăng nhập
+					</a> <a th:href="@{/register}" class="profile-dropdown-item js-navbar-auth-link" data-auth-type="register"> Đăng
 						ký </a>
 
 				</div>
@@ -206,6 +206,10 @@
 		</div>
 		<script
         th:src="@{/js/navbar-search.js}"
+        defer>
+</script>
+		<script
+        th:src="@{/js/navbar-auth.js}"
         defer>
 </script>
 	</nav>

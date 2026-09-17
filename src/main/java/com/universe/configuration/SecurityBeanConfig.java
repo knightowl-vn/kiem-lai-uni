@@ -8,10 +8,16 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
+import com.universe.identity.infrastructure.security.BrowserNavigationRequestMatcher;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
+import com.universe.identity.infrastructure.security.FormLoginAuthenticationSuccessHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 
 @Configuration
 public class SecurityBeanConfig {
@@ -25,9 +31,6 @@ public class SecurityBeanConfig {
     private final AccountStatusFilter
             accountStatusFilter;
 
-    private final CustomAuthenticationFailureHandler
-            authenticationFailureHandler;
-
     private final String rememberMeKey;
 
     private final boolean secureCookie;
@@ -35,7 +38,6 @@ public class SecurityBeanConfig {
     public SecurityBeanConfig(
             GoogleOAuthSuccessHandler googleOAuthSuccessHandler,
             AccountStatusFilter accountStatusFilter,
-            CustomAuthenticationFailureHandler authenticationFailureHandler,
 
             @Value("${security.remember-me.key}")
             String rememberMeKey,
@@ -48,9 +50,6 @@ public class SecurityBeanConfig {
 
         this.accountStatusFilter =
                 accountStatusFilter;
-
-        this.authenticationFailureHandler =
-                authenticationFailureHandler;
 
         this.rememberMeKey =
                 rememberMeKey;
@@ -65,11 +64,42 @@ public class SecurityBeanConfig {
     }
 
     @Bean
+    public SafeReturnToValidator safeReturnToValidator() {
+        return new SafeReturnToValidator();
+    }
+
+    @Bean
+    public RequestMatcher browserNavigationRequestMatcher() {
+        return new BrowserNavigationRequestMatcher();
+    }
+
+    @Bean
+    public RequestCache requestCache(RequestMatcher browserNavigationRequestMatcher) {
+        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+        requestCache.setRequestMatcher(browserNavigationRequestMatcher);
+        return requestCache;
+    }
+
+    @Bean
+    public FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler(
+            RequestCache requestCache,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new FormLoginAuthenticationSuccessHandler(requestCache, safeReturnToValidator);
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http
+            HttpSecurity http,
+            RequestCache requestCache,
+            FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler,
+            CustomAuthenticationFailureHandler authenticationFailureHandler
     ) throws Exception {
 
         http
+                .requestCache(cache -> cache
+                        .requestCache(requestCache)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/",
@@ -214,7 +244,9 @@ public class SecurityBeanConfig {
                         .loginPage("/login")
                         .usernameParameter("username")
                         .passwordParameter("password")
-                        .defaultSuccessUrl("/home", false)
+                        .successHandler(
+                                formLoginAuthenticationSuccessHandler
+                        )
                         .failureHandler(
                                 authenticationFailureHandler
                         )

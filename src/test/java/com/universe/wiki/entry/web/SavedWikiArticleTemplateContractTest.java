@@ -24,6 +24,7 @@ class SavedWikiArticleTemplateContractTest {
         assertThat(detailPage).contains("data-save-url=");
         assertThat(detailPage).contains("data-saved=");
         assertThat(detailPage).contains("data-authenticated=");
+        assertThat(detailPage).contains("data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug})},");
         assertThat(detailPage).contains("data-csrf-token=");
         assertThat(detailPage).contains("data-csrf-header=");
         assertThat(detailPage).contains("wiki-save-icon-outline");

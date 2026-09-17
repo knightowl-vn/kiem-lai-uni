@@ -182,4 +182,16 @@ class PublicNavbarRenderingTest {
                 .andExpect(content().string(containsString("aria-current=\"page\"")))
                 .andExpect(content().string(containsString("class=\"novel-reader\"")));
     }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Navbar anonymous menu renders auth links with js-navbar-auth-link and includes navbar-auth.js")
+    void navbarRendersAuthLinksAndScript() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("js-navbar-auth-link")))
+                .andExpect(content().string(containsString("data-auth-type=\"login\"")))
+                .andExpect(content().string(containsString("data-auth-type=\"register\"")))
+                .andExpect(content().string(containsString("navbar-auth.js")));
+    }
 }

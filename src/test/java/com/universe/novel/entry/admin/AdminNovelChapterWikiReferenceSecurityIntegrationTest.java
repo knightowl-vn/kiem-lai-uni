@@ -10,6 +10,7 @@ import com.universe.identity.infrastructure.persistence.UserJpaEntity;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.identity.infrastructure.security.SafeReturnToValidator;
 import com.universe.novel.application.chapter.GetChapterDetailUseCase;
 import com.universe.novel.application.chapter.reference.ChapterWikiReferenceListPageDTO;
 import com.universe.novel.application.chapter.reference.ListChapterWikiReferencesUseCase;
@@ -69,7 +70,7 @@ class AdminNovelChapterWikiReferenceSecurityIntegrationTest {
 
         @Bean
         public CustomAuthenticationFailureHandler authenticationFailureHandler() {
-            return new CustomAuthenticationFailureHandler();
+            return new CustomAuthenticationFailureHandler(new SafeReturnToValidator());
         }
 
         @Bean
