@@ -774,6 +774,40 @@
         <div id="novelBlockDiscussionPassage" class="novel-block-discussion-passage"></div>
     </section>
 
+    <!-- Authenticated Root Comment Composer -->
+    <div class="novel-block-discussion-composer-wrapper" sec:authorize="isAuthenticated()">
+        <form id="novelBlockDiscussionComposer"
+              class="novel-block-discussion-composer"
+              novalidate>
+            <label for="novelBlockDiscussionComposerInput"
+                   class="novel-block-discussion-composer-label">Viết bình luận</label>
+            <textarea id="novelBlockDiscussionComposerInput"
+                      class="novel-block-discussion-composer-input"
+                      placeholder="Chia sẻ suy nghĩ của bạn về đoạn văn này..."
+                      rows="3"
+                      disabled></textarea>
+            <div id="novelBlockDiscussionComposerStatus"
+                 class="novel-block-discussion-composer-status"
+                 role="status"
+                 aria-live="polite"></div>
+            <div class="novel-block-discussion-composer-actions">
+                <button type="submit"
+                        id="novelBlockDiscussionComposerSubmit"
+                        class="novel-block-discussion-composer-submit"
+                        disabled>
+                    Gửi
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Anonymous Participation Prompt -->
+    <div class="novel-block-discussion-anonymous-prompt" sec:authorize="isAnonymous()">
+        <span>
+            <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug})}" class="novel-block-discussion-login-link">Đăng nhập</a> để tham gia thảo luận.
+        </span>
+    </div>
+
     <section id="novelBlockDiscussionContent" class="novel-block-discussion-content" aria-label="Danh sách thảo luận">
         <!-- Dynamically populated: loading, empty, error, or threads -->
     </section>
@@ -801,6 +835,8 @@
 <script th:src="@{/js/novel/reader-comment-affordance.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-block-discussion-drawer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-composer.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>

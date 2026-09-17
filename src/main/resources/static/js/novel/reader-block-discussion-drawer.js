@@ -38,6 +38,8 @@
     const CONTENT_ID = 'novelBlockDiscussionContent';
 
     const EVENT_DISCUSSION_REQUESTED = 'kiemlai:block-discussion-requested';
+    const EVENT_DISCUSSION_LOADED = 'kiemlai:block-discussion-loaded';
+    const EVENT_DISCUSSION_CLOSED = 'kiemlai:block-discussion-closed';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
     const BODY_OPEN_CLASS = 'has-block-discussion-open';
 
@@ -317,6 +319,12 @@
      * Closes the drawer UI, clears content, and restores keyboard focus.
      */
     function closeDrawer() {
+        const wasOpen = isDrawerOpen;
+        const closingContext = activeContext ? {
+            chapterId: activeContext.chapterId,
+            blockKey: activeContext.blockKey
+        } : null;
+
         isDrawerOpen = false;
         cancelInFlightFetch();
         activeContext = null;
@@ -363,6 +371,15 @@
             } catch (_) {}
         }
         priorFocusedElement = null;
+
+        // Dispatch closed event ONLY when an actually-open drawer transitions to closed
+        if (wasOpen && doc && typeof doc.dispatchEvent === 'function') {
+            const detail = closingContext || {};
+            const event = (typeof CustomEvent === 'function')
+                ? new CustomEvent(EVENT_DISCUSSION_CLOSED, { detail: detail })
+                : { type: EVENT_DISCUSSION_CLOSED, detail: detail };
+            doc.dispatchEvent(event);
+        }
     }
 
     /**
@@ -712,6 +729,7 @@
         if (activeContext) {
             activeContext.contentVersion = data.contentVersion;
             activeContext.canonicalText = data.canonicalText;
+            activeContext.authoritative = true;
         }
 
         const { passageEl, countEl, contentEl } = getElements();
@@ -741,6 +759,21 @@
             } else {
                 renderThreads(contentEl, data.threads);
             }
+        }
+
+        // 4. Dispatch block-discussion-loaded event with authoritative context
+        const targetDoc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (targetDoc && typeof targetDoc.dispatchEvent === 'function') {
+            const eventPayload = {
+                chapterId: requestedChapterId,
+                contentVersion: data.contentVersion,
+                blockKey: requestedBlockKey,
+                threadCount: threadCount
+            };
+            const event = (typeof CustomEvent === 'function')
+                ? new CustomEvent(EVENT_DISCUSSION_LOADED, { detail: eventPayload })
+                : { type: EVENT_DISCUSSION_LOADED, detail: eventPayload };
+            targetDoc.dispatchEvent(event);
         }
     }
 
@@ -828,6 +861,18 @@
     }
 
     /**
+     * Refreshes the currently active block discussion while keeping drawer open state intact.
+     *
+     * @returns {Promise<void>}
+     */
+    function refreshActiveDiscussion() {
+        if (!isDrawerOpen || !activeContext || !activeContext.chapterId || !activeContext.blockKey || !activeContext.authoritative) {
+            return Promise.resolve();
+        }
+        return fetchBlockDiscussion(activeContext.chapterId, activeContext.blockKey);
+    }
+
+    /**
      * Opens the block discussion drawer from a discussion-requested event detail.
      *
      * @param {*} detail
@@ -857,7 +902,8 @@
             blockKey: blockKey,
             contentVersion: contentVersion,
             threadCount: threadCount,
-            canonicalText: canonicalText
+            canonicalText: canonicalText,
+            authoritative: false
         };
 
         // 1. Immediately open drawer UI
@@ -1002,6 +1048,8 @@
         PASSAGE_ID,
         CONTENT_ID,
         EVENT_DISCUSSION_REQUESTED,
+        EVENT_DISCUSSION_LOADED,
+        EVENT_DISCUSSION_CLOSED,
         EVENT_CHAPTER_CHANGED,
         BODY_OPEN_CLASS,
         isValidDiscussionDetail,
@@ -1012,6 +1060,7 @@
         openDiscussion,
         closeDrawer,
         retryFetch,
+        refreshActiveDiscussion,
         initReaderBlockDiscussionDrawer,
         resetDrawerState,
         getActiveContext: function () { return activeContext; },

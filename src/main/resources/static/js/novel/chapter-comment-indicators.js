@@ -202,6 +202,11 @@
             clearIndicators(chapterBody);
         }
 
+        const currentGeneration = (existingState && typeof existingState.generation === 'number')
+            ? existingState.generation
+            : 0;
+        const requestGeneration = currentGeneration + 1;
+
         const url = buildIndicatorsUrl(chapterId);
 
         const promise = fetchFn(url, {
@@ -217,6 +222,12 @@
                 return response.json();
             })
             .then(function (data) {
+                // Same-chapter generation check: ensure no newer request has superseded this one
+                const latestState = chapterInitializationState.get(chapterBody);
+                if (!latestState || latestState.chapterId !== chapterId || latestState.generation !== requestGeneration) {
+                    return;
+                }
+
                 // Race safety: verify chapterId on chapterBody has not changed while fetch was in flight
                 const currentChapterId = (
                     (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
@@ -240,7 +251,8 @@
 
         chapterInitializationState.set(chapterBody, {
             chapterId: chapterId,
-            promise: promise
+            promise: promise,
+            generation: requestGeneration
         });
 
         return promise;
@@ -312,6 +324,94 @@
         bindChapterEvents(document);
     }
 
+    /**
+     * Forces a refresh of comment indicators for a chapter element, bypassing same-chapter caching.
+     *
+     * @param {Element} [chapterBody]
+     * @param {Object} [options]
+     * @returns {Promise<void>}
+     */
+    function refreshChapterIndicators(chapterBody, options) {
+        let body = chapterBody;
+        if (!body && typeof document !== 'undefined') {
+            body = document.querySelector(READER_BODY_SELECTOR);
+        }
+        if (!body) {
+            return Promise.resolve();
+        }
+
+        const chapterId = (
+            (typeof body.getAttribute === 'function' ? body.getAttribute('data-chapter-id') : null) ||
+            (body.dataset && body.dataset.chapterId) ||
+            ''
+        ).trim();
+
+        if (!chapterId) {
+            return Promise.resolve();
+        }
+
+        const fetchFn = (options && options.fetchFn) || (typeof fetch === 'function' ? fetch : null);
+        if (!fetchFn) {
+            return Promise.resolve();
+        }
+
+        const existingState = chapterInitializationState.get(body);
+        const currentGeneration = (existingState && typeof existingState.generation === 'number')
+            ? existingState.generation
+            : 0;
+        const requestGeneration = currentGeneration + 1;
+
+        const url = buildIndicatorsUrl(chapterId);
+
+        const promise = fetchFn(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        })
+            .then(function (response) {
+                if (!response || !response.ok) {
+                    return null;
+                }
+                return response.json();
+            })
+            .then(function (data) {
+                // Same-chapter generation check: ensure no newer request has superseded this one
+                const latestState = chapterInitializationState.get(body);
+                if (!latestState || latestState.chapterId !== chapterId || latestState.generation !== requestGeneration) {
+                    return;
+                }
+
+                // Race safety: verify chapterId on chapterBody has not changed while fetch was in flight
+                const currentChapterId = (
+                    (typeof body.getAttribute === 'function' ? body.getAttribute('data-chapter-id') : null) ||
+                    (body.dataset && body.dataset.chapterId) ||
+                    ''
+                ).trim();
+
+                if (currentChapterId !== chapterId) {
+                    return;
+                }
+
+                if (Array.isArray(data)) {
+                    applyIndicators(body, data);
+                }
+            })
+            .catch(function (error) {
+                if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+                    console.debug('Failed to refresh chapter comment indicators for chapter ' + chapterId + ':', error);
+                }
+            });
+
+        chapterInitializationState.set(body, {
+            chapterId: chapterId,
+            promise: promise,
+            generation: requestGeneration
+        });
+
+        return promise;
+    }
+
     return {
         READER_BODY_SELECTOR,
         BLOCK_KEY_ATTR,
@@ -323,6 +423,7 @@
         applyIndicators,
         notifyIndicatorsUpdated,
         loadChapterIndicators,
+        refreshChapterIndicators,
         initChapterCommentIndicators,
         bindChapterEvents
     };

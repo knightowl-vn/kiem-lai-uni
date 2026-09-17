@@ -13,7 +13,8 @@ const {
     applyIndicators,
     loadChapterIndicators,
     initChapterCommentIndicators,
-    bindChapterEvents
+    bindChapterEvents,
+    refreshChapterIndicators
 } = require(path.join(__dirname, '../../../main/resources/static/js/novel/chapter-comment-indicators.js'));
 
 // ============================================================================
@@ -718,6 +719,132 @@ describe('MS-05E5E2 Novel Reader Block Comment Indicator UI', () => {
         assert.strictEqual(dispatchedEvents.length, 2);
         assert.strictEqual(dispatchedEvents[1].type, EVENT_INDICATORS_UPDATED);
         assert.deepStrictEqual(dispatchedEvents[1].detail, { chapterId: 'ch-indicators-event' });
+    });
+
+    test('13. refreshChapterIndicators forces fresh GET, updates block indicators, and dispatches kiemlai:comment-indicators-updated', async () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'ch-refresh-1'
+        });
+        const p1 = createBlock('p', 'blk-1', 'Nội dung đoạn 1');
+        const p2 = createBlock('p', 'blk-2', 'Nội dung đoạn 2');
+        chapterBody.appendChild(p1);
+        chapterBody.appendChild(p2);
+
+        const fakeDoc = new FakeDocument(chapterBody);
+        chapterBody.ownerDocument = fakeDoc;
+
+        let fetchCount = 0;
+        const mockFetch = async () => {
+            fetchCount++;
+            return {
+                ok: true,
+                status: 200,
+                json: async () => [
+                    { blockKey: 'blk-1', threadCount: fetchCount }
+                ]
+            };
+        };
+
+        // First regular load
+        await loadChapterIndicators(chapterBody, { fetchFn: mockFetch });
+        assert.strictEqual(fetchCount, 1);
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '1');
+
+        // Normal load again would be cached / no-op
+        await loadChapterIndicators(chapterBody, { fetchFn: mockFetch });
+        assert.strictEqual(fetchCount, 1);
+
+        // refreshChapterIndicators forces fresh fetch and updates indicator
+        const dispatchedEvents = [];
+        fakeDoc.addEventListener(EVENT_INDICATORS_UPDATED, (e) => {
+            dispatchedEvents.push(e);
+        });
+
+        await refreshChapterIndicators(chapterBody, { fetchFn: mockFetch });
+        assert.strictEqual(fetchCount, 2);
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '2');
+        assert.strictEqual(dispatchedEvents.length, 1);
+        assert.strictEqual(dispatchedEvents[0].type, EVENT_INDICATORS_UPDATED);
+        assert.deepStrictEqual(dispatchedEvents[0].detail, { chapterId: 'ch-refresh-1' });
+    });
+
+    test('14. refreshChapterIndicators in-flight race safety: discards response if chapter changed while fetching', async () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'chapter-before'
+        });
+        const p1 = createBlock('p', 'blk-1', 'Đoạn văn');
+        chapterBody.appendChild(p1);
+
+        let resolveFetch;
+        const fetchPromise = new Promise(res => { resolveFetch = res; });
+        const slowFetch = () => fetchPromise;
+
+        const refreshPromise = refreshChapterIndicators(chapterBody, { fetchFn: slowFetch });
+
+        // User navigates away before refresh resolves
+        chapterBody.setAttribute('data-chapter-id', 'chapter-after');
+
+        resolveFetch({
+            ok: true,
+            status: 200,
+            json: async () => [{ blockKey: 'blk-1', threadCount: 42 }]
+        });
+
+        await refreshPromise;
+
+        // Verify indicators were NOT applied because chapter changed
+        assert.strictEqual(p1.hasAttribute(THREAD_COUNT_ATTR), false);
+        assert.strictEqual(p1.classList.contains(INDICATOR_CLASS), false);
+    });
+
+    test('15. refreshChapterIndicators same-chapter race safety: older request cannot overwrite newer request', async () => {
+        const chapterBody = new FakeElement('article', {
+            'class': 'novel-reader-chapter-body',
+            'data-chapter-id': 'chapter-same'
+        });
+        const p1 = createBlock('p', 'blk-1', 'Đoạn văn chung');
+        chapterBody.appendChild(p1);
+
+        let resolveFetch1, resolveFetch2;
+        const fetch1Promise = new Promise(res => { resolveFetch1 = res; });
+        const fetch2Promise = new Promise(res => { resolveFetch2 = res; });
+
+        let callCount = 0;
+        const mockFetch = () => {
+            callCount++;
+            if (callCount === 1) {
+                return fetch1Promise;
+            }
+            return fetch2Promise;
+        };
+
+        // Request #1 starts
+        const refresh1 = refreshChapterIndicators(chapterBody, { fetchFn: mockFetch });
+        // Request #2 starts for the same chapter
+        const refresh2 = refreshChapterIndicators(chapterBody, { fetchFn: mockFetch });
+
+        // Resolve NEWER request (#2) first with count=3
+        resolveFetch2({
+            ok: true,
+            status: 200,
+            json: async () => [{ blockKey: 'blk-1', threadCount: 3 }]
+        });
+        await refresh2;
+
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '3');
+
+        // Resolve OLDER request (#1) later with count=2
+        resolveFetch1({
+            ok: true,
+            status: 200,
+            json: async () => [{ blockKey: 'blk-1', threadCount: 2 }]
+        });
+        await refresh1;
+
+        // Final UI MUST remain count=3, older response was dropped
+        assert.strictEqual(p1.getAttribute(THREAD_COUNT_ATTR), '3');
     });
 
 });

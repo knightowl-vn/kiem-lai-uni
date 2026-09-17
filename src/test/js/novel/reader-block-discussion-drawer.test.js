@@ -168,8 +168,12 @@ class FakeElement {
     }
 
     dispatchEvent(evt) {
-        evt.target = evt.target || this;
-        evt.currentTarget = this;
+        try {
+            evt.target = evt.target || this;
+        } catch (_) {}
+        try {
+            evt.currentTarget = this;
+        } catch (_) {}
         const handlers = this.listeners[evt.type] || [];
         for (const fn of [...handlers]) {
             fn.call(this, evt);
@@ -324,8 +328,12 @@ class FakeDocument {
     }
 
     dispatchEvent(evt) {
-        evt.target = evt.target || this;
-        evt.currentTarget = this;
+        try {
+            evt.target = evt.target || this;
+        } catch (_) {}
+        try {
+            evt.currentTarget = this;
+        } catch (_) {}
         const handlers = this.listeners[evt.type] || [];
         for (const fn of [...handlers]) {
             fn.call(this, evt);
@@ -1641,6 +1649,206 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(drawerModule.getActiveContext().chapterId, '22222222-2222-2222-2222-222222222222');
         assert.strictEqual(fetchUrls.length, 2);
         assert.strictEqual(fetchUrls[1].includes('22222222-2222-2222-2222-222222222222'), true);
+    });
+
+    test('37. successful authoritative GET dispatches kiemlai:block-discussion-loaded and failed GET does not', async () => {
+        const { doc } = setupChapterDOM();
+        const loadedEvents = [];
+
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOADED, (evt) => {
+            loadedEvents.push(evt.detail);
+        });
+
+        // 1. Successful GET
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 3,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Loaded canonical text',
+                    threadCount: 2,
+                    threads: [
+                        { id: 'th-1', authorUserId: 'u-1', body: 'Thread 1', replies: [] },
+                        { id: 'th-2', authorUserId: 'u-2', body: 'Thread 2', replies: [] }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(loadedEvents.length, 1);
+        assert.deepStrictEqual(loadedEvents[0], {
+            chapterId: '11111111-1111-1111-1111-111111111111',
+            contentVersion: 3,
+            blockKey: 'blk-0123456789abcdef-1',
+            threadCount: 2
+        });
+
+        // 2. Failed GET
+        drawerModule.resetDrawerState();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: false,
+                status: 500,
+                json: async () => ({ error: 'Server error' })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // Event count still 1, no new loaded event emitted for 500 error
+        assert.strictEqual(loadedEvents.length, 1);
+    });
+
+    test('38. refreshActiveDiscussion requires authoritative context, issues GET when authoritative, and does not reopen closed drawer', async () => {
+        const { doc, drawer } = setupChapterDOM();
+        let fetchCount = 0;
+        let resolveFirstFetch;
+        const firstFetchPromise = new Promise(r => { resolveFirstFetch = r; });
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => {
+                fetchCount++;
+                if (fetchCount === 1) {
+                    await firstFetchPromise;
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-0123456789abcdef-1',
+                        canonicalText: 'Refreshed Text',
+                        threadCount: 1,
+                        threads: [{ id: 'th-1', authorUserId: 'u-1', body: 'Comment 1', replies: [] }]
+                    })
+                };
+            }
+        });
+
+        // 1. When drawer is closed, refresh is a no-op
+        await drawerModule.refreshActiveDiscussion();
+        assert.strictEqual(fetchCount, 0);
+
+        // 2. Open drawer with provisional context (GET #1 in-flight)
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional',
+                threadCount: 0
+            }
+        });
+        assert.strictEqual(fetchCount, 1);
+
+        // 3. While initial GET is still pending (context not authoritative), call refresh
+        await drawerModule.refreshActiveDiscussion();
+        // Assert: NO second GET occurs because context is provisional (authoritative: false)
+        assert.strictEqual(fetchCount, 1);
+
+        // 4. Resolve the initial authoritative GET
+        resolveFirstFetch();
+        await new Promise(r => setTimeout(r, 15));
+        assert.strictEqual(fetchCount, 1);
+
+        // 5. Now that context is authoritative, trigger refreshActiveDiscussion()
+        await drawerModule.refreshActiveDiscussion();
+        // Assert: Exactly one additional GET occurs
+        assert.strictEqual(fetchCount, 2);
+
+        // 6. Close drawer, then call refresh
+        drawerModule.closeDrawer();
+        assert.strictEqual(drawer.hidden, true);
+        await drawerModule.refreshActiveDiscussion();
+        assert.strictEqual(fetchCount, 2); // Unchanged! Does not fetch or reopen
+        assert.strictEqual(drawer.hidden, true);
+    });
+
+    test('39. actual close emits kiemlai:block-discussion-closed exactly once; no-op/reset close does not emit duplicate event', async () => {
+        const { doc } = setupChapterDOM();
+        const closedEvents = [];
+
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_CLOSED, (e) => {
+            closedEvents.push(e);
+        });
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Canonical',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        // 1. Initial close when drawer is not open: no event emitted
+        drawerModule.closeDrawer();
+        assert.strictEqual(closedEvents.length, 0);
+
+        // 2. Open drawer
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Canonical',
+                threadCount: 0
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        // 3. Actually close drawer -> emits closed event once with detail
+        drawerModule.closeDrawer();
+        assert.strictEqual(closedEvents.length, 1);
+        assert.strictEqual(closedEvents[0].type, drawerModule.EVENT_DISCUSSION_CLOSED);
+        assert.deepStrictEqual(closedEvents[0].detail, {
+            chapterId: '11111111-1111-1111-1111-111111111111',
+            blockKey: 'blk-0123456789abcdef-1'
+        });
+
+        // 4. Repeated close when already closed -> no duplicate event
+        drawerModule.closeDrawer();
+        assert.strictEqual(closedEvents.length, 1);
+
+        // 5. resetDrawerState when closed -> no duplicate event
+        drawerModule.resetDrawerState();
+        assert.strictEqual(closedEvents.length, 1);
     });
 
 });
