@@ -669,6 +669,57 @@
     }
 
     /**
+     * Resolves the single active direct child display name for contextual tombstone rendering.
+     * Returns the non-blank displayName of the unique direct active child, or null if 0, >1,
+     * or missing/blank child author display name.
+     *
+     * @param {Array} replies
+     * @param {string|number} tombstoneId
+     * @returns {string|null}
+     */
+    function resolveTombstoneContextChildDisplayName(replies, tombstoneId) {
+        if (!Array.isArray(replies) || !tombstoneId) {
+            return null;
+        }
+        const targetParentId = String(tombstoneId).trim();
+        let activeDirectChild = null;
+        let activeDirectChildCount = 0;
+
+        for (let i = 0; i < replies.length; i++) {
+            const r = replies[i];
+            if (!r) continue;
+
+            const isDeleted = r.tombstone === true || r.status === 'DELETED';
+            if (isDeleted) continue;
+
+            if (r.parentCommentId != null && String(r.parentCommentId).trim() === targetParentId) {
+                activeDirectChildCount++;
+                if (activeDirectChildCount === 1) {
+                    activeDirectChild = r;
+                } else {
+                    return null;
+                }
+            }
+        }
+
+        if (activeDirectChildCount !== 1 || !activeDirectChild) {
+            return null;
+        }
+
+        const author = activeDirectChild.author;
+        if (!author || typeof author !== 'object') {
+            return null;
+        }
+
+        if (typeof author.displayName !== 'string') {
+            return null;
+        }
+
+        const trimmedName = author.displayName.trim();
+        return trimmedName.length > 0 ? trimmedName : null;
+    }
+
+    /**
      * Renders visible discussion threads and flat replies in response order.
      *
      * @param {Element} container
@@ -773,6 +824,19 @@
                 rootActions.appendChild(rootEditBtn);
             }
 
+            if (!thread.root.tombstone && thread.root.canDelete === true) {
+                const rootDeleteBtn = doc.createElement('button');
+                rootDeleteBtn.type = 'button';
+                rootDeleteBtn.className = 'novel-comment-delete-btn';
+                rootDeleteBtn.setAttribute('data-action', 'delete');
+                if (thread.root.id) {
+                    rootDeleteBtn.setAttribute('data-comment-id', String(thread.root.id));
+                    rootDeleteBtn.setAttribute('data-root-id', String(thread.root.id));
+                }
+                rootDeleteBtn.textContent = 'Xóa';
+                rootActions.appendChild(rootDeleteBtn);
+            }
+
             rootEl.appendChild(rootActions);
             threadCard.appendChild(rootEl);
 
@@ -817,7 +881,29 @@
                         }
                         const tombstoneBody = doc.createElement('div');
                         tombstoneBody.className = 'novel-comment-body novel-comment-body--tombstone';
-                        tombstoneBody.textContent = reply.body || '[Bình luận đã bị xóa]';
+
+                        const contextChildDisplayName = (reply.id)
+                            ? resolveTombstoneContextChildDisplayName(replies, reply.id)
+                            : null;
+
+                        if (contextChildDisplayName) {
+                            const prefixSpan = doc.createElement('span');
+                            prefixSpan.textContent = 'Bình luận mà ';
+
+                            const mentionSpan = doc.createElement('span');
+                            mentionSpan.className = 'novel-comment-reply-mention';
+                            mentionSpan.textContent = '@' + contextChildDisplayName;
+
+                            const suffixSpan = doc.createElement('span');
+                            suffixSpan.textContent = ' phản hồi đã bị xóa.';
+
+                            tombstoneBody.appendChild(prefixSpan);
+                            tombstoneBody.appendChild(mentionSpan);
+                            tombstoneBody.appendChild(suffixSpan);
+                        } else {
+                            tombstoneBody.textContent = 'Bình luận đã bị xóa.';
+                        }
+
                         replyEl.appendChild(tombstoneBody);
                     } else {
                         if (reply.authorUserId) {
@@ -922,6 +1008,22 @@
                             }
                             replyEditBtn.textContent = 'Chỉnh sửa';
                             replyActions.appendChild(replyEditBtn);
+                        }
+
+                        if (!isTombstone && reply.canDelete === true) {
+                            const replyDeleteBtn = doc.createElement('button');
+                            replyDeleteBtn.type = 'button';
+                            replyDeleteBtn.className = 'novel-comment-delete-btn';
+                            replyDeleteBtn.setAttribute('data-action', 'delete');
+                            if (reply.id) {
+                                replyDeleteBtn.setAttribute('data-comment-id', String(reply.id));
+                                replyDeleteBtn.setAttribute('data-reply-id', String(reply.id));
+                            }
+                            if (thread.root.id) {
+                                replyDeleteBtn.setAttribute('data-root-id', String(thread.root.id));
+                            }
+                            replyDeleteBtn.textContent = 'Xóa';
+                            replyActions.appendChild(replyDeleteBtn);
                         }
 
                         replyEl.appendChild(replyActions);
@@ -1392,6 +1494,7 @@
         formatThreadCount,
         formatTimestamp,
         isCommentEdited,
+        resolveTombstoneContextChildDisplayName,
         openDiscussion,
         closeDrawer,
         retryFetch,

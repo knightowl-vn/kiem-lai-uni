@@ -905,13 +905,15 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
                         {
                             root: { id: 'r1', body: 'Root 1' },
                             replies: [
-                                { id: 'tomb-1', body: 'Bình luận này đã bị xóa.', tombstone: true }
+                                { id: 'tomb-1', body: 'SECRET DELETED COMMENT BODY', tombstone: true }
                             ]
                         }
                     ]
                 })
             })
         });
+
+        const loadedPromise = new Promise(r => doc.addEventListener('kiemlai:block-discussion-loaded', r));
 
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
@@ -924,12 +926,14 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await loadedPromise;
 
         const replyEl = content.querySelector('.novel-comment--reply');
         assert.strictEqual(replyEl.classList.contains('is-tombstone'), true);
         assert.strictEqual(replyEl.querySelector('.novel-comment-author'), null);
-        assert.strictEqual(replyEl.querySelector('.novel-comment-body--tombstone').textContent, 'Bình luận này đã bị xóa.');
+        const renderedText = replyEl.querySelector('.novel-comment-body--tombstone').textContent;
+        assert.strictEqual(renderedText, 'Bình luận đã bị xóa.');
+        assert.strictEqual(renderedText.includes('SECRET DELETED COMMENT BODY'), false);
     });
 
     test('18. zero threads shows empty state', async () => {
@@ -3674,6 +3678,687 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             createdAt: '2026-09-17T10:00:00Z',
             updatedAt: '2026-09-17T10:00:01Z'
         }), true);
+    });
+
+    test('69. active root comment with canDelete: true renders delete button', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-del-test-1',
+                                authorUserId: 'user-owner',
+                                body: 'My own comment to delete',
+                                tombstone: false,
+                                canEdit: true,
+                                canDelete: true,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'Author Me' }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const delBtn = rootEl.querySelector('.novel-comment-delete-btn');
+        assert.notStrictEqual(delBtn, null);
+        assert.strictEqual(delBtn.getAttribute('data-action'), 'delete');
+        assert.strictEqual(delBtn.getAttribute('data-comment-id'), 'root-del-test-1');
+        assert.strictEqual(delBtn.getAttribute('data-root-id'), 'root-del-test-1');
+        assert.strictEqual(delBtn.textContent, 'Xóa');
+    });
+
+    test('70. active root comment with canDelete: false does NOT render delete button', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-nodel-test-1',
+                                authorUserId: 'user-other',
+                                body: 'Other user comment',
+                                tombstone: false,
+                                canEdit: false,
+                                canDelete: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z',
+                                author: { displayName: 'Other Person' }
+                            },
+                            replies: []
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        assert.notStrictEqual(rootEl, null);
+
+        const delBtn = rootEl.querySelector('.novel-comment-delete-btn');
+        assert.strictEqual(delBtn, null);
+    });
+
+    test('71. active reply comment with canDelete: true renders delete button carrying semantic IDs', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-reply-del-1',
+                                body: 'Root',
+                                tombstone: false,
+                                canDelete: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-del-test-1',
+                                    parentCommentId: 'root-reply-del-1',
+                                    authorUserId: 'user-owner',
+                                    body: 'My active reply to delete',
+                                    tombstone: false,
+                                    canEdit: true,
+                                    canDelete: true,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:05:00Z',
+                                    author: { displayName: 'Me Replying' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const delBtn = replyEl.querySelector('.novel-comment-delete-btn');
+        assert.notStrictEqual(delBtn, null);
+        assert.strictEqual(delBtn.getAttribute('data-action'), 'delete');
+        assert.strictEqual(delBtn.getAttribute('data-comment-id'), 'reply-del-test-1');
+        assert.strictEqual(delBtn.getAttribute('data-reply-id'), 'reply-del-test-1');
+        assert.strictEqual(delBtn.getAttribute('data-root-id'), 'root-reply-del-1');
+        assert.strictEqual(delBtn.textContent, 'Xóa');
+    });
+
+    test('72. active reply comment with canDelete: false does NOT render delete button', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-reply-nodel-1',
+                                body: 'Root',
+                                tombstone: false,
+                                canDelete: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-nodel-test-1',
+                                    parentCommentId: 'root-reply-nodel-1',
+                                    body: 'Not my reply',
+                                    tombstone: false,
+                                    canDelete: false,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:05:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const delBtn = replyEl.querySelector('.novel-comment-delete-btn');
+        assert.strictEqual(delBtn, null);
+    });
+
+    test('73. tombstone reply never renders delete button even if canDelete is mistakenly true', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-tomb-del-1',
+                                body: 'Root',
+                                tombstone: false,
+                                canDelete: false,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-tomb-1',
+                                    parentCommentId: 'root-tomb-del-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    canDelete: true,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:05:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.notStrictEqual(replyEl, null);
+
+        const delBtn = replyEl.querySelector('.novel-comment-delete-btn');
+        assert.strictEqual(delBtn, null);
+    });
+
+    test('74. action buttons order is Trả lời, Chỉnh sửa, Xóa when all are available', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: {
+                                id: 'root-all-actions-1',
+                                body: 'Root with all actions',
+                                tombstone: false,
+                                canEdit: true,
+                                canDelete: true,
+                                createdAt: '2026-09-17T10:00:00Z',
+                                updatedAt: '2026-09-17T10:00:00Z'
+                            },
+                            replies: [
+                                {
+                                    id: 'reply-all-actions-1',
+                                    parentCommentId: 'root-all-actions-1',
+                                    body: 'Reply with all actions',
+                                    tombstone: false,
+                                    canEdit: true,
+                                    canDelete: true,
+                                    createdAt: '2026-09-17T10:05:00Z',
+                                    updatedAt: '2026-09-17T10:05:00Z'
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const rootEl = content.querySelector('.novel-comment--root');
+        const rootActions = rootEl.querySelector('.novel-comment-actions');
+        const rootButtons = rootActions.childNodes.filter(c => c.tagName === 'BUTTON');
+        assert.strictEqual(rootButtons.length, 3);
+        assert.strictEqual(rootButtons[0].textContent, 'Trả lời');
+        assert.strictEqual(rootButtons[1].textContent, 'Chỉnh sửa');
+        assert.strictEqual(rootButtons[2].textContent, 'Xóa');
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        const replyActions = replyEl.querySelector('.novel-comment-actions');
+        const replyButtons = replyActions.childNodes.filter(c => c.tagName === 'BUTTON');
+        assert.strictEqual(replyButtons.length, 3);
+        assert.strictEqual(replyButtons[0].textContent, 'Trả lời');
+        assert.strictEqual(replyButtons[1].textContent, 'Chỉnh sửa');
+        assert.strictEqual(replyButtons[2].textContent, 'Xóa');
+    });
+
+    test('75. tombstone with exactly one active direct child renders contextual message with child displayName', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'root-1', body: 'Root 1', tombstone: false },
+                            replies: [
+                                {
+                                    id: 'tomb-1',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true
+                                },
+                                {
+                                    id: 'child-1',
+                                    parentCommentId: 'tomb-1',
+                                    body: '+2',
+                                    tombstone: false,
+                                    author: { displayName: 'QQQQ' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replies = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 2);
+
+        const tombstoneEl = replies[0];
+        assert.strictEqual(tombstoneEl.classList.contains('is-tombstone'), true);
+
+        const tombstoneBody = tombstoneEl.querySelector('.novel-comment-body--tombstone');
+        assert.notStrictEqual(tombstoneBody, null);
+        assert.strictEqual(tombstoneBody.textContent, 'Bình luận mà @QQQQ phản hồi đã bị xóa.');
+
+        const mentionSpan = tombstoneBody.querySelector('.novel-comment-reply-mention');
+        assert.notStrictEqual(mentionSpan, null);
+        assert.strictEqual(mentionSpan.textContent, '@QQQQ');
+    });
+
+    test('76. tombstone with two active direct children falls back to standard message', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'root-1', body: 'Root 1', tombstone: false },
+                            replies: [
+                                {
+                                    id: 'tomb-1',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true
+                                },
+                                {
+                                    id: 'child-1',
+                                    parentCommentId: 'tomb-1',
+                                    body: 'First child',
+                                    tombstone: false,
+                                    author: { displayName: 'UserA' }
+                                },
+                                {
+                                    id: 'child-2',
+                                    parentCommentId: 'tomb-1',
+                                    body: 'Second child',
+                                    tombstone: false,
+                                    author: { displayName: 'UserB' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const tombstoneEl = content.querySelectorAll('.novel-comment--reply')[0];
+        const tombstoneBody = tombstoneEl.querySelector('.novel-comment-body--tombstone');
+        assert.strictEqual(tombstoneBody.textContent, 'Bình luận đã bị xóa.');
+        assert.strictEqual(tombstoneBody.querySelector('.novel-comment-reply-mention'), null);
+    });
+
+    test('77. tombstone with one active direct child but missing/blank author displayName falls back to standard message', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'root-1', body: 'Root 1', tombstone: false },
+                            replies: [
+                                {
+                                    id: 'tomb-1',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true
+                                },
+                                {
+                                    id: 'child-1',
+                                    parentCommentId: 'tomb-1',
+                                    body: 'Child with blank name',
+                                    tombstone: false,
+                                    author: { displayName: '   ' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const tombstoneEl = content.querySelectorAll('.novel-comment--reply')[0];
+        const tombstoneBody = tombstoneEl.querySelector('.novel-comment-body--tombstone');
+        assert.strictEqual(tombstoneBody.textContent, 'Bình luận đã bị xóa.');
+        assert.strictEqual(tombstoneBody.querySelector('.novel-comment-reply-mention'), null);
+    });
+
+    test('78. tombstone with only a transitive active descendant does NOT use transitive child name and falls back', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'root-1', body: 'Root 1', tombstone: false },
+                            replies: [
+                                {
+                                    id: 'tomb-t',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true
+                                },
+                                {
+                                    id: 'tomb-c',
+                                    parentCommentId: 'tomb-t',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true
+                                },
+                                {
+                                    id: 'active-d',
+                                    parentCommentId: 'tomb-c',
+                                    body: 'Deep active child',
+                                    tombstone: false,
+                                    author: { displayName: 'DeepUserD' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const replies = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 3);
+
+        const tombstoneT = replies[0];
+        const tombstoneTBody = tombstoneT.querySelector('.novel-comment-body--tombstone');
+        // T must NOT use @DeepUserD because D is a child of C, not T
+        assert.strictEqual(tombstoneTBody.textContent, 'Bình luận đã bị xóa.');
+        assert.strictEqual(tombstoneTBody.querySelector('.novel-comment-reply-mention'), null);
+
+        // C, however, has exactly one direct active child (D)
+        const tombstoneC = replies[1];
+        const tombstoneCBody = tombstoneC.querySelector('.novel-comment-body--tombstone');
+        assert.strictEqual(tombstoneCBody.textContent, 'Bình luận mà @DeepUserD phản hồi đã bị xóa.');
+    });
+
+    test('79. contextual tombstone preserves existing privacy and action restrictions', async () => {
+        const { doc, content } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    blockKey: 'blk-0123456789abcdef-1',
+                    contentVersion: 1,
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'root-1', body: 'Root 1', tombstone: false },
+                            replies: [
+                                {
+                                    id: 'tomb-priv-1',
+                                    parentCommentId: 'root-1',
+                                    body: '[Bình luận đã bị xóa]',
+                                    tombstone: true,
+                                    canEdit: true,
+                                    canDelete: true
+                                },
+                                {
+                                    id: 'child-priv-1',
+                                    parentCommentId: 'tomb-priv-1',
+                                    body: 'Direct active reply',
+                                    tombstone: false,
+                                    canEdit: true,
+                                    canDelete: true,
+                                    author: { displayName: 'ActiveUser' }
+                                }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 1
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 25));
+
+        const tombstoneEl = content.querySelectorAll('.novel-comment--reply')[0];
+        // No author presentation / avatar
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-author'), null);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-avatar'), null);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-avatar--fallback'), null);
+
+        // No action buttons
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-reply-btn'), null);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-edit-btn'), null);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-delete-btn'), null);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-actions'), null);
     });
 
 });

@@ -529,7 +529,8 @@ body.has-block-discussion-open {
 }
 
 .novel-comment-reply-btn,
-.novel-comment-edit-btn {
+.novel-comment-edit-btn,
+.novel-comment-delete-btn {
     background: none;
     border: none;
     padding: 0.15rem 0.4rem;
@@ -547,8 +548,14 @@ body.has-block-discussion-open {
     background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
 }
 
+.novel-comment-delete-btn:hover {
+    color: var(--color-danger, #dc2626);
+    background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
+}
+
 .novel-comment-reply-btn:focus-visible,
-.novel-comment-edit-btn:focus-visible {
+.novel-comment-edit-btn:focus-visible,
+.novel-comment-delete-btn:focus-visible {
     outline: 2px solid var(--accent, #b45309);
     outline-offset: 1px;
 }
@@ -827,5 +834,77 @@ body.has-block-discussion-open {
 }
 
 .novel-edit-composer-cancel:hover {
+    color: var(--reader-text-main, #1f2937);
+}
+
+/* =========================================================
+   DELETE CONFIRMATION (MS-05E5G4C2)
+   ========================================================= */
+.novel-delete-confirmation {
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--reader-card-bg, rgba(0, 0, 0, 0.02));
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 6px;
+}
+
+.novel-delete-confirmation-message {
+    font-size: 0.8rem;
+    color: var(--reader-text-main, #1f2937);
+    line-height: 1.4;
+    margin-bottom: 0.4rem;
+}
+
+.novel-delete-confirmation-status {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    min-height: 1rem;
+}
+
+.novel-delete-confirmation-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-delete-confirmation-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-delete-confirmation-actions {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+    margin-top: 0.35rem;
+}
+
+.novel-delete-confirmation-confirm {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #ffffff;
+    background-color: var(--color-danger, #dc2626);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.novel-delete-confirmation-confirm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.novel-delete-confirmation-cancel {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, #6b7280);
+    background: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.novel-delete-confirmation-cancel:hover {
     color: var(--reader-text-main, #1f2937);
 }
