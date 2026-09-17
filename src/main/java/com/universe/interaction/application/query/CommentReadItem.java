@@ -15,7 +15,7 @@ import java.util.UUID;
  *   <li>Interaction-owned: zero dependency on Identity, Novel, or Wiki models;</li>
  *   <li>Scalar cross-context references: uses {@code UUID} for user and parent identities;</li>
  *   <li>Tombstone integrity: deleted replies retain ancestry and timestamps with {@code body = null};</li>
- *   <li>Immediate attribution: {@code replyToAuthorUserId} reflects the immediate parent's author.</li>
+ *   <li>Immediate attribution: {@code replyToAuthorUserId} represents immediate-parent attribution when available; it may be null when the immediate parent is deleted/tombstoned and attribution is intentionally suppressed.</li>
  * </ul>
  */
 public record CommentReadItem(
@@ -104,7 +104,7 @@ public record CommentReadItem(
     }
 
     /**
-     * Creates a read item from a deleted tombstone reply aggregate with immediate parent attribution.
+     * Creates a read item from a deleted tombstone reply aggregate, preserving structural ancestry and any resolver-supplied immediate-parent attribution.
      */
     public static CommentReadItem fromTombstoneReply(Comment reply, UUID replyToAuthorUserId) {
         Objects.requireNonNull(reply, "Reply comment cannot be null.");

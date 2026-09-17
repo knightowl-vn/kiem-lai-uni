@@ -23,7 +23,7 @@ import java.util.UUID;
  *   <li>All {@code ACTIVE} replies remain visible;</li>
  *   <li>Deleted leaf replies with no active descendants are pruned/hidden;</li>
  *   <li>Deleted non-root replies that are transitive ancestors of an active reply are retained as tombstones;</li>
- *   <li>Immediate reply-to author attribution is resolved from the immediate parent comment;</li>
+ *   <li>Immediate reply-to author attribution is resolved only from an active immediate parent and is suppressed to null when that parent is deleted;</li>
  *   <li>Original chronological ordering ({@code createdAt ASC, id ASC}) is strictly preserved without re-sorting;</li>
  *   <li>Strict graph integrity verification detects cycles, orphan references, foreign targets, and corrupt hierarchy.</li>
  * </ul>

@@ -993,4 +993,29 @@ describe('MS-05E5G4A Novel Block Discussion Reply Composer Tests', () => {
         assert.strictEqual(refreshActiveDiscussionCalled, 0);
     });
 
+    test('Q. cross-mutation teardown: opening reply closes active edit composer via closeEditComposer(false)', () => {
+        let closeEditCalled = false;
+        let closeEditRestoreFocusArg = null;
+        const mockEditComposer = {
+            closeEditComposer: (restoreFocus) => {
+                closeEditCalled = true;
+                closeEditRestoreFocusArg = restoreFocus;
+            }
+        };
+
+        initReaderBlockDiscussionReplyComposer(doc, {
+            drawerModule: mockDrawerModule,
+            editComposerModule: mockEditComposer
+        });
+
+        const rootReplyBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault: () => {} });
+
+        assert.strictEqual(closeEditCalled, true);
+        assert.strictEqual(closeEditRestoreFocusArg, false);
+        const composer = content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        assert.notStrictEqual(composer, null);
+        assert.strictEqual(getActiveReplyTarget().commentId, ROOT_ID);
+    });
+
 });

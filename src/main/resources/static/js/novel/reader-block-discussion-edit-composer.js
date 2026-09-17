@@ -46,10 +46,28 @@
     let boundDoc = null;
     let injectedFetch = null;
     let injectedDrawer = null;
+    let injectedReplyComposer = null;
     let isSubmitting = false;
     let currentMutationToken = 0;
     let activeEditTarget = null;
     let activeComposerEl = null;
+
+    /**
+     * Resolves the reply composer module instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveReplyComposerModule() {
+        if (injectedReplyComposer) {
+            return injectedReplyComposer;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderBlockDiscussionReplyComposer ||
+                (window.KiemLai && window.KiemLai.NovelReaderBlockDiscussionReplyComposer) ||
+                null;
+        }
+        return null;
+    }
 
     /**
      * Resolves the drawer module instance.
@@ -197,6 +215,14 @@
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         if (!doc || !targetInfo || !targetInfo.commentEl) {
             return;
+        }
+
+        // Close any active reply composer before establishing edit composer
+        const replyMod = resolveReplyComposerModule();
+        if (replyMod && typeof replyMod.closeReplyComposer === 'function') {
+            try {
+                replyMod.closeReplyComposer(false);
+            } catch (_) {}
         }
 
         // Close any currently active composer (clearing previous target's draft and unhiding its body)
@@ -622,6 +648,9 @@
         if (options && options.drawerModule) {
             injectedDrawer = options.drawerModule;
         }
+        if (options && options.replyComposerModule) {
+            injectedReplyComposer = options.replyComposerModule;
+        }
 
         bindEvents(doc);
 
@@ -641,6 +670,7 @@
         boundDoc = null;
         injectedFetch = null;
         injectedDrawer = null;
+        injectedReplyComposer = null;
         isSubmitting = false;
         currentMutationToken = 0;
         activeEditTarget = null;

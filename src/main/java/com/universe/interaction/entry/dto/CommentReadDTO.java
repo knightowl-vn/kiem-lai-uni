@@ -14,7 +14,7 @@ import java.util.UUID;
  *   <li>{@code id}: Comment UUID</li>
  *   <li>{@code authorUserId}: Author's user UUID</li>
  *   <li>{@code parentCommentId}: Immediate parent UUID (null for root comments)</li>
- *   <li>{@code replyToAuthorUserId}: Immediate parent author UUID (null for root comments)</li>
+ *   <li>{@code replyToAuthorUserId}: Immediate parent author UUID when publicly attributable; null for root comments, public tombstones, and replies whose immediate-parent attribution is suppressed</li>
  *   <li>{@code body}: Plain comment text (null for tombstones)</li>
  *   <li>{@code tombstone}: {@code true} if soft-deleted, {@code false} otherwise</li>
  *   <li>{@code createdAt}: Creation timestamp</li>

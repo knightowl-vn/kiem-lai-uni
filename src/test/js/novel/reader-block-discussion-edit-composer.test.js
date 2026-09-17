@@ -1004,4 +1004,28 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
         assert.strictEqual(getActiveEditTarget(), null);
     });
 
+    test('21. cross-mutation teardown: opening edit closes active reply composer via closeReplyComposer(false)', () => {
+        let closeReplyCalled = false;
+        let closeReplyRestoreFocusArg = null;
+        const mockReplyComposer = {
+            closeReplyComposer: (restoreFocus) => {
+                closeReplyCalled = true;
+                closeReplyRestoreFocusArg = restoreFocus;
+            }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            replyComposerModule: mockReplyComposer
+        });
+
+        const rootEditBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: rootEditBtn, preventDefault: () => {} });
+
+        assert.strictEqual(closeReplyCalled, true);
+        assert.strictEqual(closeReplyRestoreFocusArg, false);
+        assert.notStrictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID);
+    });
+
 });

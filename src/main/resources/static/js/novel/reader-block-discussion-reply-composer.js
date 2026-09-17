@@ -61,11 +61,29 @@
     let injectedFetch = null;
     let injectedDrawer = null;
     let injectedIndicators = null;
+    let injectedEditComposer = null;
     let isSubmitting = false;
     let currentMutationToken = 0;
     let activeTarget = null;
     let activeComposerEl = null;
     let priorFocusedReplyBtn = null;
+
+    /**
+     * Resolves the edit composer module instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveEditComposerModule() {
+        if (injectedEditComposer) {
+            return injectedEditComposer;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderBlockDiscussionEditComposer ||
+                (window.KiemLai && window.KiemLai.NovelReaderBlockDiscussionEditComposer) ||
+                null;
+        }
+        return null;
+    }
 
     /**
      * Resolves the drawer module instance.
@@ -424,6 +442,14 @@
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         if (!doc || !targetInfo || !targetInfo.commentEl) {
             return;
+        }
+
+        // Close any active edit composer before establishing reply composer
+        const editMod = resolveEditComposerModule();
+        if (editMod && typeof editMod.closeEditComposer === 'function') {
+            try {
+                editMod.closeEditComposer(false);
+            } catch (_) {}
         }
 
         // Close any currently active composer (clearing previous target's draft)
@@ -958,6 +984,9 @@
         if (options && options.indicatorsModule) {
             injectedIndicators = options.indicatorsModule;
         }
+        if (options && options.editComposerModule) {
+            injectedEditComposer = options.editComposerModule;
+        }
 
         bindEvents(doc);
 
@@ -980,6 +1009,7 @@
         injectedFetch = null;
         injectedDrawer = null;
         injectedIndicators = null;
+        injectedEditComposer = null;
         isSubmitting = false;
         currentMutationToken = 0;
         activeTarget = null;
