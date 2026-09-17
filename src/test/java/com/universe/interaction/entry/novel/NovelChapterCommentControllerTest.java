@@ -959,9 +959,7 @@ class NovelChapterCommentControllerTest {
                 eq(CHAPTER_A_ID),
                 eq("Inline comment text"),
                 eq(1L),
-                eq("blk-1"),
-                eq(5),
-                eq(15)
+                eq("blk-1")
         )).thenReturn(ROOT_COMMENT_ID);
 
         mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
@@ -973,9 +971,7 @@ class NovelChapterCommentControllerTest {
                                   "body": "Inline comment text",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 5,
-                                    "endOffset": 15
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
@@ -983,7 +979,7 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.commentId").value(ROOT_COMMENT_ID.toString()));
 
         verify(novelInlineCommentCreationCoordinator).createInlineComment(
-                USER_1_ID, CHAPTER_A_ID, "Inline comment text", 1L, "blk-1", 5, 15
+                USER_1_ID, CHAPTER_A_ID, "Inline comment text", 1L, "blk-1"
         );
     }
 
@@ -992,7 +988,7 @@ class NovelChapterCommentControllerTest {
     @DisplayName("POST inline comment: ignores client-provided actor identity and uses authenticated principal")
     void shouldIgnoreClientActorIdentityWhenCreatingInlineComment() throws Exception {
         when(novelInlineCommentCreationCoordinator.createInlineComment(
-                any(), any(), any(), any(long.class), any(), any(int.class), any(int.class)
+                any(), any(), any(), any(long.class), any()
         )).thenReturn(ROOT_COMMENT_ID);
 
         mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
@@ -1005,16 +1001,14 @@ class NovelChapterCommentControllerTest {
                                   "body": "Inline comment text",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 5,
-                                    "endOffset": 15
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
                 .andExpect(status().isCreated());
 
         verify(novelInlineCommentCreationCoordinator).createInlineComment(
-                eq(USER_1_ID), eq(CHAPTER_A_ID), eq("Inline comment text"), eq(1L), eq("blk-1"), eq(5), eq(15)
+                eq(USER_1_ID), eq(CHAPTER_A_ID), eq("Inline comment text"), eq(1L), eq("blk-1")
         );
     }
 
@@ -1030,16 +1024,14 @@ class NovelChapterCommentControllerTest {
                                   "body": "CSRF missing body",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/access-denied"));
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1054,15 +1046,13 @@ class NovelChapterCommentControllerTest {
                                   "body": "Anonymous comment",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
                 .andExpect(status().is3xxRedirection());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1078,15 +1068,13 @@ class NovelChapterCommentControllerTest {
                                   "body": "   ",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1104,7 +1092,7 @@ class NovelChapterCommentControllerTest {
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1120,15 +1108,13 @@ class NovelChapterCommentControllerTest {
                                   "body": "Valid body",
                                   "anchor": {
                                     "contentVersion": 0,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1144,63 +1130,13 @@ class NovelChapterCommentControllerTest {
                                   "body": "Valid body",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "   ",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "   "
                                   }
                                 }
                                 """))
                 .andExpect(status().isBadRequest());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
-    }
-
-    @Test
-    @WithMockUser(username = "reader@universe.local", roles = "USER")
-    @DisplayName("POST inline comment: rejects 400 when startOffset is negative")
-    void shouldRejectInlineCommentWhenStartOffsetNegative() throws Exception {
-        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
-                        .with(csrf())
-                        .with(authenticatedIdentity(USER_1_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "body": "Valid body",
-                                  "anchor": {
-                                    "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": -1,
-                                    "endOffset": 5
-                                  }
-                                }
-                                """))
-                .andExpect(status().isBadRequest());
-
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
-    }
-
-    @Test
-    @WithMockUser(username = "reader@universe.local", roles = "USER")
-    @DisplayName("POST inline comment: rejects 400 when startOffset >= endOffset")
-    void shouldRejectInlineCommentWhenOffsetsInvalid() throws Exception {
-        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
-                        .with(csrf())
-                        .with(authenticatedIdentity(USER_1_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "body": "Valid body",
-                                  "anchor": {
-                                    "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 5,
-                                    "endOffset": 5
-                                  }
-                                }
-                                """))
-                .andExpect(status().isBadRequest());
-
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1214,7 +1150,7 @@ class NovelChapterCommentControllerTest {
                         .content("{invalid-json"))
                 .andExpect(status().isBadRequest());
 
-        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any(), any(int.class), any(int.class));
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
     }
 
     @Test
@@ -1222,7 +1158,7 @@ class NovelChapterCommentControllerTest {
     @DisplayName("POST inline comment: returns 409 Conflict when anchor version conflict occurs")
     void shouldReturn409WhenAnchorVersionConflict() throws Exception {
         when(novelInlineCommentCreationCoordinator.createInlineComment(
-                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), eq(1L), any(), any(int.class), any(int.class)
+                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), eq(1L), any()
         )).thenThrow(new ChapterCommentAnchorVersionConflictException(CHAPTER_A_ID, 1L, 2L));
 
         mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
@@ -1234,9 +1170,7 @@ class NovelChapterCommentControllerTest {
                                   "body": "Inline comment",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))
@@ -1249,7 +1183,7 @@ class NovelChapterCommentControllerTest {
     void shouldReturn404WhenChapterNotEligibleForInlineComment() throws Exception {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
         when(novelInlineCommentCreationCoordinator.createInlineComment(
-                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), any(long.class), any(), any(int.class), any(int.class)
+                eq(USER_1_ID), eq(CHAPTER_A_ID), any(), any(long.class), any()
         )).thenThrow(new CommentTargetNotEligibleException(target));
 
         mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
@@ -1261,9 +1195,7 @@ class NovelChapterCommentControllerTest {
                                   "body": "Inline comment",
                                   "anchor": {
                                     "contentVersion": 1,
-                                    "blockKey": "blk-1",
-                                    "startOffset": 0,
-                                    "endOffset": 5
+                                    "blockKey": "blk-1"
                                   }
                                 }
                                 """))

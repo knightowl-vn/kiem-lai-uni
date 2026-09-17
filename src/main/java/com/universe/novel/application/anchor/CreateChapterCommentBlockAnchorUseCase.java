@@ -15,27 +15,26 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Use case to validate and persist a canonical TEXT_RANGE ChapterCommentAnchor for a Novel chapter.
+ * Use case to validate and persist a canonical BLOCK ChapterCommentAnchor for a Novel chapter.
  *
  * <p>Preserves clean architecture contracts:
  * <ul>
- *   <li>Never trusts client text evidence: selectedText, contextBefore, contextAfter are reconstructed
- *       strictly from the current canonical Reader snapshot;</li>
+ *   <li>Never trusts client text evidence: canonical block text is reconstructed strictly from the current
+ *       canonical Reader snapshot;</li>
  *   <li>Enforces that requested contentVersion equals the current Reader snapshot version, throwing
  *       {@link ChapterCommentAnchorVersionConflictException} (409 Conflict) on mismatch;</li>
  *   <li>Validates that blockKey matches exactly one canonical Reader block in the snapshot;</li>
- *   <li>Validates UTF-16 offset boundaries against the block's canonical text length;</li>
  *   <li>Constructs and persists an immutable {@link ChapterCommentAnchor} via {@link ChapterCommentAnchorRepositoryPort}.</li>
  * </ul>
  */
 @Service
-public class CreateChapterCommentTextAnchorUseCase {
+public class CreateChapterCommentBlockAnchorUseCase {
 
     private final ChapterAnchorResolutionSourcePort resolutionSourcePort;
     private final ChapterCommentAnchorRepositoryPort anchorRepositoryPort;
     private final ClockPort clockPort;
 
-    public CreateChapterCommentTextAnchorUseCase(
+    public CreateChapterCommentBlockAnchorUseCase(
             ChapterAnchorResolutionSourcePort resolutionSourcePort,
             ChapterCommentAnchorRepositoryPort anchorRepositoryPort,
             ClockPort clockPort
@@ -46,8 +45,8 @@ public class CreateChapterCommentTextAnchorUseCase {
     }
 
     @Transactional
-    public ChapterCommentAnchor execute(CreateChapterCommentTextAnchorCommand command) {
-        Objects.requireNonNull(command, "CreateChapterCommentTextAnchorCommand cannot be null");
+    public ChapterCommentAnchor execute(CreateChapterCommentBlockAnchorCommand command) {
+        Objects.requireNonNull(command, "CreateChapterCommentBlockAnchorCommand cannot be null");
 
         // Load current snapshot exactly once
         ChapterAnchorDocumentSnapshot snapshot = resolutionSourcePort.loadCurrent(command.chapterId());
@@ -76,38 +75,14 @@ public class CreateChapterCommentTextAnchorUseCase {
 
         ReaderBlock block = matchingBlocks.get(0);
         String canonicalBlockText = block.canonicalText();
-
-        // Validate UTF-16 offsets: 0 <= startOffset < endOffset <= canonicalBlockText.length()
-        if (command.startOffset() < 0 ||
-                command.endOffset() <= command.startOffset() ||
-                command.endOffset() > canonicalBlockText.length()) {
-            throw new IllegalArgumentException(
-                    "Invalid offsets [" + command.startOffset() + ", " + command.endOffset() +
-                    "] for canonical text of length " + canonicalBlockText.length()
-            );
-        }
-
-        // Server derives selectedText and surrounding context (up to 64 UTF-16 code units)
-        String selectedText = canonicalBlockText.substring(command.startOffset(), command.endOffset());
-
-        int beforeStart = Math.max(0, command.startOffset() - ChapterCommentAnchor.MAX_CONTEXT_CODE_UNITS);
-        String contextBefore = canonicalBlockText.substring(beforeStart, command.startOffset());
-
-        int afterEnd = Math.min(canonicalBlockText.length(), command.endOffset() + ChapterCommentAnchor.MAX_CONTEXT_CODE_UNITS);
-        String contextAfter = canonicalBlockText.substring(command.endOffset(), afterEnd);
-
         Instant createdAt = clockPort.now();
 
-        ChapterCommentAnchor anchor = ChapterCommentAnchor.createTextRange(
+        ChapterCommentAnchor anchor = ChapterCommentAnchor.createBlock(
                 command.rootCommentId(),
                 command.chapterId(),
                 command.contentVersion(),
                 command.blockKey(),
-                command.startOffset(),
-                command.endOffset(),
-                selectedText,
-                contextBefore,
-                contextAfter,
+                canonicalBlockText,
                 createdAt
         );
 

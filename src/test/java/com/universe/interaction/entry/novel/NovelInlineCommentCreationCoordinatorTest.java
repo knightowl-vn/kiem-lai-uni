@@ -5,8 +5,8 @@ import com.universe.interaction.application.mutation.CreateRootCommentCommand;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
-import com.universe.novel.application.anchor.CreateChapterCommentTextAnchorCommand;
-import com.universe.novel.application.anchor.CreateChapterCommentTextAnchorUseCase;
+import com.universe.novel.application.anchor.CreateChapterCommentBlockAnchorCommand;
+import com.universe.novel.application.anchor.CreateChapterCommentBlockAnchorUseCase;
 import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
 import com.universe.novel.domain.anchor.ChapterCommentAnchor;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +43,7 @@ class NovelInlineCommentCreationCoordinatorTest {
     private CreateRootCommentUseCase createRootCommentUseCase;
 
     @Mock
-    private CreateChapterCommentTextAnchorUseCase createChapterCommentTextAnchorUseCase;
+    private CreateChapterCommentBlockAnchorUseCase createChapterCommentBlockAnchorUseCase;
 
     private NovelInlineCommentCreationCoordinator coordinator;
 
@@ -51,7 +51,7 @@ class NovelInlineCommentCreationCoordinatorTest {
     void setUp() {
         coordinator = new NovelInlineCommentCreationCoordinator(
                 createRootCommentUseCase,
-                createChapterCommentTextAnchorUseCase
+                createChapterCommentBlockAnchorUseCase
         );
     }
 
@@ -67,34 +67,28 @@ class NovelInlineCommentCreationCoordinatorTest {
         );
         when(createRootCommentUseCase.execute(any(CreateRootCommentCommand.class))).thenReturn(rootComment);
 
-        ChapterCommentAnchor anchor = ChapterCommentAnchor.createTextRange(
+        ChapterCommentAnchor anchor = ChapterCommentAnchor.createBlock(
                 ROOT_COMMENT_ID,
                 CHAPTER_ID,
                 1L,
                 BLOCK_KEY,
-                5,
-                15,
-                "0123456789",
-                "",
-                "",
+                "Toàn bộ nội dung đoạn văn.",
                 Instant.now()
         );
-        when(createChapterCommentTextAnchorUseCase.execute(any(CreateChapterCommentTextAnchorCommand.class))).thenReturn(anchor);
+        when(createChapterCommentBlockAnchorUseCase.execute(any(CreateChapterCommentBlockAnchorCommand.class))).thenReturn(anchor);
 
         UUID resultId = coordinator.createInlineComment(
                 ACTOR_USER_ID,
                 CHAPTER_ID,
                 BODY,
                 1L,
-                BLOCK_KEY,
-                5,
-                15
+                BLOCK_KEY
         );
 
         assertThat(resultId).isEqualTo(ROOT_COMMENT_ID);
 
         // Verify call order: root creation first, then anchor creation
-        InOrder inOrder = Mockito.inOrder(createRootCommentUseCase, createChapterCommentTextAnchorUseCase);
+        InOrder inOrder = Mockito.inOrder(createRootCommentUseCase, createChapterCommentBlockAnchorUseCase);
 
         ArgumentCaptor<CreateRootCommentCommand> rootCaptor = ArgumentCaptor.forClass(CreateRootCommentCommand.class);
         inOrder.verify(createRootCommentUseCase).execute(rootCaptor.capture());
@@ -103,15 +97,13 @@ class NovelInlineCommentCreationCoordinatorTest {
         assertThat(rootCommand.target()).isEqualTo(CommentTarget.novelChapter(CHAPTER_ID));
         assertThat(rootCommand.body()).isEqualTo(BODY);
 
-        ArgumentCaptor<CreateChapterCommentTextAnchorCommand> anchorCaptor = ArgumentCaptor.forClass(CreateChapterCommentTextAnchorCommand.class);
-        inOrder.verify(createChapterCommentTextAnchorUseCase).execute(anchorCaptor.capture());
-        CreateChapterCommentTextAnchorCommand anchorCommand = anchorCaptor.getValue();
+        ArgumentCaptor<CreateChapterCommentBlockAnchorCommand> anchorCaptor = ArgumentCaptor.forClass(CreateChapterCommentBlockAnchorCommand.class);
+        inOrder.verify(createChapterCommentBlockAnchorUseCase).execute(anchorCaptor.capture());
+        CreateChapterCommentBlockAnchorCommand anchorCommand = anchorCaptor.getValue();
         assertThat(anchorCommand.rootCommentId()).isEqualTo(ROOT_COMMENT_ID);
         assertThat(anchorCommand.chapterId()).isEqualTo(CHAPTER_ID);
         assertThat(anchorCommand.contentVersion()).isEqualTo(1L);
         assertThat(anchorCommand.blockKey()).isEqualTo(BLOCK_KEY);
-        assertThat(anchorCommand.startOffset()).isEqualTo(5);
-        assertThat(anchorCommand.endOffset()).isEqualTo(15);
     }
 
     @Test
@@ -125,12 +117,10 @@ class NovelInlineCommentCreationCoordinatorTest {
                 CHAPTER_ID,
                 BODY,
                 1L,
-                BLOCK_KEY,
-                0,
-                5
+                BLOCK_KEY
         )).isInstanceOf(CommentTargetNotEligibleException.class);
 
-        verify(createChapterCommentTextAnchorUseCase, never()).execute(any());
+        verify(createChapterCommentBlockAnchorUseCase, never()).execute(any());
     }
 
     @Test
@@ -144,7 +134,7 @@ class NovelInlineCommentCreationCoordinatorTest {
                 Instant.now()
         );
         when(createRootCommentUseCase.execute(any())).thenReturn(rootComment);
-        when(createChapterCommentTextAnchorUseCase.execute(any()))
+        when(createChapterCommentBlockAnchorUseCase.execute(any()))
                 .thenThrow(new ChapterCommentAnchorVersionConflictException(CHAPTER_ID, 1L, 2L));
 
         assertThatThrownBy(() -> coordinator.createInlineComment(
@@ -152,12 +142,10 @@ class NovelInlineCommentCreationCoordinatorTest {
                 CHAPTER_ID,
                 BODY,
                 1L,
-                BLOCK_KEY,
-                0,
-                5
+                BLOCK_KEY
         )).isInstanceOf(ChapterCommentAnchorVersionConflictException.class);
 
         verify(createRootCommentUseCase).execute(any());
-        verify(createChapterCommentTextAnchorUseCase).execute(any());
+        verify(createChapterCommentBlockAnchorUseCase).execute(any());
     }
 }

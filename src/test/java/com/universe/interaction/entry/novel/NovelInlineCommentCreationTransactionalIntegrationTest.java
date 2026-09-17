@@ -5,7 +5,7 @@ import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
-import com.universe.novel.application.anchor.CreateChapterCommentTextAnchorUseCase;
+import com.universe.novel.application.anchor.CreateChapterCommentBlockAnchorUseCase;
 import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
 import com.universe.novel.application.ports.ChapterAnchorResolutionSourcePort;
 import com.universe.novel.application.ports.ChapterAnchorResolutionSourcePort.ChapterAnchorDocumentSnapshot;
@@ -55,7 +55,7 @@ import static org.mockito.Mockito.when;
         CommentPersistenceAdapter.class,
         CommentPersistenceMapper.class,
         CreateRootCommentUseCase.class,
-        CreateChapterCommentTextAnchorUseCase.class,
+        CreateChapterCommentBlockAnchorUseCase.class,
         NovelInlineCommentCreationCoordinator.class,
         UuidGeneratorAdapter.class,
         SystemClockAdapter.class
@@ -121,9 +121,7 @@ class NovelInlineCommentCreationTransactionalIntegrationTest {
                 CHAPTER_ID,
                 "Bình luận thử nghiệm rollback",
                 1L, // Mismatch with snapshot version 2L
-                BLOCK_KEY,
-                0,
-                8
+                BLOCK_KEY
         )).isInstanceOf(ChapterCommentAnchorVersionConflictException.class);
 
         // Verify that AFTER transaction rollback, NO root comment survived in the database
@@ -151,9 +149,7 @@ class NovelInlineCommentCreationTransactionalIntegrationTest {
                 CHAPTER_ID,
                 "Bình luận thành công",
                 1L,
-                BLOCK_KEY,
-                0,
-                11
+                BLOCK_KEY
         );
 
         assertThat(createdCommentId).isNotNull();

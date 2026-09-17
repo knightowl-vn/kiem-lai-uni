@@ -30,7 +30,7 @@ import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
 import com.universe.interaction.entry.dto.CreateInlineCommentRequest;
 import com.universe.interaction.entry.dto.EditCommentRequest;
-import com.universe.interaction.entry.dto.InlineTextAnchorRequest;
+import com.universe.interaction.entry.dto.InlineBlockAnchorRequest;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
@@ -258,7 +258,7 @@ public class NovelChapterCommentController {
 
     /**
      * POST /api/novel/chapters/{chapterId}/comments/inline
-     * Creates an inline comment with anchored selected text on the chapter.
+     * Creates an inline comment with anchored block on the chapter.
      */
     @PostMapping("/inline")
     public ResponseEntity<CommentCreatedResponse> createInlineComment(
@@ -275,11 +275,9 @@ public class NovelChapterCommentController {
         UUID actorUserId = resolveAuthenticatedActor(request);
         validateBody(requestBody.body());
 
-        InlineTextAnchorRequest anchor = requestBody.anchor();
+        InlineBlockAnchorRequest anchor = requestBody.anchor();
         if (anchor.blockKey() == null || anchor.blockKey().trim().isEmpty() ||
-                anchor.contentVersion() < 1L ||
-                anchor.startOffset() < 0 ||
-                anchor.endOffset() <= anchor.startOffset()) {
+                anchor.contentVersion() < 1L) {
             return ResponseEntity.badRequest().build();
         }
 
@@ -288,9 +286,7 @@ public class NovelChapterCommentController {
                 chapterId,
                 requestBody.body(),
                 anchor.contentVersion(),
-                anchor.blockKey(),
-                anchor.startOffset(),
-                anchor.endOffset()
+                anchor.blockKey()
         );
 
         return ResponseEntity.status(HttpStatus.CREATED)

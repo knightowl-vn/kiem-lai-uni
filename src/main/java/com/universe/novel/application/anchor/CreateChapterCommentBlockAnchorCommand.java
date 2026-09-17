@@ -4,17 +4,15 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Command to create and persist an immutable Novel ChapterCommentAnchor for selected text.
+ * Command to create and persist an immutable Novel ChapterCommentAnchor for a canonical Reader block.
  */
-public record CreateChapterCommentTextAnchorCommand(
+public record CreateChapterCommentBlockAnchorCommand(
         UUID rootCommentId,
         UUID chapterId,
         long contentVersion,
-        String blockKey,
-        int startOffset,
-        int endOffset
+        String blockKey
 ) {
-    public CreateChapterCommentTextAnchorCommand {
+    public CreateChapterCommentBlockAnchorCommand {
         Objects.requireNonNull(rootCommentId, "rootCommentId cannot be null");
         Objects.requireNonNull(chapterId, "chapterId cannot be null");
         if (contentVersion < 1L) {
@@ -23,12 +21,6 @@ public record CreateChapterCommentTextAnchorCommand(
         Objects.requireNonNull(blockKey, "blockKey cannot be null");
         if (blockKey.trim().isEmpty()) {
             throw new IllegalArgumentException("blockKey cannot be blank");
-        }
-        if (startOffset < 0) {
-            throw new IllegalArgumentException("startOffset cannot be negative: " + startOffset);
-        }
-        if (endOffset <= startOffset) {
-            throw new IllegalArgumentException("endOffset must be strictly greater than startOffset: " + startOffset + " >= " + endOffset);
         }
     }
 }

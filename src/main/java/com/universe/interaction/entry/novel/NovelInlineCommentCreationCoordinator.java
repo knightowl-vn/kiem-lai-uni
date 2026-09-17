@@ -4,8 +4,8 @@ import com.universe.interaction.application.mutation.CreateRootCommentCommand;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
-import com.universe.novel.application.anchor.CreateChapterCommentTextAnchorCommand;
-import com.universe.novel.application.anchor.CreateChapterCommentTextAnchorUseCase;
+import com.universe.novel.application.anchor.CreateChapterCommentBlockAnchorCommand;
+import com.universe.novel.application.anchor.CreateChapterCommentBlockAnchorUseCase;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,14 +29,14 @@ import java.util.UUID;
 public class NovelInlineCommentCreationCoordinator {
 
     private final CreateRootCommentUseCase createRootCommentUseCase;
-    private final CreateChapterCommentTextAnchorUseCase createChapterCommentTextAnchorUseCase;
+    private final CreateChapterCommentBlockAnchorUseCase createChapterCommentBlockAnchorUseCase;
 
     public NovelInlineCommentCreationCoordinator(
             CreateRootCommentUseCase createRootCommentUseCase,
-            CreateChapterCommentTextAnchorUseCase createChapterCommentTextAnchorUseCase
+            CreateChapterCommentBlockAnchorUseCase createChapterCommentBlockAnchorUseCase
     ) {
         this.createRootCommentUseCase = Objects.requireNonNull(createRootCommentUseCase, "CreateRootCommentUseCase cannot be null");
-        this.createChapterCommentTextAnchorUseCase = Objects.requireNonNull(createChapterCommentTextAnchorUseCase, "CreateChapterCommentTextAnchorUseCase cannot be null");
+        this.createChapterCommentBlockAnchorUseCase = Objects.requireNonNull(createChapterCommentBlockAnchorUseCase, "CreateChapterCommentBlockAnchorUseCase cannot be null");
     }
 
     @Transactional
@@ -45,9 +45,7 @@ public class NovelInlineCommentCreationCoordinator {
             UUID chapterId,
             String body,
             long contentVersion,
-            String blockKey,
-            int startOffset,
-            int endOffset
+            String blockKey
     ) {
         Objects.requireNonNull(actorUserId, "actorUserId cannot be null");
         Objects.requireNonNull(chapterId, "chapterId cannot be null");
@@ -59,16 +57,14 @@ public class NovelInlineCommentCreationCoordinator {
         Comment createdRoot = createRootCommentUseCase.execute(rootCommand);
         UUID rootCommentId = createdRoot.getId();
 
-        // 2. Create and persist Novel text-anchor using the newly created root comment ID
-        CreateChapterCommentTextAnchorCommand anchorCommand = new CreateChapterCommentTextAnchorCommand(
+        // 2. Create and persist Novel block-anchor using the newly created root comment ID
+        CreateChapterCommentBlockAnchorCommand anchorCommand = new CreateChapterCommentBlockAnchorCommand(
                 rootCommentId,
                 chapterId,
                 contentVersion,
-                blockKey,
-                startOffset,
-                endOffset
+                blockKey
         );
-        createChapterCommentTextAnchorUseCase.execute(anchorCommand);
+        createChapterCommentBlockAnchorUseCase.execute(anchorCommand);
 
         return rootCommentId;
     }
