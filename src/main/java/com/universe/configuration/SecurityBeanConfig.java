@@ -106,7 +106,8 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/narration/playback",
                                 "/api/novel/chapters/*/comments",
                                 "/api/novel/chapters/*/comments/*/thread",
-                                "/api/novel/chapters/*/comments/indicators"
+                                "/api/novel/chapters/*/comments/indicators",
+                                "/api/novel/chapters/*/comments/blocks/*"
                         )
                         .permitAll()
 

@@ -3,6 +3,7 @@ package com.universe.interaction.application.ports;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -80,4 +81,27 @@ public interface CommentRepositoryPort {
      * @return list of active root comment IDs
      */
     List<UUID> findActiveRootCommentIds(CommentTarget target);
+
+    /**
+     * Finds active root comments matching the specified IDs for the given target.
+     *
+     * <p>Roots have {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
+     * Ordered deterministically by {@code createdAt DESC, id DESC}.
+     *
+     * @param target target entity (cannot be null)
+     * @param rootCommentIds collection of root comment IDs to find
+     * @return list of active root domain comments
+     */
+    List<Comment> findActiveRootsByIds(CommentTarget target, Collection<UUID> rootCommentIds);
+
+    /**
+     * Finds all replies for a collection of thread root comments, ordered chronologically.
+     *
+     * <p>Includes both ACTIVE and DELETED replies.
+     * Ordered deterministically by {@code createdAt ASC, id ASC}.
+     *
+     * @param threadRootCommentIds collection of thread root comment IDs
+     * @return list of reply domain comments
+     */
+    List<Comment> findThreadRepliesByRootIds(Collection<UUID> threadRootCommentIds);
 }

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -119,6 +120,53 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
                 target.targetId().toString()
         ).stream()
                 .map(UUID::fromString)
+                .toList();
+    }
+
+    @Override
+    public List<Comment> findActiveRootsByIds(CommentTarget target, Collection<UUID> rootCommentIds) {
+        if (target == null) {
+            throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+        if (rootCommentIds == null || rootCommentIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> idStrings = rootCommentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return List.of();
+        }
+
+        List<CommentJpaEntity> entities = repository.findActiveRootsByIds(
+                target.type().name(),
+                target.targetId().toString(),
+                idStrings
+        );
+        return entities.stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    public List<Comment> findThreadRepliesByRootIds(Collection<UUID> threadRootCommentIds) {
+        if (threadRootCommentIds == null || threadRootCommentIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> idStrings = threadRootCommentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .toList();
+        if (idStrings.isEmpty()) {
+            return List.of();
+        }
+
+        List<CommentJpaEntity> entities = repository.findThreadRepliesByRootIds(idStrings);
+        return entities.stream()
+                .map(mapper::toDomain)
                 .toList();
     }
 }

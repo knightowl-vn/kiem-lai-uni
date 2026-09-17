@@ -22,6 +22,7 @@ import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
 import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
@@ -34,6 +35,8 @@ import com.universe.interaction.entry.dto.InlineBlockAnchorRequest;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
+import com.universe.novel.application.exceptions.ChapterNotFoundException;
+import com.universe.novel.application.exceptions.ReaderBlockNotFoundException;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
 import jakarta.servlet.http.HttpServletRequest;
@@ -93,6 +96,7 @@ public class NovelChapterCommentController {
     private final EditCommentUseCase editCommentUseCase;
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
+    private final NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -105,7 +109,8 @@ public class NovelChapterCommentController {
             ReplyCommentUseCase replyCommentUseCase,
             EditCommentUseCase editCommentUseCase,
             DeleteCommentUseCase deleteCommentUseCase,
-            NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator
+            NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator,
+            NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -118,6 +123,7 @@ public class NovelChapterCommentController {
         this.editCommentUseCase = Objects.requireNonNull(editCommentUseCase, "EditCommentUseCase cannot be null.");
         this.deleteCommentUseCase = Objects.requireNonNull(deleteCommentUseCase, "DeleteCommentUseCase cannot be null.");
         this.novelInlineCommentCreationCoordinator = Objects.requireNonNull(novelInlineCommentCreationCoordinator, "NovelInlineCommentCreationCoordinator cannot be null.");
+        this.novelBlockDiscussionQueryCoordinator = Objects.requireNonNull(novelBlockDiscussionQueryCoordinator, "NovelBlockDiscussionQueryCoordinator cannot be null.");
     }
 
     /**
@@ -206,6 +212,29 @@ public class NovelChapterCommentController {
         }
 
         return ResponseEntity.ok(indicators);
+    }
+
+    /**
+     * GET /api/novel/chapters/{chapterId}/comments/blocks/{blockKey}
+     * Returns the block discussion response for a canonical Reader block in the current chapter snapshot.
+     */
+    @GetMapping("/blocks/{blockKey}")
+    public ResponseEntity<ChapterBlockDiscussionResponseDTO> getBlockDiscussion(
+            @PathVariable UUID chapterId,
+            @PathVariable String blockKey
+    ) {
+        if (chapterId == null || blockKey == null || blockKey.trim().isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        ChapterBlockDiscussionResponseDTO response =
+                novelBlockDiscussionQueryCoordinator.getBlockDiscussion(chapterId, blockKey.trim());
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -394,7 +423,12 @@ public class NovelChapterCommentController {
         return ResponseEntity.badRequest().build();
     }
 
-    @ExceptionHandler({CommentNotFoundException.class, CommentTargetNotEligibleException.class})
+    @ExceptionHandler({
+            CommentNotFoundException.class,
+            CommentTargetNotEligibleException.class,
+            ReaderBlockNotFoundException.class,
+            ChapterNotFoundException.class
+    })
     public ResponseEntity<Void> handleNotFound(Exception ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }

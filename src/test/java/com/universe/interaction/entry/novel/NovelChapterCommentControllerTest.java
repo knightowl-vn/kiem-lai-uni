@@ -32,6 +32,9 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
+import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
+import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
+import com.universe.novel.application.exceptions.ReaderBlockNotFoundException;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.ReadableChapterReference;
 import com.universe.novel.application.exceptions.ChapterCommentAnchorVersionConflictException;
@@ -154,6 +157,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
+
+    @MockBean
+    private NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -1200,5 +1206,141 @@ class NovelChapterCommentControllerTest {
                                 }
                                 """))
                 .andExpect(status().isNotFound());
+    }
+
+    // =========================================================================
+    // 8. GET /api/novel/chapters/{chapterId}/comments/blocks/{blockKey} TESTS
+    // =========================================================================
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET block discussion: anonymous reader can retrieve discussion for valid published block")
+    void shouldAllowAnonymousToGetBlockDiscussion() throws Exception {
+        String blockKey = "blk-intro-1";
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, CommentTarget.novelChapter(CHAPTER_A_ID), USER_1_ID, "Root comment body", NOW);
+        Comment reply = Comment.createReply(REPLY_COMMENT_ID, root, USER_2_ID, "Reply body", NOW.plusSeconds(30));
+        CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+        CommentReadItem replyItem = CommentReadItem.fromActiveReply(reply, USER_1_ID);
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(replyItem));
+
+        ChapterBlockDiscussionResponseDTO responseDTO = new ChapterBlockDiscussionResponseDTO(
+                CHAPTER_A_ID,
+                1L,
+                blockKey,
+                "Canonical paragraph text",
+                1,
+                List.of(CommentThreadResponseDTO.from(threadView))
+        );
+
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chapterId").value(CHAPTER_A_ID.toString()))
+                .andExpect(jsonPath("$.contentVersion").value(1))
+                .andExpect(jsonPath("$.blockKey").value(blockKey))
+                .andExpect(jsonPath("$.canonicalText").value("Canonical paragraph text"))
+                .andExpect(jsonPath("$.threadCount").value(1))
+                .andExpect(jsonPath("$.threads[0].root.id").value(ROOT_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.threads[0].root.body").value("Root comment body"))
+                .andExpect(jsonPath("$.threads[0].replies[0].id").value(REPLY_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.threads[0].replies[0].body").value("Reply body"));
+
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("GET block discussion: authenticated user can retrieve discussion for valid published block")
+    void shouldAllowAuthenticatedToGetBlockDiscussion() throws Exception {
+        String blockKey = "blk-intro-1";
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        ChapterBlockDiscussionResponseDTO responseDTO = new ChapterBlockDiscussionResponseDTO(
+                CHAPTER_A_ID,
+                2L,
+                blockKey,
+                "Canonical text",
+                0,
+                List.of()
+        );
+
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey)
+                        .with(authenticatedIdentity(USER_1_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chapterId").value(CHAPTER_A_ID.toString()))
+                .andExpect(jsonPath("$.contentVersion").value(2))
+                .andExpect(jsonPath("$.blockKey").value(blockKey))
+                .andExpect(jsonPath("$.threadCount").value(0))
+                .andExpect(jsonPath("$.threads").isEmpty());
+
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET block discussion: returns 404 when chapter is unpublished or missing")
+    void shouldReturn404WhenChapterUnpublishedOnBlockDiscussion() throws Exception {
+        String blockKey = "blk-intro-1";
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
+                .andExpect(status().isNotFound());
+
+        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET block discussion: returns 404 when blockKey does not exist in chapter snapshot")
+    void shouldReturn404WhenBlockKeyNotFoundInSnapshot() throws Exception {
+        String blockKey = "non-existent-block";
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+                .thenThrow(new ReaderBlockNotFoundException(CHAPTER_A_ID, blockKey));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
+                .andExpect(status().isNotFound());
+
+        verify(novelBlockDiscussionQueryCoordinator).getBlockDiscussion(CHAPTER_A_ID, blockKey);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET block discussion: returns 400 when blockKey is blank or whitespace")
+    void shouldReturn400WhenBlockKeyIsBlank() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/   "))
+                .andExpect(status().isBadRequest());
+
+        verify(novelBlockDiscussionQueryCoordinator, never()).getBlockDiscussion(any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET block discussion: returns 500 when illegal state occurs (e.g. contentVersion < 1 or duplicate block)")
+    void shouldReturn500WhenCoordinatorThrowsIllegalStateException() throws Exception {
+        String blockKey = "blk-corrupt";
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        when(novelBlockDiscussionQueryCoordinator.getBlockDiscussion(CHAPTER_A_ID, blockKey))
+                .thenThrow(new IllegalStateException("Duplicate block key"));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
+                .andExpect(status().isInternalServerError());
     }
 }
