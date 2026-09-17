@@ -1193,12 +1193,6 @@ textarea {
     text-align: left;
 }
 
-@media (max-width: 576px) {
-    .novel-reader-chapter-body p {
-        text-align: left;
-    }
-}
-
 /* =========================================================
    TABLE OF CONTENTS (TOC) DRAWER
    ========================================================= */

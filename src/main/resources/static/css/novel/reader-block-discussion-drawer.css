@@ -1,0 +1,345 @@
+/* =========================================================
+   WATTPAD-STYLE NOVEL BLOCK DISCUSSION DRAWER (MS-05E5G2)
+   ========================================================= */
+
+/* Body scroll lock when discussion drawer is open */
+body.has-block-discussion-open {
+    overflow: hidden;
+}
+
+/* =========================================================
+   BACKDROP
+   ========================================================= */
+.novel-block-discussion-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1058;
+    background: rgba(18, 18, 18, 0.45);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.novel-block-discussion-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* =========================================================
+   DRAWER SHELL
+   ========================================================= */
+.novel-block-discussion-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1060;
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 92vw);
+    height: 100vh;
+    height: 100dvh;
+    box-sizing: border-box;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.16);
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.28s ease;
+    visibility: hidden;
+    font-family: var(--font-ui, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+}
+
+.novel-block-discussion-drawer.is-open {
+    transform: translateX(0);
+    visibility: visible;
+}
+
+/* =========================================================
+   DRAWER HEADER
+   ========================================================= */
+.novel-block-discussion-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--reader-border, #e5e7eb);
+    background: var(--reader-surface-soft, #f9fafb);
+    flex-shrink: 0;
+}
+
+.novel-block-discussion-header-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.novel-block-discussion-title {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--reader-text, #111827);
+}
+
+.novel-block-discussion-count {
+    font-size: 0.8125rem;
+    color: var(--reader-text-muted, #6b7280);
+    font-weight: 500;
+}
+
+.novel-block-discussion-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--reader-text-muted, #6b7280);
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.novel-block-discussion-close:hover {
+    background-color: var(--reader-border, #e5e7eb);
+    color: var(--reader-text, #111827);
+}
+
+.novel-block-discussion-close:focus-visible {
+    outline: 2px solid var(--reader-primary, #0284c7);
+    outline-offset: 2px;
+}
+
+/* =========================================================
+   PASSAGE SECTION (FULL WHOLE CANONICAL BLOCK TEXT)
+   ========================================================= */
+.novel-block-discussion-passage-section {
+    padding: 1rem 1.25rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border-bottom: 1px solid var(--reader-border, #e5e7eb);
+    flex-shrink: 0;
+    max-height: 28vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.novel-block-discussion-passage-label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--reader-primary, #0284c7);
+    margin-bottom: 0.35rem;
+}
+
+.novel-block-discussion-passage {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--reader-text, #374151);
+    text-align: justify;
+    text-justify: inter-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+    border-left: 3px solid var(--reader-primary, #0284c7);
+    padding-left: 0.65rem;
+}
+
+/* =========================================================
+   CONTENT / THREADS SECTION
+   ========================================================= */
+.novel-block-discussion-content {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 1rem 1.25rem;
+    box-sizing: border-box;
+}
+
+/* Loading & Statuses */
+.novel-block-discussion-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--reader-text-muted, #6b7280);
+    font-size: 0.875rem;
+}
+
+.novel-block-discussion-status-text {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.novel-block-discussion-spinner {
+    display: inline-block;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 2px solid var(--reader-border, #e5e7eb);
+    border-top-color: var(--reader-primary, #0284c7);
+    border-radius: 50%;
+    animation: novel-block-spinner-rotate 0.75s linear infinite;
+}
+
+@keyframes novel-block-spinner-rotate {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.novel-block-discussion-status--error,
+.novel-block-discussion-status--unavailable {
+    color: #dc2626;
+}
+
+.novel-block-discussion-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--reader-primary, #0284c7);
+    background: transparent;
+    border: 1px solid var(--reader-primary, #0284c7);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-block-discussion-retry-btn:hover {
+    background: var(--reader-primary, #0284c7);
+    color: #ffffff;
+}
+
+.novel-block-discussion-retry-btn:focus-visible {
+    outline: 2px solid var(--reader-primary, #0284c7);
+    outline-offset: 2px;
+}
+
+/* Empty State */
+.novel-block-discussion-empty {
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+.novel-block-discussion-empty-text {
+    margin: 0;
+    color: var(--reader-text-muted, #6b7280);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* Threads Feed */
+.novel-block-discussion-threads {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.novel-block-discussion-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--reader-border, #f3f4f6);
+}
+
+.novel-block-discussion-thread:last-child {
+    border-bottom: none;
+}
+
+/* Root Comment */
+.novel-comment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.novel-comment-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.novel-comment-author {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--reader-text, #111827);
+}
+
+.novel-comment-time {
+    font-size: 0.6875rem;
+    color: var(--reader-text-muted, #9ca3af);
+}
+
+.novel-comment-body {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--reader-text, #374151);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Replies (Flat single-level indentation) */
+.novel-comment-replies {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin-left: 1rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--reader-border, #e5e7eb);
+}
+
+.novel-comment--reply {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+/* Tombstone / Deleted Presentation */
+.novel-comment.is-tombstone,
+.novel-comment--reply.is-tombstone {
+    opacity: 0.7;
+}
+
+.novel-comment-body--tombstone {
+    font-style: italic;
+    color: var(--reader-text-muted, #9ca3af);
+}
+
+/* =========================================================
+   RESPONSIVE / MOBILE
+   ========================================================= */
+@media (max-width: 640px) {
+    .novel-block-discussion-drawer {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .novel-block-discussion-content {
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+@media (prefers-reduced-motion: reduce) {
+    .novel-block-discussion-backdrop,
+    .novel-block-discussion-drawer,
+    .novel-block-discussion-spinner {
+        transition: none;
+        animation: none;
+    }
+}

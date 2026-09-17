@@ -36,6 +36,9 @@
 
     <link rel="stylesheet"
           th:href="@{/css/novel/reader-comment-affordance.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-block-discussion-drawer.css}">
 </head>
 
 <body>
@@ -737,6 +740,47 @@
 </aside>
 
 
+<!-- =====================================================
+     BLOCK DISCUSSION DRAWER & BACKDROP (MS-05E5G2)
+     ===================================================== -->
+<div id="novelBlockDiscussionBackdrop"
+     class="novel-block-discussion-backdrop"
+     hidden
+     aria-hidden="true"></div>
+
+<aside id="novelBlockDiscussionDrawer"
+       class="novel-block-discussion-drawer"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="novelBlockDiscussionTitle"
+       aria-hidden="true"
+       hidden>
+
+    <header class="novel-block-discussion-header">
+        <div class="novel-block-discussion-header-title">
+            <h2 id="novelBlockDiscussionTitle" class="novel-block-discussion-title">Thảo luận</h2>
+            <span id="novelBlockDiscussionCount" class="novel-block-discussion-count" aria-live="polite"></span>
+        </div>
+        <button type="button"
+                id="novelBlockDiscussionCloseBtn"
+                class="novel-block-discussion-close"
+                aria-label="Đóng thảo luận">
+            <span aria-hidden="true">✕</span>
+        </button>
+    </header>
+
+    <section class="novel-block-discussion-passage-section" aria-label="Đoạn văn đang thảo luận">
+        <div class="novel-block-discussion-passage-label">Đoạn văn</div>
+        <div id="novelBlockDiscussionPassage" class="novel-block-discussion-passage"></div>
+    </section>
+
+    <section id="novelBlockDiscussionContent" class="novel-block-discussion-content" aria-label="Danh sách thảo luận">
+        <!-- Dynamically populated: loading, empty, error, or threads -->
+    </section>
+
+</aside>
+
+
 <script th:src="@{/js/theme.js}"></script>
 <script th:src="@{/js/reading/reading-preferences.js}"></script>
 <script th:src="@{/js/novel/reader-reading-settings.js}"></script>
@@ -755,6 +799,8 @@
 <script th:src="@{/js/novel/chapter-comment-indicators.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-comment-affordance.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-drawer.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>

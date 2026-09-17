@@ -1,0 +1,1646 @@
+const { test, describe, beforeEach } = require('node:test');
+const assert = require('node:assert');
+const path = require('path');
+
+const drawerModule = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-block-discussion-drawer.js'));
+
+// ============================================================================
+// Lightweight DOM Test Fixtures
+// ============================================================================
+
+class FakeClassList {
+    constructor(element) {
+        this.element = element;
+        this.classes = new Set();
+    }
+
+    add(...names) {
+        for (const name of names) {
+            this.classes.add(name);
+        }
+        this._sync();
+    }
+
+    remove(...names) {
+        for (const name of names) {
+            this.classes.delete(name);
+        }
+        this._sync();
+    }
+
+    contains(name) {
+        return this.classes.has(name);
+    }
+
+    _sync() {
+        if (this.classes.size > 0) {
+            this.element.attributes['class'] = Array.from(this.classes).join(' ');
+        } else {
+            delete this.element.attributes['class'];
+        }
+    }
+}
+
+class FakeElement {
+    constructor(tagName, attributes = {}) {
+        this.tagName = tagName.toUpperCase();
+        this.attributes = {};
+        this.childNodes = [];
+        this.parentNode = null;
+        this.parentElement = null;
+        this.classList = new FakeClassList(this);
+        this.listeners = {};
+        this.style = {};
+        this.hidden = false;
+        this._textContent = '';
+        this.isFocused = false;
+
+        for (const [k, v] of Object.entries(attributes)) {
+            this.setAttribute(k, v);
+        }
+    }
+
+    get className() {
+        return this.getAttribute('class') || '';
+    }
+
+    set className(val) {
+        this.setAttribute('class', val);
+    }
+
+    get textContent() {
+        if (this.childNodes.length === 0) {
+            return this._textContent;
+        }
+        return this.childNodes.map(c => c.textContent || '').join('');
+    }
+
+    set textContent(val) {
+        this._textContent = String(val);
+        this.childNodes = [];
+    }
+
+    appendChild(child) {
+        child.parentNode = this;
+        child.parentElement = this;
+        this.childNodes.push(child);
+        return child;
+    }
+
+    removeChild(child) {
+        const idx = this.childNodes.indexOf(child);
+        if (idx !== -1) {
+            this.childNodes.splice(idx, 1);
+            child.parentNode = null;
+            child.parentElement = null;
+        }
+        return child;
+    }
+
+    replaceChildren(...newChildren) {
+        for (const c of this.childNodes) {
+            c.parentNode = null;
+            c.parentElement = null;
+        }
+        this.childNodes = [];
+        this._textContent = '';
+        for (const child of newChildren) {
+            this.appendChild(child);
+        }
+    }
+
+    get isConnected() {
+        let cur = this;
+        while (cur) {
+            if (cur.ownerDocument && (cur === cur.ownerDocument.documentElement || cur.parentNode === cur.ownerDocument || cur.parentElement === cur.ownerDocument.documentElement)) {
+                return true;
+            }
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
+
+    contains(node) {
+        let cur = node;
+        while (cur) {
+            if (cur === this) return true;
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
+
+    hasAttribute(name) {
+        return this.attributes[name] !== undefined;
+    }
+
+    getAttribute(name) {
+        return this.attributes[name] !== undefined ? this.attributes[name] : null;
+    }
+
+    setAttribute(name, value) {
+        this.attributes[name] = String(value);
+        if (name === 'class') {
+            this.classList.classes.clear();
+            String(value).trim().split(/\s+/).filter(Boolean).forEach(c => this.classList.classes.add(c));
+        }
+    }
+
+    removeAttribute(name) {
+        delete this.attributes[name];
+        if (name === 'class') {
+            this.classList.classes.clear();
+        }
+    }
+
+    addEventListener(event, fn) {
+        if (!this.listeners[event]) {
+            this.listeners[event] = [];
+        }
+        this.listeners[event].push(fn);
+    }
+
+    removeEventListener(event, fn) {
+        if (!this.listeners[event]) return;
+        const idx = this.listeners[event].indexOf(fn);
+        if (idx !== -1) {
+            this.listeners[event].splice(idx, 1);
+        }
+    }
+
+    dispatchEvent(evt) {
+        evt.target = evt.target || this;
+        evt.currentTarget = this;
+        const handlers = this.listeners[evt.type] || [];
+        for (const fn of [...handlers]) {
+            fn.call(this, evt);
+        }
+        return !evt.defaultPrevented;
+    }
+
+    focus() {
+        this.isFocused = true;
+        if (this.ownerDocument) {
+            this.ownerDocument.activeElement = this;
+        }
+    }
+
+    closest(selector) {
+        let cur = this;
+        while (cur) {
+            if (matchesSingleSelector(cur, selector)) {
+                return cur;
+            }
+            cur = cur.parentElement;
+        }
+        return null;
+    }
+
+    querySelector(selector) {
+        return querySelectorAllDeep(this, selector)[0] || null;
+    }
+
+    querySelectorAll(selector) {
+        return querySelectorAllDeep(this, selector);
+    }
+}
+
+function matchesSingleSelector(el, sel) {
+    if (!el || !el.tagName) return false;
+    if (sel.startsWith('#')) {
+        return el.getAttribute('id') === sel.slice(1);
+    }
+    if (sel.startsWith('[') && sel.endsWith(']')) {
+        const raw = sel.slice(1, -1);
+        const eqIdx = raw.indexOf('=');
+        if (eqIdx === -1) {
+            return el.getAttribute(raw) !== null;
+        }
+        const name = raw.slice(0, eqIdx);
+        const val = raw.slice(eqIdx + 1).replace(/^["']|["']$/g, '');
+        return el.getAttribute(name) === val;
+    }
+    let tag = null;
+    let classPart = sel;
+    if (!sel.startsWith('.')) {
+        const dotIdx = sel.indexOf('.');
+        if (dotIdx !== -1) {
+            tag = sel.slice(0, dotIdx);
+            classPart = sel.slice(dotIdx);
+        } else {
+            return el.tagName.toLowerCase() === sel.toLowerCase();
+        }
+    }
+    if (tag && el.tagName.toLowerCase() !== tag.toLowerCase()) {
+        return false;
+    }
+    const classes = classPart.split('.').filter(Boolean);
+    return classes.every(c => el.classList.contains(c));
+}
+
+function querySelectorAllDeep(root, selector) {
+    const parts = selector.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return [];
+    if (parts.length === 1) {
+        const results = [];
+        function traverse(node) {
+            if (!node || !node.childNodes) return;
+            for (const child of node.childNodes) {
+                if (matchesSingleSelector(child, parts[0])) {
+                    results.push(child);
+                }
+                traverse(child);
+            }
+        }
+        traverse(root);
+        return results;
+    }
+
+    let currentSet = [root];
+    for (const part of parts) {
+        const nextSet = [];
+        for (const parent of currentSet) {
+            nextSet.push(...querySelectorAllDeep(parent, part));
+        }
+        currentSet = nextSet;
+    }
+    return currentSet;
+}
+
+class FakeDocument {
+    constructor() {
+        this.body = new FakeElement('body');
+        this.body.ownerDocument = this;
+        this.documentElement = new FakeElement('html');
+        this.documentElement.ownerDocument = this;
+        this.documentElement.appendChild(this.body);
+        this.listeners = {};
+        this.activeElement = this.body;
+        this.defaultView = {
+            innerWidth: 1024,
+            innerHeight: 768
+        };
+    }
+
+    createElement(tagName) {
+        const el = new FakeElement(tagName);
+        el.ownerDocument = this;
+        return el;
+    }
+
+    getElementById(id) {
+        return querySelectorAllDeep(this.documentElement, '#' + id)[0] || null;
+    }
+
+    querySelector(selector) {
+        return querySelectorAllDeep(this.documentElement, selector)[0] || null;
+    }
+
+    querySelectorAll(selector) {
+        return querySelectorAllDeep(this.documentElement, selector);
+    }
+
+    contains(node) {
+        let cur = node;
+        while (cur) {
+            if (cur === this || cur === this.documentElement || cur === this.body) return true;
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
+
+    addEventListener(event, fn) {
+        if (!this.listeners[event]) {
+            this.listeners[event] = [];
+        }
+        this.listeners[event].push(fn);
+    }
+
+    removeEventListener(event, fn) {
+        if (!this.listeners[event]) return;
+        const idx = this.listeners[event].indexOf(fn);
+        if (idx !== -1) {
+            this.listeners[event].splice(idx, 1);
+        }
+    }
+
+    dispatchEvent(evt) {
+        evt.target = evt.target || this;
+        evt.currentTarget = this;
+        const handlers = this.listeners[evt.type] || [];
+        for (const fn of [...handlers]) {
+            fn.call(this, evt);
+        }
+        return !evt.defaultPrevented;
+    }
+}
+
+function setupChapterDOM() {
+    const doc = new FakeDocument();
+
+    // 1. Chapter body (canonical prose)
+    const chapterBody = doc.createElement('article');
+    chapterBody.setAttribute('class', 'novel-reader-chapter-body');
+    chapterBody.setAttribute('data-chapter-id', '11111111-1111-1111-1111-111111111111');
+    chapterBody.setAttribute('data-content-version', '1');
+
+    const blockA = doc.createElement('p');
+    blockA.setAttribute('data-reader-block-key', 'blk-0123456789abcdef-1');
+    blockA.textContent = 'Đoạn văn A nội dung chính.';
+    chapterBody.appendChild(blockA);
+
+    const blockB = doc.createElement('p');
+    blockB.setAttribute('data-reader-block-key', 'blk-fedcba9876543210-1');
+    blockB.textContent = 'Đoạn văn B nội dung chính.';
+    chapterBody.appendChild(blockB);
+
+    doc.body.appendChild(chapterBody);
+
+    // 2. Backdrop
+    const backdrop = doc.createElement('div');
+    backdrop.setAttribute('id', drawerModule.BACKDROP_ID);
+    backdrop.setAttribute('class', 'novel-block-discussion-backdrop');
+    backdrop.setAttribute('aria-hidden', 'true');
+    backdrop.hidden = true;
+    doc.body.appendChild(backdrop);
+
+    // 3. Discussion Drawer Aside
+    const drawer = doc.createElement('aside');
+    drawer.setAttribute('id', drawerModule.DRAWER_ID);
+    drawer.setAttribute('class', 'novel-block-discussion-drawer');
+    drawer.setAttribute('role', 'dialog');
+    drawer.setAttribute('aria-modal', 'true');
+    drawer.setAttribute('aria-labelledby', drawerModule.TITLE_ID);
+    drawer.setAttribute('aria-hidden', 'true');
+    drawer.hidden = true;
+
+    // Header
+    const header = doc.createElement('header');
+    header.setAttribute('class', 'novel-block-discussion-header');
+
+    const headerTitle = doc.createElement('div');
+    headerTitle.setAttribute('class', 'novel-block-discussion-header-title');
+
+    const title = doc.createElement('h2');
+    title.setAttribute('id', drawerModule.TITLE_ID);
+    title.setAttribute('class', 'novel-block-discussion-title');
+    title.textContent = 'Thảo luận';
+    headerTitle.appendChild(title);
+
+    const count = doc.createElement('span');
+    count.setAttribute('id', drawerModule.COUNT_ID);
+    count.setAttribute('class', 'novel-block-discussion-count');
+    count.setAttribute('aria-live', 'polite');
+    headerTitle.appendChild(count);
+
+    header.appendChild(headerTitle);
+
+    const closeBtn = doc.createElement('button');
+    closeBtn.setAttribute('type', 'button');
+    closeBtn.setAttribute('id', drawerModule.CLOSE_BTN_ID);
+    closeBtn.setAttribute('class', 'novel-block-discussion-close');
+    closeBtn.setAttribute('aria-label', 'Đóng thảo luận');
+    header.appendChild(closeBtn);
+
+    drawer.appendChild(header);
+
+    // Passage section
+    const passageSection = doc.createElement('section');
+    passageSection.setAttribute('class', 'novel-block-discussion-passage-section');
+    passageSection.setAttribute('aria-label', 'Đoạn văn đang thảo luận');
+
+    const passageLabel = doc.createElement('div');
+    passageLabel.setAttribute('class', 'novel-block-discussion-passage-label');
+    passageLabel.textContent = 'Đoạn văn';
+    passageSection.appendChild(passageLabel);
+
+    const passage = doc.createElement('div');
+    passage.setAttribute('id', drawerModule.PASSAGE_ID);
+    passage.setAttribute('class', 'novel-block-discussion-passage');
+    passageSection.appendChild(passage);
+
+    drawer.appendChild(passageSection);
+
+    // Content section
+    const content = doc.createElement('section');
+    content.setAttribute('id', drawerModule.CONTENT_ID);
+    content.setAttribute('class', 'novel-block-discussion-content');
+    content.setAttribute('aria-label', 'Danh sách thảo luận');
+    drawer.appendChild(content);
+
+    doc.body.appendChild(drawer);
+
+    return {
+        doc,
+        chapterBody,
+        blockA,
+        blockB,
+        backdrop,
+        drawer,
+        closeBtn,
+        count,
+        passage,
+        content
+    };
+}
+
+describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
+
+    beforeEach(() => {
+        drawerModule.resetDrawerState();
+    });
+
+    test('1. init is idempotent: multiple init calls bind listeners only once', () => {
+        const { doc } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+        const listenersCountBefore = doc.listeners['kiemlai:block-discussion-requested'] ? doc.listeners['kiemlai:block-discussion-requested'].length : 0;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+        const listenersCountAfter = doc.listeners['kiemlai:block-discussion-requested'] ? doc.listeners['kiemlai:block-discussion-requested'].length : 0;
+
+        assert.strictEqual(listenersCountBefore, 1);
+        assert.strictEqual(listenersCountAfter, 1);
+    });
+
+    test('2. valid discussion event opens exactly one drawer', () => {
+        const { doc, drawer, backdrop } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(drawer.classList.contains('is-open'), false);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Đoạn văn A nội dung chính.',
+                threadCount: 2
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+        assert.strictEqual(drawer.getAttribute('aria-hidden'), 'false');
+        assert.strictEqual(drawer.classList.contains('is-open'), true);
+        assert.strictEqual(backdrop.hidden, false);
+        assert.strictEqual(backdrop.classList.contains('is-open'), true);
+    });
+
+    test('3. invalid event detail is ignored safely without opening drawer or throwing', () => {
+        const { doc, drawer } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        // Missing blockKey
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: '   ',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+        assert.strictEqual(drawer.hidden, true);
+
+        // Negative contentVersion
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: -1,
+                blockKey: 'blk-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+        assert.strictEqual(drawer.hidden, true);
+
+        // Non-string canonicalText
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-1',
+                canonicalText: null,
+                threadCount: 0
+            }
+        });
+        assert.strictEqual(drawer.hidden, true);
+
+        // Negative threadCount
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-1',
+                canonicalText: 'Text',
+                threadCount: -1
+            }
+        });
+        assert.strictEqual(drawer.hidden, true);
+    });
+
+    test('4. drawer is outside .novel-reader-chapter-body and template contract verified', () => {
+        const { chapterBody, drawer, backdrop } = setupChapterDOM();
+        assert.strictEqual(drawer.closest('.novel-reader-chapter-body'), null);
+        assert.strictEqual(chapterBody.querySelector('#' + drawerModule.DRAWER_ID), null);
+        assert.strictEqual(backdrop.hasAttribute('tabindex'), false);
+        assert.strictEqual(drawer.getAttribute('role'), 'dialog');
+        assert.strictEqual(drawer.getAttribute('aria-modal'), 'true');
+        assert.strictEqual(drawer.getAttribute('aria-labelledby'), drawerModule.TITLE_ID);
+    });
+
+    test('5. provisional canonicalText appears immediately before fetch resolves', () => {
+        const { doc, passage } = setupChapterDOM();
+        let fetchResolved = false;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => {
+                await new Promise(r => setTimeout(r, 100));
+                fetchResolved = true;
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-0123456789abcdef-1',
+                        canonicalText: 'Authoritative server text.',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional client text.',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(fetchResolved, false);
+        assert.strictEqual(passage.textContent, 'Provisional client text.');
+    });
+
+    test('6. canonical passage uses textContent, not HTML interpretation', () => {
+        const { doc, passage } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: '<strong>Bold HTML probe</strong>',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: '<strong>Provisional</strong>',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(passage.textContent, '<strong>Provisional</strong>');
+        assert.strictEqual(passage.querySelector('strong'), null);
+    });
+
+    test('7 & 8 & 9. correct encoded GET URL, Accept: application/json, and exactly one fetch per open', async () => {
+        const { doc } = setupChapterDOM();
+        const calls = [];
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async (url, opts) => {
+                calls.push({ url, opts });
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: 'ch/1',
+                        contentVersion: 1,
+                        blockKey: 'blk/1',
+                        canonicalText: 'Canonical',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: 'ch/1',
+                contentVersion: 1,
+                blockKey: 'blk/1',
+                canonicalText: 'Canonical',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(calls.length, 1);
+        assert.strictEqual(calls[0].url, '/api/novel/chapters/ch%2F1/comments/blocks/blk%2F1');
+        assert.strictEqual(calls[0].opts.method, 'GET');
+        assert.strictEqual(calls[0].opts.headers['Accept'], 'application/json');
+    });
+
+    test('10 & 11. successful response replaces provisional passage and uses server contentVersion', async () => {
+        const { doc, passage } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 5,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Authoritative server passage text.',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional client text.',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(passage.textContent, 'Authoritative server passage text.');
+        assert.strictEqual(drawerModule.getActiveContext().contentVersion, 5);
+    });
+
+    test('12. threadCount reflects root threads only and updates count display', async () => {
+        const { doc, count } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 2,
+                    threads: [
+                        { root: { id: 'r1', body: 'Root 1' }, replies: [{ id: 'rep1', body: 'Reply 1' }, { id: 'rep2', body: 'Reply 2' }] },
+                        { root: { id: 'r2', body: 'Root 2' }, replies: [] }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(count.textContent, '2 thảo luận');
+    });
+
+    test('13 & 14 & 34. root and reply bodies rendered safely as text (no script execution)', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'r1', body: '<script>alert("root")</script>' },
+                            replies: [
+                                { id: 'rep1', body: '<img src=x onerror=alert("reply")>' }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const scriptEl = content.querySelector('script');
+        const imgEl = content.querySelector('img');
+        assert.strictEqual(scriptEl, null);
+        assert.strictEqual(imgEl, null);
+
+        const rootBodyEl = content.querySelector('.novel-comment--root .novel-comment-body');
+        const replyBodyEl = content.querySelector('.novel-comment--reply .novel-comment-body');
+        assert.strictEqual(rootBodyEl.textContent, '<script>alert("root")</script>');
+        assert.strictEqual(replyBodyEl.textContent, '<img src=x onerror=alert("reply")>');
+    });
+
+    test('15 & 16. replies preserve response order and use flat visual level', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'r1', body: 'Root 1' },
+                            replies: [
+                                { id: 'rep-1', body: 'Reply 1' },
+                                { id: 'rep-2', body: 'Reply 2' },
+                                { id: 'rep-3', body: 'Reply 3' }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEls = content.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replyEls.length, 3);
+        assert.strictEqual(replyEls[0].getAttribute('data-reply-id'), 'rep-1');
+        assert.strictEqual(replyEls[1].getAttribute('data-reply-id'), 'rep-2');
+        assert.strictEqual(replyEls[2].getAttribute('data-reply-id'), 'rep-3');
+    });
+
+    test('17. tombstone reply has deleted presentation and no visible author', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 1,
+                    threads: [
+                        {
+                            root: { id: 'r1', body: 'Root 1' },
+                            replies: [
+                                { id: 'tomb-1', body: 'Bình luận này đã bị xóa.', tombstone: true }
+                            ]
+                        }
+                    ]
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = content.querySelector('.novel-comment--reply');
+        assert.strictEqual(replyEl.classList.contains('is-tombstone'), true);
+        assert.strictEqual(replyEl.querySelector('.novel-comment-author'), null);
+        assert.strictEqual(replyEl.querySelector('.novel-comment-body--tombstone').textContent, 'Bình luận này đã bị xóa.');
+    });
+
+    test('18. zero threads shows empty state', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Text',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const emptyEl = content.querySelector('.novel-block-discussion-empty');
+        assert.notStrictEqual(emptyEl, null);
+        assert.strictEqual(emptyEl.textContent.includes('Chưa có thảo luận nào cho đoạn này.'), true);
+    });
+
+    test('19. request A then request B then late A response: A cannot overwrite B', async () => {
+        const { doc, passage } = setupChapterDOM();
+        let resolveA;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async (url) => {
+                if (url.includes('blk-A')) {
+                    return new Promise((resolve) => {
+                        resolveA = () => resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                chapterId: '11111111-1111-1111-1111-111111111111',
+                                contentVersion: 1,
+                                blockKey: 'blk-A',
+                                canonicalText: 'Text from Block A',
+                                threadCount: 0,
+                                threads: []
+                            })
+                        });
+                    });
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-B',
+                        canonicalText: 'Text from Block B',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        // Click Block A
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-A',
+                canonicalText: 'Provisional A',
+                threadCount: 0
+            }
+        });
+
+        // Click Block B
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-B',
+                canonicalText: 'Provisional B',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(passage.textContent, 'Text from Block B');
+
+        // Late response from A resolves
+        resolveA();
+        await new Promise(r => setTimeout(r, 10));
+
+        // Block B remains intact!
+        assert.strictEqual(passage.textContent, 'Text from Block B');
+        assert.strictEqual(drawerModule.getActiveContext().blockKey, 'blk-B');
+    });
+
+    test('20 & 21. chapter-changed closes drawer, invalidates request, and late response from Chapter A cannot render', async () => {
+        const { doc, drawer, passage } = setupChapterDOM();
+        let resolveA;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => new Promise(resolve => {
+                resolveA = () => resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-0123456789abcdef-1',
+                        canonicalText: 'Chapter A authoritative',
+                        threadCount: 0,
+                        threads: []
+                    })
+                });
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional A',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+
+        // Chapter transitions to Chapter B
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed' });
+
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(drawerModule.getActiveContext(), null);
+
+        // Late Chapter A response arrives
+        resolveA();
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(passage.textContent, '');
+    });
+
+    test('22. 404 renders unavailable-block state', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const errorEl = content.querySelector('.novel-block-discussion-status--unavailable');
+        assert.notStrictEqual(errorEl, null);
+        assert.strictEqual(errorEl.textContent.includes('Đoạn này không còn khả dụng trong phiên bản hiện tại.'), true);
+    });
+
+    test('23 & 24. 500/network error renders generic load error and Retry issues exactly one new request', async () => {
+        const { doc, content } = setupChapterDOM();
+        let callCount = 0;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        ok: false,
+                        status: 500,
+                        json: async () => ({})
+                    };
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-0123456789abcdef-1',
+                        canonicalText: 'Text recovered',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const errorEl = content.querySelector('.novel-block-discussion-status--error');
+        assert.notStrictEqual(errorEl, null);
+        assert.strictEqual(errorEl.textContent.includes('Không thể tải thảo luận. Vui lòng thử lại.'), true);
+
+        const retryBtn = content.querySelector('.novel-block-discussion-retry-btn');
+        assert.notStrictEqual(retryBtn, null);
+
+        // Click retry
+        retryBtn.dispatchEvent({ type: 'click' });
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(callCount, 2);
+        assert.notStrictEqual(content.querySelector('.novel-block-discussion-empty'), null);
+    });
+
+    test('25. close button closes drawer and clears state', () => {
+        const { doc, drawer, closeBtn, backdrop } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+        assert.strictEqual(backdrop.hidden, false);
+
+        doc.dispatchEvent({ type: 'click', target: closeBtn });
+
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(backdrop.hidden, true);
+        assert.strictEqual(drawerModule.getActiveContext(), null);
+    });
+
+    test('26. backdrop click closes drawer', () => {
+        const { doc, drawer, backdrop } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+
+        doc.dispatchEvent({ type: 'click', target: backdrop });
+
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(backdrop.hidden, true);
+    });
+
+    test('27. Escape key closes drawer', () => {
+        const { doc, drawer } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape' });
+
+        assert.strictEqual(drawer.hidden, true);
+    });
+
+    test('28. click inside drawer does NOT close drawer', () => {
+        const { doc, drawer, passage } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(drawer.hidden, false);
+
+        // Click passage inside drawer
+        doc.dispatchEvent({ type: 'click', target: passage });
+
+        assert.strictEqual(drawer.hidden, false);
+    });
+
+    test('29. body open-state class added on open and removed on close', () => {
+        const { doc } = setupChapterDOM();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        assert.strictEqual(doc.body.classList.contains('has-block-discussion-open'), false);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.body.classList.contains('has-block-discussion-open'), true);
+
+        drawerModule.closeDrawer();
+
+        assert.strictEqual(doc.body.classList.contains('has-block-discussion-open'), false);
+    });
+
+    test('30 & 31. focus moves to close button on open and returns to prior element on close', () => {
+        const { doc, closeBtn } = setupChapterDOM();
+        const triggerBtn = doc.createElement('button');
+        triggerBtn.setAttribute('id', 'affordance-btn-test');
+        doc.body.appendChild(triggerBtn);
+
+        triggerBtn.focus();
+        assert.strictEqual(doc.activeElement, triggerBtn);
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.activeElement, closeBtn);
+
+        drawerModule.closeDrawer();
+
+        assert.strictEqual(doc.activeElement, triggerBtn);
+        assert.strictEqual(drawerModule.getPriorFocusedElement(), null);
+    });
+
+    test('30b. focus restoration skips detached previous element', () => {
+        const { doc, closeBtn } = setupChapterDOM();
+        const triggerBtn = doc.createElement('button');
+        doc.body.appendChild(triggerBtn);
+
+        triggerBtn.focus();
+        assert.strictEqual(doc.activeElement, triggerBtn);
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.activeElement, closeBtn);
+
+        // Detach trigger from document
+        doc.body.removeChild(triggerBtn);
+        triggerBtn.isFocused = false;
+
+        drawerModule.closeDrawer();
+
+        // Must not call focus on detached element
+        assert.strictEqual(triggerBtn.isFocused, false);
+        assert.notStrictEqual(doc.activeElement, triggerBtn);
+        assert.strictEqual(drawerModule.getPriorFocusedElement(), null);
+    });
+
+    test('30c. focus restoration skips hidden or display:none previous element', () => {
+        const { doc, closeBtn } = setupChapterDOM();
+        const triggerBtn = doc.createElement('button');
+        doc.body.appendChild(triggerBtn);
+
+        triggerBtn.focus();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.activeElement, closeBtn);
+
+        // Make trigger hidden
+        triggerBtn.hidden = true;
+        triggerBtn.isFocused = false;
+
+        drawerModule.closeDrawer();
+
+        assert.strictEqual(triggerBtn.isFocused, false);
+        assert.notStrictEqual(doc.activeElement, triggerBtn);
+        assert.strictEqual(drawerModule.getPriorFocusedElement(), null);
+
+        // Test display:none as well
+        triggerBtn.hidden = false;
+        triggerBtn.style.display = 'none';
+        triggerBtn.focus();
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.activeElement, closeBtn);
+        triggerBtn.isFocused = false;
+
+        drawerModule.closeDrawer();
+
+        assert.strictEqual(triggerBtn.isFocused, false);
+        assert.notStrictEqual(doc.activeElement, triggerBtn);
+        assert.strictEqual(drawerModule.getPriorFocusedElement(), null);
+    });
+
+    test('30d. focus restoration skips disabled previous button', () => {
+        const { doc, closeBtn } = setupChapterDOM();
+        const triggerBtn = doc.createElement('button');
+        doc.body.appendChild(triggerBtn);
+
+        triggerBtn.focus();
+        drawerModule.initReaderBlockDiscussionDrawer(doc);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(doc.activeElement, closeBtn);
+
+        // Disable button
+        triggerBtn.disabled = true;
+        triggerBtn.isFocused = false;
+
+        drawerModule.closeDrawer();
+
+        assert.strictEqual(triggerBtn.isFocused, false);
+        assert.notStrictEqual(doc.activeElement, triggerBtn);
+        assert.strictEqual(drawerModule.getPriorFocusedElement(), null);
+    });
+
+    test('32. malformed or mismatched server identity is not rendered', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'WRONG-BLOCK-KEY', // Mismatch!
+                    canonicalText: 'Text',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const errorEl = content.querySelector('.novel-block-discussion-status--error');
+        assert.notStrictEqual(errorEl, null);
+    });
+
+    test('32b. server response with missing or non-string canonicalText is rejected', async () => {
+        const { doc, passage, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 5,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    // canonicalText is null/non-string
+                    canonicalText: null,
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional text',
+                threadCount: 0
+            }
+        });
+
+        // 1. Immediately after open, provisional passage is rendered
+        assert.strictEqual(passage.textContent, 'Provisional text');
+
+        await new Promise(r => setTimeout(r, 10));
+
+        // 2. Malformed authoritative content is NOT rendered
+        // 3. Active server contentVersion (5) is NOT accepted as successful state
+        const activeCtx = drawerModule.getActiveContext();
+        assert.strictEqual(activeCtx.contentVersion, 1);
+
+        // 4. Generic invalid-response error state appears
+        const errorEl = content.querySelector('.novel-block-discussion-status--error');
+        assert.notStrictEqual(errorEl, null);
+        assert.ok(errorEl.textContent.includes('Dữ liệu phản hồi không hợp lệ'));
+    });
+
+    test('32c. server response with non-array threads is rejected', async () => {
+        const { doc, content } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 5,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Valid text',
+                    threadCount: 0,
+                    threads: 'invalid-non-array'
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        const activeCtx = drawerModule.getActiveContext();
+        assert.strictEqual(activeCtx.contentVersion, 1);
+
+        const errorEl = content.querySelector('.novel-block-discussion-status--error');
+        assert.notStrictEqual(errorEl, null);
+        assert.ok(errorEl.textContent.includes('Dữ liệu phản hồi không hợp lệ'));
+    });
+
+    test('33. server contentVersion different from event version is ACCEPTED (server is authoritative)', async () => {
+        const { doc, passage } = setupChapterDOM();
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 99, // Server advanced version
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Advanced version canonical text',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1, // Event had version 1
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Provisional text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(passage.textContent, 'Advanced version canonical text');
+        assert.strictEqual(drawerModule.getActiveContext().contentVersion, 99);
+    });
+
+    test('35. canonical Reader block DOM/textContent remains completely unchanged', async () => {
+        const { doc, blockA, blockB } = setupChapterDOM();
+        const initialTextA = blockA.textContent;
+        const initialTextB = blockB.textContent;
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Server text',
+                    threadCount: 0,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: initialTextA,
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(blockA.textContent, initialTextA);
+        assert.strictEqual(blockB.textContent, initialTextB);
+        assert.strictEqual(blockA.childNodes.length, 0); // No child nodes injected
+    });
+
+    test('36. Continuous Reader regression: Chapter A open -> chapter-changed -> Chapter B open', async () => {
+        const { doc, drawer, passage } = setupChapterDOM();
+        const fetchUrls = [];
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async (url) => {
+                fetchUrls.push(url);
+                const isChapterB = url.includes('22222222-2222-2222-2222-222222222222');
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: isChapterB ? '22222222-2222-2222-2222-222222222222' : '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: isChapterB ? 'blk-B-1' : 'blk-A-1',
+                        canonicalText: isChapterB ? 'Chapter B Canonical Text' : 'Chapter A Canonical Text',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        // 1. Chapter A open
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-A-1',
+                canonicalText: 'Provisional A',
+                threadCount: 0
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(drawer.hidden, false);
+        assert.strictEqual(passage.textContent, 'Chapter A Canonical Text');
+
+        // 2. Chapter changed
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed' });
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(drawerModule.getActiveContext(), null);
+
+        // 3. Chapter B open
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '22222222-2222-2222-2222-222222222222',
+                contentVersion: 1,
+                blockKey: 'blk-B-1',
+                canonicalText: 'Provisional B',
+                threadCount: 0
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(drawer.hidden, false);
+        assert.strictEqual(passage.textContent, 'Chapter B Canonical Text');
+        assert.strictEqual(drawerModule.getActiveContext().chapterId, '22222222-2222-2222-2222-222222222222');
+        assert.strictEqual(fetchUrls.length, 2);
+        assert.strictEqual(fetchUrls[1].includes('22222222-2222-2222-2222-222222222222'), true);
+    });
+
+});
