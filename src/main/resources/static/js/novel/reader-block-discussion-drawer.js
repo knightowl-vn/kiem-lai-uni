@@ -40,6 +40,7 @@
     const EVENT_DISCUSSION_REQUESTED = 'kiemlai:block-discussion-requested';
     const EVENT_DISCUSSION_LOADED = 'kiemlai:block-discussion-loaded';
     const EVENT_DISCUSSION_CLOSED = 'kiemlai:block-discussion-closed';
+    const EVENT_DISCUSSION_LOAD_FAILED = 'kiemlai:block-discussion-load-failed';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
     const BODY_OPEN_CLASS = 'has-block-discussion-open';
 
@@ -526,6 +527,28 @@
     }
 
     /**
+     * Dispatches terminal failure event for block discussion loading.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     * @param {'unavailable'|'error'|'invalid_response'|'unsupported'} reason
+     */
+    function dispatchLoadFailed(chapterId, blockKey, reason) {
+        const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (doc && typeof doc.dispatchEvent === 'function') {
+            const detail = {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                reason: reason
+            };
+            const event = (typeof CustomEvent === 'function')
+                ? new CustomEvent(EVENT_DISCUSSION_LOAD_FAILED, { detail: detail })
+                : { type: EVENT_DISCUSSION_LOAD_FAILED, detail: detail };
+            doc.dispatchEvent(event);
+        }
+    }
+
+    /**
      * Renders visible discussion threads and flat replies in response order.
      *
      * @param {Element} container
@@ -558,6 +581,9 @@
             // Root comment element
             const rootEl = doc.createElement('div');
             rootEl.className = 'novel-comment novel-comment--root';
+            if (thread.root.id) {
+                rootEl.setAttribute('data-comment-id', String(thread.root.id));
+            }
             if (thread.root.authorUserId) {
                 rootEl.setAttribute('data-author-user-id', String(thread.root.authorUserId));
             }
@@ -607,6 +633,7 @@
                     replyEl.className = 'novel-comment novel-comment--reply';
                     if (reply.id) {
                         replyEl.setAttribute('data-reply-id', String(reply.id));
+                        replyEl.setAttribute('data-comment-id', String(reply.id));
                     }
 
                     const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
@@ -722,6 +749,7 @@
     function handleDiscussionSuccess(data, requestedChapterId, requestedBlockKey) {
         if (!isValidServerResponse(data, requestedChapterId, requestedBlockKey)) {
             renderGenericError('Không thể tải thảo luận. Dữ liệu phản hồi không hợp lệ.');
+            dispatchLoadFailed(requestedChapterId, requestedBlockKey, 'invalid_response');
             return;
         }
 
@@ -799,6 +827,7 @@
         if (!fetchImpl) {
             if (requestId === currentRequestId) {
                 renderGenericError('Không thể tải thảo luận. Trình duyệt không hỗ trợ fetch.');
+                dispatchLoadFailed(chapterId, blockKey, 'unsupported');
             }
             return;
         }
@@ -823,11 +852,13 @@
 
             if (res.status === 404) {
                 renderBlockUnavailableError('Đoạn này không còn khả dụng trong phiên bản hiện tại.');
+                dispatchLoadFailed(chapterId, blockKey, 'unavailable');
                 return;
             }
 
             if (!res.ok) {
                 renderGenericError('Không thể tải thảo luận. Vui lòng thử lại.');
+                dispatchLoadFailed(chapterId, blockKey, 'error');
                 return;
             }
 
@@ -838,6 +869,12 @@
                 return;
             }
 
+            if (!isValidServerResponse(data, chapterId, blockKey)) {
+                renderGenericError('Không thể tải thảo luận. Dữ liệu phản hồi không hợp lệ.');
+                dispatchLoadFailed(chapterId, blockKey, 'invalid_response');
+                return;
+            }
+
             handleDiscussionSuccess(data, chapterId, blockKey);
         } catch (err) {
             if (err && err.name === 'AbortError') {
@@ -845,6 +882,7 @@
             }
             if (requestId === currentRequestId) {
                 renderGenericError('Không thể tải thảo luận. Vui lòng thử lại.');
+                dispatchLoadFailed(chapterId, blockKey, 'error');
             }
         }
     }
@@ -1050,6 +1088,7 @@
         EVENT_DISCUSSION_REQUESTED,
         EVENT_DISCUSSION_LOADED,
         EVENT_DISCUSSION_CLOSED,
+        EVENT_DISCUSSION_LOAD_FAILED,
         EVENT_CHAPTER_CHANGED,
         BODY_OPEN_CLASS,
         isValidDiscussionDetail,

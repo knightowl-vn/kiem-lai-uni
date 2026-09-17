@@ -1851,4 +1851,185 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(closedEvents.length, 1);
     });
 
+    test('40. 404 response emits kiemlai:block-discussion-load-failed with reason unavailable', async () => {
+        const { doc } = setupChapterDOM();
+        const failedEvents = [];
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOAD_FAILED, (e) => {
+            failedEvents.push(e);
+        });
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: false,
+                status: 404,
+                json: async () => ({})
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(failedEvents.length, 1);
+        assert.deepStrictEqual(failedEvents[0].detail, {
+            chapterId: '11111111-1111-1111-1111-111111111111',
+            blockKey: 'blk-0123456789abcdef-1',
+            reason: 'unavailable'
+        });
+    });
+
+    test('41. 500 or network failure emits kiemlai:block-discussion-load-failed with reason error', async () => {
+        const { doc } = setupChapterDOM();
+        const failedEvents = [];
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOAD_FAILED, (e) => {
+            failedEvents.push(e);
+        });
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => {
+                throw new Error('Network error');
+            }
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(failedEvents.length, 1);
+        assert.deepStrictEqual(failedEvents[0].detail, {
+            chapterId: '11111111-1111-1111-1111-111111111111',
+            blockKey: 'blk-0123456789abcdef-1',
+            reason: 'error'
+        });
+    });
+
+    test('42. invalid server response emits kiemlai:block-discussion-load-failed with reason invalid_response', async () => {
+        const { doc } = setupChapterDOM();
+        const failedEvents = [];
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOAD_FAILED, (e) => {
+            failedEvents.push(e);
+        });
+
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 12345,
+                    threads: []
+                })
+            })
+        });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Text',
+                threadCount: 0
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(failedEvents.length, 1);
+        assert.deepStrictEqual(failedEvents[0].detail, {
+            chapterId: '11111111-1111-1111-1111-111111111111',
+            blockKey: 'blk-0123456789abcdef-1',
+            reason: 'invalid_response'
+        });
+    });
+
+    test('43. aborted or stale fetch does NOT emit kiemlai:block-discussion-load-failed', async () => {
+        const { doc } = setupChapterDOM();
+        const failedEvents = [];
+        doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOAD_FAILED, (e) => {
+            failedEvents.push(e);
+        });
+
+        let resolveFetchA;
+        const fetchAPromise = new Promise(r => { resolveFetchA = r; });
+
+        let fetchCount = 0;
+        drawerModule.initReaderBlockDiscussionDrawer(doc, {
+            fetchFn: async () => {
+                fetchCount++;
+                if (fetchCount === 1) {
+                    await fetchAPromise;
+                    return {
+                        ok: false,
+                        status: 500,
+                        json: async () => ({})
+                    };
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        contentVersion: 1,
+                        blockKey: 'blk-0123456789abcdef-2',
+                        canonicalText: 'Block B text',
+                        threadCount: 0,
+                        threads: []
+                    })
+                };
+            }
+        });
+
+        // Request Block A
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Block A',
+                threadCount: 0
+            }
+        });
+
+        // Immediately request Block B (making Block A stale)
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-2',
+                canonicalText: 'Block B',
+                threadCount: 0
+            }
+        });
+
+        // Now resolve stale fetch A with 500 failure
+        resolveFetchA();
+        await new Promise(r => setTimeout(r, 20));
+
+        // Assert: Stale fetch A failure was discarded, no load-failed event emitted for Block A
+        assert.strictEqual(failedEvents.length, 0);
+    });
+
 });
