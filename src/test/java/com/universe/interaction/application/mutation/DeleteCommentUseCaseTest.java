@@ -25,12 +25,17 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
+
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DeleteCommentUseCase Unit Tests")
 class DeleteCommentUseCaseTest {
 
     @Mock
     private CommentRepositoryPort commentRepositoryPort;
+
+    @Mock
+    private CommentRevisionRepositoryPort commentRevisionRepositoryPort;
 
     @Mock
     private ClockPort clockPort;
@@ -48,11 +53,11 @@ class DeleteCommentUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new DeleteCommentUseCase(commentRepositoryPort, clockPort);
+        useCase = new DeleteCommentUseCase(commentRepositoryPort, commentRevisionRepositoryPort, clockPort);
     }
 
     @Test
-    @DisplayName("Should soft-delete (tombstone) own active comment and preserve ancestry with null body")
+    @DisplayName("Should soft-delete (tombstone) own active comment, purge revisions, and preserve ancestry with null body")
     void shouldDeleteOwnActiveCommentSuccessfully() {
         Comment root = Comment.createRoot(ROOT_ID, TARGET, UUID.randomUUID(), "Root body", T1);
         Comment reply = Comment.createReply(REPLY_ID, root, AUTHOR_ID, "Reply body", T2);
@@ -74,11 +79,12 @@ class DeleteCommentUseCaseTest {
         assertThat(tombstone.getDeletedAt()).isEqualTo(T3);
 
         verify(commentRepositoryPort).findByIdForUpdate(REPLY_ID);
+        verify(commentRevisionRepositoryPort).deleteAllByCommentId(REPLY_ID);
         verify(commentRepositoryPort).save(reply);
     }
 
     @Test
-    @DisplayName("Should preserve idempotency on repeated delete without updating timestamp or making redundant save")
+    @DisplayName("Should preserve idempotency on repeated delete without updating timestamp, saving, or re-purging revisions")
     void shouldPreserveIdempotencyOnRepeatedDelete() {
         Comment root = Comment.createRoot(ROOT_ID, TARGET, AUTHOR_ID, "Root body", T1);
         root.delete(T2); // Already deleted at T2
@@ -93,7 +99,8 @@ class DeleteCommentUseCaseTest {
         assertThat(result.getDeletedAt()).isEqualTo(T2);
         assertThat(result.getUpdatedAt()).isEqualTo(T2);
 
-        // Does not call clockPort.now() or commentRepositoryPort.save()
+        // Does not call commentRevisionRepositoryPort.deleteAllByCommentId(), clockPort.now() or commentRepositoryPort.save()
+        verify(commentRevisionRepositoryPort, never()).deleteAllByCommentId(any());
         verify(clockPort, never()).now();
         verify(commentRepositoryPort, never()).save(any());
     }

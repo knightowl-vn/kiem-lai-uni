@@ -8,6 +8,8 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.infrastructure.eligibility.CommentTargetEligibilityAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
 import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQueryPersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
@@ -46,6 +48,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import({
         CommentPersistenceAdapter.class,
         CommentPersistenceMapper.class,
+        CommentRevisionPersistenceAdapter.class,
+        CommentRevisionPersistenceMapper.class,
         CommentTargetEligibilityAdapter.class,
         ReaderChapterAccessQueryPersistenceAdapter.class,
         CreateRootCommentUseCase.class,
@@ -110,6 +114,7 @@ class CommentMutationSpringWiringIntegrationTest {
 
     private void cleanupDatabase() {
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0;");
+        jdbcTemplate.execute("DELETE FROM interaction_comment_revisions;");
         jdbcTemplate.update(
                 "DELETE FROM interaction_comments WHERE target_type = 'NOVEL_CHAPTER' AND target_id IN (?, ?, ?)",
                 CH_PUB_ID.toString(), CH_DRAFT_ID.toString(), CH_IN_DRAFT_VOL_ID.toString()

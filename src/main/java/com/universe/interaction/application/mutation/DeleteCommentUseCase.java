@@ -3,6 +3,7 @@ package com.universe.interaction.application.mutation;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
+import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
@@ -12,19 +13,22 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Use case to soft-delete (tombstone) a comment by its author.
+ * Use case to soft-delete (tombstone) a comment by its author, purging all public revision history for that comment.
  */
 @Service
 public class DeleteCommentUseCase {
 
     private final CommentRepositoryPort commentRepositoryPort;
+    private final CommentRevisionRepositoryPort commentRevisionRepositoryPort;
     private final ClockPort clockPort;
 
     public DeleteCommentUseCase(
             CommentRepositoryPort commentRepositoryPort,
+            CommentRevisionRepositoryPort commentRevisionRepositoryPort,
             ClockPort clockPort
     ) {
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "CommentRepositoryPort cannot be null.");
+        this.commentRevisionRepositoryPort = Objects.requireNonNull(commentRevisionRepositoryPort, "CommentRevisionRepositoryPort cannot be null.");
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
     }
 
@@ -48,11 +52,14 @@ public class DeleteCommentUseCase {
             return comment;
         }
 
-        // 4. Capture delete timestamp once and tombstone
+        // 4. Purge all revisions for this comment in the same transaction
+        commentRevisionRepositoryPort.deleteAllByCommentId(comment.getId());
+
+        // 5. Capture delete timestamp once and tombstone
         Instant deletedAt = clockPort.now();
         comment.delete(deletedAt);
 
-        // 5. Save and return tombstone
+        // 6. Save and return tombstone
         return commentRepositoryPort.save(comment);
     }
 }
