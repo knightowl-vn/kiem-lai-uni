@@ -89,6 +89,21 @@ class FakeElement {
         return child;
     }
 
+    insertBefore(newChild, refChild) {
+        if (!refChild) {
+            return this.appendChild(newChild);
+        }
+        const idx = this.childNodes.indexOf(refChild);
+        if (idx === -1) {
+            return this.appendChild(newChild);
+        }
+        newChild.parentNode = this;
+        newChild.parentElement = this;
+        newChild.ownerDocument = this.ownerDocument;
+        this.childNodes.splice(idx, 0, newChild);
+        return newChild;
+    }
+
     removeChild(child) {
         const idx = this.childNodes.indexOf(child);
         if (idx !== -1) {
@@ -396,21 +411,27 @@ function createStandardFixture(chapterId = 'c1234567-89ab-cdef-0123-456789abcdef
     list.setAttribute('role', 'feed');
     list.setAttribute('aria-busy', 'false');
 
+    const more = doc.createElement('div');
+    more.setAttribute('id', commentsModule.MORE_ID || 'novelChapterCommentsMore');
+    more.className = 'novel-chapter-comments-more';
+    more.hidden = true;
+
     section.appendChild(header);
     section.appendChild(status);
     section.appendChild(list);
+    section.appendChild(more);
 
     doc.body.appendChild(section);
 
-    return { doc, section, header, title, count, status, list, chapterBody, block1, block2 };
+    return { doc, section, header, title, count, status, list, more, chapterBody, block1, block2 };
 }
 
 // Sample feed data fixtures
-function makeFeedResponse(items = [], hasNext = false) {
+function makeFeedResponse(items = [], hasNext = false, page = 0, size = 20) {
     return {
         items: items,
-        page: 0,
-        size: 20,
+        page: page,
+        size: size,
         hasNext: hasNext
     };
 }
@@ -1875,3 +1896,727 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(fullText.includes('Đoạn trích này tuyệt đối không được render'), false);
     });
 });
+
+// ============================================================================
+// Test Suite: Root Comment Pagination (MS-05E5H2E)
+// ============================================================================
+
+describe('MS-05E5H2E Root Comment Pagination', () => {
+
+    afterEach(() => {
+        commentsModule.destroy();
+    });
+
+    test('ROOT-1. page 0 hasNext=false renders no root load-more control', async () => {
+        const { doc, more } = createStandardFixture('c-root-1');
+        const items = [{ rootCommentId: 'r1', author: { displayName: 'A' }, body: 'B1' }];
+        commentsModule.init(doc, {
+            fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, false)) })
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(more.hidden, true);
+        assert.strictEqual(more.querySelector('.novel-chapter-comments-more-btn'), null);
+    });
+
+    test('ROOT-2. page 0 hasNext=true shows "Xem thêm bình luận" button', async () => {
+        const { doc, more } = createStandardFixture('c-root-2');
+        const items = [{ rootCommentId: 'r1', author: { displayName: 'A' }, body: 'B1' }];
+        commentsModule.init(doc, {
+            fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, true)) })
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(more.hidden, false);
+        const btn = more.querySelector('.novel-chapter-comments-more-btn');
+        assert.ok(btn);
+        assert.strictEqual(btn.textContent.trim(), 'Xem thêm bình luận');
+        assert.strictEqual(btn.disabled, false);
+    });
+
+    test('ROOT-3. click root load-more requests page=1&size=20', async () => {
+        const { doc, more } = createStandardFixture('c-root-3');
+        const urls = [];
+        const items0 = [{ rootCommentId: 'r1', author: { displayName: 'A' }, body: 'B1' }];
+        const items1 = [{ rootCommentId: 'r2', author: { displayName: 'B' }, body: 'B2' }];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                urls.push(url);
+                const isPage1 = url.includes('page=1');
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(isPage1 ? items1 : items0, !isPage1, isPage1 ? 1 : 0))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        const btn = more.querySelector('.novel-chapter-comments-more-btn');
+        btn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(urls.length, 2);
+        assert.ok(urls[1].includes('page=1&size=20'));
+    });
+
+    test('ROOT-4 to ROOT-7. page 1 success appends roots after page 0, preserves order and replies, and updates header count', async () => {
+        const { doc, list, count, more } = createStandardFixture('c-root-4');
+        const items0 = [{
+            rootCommentId: 'r1',
+            author: { displayName: 'Root 1' },
+            body: 'B1',
+            replyCount: 1,
+            replies: [{ id: 'rep1', body: 'R1', createdAt: '2026-09-18T10:00:00Z', author: { displayName: 'Rep1' } }]
+        }];
+        const items1 = [{
+            rootCommentId: 'r2',
+            author: { displayName: 'Root 2' },
+            body: 'B2',
+            replyCount: 2,
+            replies: [
+                { id: 'rep2a', body: 'R2A', createdAt: '2026-09-18T10:01:00Z', author: { displayName: 'Rep2A' } },
+                { id: 'rep2b', body: 'R2B', createdAt: '2026-09-18T10:02:00Z', author: { displayName: 'Rep2B' } }
+            ]
+        }];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isPage1 = url.includes('page=1');
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(isPage1 ? items1 : items0, !isPage1, isPage1 ? 1 : 0))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(count.textContent, '2 bình luận'); // 1 root + 1 reply
+
+        const btn = more.querySelector('.novel-chapter-comments-more-btn');
+        btn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        const threadCards = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(threadCards.length, 2);
+        assert.strictEqual(threadCards[0].getAttribute('data-root-id'), 'r1');
+        assert.strictEqual(threadCards[1].getAttribute('data-root-id'), 'r2');
+
+        const repCards = threadCards[1].querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(repCards.length, 2);
+        assert.strictEqual(repCards[0].getAttribute('data-reply-id'), 'rep2a');
+        assert.strictEqual(repCards[1].getAttribute('data-reply-id'), 'rep2b');
+
+        // Header count: (1 + 1) + (1 + 2) = 5 bình luận
+        assert.strictEqual(count.textContent, '5 bình luận');
+    });
+
+    test('ROOT-8 & ROOT-9. page 1 hasNext=true leaves more button; final page hasNext=false hides more container', async () => {
+        const { doc, more } = createStandardFixture('c-root-8');
+        let pageReq = 0;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                pageReq++;
+                const isPage2 = url.includes('page=2');
+                const hasNext = !isPage2; // page 0 -> true, page 1 -> true, page 2 -> false
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r' + pageReq, author: { displayName: 'U' }, body: 'B' }], hasNext))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(more.hidden, false);
+
+        // Click 1: page 1 (hasNext=true)
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(more.hidden, false);
+
+        // Click 2: page 2 (hasNext=false)
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(more.hidden, true);
+        assert.strictEqual(more.querySelector('.novel-chapter-comments-more-btn'), null);
+    });
+
+    test('ROOT-10. double click while page 1 pending creates exactly one page-1 request', async () => {
+        const { doc, more } = createStandardFixture('c-root-10');
+        let page1Calls = 0;
+        let resolvePage1;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    page1Calls++;
+                    return new Promise((res) => { resolvePage1 = res; });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r0', author: { displayName: 'U' }, body: 'B' }], true))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        const btn = more.querySelector('.novel-chapter-comments-more-btn');
+        btn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        btn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(page1Calls, 1);
+        resolvePage1({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r1', author: { displayName: 'U' }, body: 'B' }], false, 1)) });
+        await new Promise(r => setTimeout(r, 10));
+    });
+
+    test('ROOT-11 to ROOT-14. page 1 failure leaves cards intact, shows local error, advances no page, and retry requests page 1 again', async () => {
+        const { doc, list, status, more } = createStandardFixture('c-root-11');
+        let attempt = 0;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    attempt++;
+                    if (attempt === 1) {
+                        return Promise.resolve({ ok: false, status: 500 });
+                    }
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r1', author: { displayName: 'U1' }, body: 'B1' }], false, 1))
+                    });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r0', author: { displayName: 'U0' }, body: 'B0' }], true, 0))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+
+        // Click load more -> page 1 fails
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Existing cards remain (ROOT-11)
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+        // Initial/full-section error UI is NOT rendered (ROOT-12)
+        assert.strictEqual(status.childNodes.length, 0);
+        // Local error state in more container
+        const errorEl = more.querySelector('.novel-chapter-comments-more-error');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.querySelector('.novel-chapter-comments-more-error-text').textContent, 'Không thể tải thêm bình luận.');
+        // currentPage still 0 (ROOT-14)
+        assert.strictEqual(commentsModule.getState().currentPage, 0);
+
+        // Click retry in more container (ROOT-13)
+        const retryBtn = errorEl.querySelector('.novel-chapter-comments-more-retry-btn');
+        assert.ok(retryBtn);
+        retryBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Successful retry advances currentPage and appends cards
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+    });
+
+    test('ROOT-15. Chapter A page 1 resolves after switching to Chapter B does not append Chapter A data', async () => {
+        const { doc, list } = createStandardFixture('cA');
+        let resolveChapAPage1;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('cA') && url.includes('page=1')) {
+                    return new Promise((res) => { resolveChapAPage1 = res; });
+                }
+                if (url.includes('cB')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'rB0', author: { displayName: 'UB' }, body: 'B0' }], false))
+                    });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'rA0', author: { displayName: 'UA' }, body: 'A0' }], true))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        // Start load more for cA
+        doc.getElementById(commentsModule.MORE_ID).querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Switch to Chapter B
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'cB' } });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Now resolve Chapter A page 1 late
+        resolveChapAPage1({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'rA1-late', author: { displayName: 'UA1' }, body: 'A1' }], false, 1))
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const threads = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-root-id'), 'rB0');
+    });
+
+    test('ROOT-16. new page-0/reset fetch invalidates old page-N response', async () => {
+        const { doc, list } = createStandardFixture('c16');
+        let resolvePage1;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    return new Promise((res) => { resolvePage1 = res; });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r0-initial', author: { displayName: 'U' }, body: 'B0' }], true))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        doc.getElementById(commentsModule.MORE_ID).querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Trigger reset fetchFeed
+        commentsModule.retry();
+        await new Promise(r => setTimeout(r, 10));
+
+        // Resolve old page 1
+        resolvePage1({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r1-stale', author: { displayName: 'U' }, body: 'B1' }], false, 1))
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const threads = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-root-id'), 'r0-initial');
+    });
+
+    test('ROOT-17. destroy invalidates old page-N response', async () => {
+        const { doc } = createStandardFixture('c17');
+        let resolvePage1;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    return new Promise((res) => { resolvePage1 = res; });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r0', author: { displayName: 'U' }, body: 'B0' }], true))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        doc.getElementById(commentsModule.MORE_ID).querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        commentsModule.destroy();
+        assert.doesNotThrow(() => {
+            resolvePage1({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r1', author: { displayName: 'U' }, body: 'B1' }], false, 1))
+            });
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(commentsModule.getState().status, 'idle');
+    });
+
+    test('ROOT-18 & ROOT-19. duplicate root is skipped and nonduplicates around it preserve relative order', async () => {
+        const { doc, list } = createStandardFixture('c18');
+        const page0 = [
+            { rootCommentId: 'r-A', author: { displayName: 'A' }, body: 'Body A' }
+        ];
+        const page1 = [
+            { rootCommentId: 'r-A', author: { displayName: 'A-dup' }, body: 'Body A duplicate' },
+            { rootCommentId: 'r-B', author: { displayName: 'B' }, body: 'Body B' },
+            { rootCommentId: 'r-C', author: { displayName: 'C' }, body: 'Body C' }
+        ];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isPage1 = url.includes('page=1');
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(isPage1 ? page1 : page0, !isPage1, isPage1 ? 1 : 0))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        doc.getElementById(commentsModule.MORE_ID).querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        const threads = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(threads.length, 3);
+        assert.strictEqual(threads[0].getAttribute('data-root-id'), 'r-A');
+        assert.strictEqual(threads[1].getAttribute('data-root-id'), 'r-B');
+        assert.strictEqual(threads[2].getAttribute('data-root-id'), 'r-C');
+    });
+
+    test('ROOT-20 to ROOT-23. appended root and replies preserve origin navigation and tombstone menu rules', async () => {
+        const { doc, list } = createStandardFixture('c20');
+        let bridgeTarget = null;
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }];
+        const page1 = [
+            {
+                rootCommentId: 'r-curr',
+                author: { displayName: 'RCurr' },
+                body: 'Current root',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replies: [
+                    { id: 'rep-curr-active', body: 'Active rep', tombstone: false, author: { displayName: 'RepAct' } },
+                    { id: 'rep-curr-tomb', body: 'Tomb rep', tombstone: true }
+                ]
+            },
+            {
+                rootCommentId: 'r-stale',
+                author: { displayName: 'RStale' },
+                body: 'Stale root',
+                anchorStatus: 'STALE',
+                blockKey: 'blk-test-2',
+                replies: []
+            }
+        ];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isPage1 = url.includes('page=1');
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(isPage1 ? page1 : page0, !isPage1, isPage1 ? 1 : 0))
+                });
+            },
+            openDiscussionTarget: (t) => { bridgeTarget = t; }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        doc.getElementById(commentsModule.MORE_ID).querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        const threads = list.querySelectorAll('.novel-block-discussion-thread');
+        const currThread = threads[1];
+        const staleThread = threads[2];
+
+        // ROOT-20: appended CURRENT root has ⋯
+        const rootTrigger = currThread.querySelector('.novel-comment--root .novel-comment-menu-trigger');
+        assert.ok(rootTrigger);
+
+        // ROOT-21: appended active reply targets ROOT rootCommentId
+        const activeRep = currThread.querySelectorAll('.novel-comment--reply')[0];
+        const repTrigger = activeRep.querySelector('.novel-comment-menu-trigger');
+        assert.ok(repTrigger);
+        repTrigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        const originBtn = currThread.querySelector('.novel-comment--reply .novel-comment-menu-item');
+        originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.ok(bridgeTarget);
+        assert.strictEqual(bridgeTarget.threadId, 'r-curr');
+        assert.strictEqual(bridgeTarget.blockKey, 'blk-test-1');
+
+        // ROOT-22: appended STALE root has no menu
+        assert.strictEqual(staleThread.querySelector('.novel-comment-menu-trigger'), null);
+
+        // ROOT-23: appended tombstone reply has no menu
+        const tombEl = currThread.querySelector('.is-tombstone');
+        assert.ok(tombEl);
+        assert.strictEqual(tombEl.querySelector('.novel-comment-menu-trigger'), null);
+    });
+
+    test('ROOT-24. root load-more causes no Reader paragraph scroll', async () => {
+        const { doc, block1, more } = createStandardFixture('c24');
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }];
+        const page1 = [{ rootCommentId: 'r1', author: { displayName: 'R1' }, body: 'B1' }];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isP1 = url.includes('page=1');
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(isP1 ? page1 : page0, !isP1, isP1 ? 1 : 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined);
+    });
+
+    test('ROOT-25. initial retry retains page-0 semantics', async () => {
+        const { doc, status } = createStandardFixture('c25');
+        const urls = [];
+        let first = true;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                urls.push(url);
+                if (first) {
+                    first = false;
+                    return Promise.resolve({ ok: false, status: 500 });
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([], false, 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        const retryBtn = status.querySelector('.novel-chapter-comments-retry-btn');
+        retryBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(urls.length, 2);
+        assert.ok(urls[0].includes('page=0'));
+        assert.ok(urls[1].includes('page=0'));
+    });
+
+    test('ROOT-26. chapter change resets root pagination to page 0', async () => {
+        const { doc, more } = createStandardFixture('c26-A');
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isP1 = url.includes('page=1');
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r', author: { displayName: 'U' }, body: 'B' }], !isP1, isP1 ? 1 : 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'c26-B' } });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(commentsModule.getState().currentPage, 0);
+    });
+});
+
+// ============================================================================
+// Test Suite: Per-Thread Reply Progressive Reveal (MS-05E5H2E)
+// ============================================================================
+
+describe('MS-05E5H2E Per-Thread Reply Progressive Reveal', () => {
+
+    afterEach(() => {
+        commentsModule.destroy();
+    });
+
+    test('REPLY-1 to REPLY-4. 0 to 3 replies render directly with no expansion control', async () => {
+        const { doc, list } = createStandardFixture('c-rep-1');
+        const makeThread = (id, count) => {
+            const replies = [];
+            for (let i = 0; i < count; i++) {
+                replies.push({ id: id + '-rep-' + i, body: 'R' + i, author: { displayName: 'User' } });
+            }
+            return { rootCommentId: id, author: { displayName: 'Root' }, body: 'Body', replies: replies };
+        };
+        const items = [makeThread('t0', 0), makeThread('t1', 1), makeThread('t2', 2), makeThread('t3', 3)];
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        const cards = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(cards[0].querySelector('.novel-comment-replies'), null); // REPLY-1
+        assert.strictEqual(cards[1].querySelectorAll('.novel-comment--reply').length, 1); // REPLY-2
+        assert.strictEqual(cards[1].querySelector('.novel-comment-replies-more'), null);
+        assert.strictEqual(cards[2].querySelectorAll('.novel-comment--reply').length, 2); // REPLY-3
+        assert.strictEqual(cards[2].querySelector('.novel-comment-replies-more'), null);
+        assert.strictEqual(cards[3].querySelectorAll('.novel-comment--reply').length, 3); // REPLY-4
+        assert.strictEqual(cards[3].querySelector('.novel-comment-replies-more'), null);
+    });
+
+    test('REPLY-5. 4 delivered reply items initially renders 3 with "Xem thêm 1 phản hồi"', async () => {
+        const { doc, list } = createStandardFixture('c-rep-5');
+        const replies = [1, 2, 3, 4].map(n => ({ id: 'rep-' + n, body: 'R' + n, author: { displayName: 'U' } }));
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r4', author: { displayName: 'R' }, body: 'B', replies: replies }])) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        const card = list.querySelector('.novel-block-discussion-thread');
+        assert.strictEqual(card.querySelectorAll('.novel-comment--reply').length, 3);
+        const moreBtn = card.querySelector('.novel-comment-replies-more-btn');
+        assert.ok(moreBtn);
+        assert.strictEqual(moreBtn.textContent.trim(), 'Xem thêm 1 phản hồi');
+    });
+
+    test('REPLY-6 to REPLY-8. 12 replies shows "Xem thêm 9 phản hồi", 1st click reveals +5 ("Xem thêm 4 phản hồi"), 2nd click reveals all 12 and removes control', async () => {
+        const { doc, list } = createStandardFixture('c-rep-6');
+        const replies = [];
+        for (let i = 1; i <= 12; i++) {
+            replies.push({ id: 'rep-' + i, body: 'Reply ' + i, author: { displayName: 'U' + i } });
+        }
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r12', author: { displayName: 'R' }, body: 'B', replies: replies }])) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        const card = list.querySelector('.novel-block-discussion-thread');
+        // Initial (REPLY-6)
+        assert.strictEqual(card.querySelectorAll('.novel-comment--reply').length, 3);
+        let moreBtn = card.querySelector('.novel-comment-replies-more-btn');
+        assert.strictEqual(moreBtn.textContent.trim(), 'Xem thêm 9 phản hồi');
+
+        // First click (REPLY-7)
+        moreBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(card.querySelectorAll('.novel-comment--reply').length, 8);
+        assert.strictEqual(moreBtn.textContent.trim(), 'Xem thêm 4 phản hồi');
+
+        // Second click (REPLY-8)
+        moreBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(card.querySelectorAll('.novel-comment--reply').length, 12);
+        assert.strictEqual(card.querySelector('.novel-comment-replies-more'), null);
+    });
+
+    test('REPLY-9 & REPLY-10. reply order remains exact delivered order and expansion triggers ZERO fetch calls', async () => {
+        const { doc, list } = createStandardFixture('c-rep-9');
+        let fetchCount = 0;
+        const replies = [
+            { id: 'rep-alpha', createdAt: '2026-09-18T10:00:00Z', body: 'Alpha', author: { displayName: 'U1' } },
+            { id: 'rep-beta', createdAt: '2026-09-18T10:01:00Z', body: 'Beta', author: { displayName: 'U2' } },
+            { id: 'rep-gamma', createdAt: '2026-09-18T10:02:00Z', body: 'Gamma', author: { displayName: 'U3' } },
+            { id: 'rep-delta', createdAt: '2026-09-18T10:03:00Z', body: 'Delta', author: { displayName: 'U4' } }
+        ];
+        commentsModule.init(doc, {
+            fetch: () => {
+                fetchCount++;
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-ord', author: { displayName: 'R' }, body: 'B', replies: replies }])) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(fetchCount, 1);
+
+        const card = list.querySelector('.novel-block-discussion-thread');
+        card.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Zero additional fetches (REPLY-10)
+        assert.strictEqual(fetchCount, 1);
+
+        // Exact order preserved (REPLY-9)
+        const repEls = card.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(repEls.length, 4);
+        assert.strictEqual(repEls[0].getAttribute('data-reply-id'), 'rep-alpha');
+        assert.strictEqual(repEls[1].getAttribute('data-reply-id'), 'rep-beta');
+        assert.strictEqual(repEls[2].getAttribute('data-reply-id'), 'rep-gamma');
+        assert.strictEqual(repEls[3].getAttribute('data-reply-id'), 'rep-delta');
+    });
+
+    test('REPLY-11 & REPLY-12. expanding Root A does not expand Root B; appending new root page preserves Root A expanded state', async () => {
+        const { doc, list, more } = createStandardFixture('c-rep-11');
+        const makeReplies = (prefix, n) => {
+            const arr = [];
+            for (let i = 1; i <= n; i++) arr.push({ id: prefix + '-' + i, body: 'R' + i, author: { displayName: 'U' } });
+            return arr;
+        };
+        const page0 = [
+            { rootCommentId: 'rA', author: { displayName: 'A' }, body: 'BA', replies: makeReplies('rA', 8) },
+            { rootCommentId: 'rB', author: { displayName: 'B' }, body: 'BB', replies: makeReplies('rB', 6) }
+        ];
+        const page1 = [
+            { rootCommentId: 'rC', author: { displayName: 'C' }, body: 'BC', replies: makeReplies('rC', 4) }
+        ];
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                const isP1 = url.includes('page=1');
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(isP1 ? page1 : page0, !isP1, isP1 ? 1 : 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const cards = list.querySelectorAll('.novel-block-discussion-thread');
+        // Expand Root A
+        cards[0].querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Root A has 8 (3 + 5), Root B still has 3 (REPLY-11)
+        assert.strictEqual(cards[0].querySelectorAll('.novel-comment--reply').length, 8);
+        assert.strictEqual(cards[1].querySelectorAll('.novel-comment--reply').length, 3);
+
+        // Load page 1
+        more.querySelector('.novel-chapter-comments-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Root A still has 8 replies rendered! (REPLY-12)
+        const updatedCards = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(updatedCards.length, 3);
+        assert.strictEqual(updatedCards[0].querySelectorAll('.novel-comment--reply').length, 8);
+    });
+
+    test('REPLY-13 & REPLY-14. header count reflects authoritative active replies even when collapsed, and tombstones do not increase active count', async () => {
+        const { doc, count } = createStandardFixture('c-rep-13');
+        const replies = [
+            { id: 'rep-tomb', tombstone: true },
+            { id: 'rep-act1', tombstone: false, author: { displayName: 'U1' } },
+            { id: 'rep-act2', tombstone: false, author: { displayName: 'U2' } }
+        ];
+        // 1 root + replyCount: 2 -> header count must be 3
+        const items = [{
+            rootCommentId: 'r1',
+            author: { displayName: 'Root' },
+            body: 'Body',
+            replyCount: 2,
+            replies: replies
+        }];
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(count.textContent, '3 bình luận');
+    });
+
+    test('REPLY-15 to REPLY-18. newly revealed replies have ⋯ targeting ROOT rootCommentId, tombstones have no menu, and nested mention resolves', async () => {
+        const { doc, list } = createStandardFixture('c-rep-15');
+        let bridgePayload = null;
+        const replies = [
+            { id: 'rep-1', author: { displayName: 'Alice' }, body: 'R1' },
+            { id: 'rep-2', author: { displayName: 'Bob' }, body: 'R2' },
+            { id: 'rep-3', author: { displayName: 'Charlie' }, body: 'R3' },
+            // Batch 2:
+            { id: 'rep-4-nested', parentCommentId: 'rep-1', author: { displayName: 'David' }, body: 'R4 nested' },
+            { id: 'rep-5-tomb', parentCommentId: 'rep-1', tombstone: true }
+        ];
+        const item = {
+            rootCommentId: 'r-root-target',
+            anchorStatus: 'CURRENT',
+            blockKey: 'blk-test-1',
+            author: { displayName: 'RootOwner' },
+            body: 'Root text',
+            replies: replies
+        };
+        commentsModule.init(doc, {
+            fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([item])) }),
+            openDiscussionTarget: (t) => { bridgePayload = t; }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const card = list.querySelector('.novel-block-discussion-thread');
+        // Reveal batch 2
+        card.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        const renderedReplies = card.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(renderedReplies.length, 5);
+
+        // REPLY-18: nested reply has @Alice mention
+        const nestedReply = renderedReplies[3];
+        const mention = nestedReply.querySelector('.novel-comment-reply-mention');
+        assert.ok(mention);
+        assert.strictEqual(mention.textContent, '@Alice');
+
+        // REPLY-15 & REPLY-16: newly revealed CURRENT nested reply has ⋯ and sends ROOT rootCommentId
+        const trigger = nestedReply.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger);
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        const originBtn = nestedReply.querySelector('.novel-comment-menu-item');
+        originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.ok(bridgePayload);
+        assert.strictEqual(bridgePayload.threadId, 'r-root-target');
+        assert.strictEqual(bridgePayload.blockKey, 'blk-test-1');
+
+        // REPLY-17: newly revealed tombstone has no menu
+        const tombReply = renderedReplies[4];
+        assert.ok(tombReply.classList.contains('is-tombstone'));
+        assert.strictEqual(tombReply.querySelector('.novel-comment-menu-trigger'), null);
+    });
+
+    test('REPLY-19 & REPLY-20. reply expansion causes no Reader scroll and does not alter URL', async () => {
+        const { doc, list, block1 } = createStandardFixture('c-rep-19');
+        const replies = [1, 2, 3, 4, 5].map(n => ({ id: 'rep-' + n, body: 'R' + n, author: { displayName: 'U' } }));
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r', author: { displayName: 'R' }, body: 'B', replies: replies }])) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        list.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined);
+    });
+
+    test('REPLY-21 & REPLY-22. chapter change and full initial retry reset reply reveal state', async () => {
+        const { doc, list } = createStandardFixture('c-rep-21');
+        const replies = [1, 2, 3, 4, 5, 6].map(n => ({ id: 'rep-' + n, body: 'R' + n, author: { displayName: 'U' } }));
+        commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r', author: { displayName: 'R' }, body: 'B', replies: replies }])) }) });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Expand to all 6
+        list.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(list.querySelectorAll('.novel-comment--reply').length, 6);
+
+        // REPLY-22: retryFetch resets to initial 3
+        commentsModule.retry();
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-comment--reply').length, 3);
+
+        // Expand again
+        list.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(list.querySelectorAll('.novel-comment--reply').length, 6);
+
+        // REPLY-21: chapter change resets to initial 3
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'c-rep-21-new' } });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-comment--reply').length, 3);
+    });
+});
+

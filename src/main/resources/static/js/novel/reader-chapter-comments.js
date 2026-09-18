@@ -34,8 +34,12 @@
     const COUNT_ID = 'novelChapterCommentsCount';
     const STATUS_ID = 'novelChapterCommentsStatus';
     const LIST_ID = 'novelChapterCommentsList';
+    const MORE_ID = 'novelChapterCommentsMore';
 
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
+
+    const INITIAL_VISIBLE_REPLIES = 3;
+    const REPLY_REVEAL_BATCH_SIZE = 5;
 
     // Internal module state
     let currentDoc = null;
@@ -45,6 +49,9 @@
     let loadToken = 0;
     let currentStatus = 'idle'; // 'idle' | 'loading' | 'empty' | 'populated' | 'error'
     let currentItems = [];
+    let currentPage = 0;
+    let hasNext = false;
+    let isLoadingMore = false;
     let chapterChangedHandler = null;
     let documentClickHandler = null;
     let documentKeydownHandler = null;
@@ -281,14 +288,79 @@
     function getElements() {
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         if (!doc) {
-            return { sectionEl: null, listEl: null, statusEl: null, countEl: null };
+            return { sectionEl: null, listEl: null, statusEl: null, countEl: null, moreEl: null };
         }
         return {
             sectionEl: doc.getElementById(SECTION_ID),
             listEl: doc.getElementById(LIST_ID),
             statusEl: doc.getElementById(STATUS_ID),
-            countEl: doc.getElementById(COUNT_ID)
+            countEl: doc.getElementById(COUNT_ID),
+            moreEl: doc.getElementById(MORE_ID)
         };
+    }
+
+    /**
+     * Calculates total loaded active comment count (roots + active replies).
+     * Tombstones contribute 0 to the count.
+     *
+     * @param {Array} items
+     * @returns {number}
+     */
+    function getActiveCommentCount(items) {
+        if (!Array.isArray(items)) {
+            return 0;
+        }
+        return items.reduce(function (sum, it) {
+            if (!it) return sum;
+            let repliesActive = 0;
+            if (Number.isSafeInteger(Number(it.replyCount)) && it.replyCount !== null && it.replyCount !== undefined) {
+                repliesActive = Number(it.replyCount);
+            } else if (Array.isArray(it.replies)) {
+                repliesActive = it.replies.filter(function (r) {
+                    return r && r.tombstone !== true && r.status !== 'DELETED';
+                }).length;
+            }
+            return sum + 1 + repliesActive;
+        }, 0);
+    }
+
+    /**
+     * Deduplicates incoming root items against already accepted items.
+     * Preserves relative order of non-duplicate roots.
+     *
+     * @param {Array} existingItems
+     * @param {Array} newItems
+     * @returns {Array}
+     */
+    function deduplicateRoots(existingItems, newItems) {
+        const existingKeys = new Set();
+        if (Array.isArray(existingItems)) {
+            for (let i = 0; i < existingItems.length; i++) {
+                const it = existingItems[i];
+                if (!it) continue;
+                const key = it.rootCommentId || it.id;
+                if (key != null) {
+                    existingKeys.add(String(key));
+                }
+            }
+        }
+
+        const accepted = [];
+        if (Array.isArray(newItems)) {
+            for (let j = 0; j < newItems.length; j++) {
+                const it = newItems[j];
+                if (!it) continue;
+                const key = it.rootCommentId || it.id;
+                if (key != null && existingKeys.has(String(key))) {
+                    continue;
+                }
+                accepted.push(it);
+                if (key != null) {
+                    existingKeys.add(String(key));
+                }
+            }
+        }
+        return accepted;
     }
 
     /**
@@ -548,6 +620,144 @@
      * @param {Document} doc
      * @returns {Element}
      */
+    /**
+     * Renders an individual reply card (active or tombstone).
+     *
+     * @param {Object} reply
+     * @param {Object} rootItem
+     * @param {Array} allReplies
+     * @param {Object} commentLookup
+     * @param {Document} doc
+     * @returns {Element}
+     */
+    function renderReply(reply, rootItem, allReplies, commentLookup, doc) {
+        const rootId = rootItem.rootCommentId || rootItem.id;
+        const strRootId = rootId ? String(rootId) : '';
+
+        const replyEl = doc.createElement('article');
+        replyEl.className = 'novel-comment novel-comment--reply';
+        if (reply.id) {
+            replyEl.setAttribute('data-reply-id', String(reply.id));
+            replyEl.setAttribute('data-comment-id', String(reply.id));
+        }
+
+        const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
+        if (isTombstone) {
+            if (replyEl.classList && typeof replyEl.classList.add === 'function') {
+                replyEl.classList.add('is-tombstone');
+            }
+            const tombstoneBody = doc.createElement('div');
+            tombstoneBody.className = 'novel-comment-body novel-comment-body--tombstone';
+
+            const contextChildDisplayName = (reply.id)
+                ? resolveTombstoneContextChildDisplayName(allReplies, reply.id)
+                : null;
+
+            if (contextChildDisplayName) {
+                const prefixSpan = doc.createElement('span');
+                prefixSpan.textContent = 'Bình luận mà ';
+
+                const mentionSpan = doc.createElement('span');
+                mentionSpan.className = 'novel-comment-reply-mention';
+                mentionSpan.textContent = '@' + contextChildDisplayName;
+
+                const suffixSpan = doc.createElement('span');
+                suffixSpan.textContent = ' phản hồi đã bị xóa.';
+
+                tombstoneBody.appendChild(prefixSpan);
+                tombstoneBody.appendChild(mentionSpan);
+                tombstoneBody.appendChild(suffixSpan);
+            } else {
+                tombstoneBody.textContent = 'Bình luận đã bị xóa.';
+            }
+
+            replyEl.appendChild(tombstoneBody);
+        } else {
+            const repAuthorUserId = (reply.author && reply.author.userId) || reply.authorUserId;
+            if (repAuthorUserId) {
+                replyEl.setAttribute('data-author-user-id', String(repAuthorUserId));
+            }
+
+            const replyHeader = doc.createElement('header');
+            replyHeader.className = 'novel-comment-header';
+
+            renderAuthorPresentation(replyHeader, reply.author, doc);
+
+            const replyTimeStr = formatTimestamp(reply.createdAt);
+            if (replyTimeStr) {
+                const replyTime = doc.createElement('time');
+                replyTime.className = 'novel-comment-time';
+                replyTime.setAttribute('datetime', String(reply.createdAt));
+                replyTime.textContent = replyTimeStr;
+                replyHeader.appendChild(replyTime);
+            }
+
+            if (isCommentEdited(reply)) {
+                const replyEdited = doc.createElement('span');
+                replyEdited.className = 'novel-comment-edited';
+                replyEdited.textContent = 'đã chỉnh sửa';
+                replyHeader.appendChild(replyEdited);
+            }
+
+            // Active reply inherits root anchorStatus and root blockKey
+            if (isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey)) {
+                const replyMenu = createActionsMenu(rootItem.blockKey, rootId, doc);
+                replyHeader.appendChild(replyMenu);
+            }
+
+            const replyBody = doc.createElement('div');
+            replyBody.className = 'novel-comment-body';
+
+            // Resolve immediate parent for Wattpad-style nested reply mention
+            let parentDisplayName = null;
+            const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
+            if (parentId && parentId !== strRootId) {
+                const immediateParent = commentLookup ? commentLookup[parentId] : null;
+                if (immediateParent) {
+                    const isParentTombstone = immediateParent.tombstone === true || immediateParent.status === 'DELETED';
+                    if (!isParentTombstone) {
+                        const parentAuthor = (immediateParent.author && typeof immediateParent.author === 'object')
+                            ? immediateParent.author
+                            : null;
+                        const rawParentName = (parentAuthor && typeof parentAuthor.displayName === 'string')
+                            ? parentAuthor.displayName.trim()
+                            : '';
+                        if (rawParentName) {
+                            parentDisplayName = rawParentName;
+                        }
+                    }
+                }
+            }
+
+            if (parentDisplayName) {
+                const mentionSpan = doc.createElement('span');
+                mentionSpan.className = 'novel-comment-reply-mention';
+                mentionSpan.textContent = '@' + parentDisplayName;
+
+                const bodyTextSpan = doc.createElement('span');
+                bodyTextSpan.className = 'novel-comment-reply-body-text';
+                bodyTextSpan.textContent = reply.body || '';
+
+                replyBody.appendChild(mentionSpan);
+                replyBody.appendChild(bodyTextSpan);
+            } else {
+                replyBody.textContent = reply.body || '';
+            }
+
+            replyEl.appendChild(replyHeader);
+            replyEl.appendChild(replyBody);
+        }
+
+        return replyEl;
+    }
+
+    /**
+     * Renders a single discussion thread card (root comment + visible replies with progressive reveal).
+     *
+     * @param {Object} item ChapterDiscussionFeedItemDTO
+     * @param {Document} doc
+     * @returns {Element}
+     */
     function renderThread(item, doc) {
         const rootId = item.rootCommentId || item.id;
         const threadCard = doc.createElement('article');
@@ -604,7 +814,7 @@
 
         threadCard.appendChild(rootEl);
 
-        // Replies container
+        // Replies container with per-thread progressive reveal
         const replies = Array.isArray(item.replies) ? item.replies : [];
         if (replies.length > 0) {
             const repliesContainer = doc.createElement('div');
@@ -628,127 +838,56 @@
                 }
             }
 
-            const strRootId = rootId ? String(rootId) : '';
+            let revealedCount = Math.min(replies.length, INITIAL_VISIBLE_REPLIES);
 
-            for (let j = 0; j < replies.length; j++) {
+            for (let j = 0; j < revealedCount; j++) {
                 const reply = replies[j];
                 if (!reply) continue;
+                const replyEl = renderReply(reply, item, replies, commentLookup, doc);
+                repliesContainer.appendChild(replyEl);
+            }
 
-                const replyEl = doc.createElement('article');
-                replyEl.className = 'novel-comment novel-comment--reply';
-                if (reply.id) {
-                    replyEl.setAttribute('data-reply-id', String(reply.id));
-                    replyEl.setAttribute('data-comment-id', String(reply.id));
-                }
+            if (replies.length > revealedCount) {
+                const moreContainer = doc.createElement('div');
+                moreContainer.className = 'novel-comment-replies-more';
 
-                const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
-                if (isTombstone) {
-                    if (replyEl.classList && typeof replyEl.classList.add === 'function') {
-                        replyEl.classList.add('is-tombstone');
+                const moreBtn = doc.createElement('button');
+                moreBtn.type = 'button';
+                moreBtn.className = 'novel-comment-replies-more-btn';
+
+                const updateBtnLabel = function () {
+                    const remaining = replies.length - revealedCount;
+                    moreBtn.textContent = 'Xem thêm ' + remaining + ' phản hồi';
+                };
+                updateBtnLabel();
+
+                moreBtn.addEventListener('click', function (e) {
+                    if (e && typeof e.preventDefault === 'function') {
+                        e.preventDefault();
                     }
-                    const tombstoneBody = doc.createElement('div');
-                    tombstoneBody.className = 'novel-comment-body novel-comment-body--tombstone';
-
-                    const contextChildDisplayName = (reply.id)
-                        ? resolveTombstoneContextChildDisplayName(replies, reply.id)
-                        : null;
-
-                    if (contextChildDisplayName) {
-                        const prefixSpan = doc.createElement('span');
-                        prefixSpan.textContent = 'Bình luận mà ';
-
-                        const mentionSpan = doc.createElement('span');
-                        mentionSpan.className = 'novel-comment-reply-mention';
-                        mentionSpan.textContent = '@' + contextChildDisplayName;
-
-                        const suffixSpan = doc.createElement('span');
-                        suffixSpan.textContent = ' phản hồi đã bị xóa.';
-
-                        tombstoneBody.appendChild(prefixSpan);
-                        tombstoneBody.appendChild(mentionSpan);
-                        tombstoneBody.appendChild(suffixSpan);
-                    } else {
-                        tombstoneBody.textContent = 'Bình luận đã bị xóa.';
-                    }
-
-                    replyEl.appendChild(tombstoneBody);
-                } else {
-                    const repAuthorUserId = (reply.author && reply.author.userId) || reply.authorUserId;
-                    if (repAuthorUserId) {
-                        replyEl.setAttribute('data-author-user-id', String(repAuthorUserId));
-                    }
-
-                    const replyHeader = doc.createElement('header');
-                    replyHeader.className = 'novel-comment-header';
-
-                    renderAuthorPresentation(replyHeader, reply.author, doc);
-
-                    const replyTimeStr = formatTimestamp(reply.createdAt);
-                    if (replyTimeStr) {
-                        const replyTime = doc.createElement('time');
-                        replyTime.className = 'novel-comment-time';
-                        replyTime.setAttribute('datetime', String(reply.createdAt));
-                        replyTime.textContent = replyTimeStr;
-                        replyHeader.appendChild(replyTime);
-                    }
-
-                    if (isCommentEdited(reply)) {
-                        const replyEdited = doc.createElement('span');
-                        replyEdited.className = 'novel-comment-edited';
-                        replyEdited.textContent = 'đã chỉnh sửa';
-                        replyHeader.appendChild(replyEdited);
-                    }
-
-                    // Active reply inherits root anchorStatus and root blockKey
-                    if (isOriginNavigable(item.anchorStatus, item.blockKey)) {
-                        const replyMenu = createActionsMenu(item.blockKey, rootId, doc);
-                        replyHeader.appendChild(replyMenu);
-                    }
-
-                    const replyBody = doc.createElement('div');
-                    replyBody.className = 'novel-comment-body';
-
-                    // Resolve immediate parent for Wattpad-style nested reply mention
-                    let parentDisplayName = null;
-                    const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
-                    if (parentId && parentId !== strRootId) {
-                        const immediateParent = commentLookup[parentId];
-                        if (immediateParent) {
-                            const isParentTombstone = immediateParent.tombstone === true || immediateParent.status === 'DELETED';
-                            if (!isParentTombstone) {
-                                const parentAuthor = (immediateParent.author && typeof immediateParent.author === 'object')
-                                    ? immediateParent.author
-                                    : null;
-                                const rawParentName = (parentAuthor && typeof parentAuthor.displayName === 'string')
-                                    ? parentAuthor.displayName.trim()
-                                    : '';
-                                if (rawParentName) {
-                                    parentDisplayName = rawParentName;
-                                }
-                            }
+                    const nextCount = Math.min(revealedCount + REPLY_REVEAL_BATCH_SIZE, replies.length);
+                    for (let r = revealedCount; r < nextCount; r++) {
+                        const rep = replies[r];
+                        if (!rep) continue;
+                        const repEl = renderReply(rep, item, replies, commentLookup, doc);
+                        if (typeof repliesContainer.insertBefore === 'function') {
+                            repliesContainer.insertBefore(repEl, moreContainer);
+                        } else {
+                            repliesContainer.appendChild(repEl);
                         }
                     }
-
-                    if (parentDisplayName) {
-                        const mentionSpan = doc.createElement('span');
-                        mentionSpan.className = 'novel-comment-reply-mention';
-                        mentionSpan.textContent = '@' + parentDisplayName;
-
-                        const bodyTextSpan = doc.createElement('span');
-                        bodyTextSpan.className = 'novel-comment-reply-body-text';
-                        bodyTextSpan.textContent = reply.body || '';
-
-                        replyBody.appendChild(mentionSpan);
-                        replyBody.appendChild(bodyTextSpan);
+                    revealedCount = nextCount;
+                    if (revealedCount >= replies.length) {
+                        if (moreContainer.parentNode && typeof moreContainer.parentNode.removeChild === 'function') {
+                            moreContainer.parentNode.removeChild(moreContainer);
+                        }
                     } else {
-                        replyBody.textContent = reply.body || '';
+                        updateBtnLabel();
                     }
+                });
 
-                    replyEl.appendChild(replyHeader);
-                    replyEl.appendChild(replyBody);
-                }
-
-                repliesContainer.appendChild(replyEl);
+                moreContainer.appendChild(moreBtn);
+                repliesContainer.appendChild(moreContainer);
             }
 
             threadCard.appendChild(repliesContainer);
@@ -758,16 +897,126 @@
     }
 
     /**
+     * Renders root load-more ready state.
+     *
+     * @param {Element|null} moreEl
+     * @param {Document} doc
+     */
+    function renderMoreReady(moreEl, doc) {
+        if (!moreEl) return;
+        clearElement(moreEl);
+        moreEl.hidden = false;
+        moreEl.removeAttribute('hidden');
+
+        const btn = doc.createElement('button');
+        btn.type = 'button';
+        btn.className = 'novel-chapter-comments-more-btn';
+        btn.disabled = false;
+        btn.textContent = 'Xem thêm bình luận';
+        btn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            loadMore();
+        });
+        moreEl.appendChild(btn);
+    }
+
+    /**
+     * Renders root load-more loading state.
+     *
+     * @param {Element|null} moreEl
+     * @param {Document} doc
+     */
+    function renderMoreLoading(moreEl, doc) {
+        if (!moreEl) return;
+        clearElement(moreEl);
+        moreEl.hidden = false;
+        moreEl.removeAttribute('hidden');
+
+        const btn = doc.createElement('button');
+        btn.type = 'button';
+        btn.className = 'novel-chapter-comments-more-btn is-loading';
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+
+        const spinner = doc.createElement('span');
+        spinner.className = 'novel-chapter-comments-more-spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+
+        const text = doc.createElement('span');
+        text.textContent = 'Đang tải...';
+
+        btn.appendChild(spinner);
+        btn.appendChild(text);
+        moreEl.appendChild(btn);
+    }
+
+    /**
+     * Renders root load-more error state with retry.
+     *
+     * @param {Element|null} moreEl
+     * @param {Document} doc
+     */
+    function renderMoreError(moreEl, doc) {
+        if (!moreEl) return;
+        clearElement(moreEl);
+        moreEl.hidden = false;
+        moreEl.removeAttribute('hidden');
+
+        const errorDiv = doc.createElement('div');
+        errorDiv.className = 'novel-chapter-comments-more-error';
+        errorDiv.setAttribute('role', 'alert');
+
+        const text = doc.createElement('p');
+        text.className = 'novel-chapter-comments-more-error-text';
+        text.textContent = 'Không thể tải thêm bình luận.';
+
+        const retryBtn = doc.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'novel-chapter-comments-more-retry-btn';
+        retryBtn.textContent = 'Thử lại';
+        retryBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            loadMore();
+        });
+
+        errorDiv.appendChild(text);
+        errorDiv.appendChild(retryBtn);
+        moreEl.appendChild(errorDiv);
+    }
+
+    /**
+     * Hides and clears root load-more container.
+     *
+     * @param {Element|null} moreEl
+     */
+    function renderMoreHidden(moreEl) {
+        if (!moreEl) return;
+        clearElement(moreEl);
+        moreEl.hidden = true;
+        moreEl.setAttribute('hidden', '');
+    }
+
+    /**
      * Renders loading status.
      *
      * @param {Element} statusEl
      * @param {Element} listEl
      * @param {Element|null} countEl
+     * @param {Element|null} moreEl
      * @param {Document} doc
      */
-    function renderLoading(statusEl, listEl, countEl, doc) {
+    function renderLoading(statusEl, listEl, countEl, moreEl, doc) {
         currentStatus = 'loading';
         currentItems = [];
+        currentPage = 0;
+        hasNext = false;
+        isLoadingMore = false;
+
+        renderMoreHidden(moreEl);
 
         if (listEl) {
             clearElement(listEl);
@@ -803,11 +1052,17 @@
      * @param {Element} statusEl
      * @param {Element} listEl
      * @param {Element|null} countEl
+     * @param {Element|null} moreEl
      * @param {Document} doc
      */
-    function renderEmpty(statusEl, listEl, countEl, doc) {
+    function renderEmpty(statusEl, listEl, countEl, moreEl, doc) {
         currentStatus = 'empty';
         currentItems = [];
+        currentPage = 0;
+        hasNext = false;
+        isLoadingMore = false;
+
+        renderMoreHidden(moreEl);
 
         if (statusEl) {
             clearElement(statusEl);
@@ -859,13 +1114,7 @@
             }
         }
         if (countEl) {
-            const totalCount = items.reduce(function (sum, it) {
-                const replyCount = (it && Number.isSafeInteger(Number(it.replyCount)))
-                    ? Number(it.replyCount)
-                    : (it && Array.isArray(it.replies) ? it.replies.length : 0);
-                return sum + 1 + replyCount;
-            }, 0);
-            countEl.textContent = formatCommentCount(totalCount);
+            countEl.textContent = formatCommentCount(getActiveCommentCount(items));
         }
     }
 
@@ -876,11 +1125,17 @@
      * @param {Element} statusEl
      * @param {Element} listEl
      * @param {Element|null} countEl
+     * @param {Element|null} moreEl
      * @param {Document} doc
      */
-    function renderError(message, statusEl, listEl, countEl, doc) {
+    function renderError(message, statusEl, listEl, countEl, moreEl, doc) {
         currentStatus = 'error';
         currentItems = [];
+        currentPage = 0;
+        hasNext = false;
+        isLoadingMore = false;
+
+        renderMoreHidden(moreEl);
 
         if (listEl) {
             clearElement(listEl);
@@ -922,7 +1177,7 @@
      */
     function fetchFeed() {
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
-        const { statusEl, listEl, countEl } = getElements();
+        const { statusEl, listEl, countEl, moreEl } = getElements();
         if (!doc || !listEl || !currentChapterId) {
             return;
         }
@@ -934,18 +1189,22 @@
                 : (typeof fetch === 'function') ? fetch : null;
 
         if (!fetchFn) {
-            renderError('Trình duyệt không hỗ trợ tải dữ liệu.', statusEl, listEl, countEl, doc);
+            renderError('Trình duyệt không hỗ trợ tải dữ liệu.', statusEl, listEl, countEl, moreEl, doc);
             return;
         }
 
         const token = ++loadToken;
-        renderLoading(statusEl, listEl, countEl, doc);
+        const targetChapterId = currentChapterId;
+        currentPage = 0;
+        hasNext = false;
+        isLoadingMore = false;
+        renderLoading(statusEl, listEl, countEl, moreEl, doc);
 
-        const url = '/api/novel/chapters/' + encodeURIComponent(currentChapterId) + '/comments/feed?page=0&size=20';
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20';
 
         fetchFn(url)
             .then(function (res) {
-                if (token !== loadToken) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
                     return null;
                 }
                 if (!res || !res.ok) {
@@ -955,24 +1214,116 @@
                 return res.json();
             })
             .then(function (data) {
-                if (token !== loadToken || !data) {
+                if (token !== loadToken || targetChapterId !== currentChapterId || !data) {
                     return;
                 }
                 const items = Array.isArray(data.items) ? data.items : [];
+                currentPage = 0;
+                hasNext = Boolean(data.hasNext);
+                isLoadingMore = false;
+
                 if (items.length === 0) {
-                    renderEmpty(statusEl, listEl, countEl, doc);
+                    renderEmpty(statusEl, listEl, countEl, moreEl, doc);
                 } else {
                     renderPopulated(items, statusEl, listEl, countEl, doc);
+                    if (hasNext) {
+                        renderMoreReady(moreEl, doc);
+                    } else {
+                        renderMoreHidden(moreEl);
+                    }
                 }
             })
             .catch(function (_) {
-                if (token !== loadToken) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
                     return;
                 }
-                renderError('Không thể tải bình luận. Vui lòng thử lại.', statusEl, listEl, countEl, doc);
+                renderError('Không thể tải bình luận. Vui lòng thử lại.', statusEl, listEl, countEl, moreEl, doc);
             });
     }
 
+    /**
+     * Loads the next page of root comments with deduplication and generation-safety.
+     */
+    function loadMore() {
+        const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        const { listEl, countEl, moreEl } = getElements();
+        if (!doc || !listEl || !currentChapterId || isLoadingMore || !hasNext) {
+            return;
+        }
+
+        const fetchFn = (typeof injectedFetch === 'function')
+            ? injectedFetch
+            : (typeof window !== 'undefined' && typeof window.fetch === 'function')
+                ? window.fetch.bind(window)
+                : (typeof fetch === 'function') ? fetch : null;
+
+        if (!fetchFn) {
+            renderMoreError(moreEl, doc);
+            return;
+        }
+
+        isLoadingMore = true;
+        renderMoreLoading(moreEl, doc);
+
+        const token = loadToken;
+        const targetChapterId = currentChapterId;
+        const requestedPage = currentPage + 1;
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=' + requestedPage + '&size=20';
+
+        fetchFn(url)
+            .then(function (res) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
+                    return null;
+                }
+                if (!res || !res.ok) {
+                    const status = res ? res.status : 0;
+                    throw new Error('HTTP ' + status);
+                }
+                return res.json();
+            })
+            .then(function (data) {
+                if (token !== loadToken || targetChapterId !== currentChapterId || !data) {
+                    return;
+                }
+                isLoadingMore = false;
+
+                const incomingItems = Array.isArray(data.items) ? data.items : [];
+                const acceptedNewRoots = deduplicateRoots(currentItems, incomingItems);
+
+                for (let i = 0; i < acceptedNewRoots.length; i++) {
+                    const item = acceptedNewRoots[i];
+                    currentItems.push(item);
+                    const threadCard = renderThread(item, doc);
+                    listEl.appendChild(threadCard);
+                }
+
+                currentPage = requestedPage;
+                hasNext = Boolean(data.hasNext);
+
+                if (countEl) {
+                    countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
+                }
+
+                if (hasNext) {
+                    renderMoreReady(moreEl, doc);
+                } else {
+                    renderMoreHidden(moreEl);
+                }
+            })
+            .catch(function (_) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
+                    return;
+                }
+                isLoadingMore = false;
+                renderMoreError(moreEl, doc);
+            });
+    }
+
+    /**
+     * Handles chapter transition event.
+     *
+     * @param {Event|Object} evt
+     */
     /**
      * Handles chapter transition event.
      *
@@ -982,7 +1333,7 @@
         closeActiveMenu(false);
 
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
-        const { sectionEl } = getElements();
+        const { sectionEl, moreEl } = getElements();
 
         const newChapterId = (evt && evt.detail && evt.detail.chapterId)
             ? String(evt.detail.chapterId).trim()
@@ -993,6 +1344,7 @@
             if (sectionEl) {
                 sectionEl.setAttribute('data-chapter-id', newChapterId);
             }
+            renderMoreHidden(moreEl);
             fetchFeed();
         }
     }
@@ -1095,7 +1447,7 @@
             }
         }
 
-        const { statusEl, listEl, countEl } = getElements();
+        const { statusEl, listEl, countEl, moreEl } = getElements();
         if (listEl) {
             clearElement(listEl);
             listEl.setAttribute('aria-busy', 'false');
@@ -1105,6 +1457,9 @@
         }
         if (countEl) {
             countEl.textContent = '';
+        }
+        if (moreEl) {
+            renderMoreHidden(moreEl);
         }
 
         currentDoc = null;
@@ -1116,6 +1471,9 @@
         documentKeydownHandler = null;
         currentStatus = 'idle';
         currentItems = [];
+        currentPage = 0;
+        hasNext = false;
+        isLoadingMore = false;
     }
 
     /**
@@ -1128,7 +1486,10 @@
             chapterId: currentChapterId,
             status: currentStatus,
             items: currentItems,
-            loadToken: loadToken
+            loadToken: loadToken,
+            currentPage: currentPage,
+            hasNext: hasNext,
+            isLoadingMore: isLoadingMore
         };
     }
 
@@ -1149,10 +1510,14 @@
         COUNT_ID: COUNT_ID,
         STATUS_ID: STATUS_ID,
         LIST_ID: LIST_ID,
+        MORE_ID: MORE_ID,
+        INITIAL_VISIBLE_REPLIES: INITIAL_VISIBLE_REPLIES,
+        REPLY_REVEAL_BATCH_SIZE: REPLY_REVEAL_BATCH_SIZE,
         EVENT_CHAPTER_CHANGED: EVENT_CHAPTER_CHANGED,
         init: initReaderChapterComments,
         destroy: destroyReaderChapterComments,
         retry: retryFetch,
+        loadMore: loadMore,
         getState: getState,
         formatCommentCount: formatCommentCount,
         formatTimestamp: formatTimestamp,
@@ -1165,6 +1530,8 @@
         openOriginDiscussion: openOriginDiscussion,
         closeActiveMenu: closeActiveMenu,
         getActiveOpenMenu: function () { return activeOpenMenu; },
-        getHighlightedElement: function () { return null; }
+        getHighlightedElement: function () { return null; },
+        deduplicateRoots: deduplicateRoots,
+        getActiveCommentCount: getActiveCommentCount
     };
 });

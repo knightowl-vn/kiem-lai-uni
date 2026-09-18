@@ -266,3 +266,143 @@
     color: var(--color-primary, #2563eb);
     outline: none;
 }
+
+/* =========================================================
+   ROOT COMMENT PAGINATION (MS-05E5H2E)
+   ========================================================= */
+
+.novel-chapter-comments-more {
+    margin-top: 1.75rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.novel-chapter-comments-more[hidden] {
+    display: none !important;
+}
+
+.novel-chapter-comments-more-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.75rem;
+    font-size: 0.925rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-chapter-comments-more-btn:hover:not(:disabled) {
+    background: var(--reader-surface-soft, #f9fafb);
+    border-color: var(--color-primary, #2563eb);
+    color: var(--color-primary, #2563eb);
+}
+
+.novel-chapter-comments-more-btn:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 2px;
+}
+
+.novel-chapter-comments-more-btn:disabled,
+.novel-chapter-comments-more-btn.is-loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comments-more-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid var(--reader-border, #e5e7eb);
+    border-top-color: var(--color-primary, #2563eb);
+    border-radius: 50%;
+    animation: novelCommentsSpin 0.8s linear infinite;
+}
+
+.novel-chapter-comments-more-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    text-align: center;
+}
+
+.novel-chapter-comments-more-error-text {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-danger, #dc2626);
+    font-weight: 500;
+}
+
+.novel-chapter-comments-more-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 1rem;
+    font-size: 0.825rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--color-danger, #dc2626);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-danger, #dc2626);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-chapter-comments-more-retry-btn:hover {
+    background: var(--color-danger, #dc2626);
+    color: #ffffff;
+}
+
+.novel-chapter-comments-more-retry-btn:focus-visible {
+    outline: 2px solid var(--color-danger, #dc2626);
+    outline-offset: 2px;
+}
+
+/* =========================================================
+   PER-THREAD REPLY PROGRESSIVE REVEAL (MS-05E5H2E)
+   ========================================================= */
+
+.novel-comment-replies-more {
+    margin-top: 0.35rem;
+    display: flex;
+    align-items: center;
+}
+
+.novel-comment-replies-more-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    margin-left: -0.65rem;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-primary, #2563eb);
+    font-size: 0.825rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-comment-replies-more-btn:hover {
+    background: var(--reader-surface-soft, rgba(0, 0, 0, 0.04));
+    text-decoration: underline;
+}
+
+.novel-comment-replies-more-btn:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 1px;
+}
+
