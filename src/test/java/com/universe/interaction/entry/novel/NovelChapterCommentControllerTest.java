@@ -1609,6 +1609,19 @@ class NovelChapterCommentControllerTest {
         when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
                 .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
 
+        CommentReadDTO replyDTO = new CommentReadDTO(
+                REPLY_COMMENT_ID,
+                USER_2_ID,
+                ROOT_COMMENT_ID,
+                USER_1_ID,
+                "Feed reply body",
+                false,
+                NOW,
+                NOW,
+                new CommentAuthorDTO(USER_2_ID, "Author Two", null),
+                false,
+                false
+        );
         ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
                 ROOT_COMMENT_ID,
                 new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
@@ -1616,10 +1629,13 @@ class NovelChapterCommentControllerTest {
                 NOW,
                 NOW,
                 false,
-                4,
+                false,
+                false,
+                1,
                 "CURRENT",
                 "blk-abc",
-                "Passage canonical excerpt..."
+                "Passage canonical excerpt...",
+                List.of(replyDTO)
         );
         ChapterDiscussionFeedResponseDTO responseDTO = new ChapterDiscussionFeedResponseDTO(
                 List.of(item),
@@ -1628,7 +1644,7 @@ class NovelChapterCommentControllerTest {
                 false
         );
 
-        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20))
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, null))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
@@ -1641,12 +1657,73 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.items[0].author.displayName").value("Author One"))
                 .andExpect(jsonPath("$.items[0].author.avatarUrl").value("https://img/a1.png"))
                 .andExpect(jsonPath("$.items[0].edited").value(false))
-                .andExpect(jsonPath("$.items[0].replyCount").value(4))
+                .andExpect(jsonPath("$.items[0].canEdit").value(false))
+                .andExpect(jsonPath("$.items[0].canDelete").value(false))
+                .andExpect(jsonPath("$.items[0].replyCount").value(1))
                 .andExpect(jsonPath("$.items[0].anchorStatus").value("CURRENT"))
                 .andExpect(jsonPath("$.items[0].blockKey").value("blk-abc"))
-                .andExpect(jsonPath("$.items[0].passageExcerpt").value("Passage canonical excerpt..."));
+                .andExpect(jsonPath("$.items[0].passageExcerpt").value("Passage canonical excerpt..."))
+                .andExpect(jsonPath("$.items[0].replies[0].id").value(REPLY_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.items[0].replies[0].body").value("Feed reply body"))
+                .andExpect(jsonPath("$.items[0].replies[0].canEdit").value(false))
+                .andExpect(jsonPath("$.items[0].replies[0].canDelete").value(false));
 
-        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20);
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, null);
+    }
+
+    @Test
+    @DisplayName("GET discussion feed: forwards authenticated viewerUserId and serializes own-comment capabilities")
+    void shouldForwardViewerUserIdWhenAuthenticated() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentReadDTO replyDTO = new CommentReadDTO(
+                REPLY_COMMENT_ID,
+                USER_1_ID,
+                ROOT_COMMENT_ID,
+                USER_1_ID,
+                "My own reply body",
+                false,
+                NOW,
+                NOW,
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                true,
+                true
+        );
+        ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
+                ROOT_COMMENT_ID,
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                "Feed root comment body",
+                NOW,
+                NOW,
+                false,
+                true,
+                true,
+                1,
+                "CURRENT",
+                "blk-abc",
+                "Passage canonical excerpt...",
+                List.of(replyDTO)
+        );
+        ChapterDiscussionFeedResponseDTO responseDTO = new ChapterDiscussionFeedResponseDTO(
+                List.of(item),
+                0,
+                20,
+                false
+        );
+
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .with(authenticatedIdentity(USER_1_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].canEdit").value(true))
+                .andExpect(jsonPath("$.items[0].canDelete").value(true))
+                .andExpect(jsonPath("$.items[0].replies[0].canEdit").value(true))
+                .andExpect(jsonPath("$.items[0].replies[0].canDelete").value(true));
+
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20, USER_1_ID);
     }
 
     @Test
@@ -1663,7 +1740,7 @@ class NovelChapterCommentControllerTest {
                 true
         );
 
-        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 1, 50))
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 1, 50, null))
                 .thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
@@ -1674,7 +1751,7 @@ class NovelChapterCommentControllerTest {
                 .andExpect(jsonPath("$.size").value(50))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
-        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 1, 50);
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 1, 50, null);
     }
 
     @Test
@@ -1689,7 +1766,7 @@ class NovelChapterCommentControllerTest {
                         .param("size", "0"))
                 .andExpect(status().isBadRequest());
 
-        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class));
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any());
     }
 
     @Test
@@ -1702,6 +1779,6 @@ class NovelChapterCommentControllerTest {
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
                 .andExpect(status().isNotFound());
 
-        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class));
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any());
     }
 }

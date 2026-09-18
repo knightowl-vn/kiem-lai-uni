@@ -178,7 +178,8 @@ public class NovelChapterCommentController {
     public ResponseEntity<ChapterDiscussionFeedResponseDTO> getDiscussionFeed(
             @PathVariable UUID chapterId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest request
     ) {
         if (chapterId == null || page < 0 || size <= 0) {
             return ResponseEntity.badRequest().build();
@@ -191,8 +192,12 @@ public class NovelChapterCommentController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
 
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
+
         ChapterDiscussionFeedResponseDTO response =
-                novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(chapterId, page, size);
+                novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(chapterId, page, size, viewerUserId);
 
         return ResponseEntity.ok(response);
     }

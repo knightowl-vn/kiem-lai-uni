@@ -4,17 +4,20 @@ import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
-import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
+import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
+import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsByRootIdsUseCase;
 import com.universe.novel.application.anchor.ResolvedChapterCommentAnchorView;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,8 +33,8 @@ import java.util.stream.Collectors;
  *   <li>Interaction application has ZERO Novel imports;</li>
  *   <li>Novel application has ZERO Interaction imports;</li>
  *   <li>Entry-layer composition uses only scalar cross-context references (UUIDs);</li>
- *   <li>No per-feed-item root, reply-count, anchor, or author queries;</li>
- *   <li>Chapter document snapshot loaded at most once per request inside Novel application;</li>
+ *   <li>One root Slice query + one batch visible thread query + one batch anchor resolution + one Identity profile query;</li>
+ *   <li>Zero per-root N+1 access loops;</li>
  *   <li>Read-only operation without write transactional overhead.</li>
  * </ul>
  */
@@ -42,21 +45,21 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
     static final int MAX_TRUNCATED_CONTENT_LENGTH = 137;
 
     private final ListCommentRootsUseCase listCommentRootsUseCase;
-    private final CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase;
+    private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
     private final ResolveChapterCommentAnchorsByRootIdsUseCase resolveChapterCommentAnchorsByRootIdsUseCase;
     private final UserIdentityContract userIdentityContract;
 
     public NovelChapterDiscussionFeedQueryCoordinator(
             ListCommentRootsUseCase listCommentRootsUseCase,
-            CountVisibleActiveRepliesByRootIdsUseCase countVisibleActiveRepliesByRootIdsUseCase,
+            GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             ResolveChapterCommentAnchorsByRootIdsUseCase resolveChapterCommentAnchorsByRootIdsUseCase,
             UserIdentityContract userIdentityContract
     ) {
         this.listCommentRootsUseCase = Objects.requireNonNull(
                 listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null"
         );
-        this.countVisibleActiveRepliesByRootIdsUseCase = Objects.requireNonNull(
-                countVisibleActiveRepliesByRootIdsUseCase, "CountVisibleActiveRepliesByRootIdsUseCase cannot be null"
+        this.getCommentThreadsByRootIdsUseCase = Objects.requireNonNull(
+                getCommentThreadsByRootIdsUseCase, "GetCommentThreadsByRootIdsUseCase cannot be null"
         );
         this.resolveChapterCommentAnchorsByRootIdsUseCase = Objects.requireNonNull(
                 resolveChapterCommentAnchorsByRootIdsUseCase, "ResolveChapterCommentAnchorsByRootIdsUseCase cannot be null"
@@ -67,7 +70,7 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
     }
 
     /**
-     * Resolves a paginated slice of chapter discussion feed items.
+     * Resolves a paginated slice of chapter discussion feed items for anonymous guests.
      *
      * @param chapterId scalar UUID of the chapter
      * @param page zero-based page index
@@ -75,6 +78,19 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
      * @return immutable {@link ChapterDiscussionFeedResponseDTO}
      */
     public ChapterDiscussionFeedResponseDTO getDiscussionFeed(UUID chapterId, int page, int size) {
+        return getDiscussionFeed(chapterId, page, size, null);
+    }
+
+    /**
+     * Resolves a paginated slice of chapter discussion feed items with optional viewer capabilities.
+     *
+     * @param chapterId scalar UUID of the chapter
+     * @param page zero-based page index
+     * @param size page size
+     * @param viewerUserId optional scalar UUID of the authenticated viewer (null for guests)
+     * @return immutable {@link ChapterDiscussionFeedResponseDTO}
+     */
+    public ChapterDiscussionFeedResponseDTO getDiscussionFeed(UUID chapterId, int page, int size, UUID viewerUserId) {
         if (chapterId == null) {
             throw new IllegalArgumentException("chapterId cannot be null");
         }
@@ -101,22 +117,52 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
         List<CommentReadItem> roots = rootSlice.items();
         List<UUID> rootIds = roots.stream().map(CommentReadItem::id).toList();
 
-        // 2. Interaction query: batch count active replies for all roots on this page (1 batch query, zero N+1)
-        Map<UUID, Long> replyCountsByRootId = countVisibleActiveRepliesByRootIdsUseCase.execute(rootIds);
+        // 2. Interaction query: batch retrieve visible threads for all roots in this slice
+        List<CommentThreadView> threadViews = getCommentThreadsByRootIdsUseCase.execute(target, rootIds);
+        Map<UUID, CommentThreadView> threadViewsByRootId = threadViews.stream()
+                .collect(Collectors.toMap(
+                        tv -> tv.root().id(),
+                        tv -> tv,
+                        (existing, replacement) -> existing
+                ));
 
-        // 3. Identity contract: batch lookup public profiles for unique authors (1 batch query, zero N+1)
-        Set<UUID> authorUserIds = roots.stream()
-                .map(CommentReadItem::authorUserId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        // 3. Concurrent delete safety: preserve slice ordering among surviving roots only
+        List<UUID> survivingRootIds = rootIds.stream()
+                .filter(threadViewsByRootId::containsKey)
+                .toList();
+
+        if (survivingRootIds.isEmpty()) {
+            return new ChapterDiscussionFeedResponseDTO(
+                    List.of(),
+                    rootSlice.page(),
+                    rootSlice.size(),
+                    rootSlice.hasNext()
+            );
+        }
+
+        // 4. Identity contract: batch lookup public profiles for unique authors (roots + active replies)
+        Set<UUID> authorUserIds = new HashSet<>();
+        for (UUID rootId : survivingRootIds) {
+            CommentThreadView threadView = threadViewsByRootId.get(rootId);
+            if (threadView.root() != null && threadView.root().authorUserId() != null) {
+                authorUserIds.add(threadView.root().authorUserId());
+            }
+            if (threadView.replies() != null) {
+                for (CommentReadItem reply : threadView.replies()) {
+                    if (reply != null && !reply.tombstone() && reply.authorUserId() != null) {
+                        authorUserIds.add(reply.authorUserId());
+                    }
+                }
+            }
+        }
 
         Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
 
-        // 4. Novel application: batch lookup and resolve anchors for roots on this page (1 batch call, zero N+1)
+        // 5. Novel application: batch lookup and resolve anchors ONLY for surviving roots on this page
         List<ResolvedChapterCommentAnchorView> resolvedAnchors =
-                resolveChapterCommentAnchorsByRootIdsUseCase.execute(chapterId, rootIds);
+                resolveChapterCommentAnchorsByRootIdsUseCase.execute(chapterId, survivingRootIds);
 
         Map<UUID, ResolvedChapterCommentAnchorView> resolvedAnchorsByRootId = resolvedAnchors.stream()
                 .collect(Collectors.toMap(
@@ -125,19 +171,46 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                         (existing, replacement) -> existing
                 ));
 
-        // 5. Assemble feed items preserving original slice ordering
-        List<ChapterDiscussionFeedItemDTO> items = new ArrayList<>(roots.size());
-        for (CommentReadItem root : roots) {
-            UUID rootId = root.id();
-            int replyCount = replyCountsByRootId.getOrDefault(rootId, 0L).intValue();
+        // 6. Assemble feed items preserving original slice ordering
+        List<ChapterDiscussionFeedItemDTO> items = new ArrayList<>(survivingRootIds.size());
+        for (UUID rootId : survivingRootIds) {
+            CommentThreadView threadView = threadViewsByRootId.get(rootId);
+            CommentReadItem authoritativeRoot = threadView.root();
 
-            // Author presentation
-            UserPublicProfileDTO profile = (authorsMap != null && root.authorUserId() != null)
-                    ? authorsMap.get(root.authorUserId())
+            // Author presentation for root
+            UserPublicProfileDTO rootProfile = (authorsMap != null && authoritativeRoot.authorUserId() != null)
+                    ? authorsMap.get(authoritativeRoot.authorUserId())
                     : null;
-            CommentAuthorDTO authorDTO = (profile != null)
-                    ? new CommentAuthorDTO(root.authorUserId(), profile.displayName(), profile.avatarUrl())
-                    : CommentAuthorDTO.fallback(root.authorUserId());
+            CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
+                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
+                    : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
+
+            // Canonical root CommentReadDTO for capability and data resolution
+            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId);
+
+            // Nested replies mapping
+            List<CommentReadDTO> replyDTOs = new ArrayList<>();
+            int activeReplyCount = 0;
+            if (threadView.replies() != null) {
+                for (CommentReadItem replyItem : threadView.replies()) {
+                    if (replyItem == null) {
+                        continue;
+                    }
+                    if (replyItem.tombstone()) {
+                        // Tombstone reply: privacy-safe, author null, canEdit=false, canDelete=false
+                        replyDTOs.add(CommentReadDTO.from(replyItem, viewerUserId));
+                    } else {
+                        activeReplyCount++;
+                        UserPublicProfileDTO replyProfile = (authorsMap != null && replyItem.authorUserId() != null)
+                                ? authorsMap.get(replyItem.authorUserId())
+                                : null;
+                        CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
+                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
+                                : CommentAuthorDTO.fallback(replyItem.authorUserId());
+                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId));
+                    }
+                }
+            }
 
             // Anchor presentation
             ResolvedChapterCommentAnchorView anchorView = resolvedAnchorsByRootId.get(rootId);
@@ -154,19 +227,22 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                 passageExcerpt = null;
             }
 
-            boolean edited = root.updatedAt() != null && root.updatedAt().isAfter(root.createdAt());
+            boolean edited = rootReadDTO.updatedAt() != null && rootReadDTO.updatedAt().isAfter(rootReadDTO.createdAt());
 
             items.add(new ChapterDiscussionFeedItemDTO(
                     rootId,
-                    authorDTO,
-                    root.body() != null ? root.body() : "",
-                    root.createdAt(),
-                    root.updatedAt(),
+                    rootAuthorDTO,
+                    rootReadDTO.body() != null ? rootReadDTO.body() : "",
+                    rootReadDTO.createdAt(),
+                    rootReadDTO.updatedAt(),
                     edited,
-                    replyCount,
+                    rootReadDTO.canEdit(),
+                    rootReadDTO.canDelete(),
+                    activeReplyCount,
                     anchorStatus,
                     blockKey,
-                    passageExcerpt
+                    passageExcerpt,
+                    replyDTOs
             ));
         }
 

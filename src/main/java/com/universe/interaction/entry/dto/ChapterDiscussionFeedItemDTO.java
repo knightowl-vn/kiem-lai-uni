@@ -1,6 +1,7 @@
 package com.universe.interaction.entry.dto;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -10,7 +11,9 @@ import java.util.UUID;
  * <p>Preserves clean architecture contracts:
  * <ul>
  *   <li>Interaction entry DTO: zero dependency on JPA entities or internal Novel models;</li>
- *   <li>Exposes only safe read-first discussion and secondary passage reference fields;</li>
+ *   <li>Exposes safe read-first discussion and secondary passage reference fields;</li>
+ *   <li>Contains server-authoritative mutation capabilities (canEdit, canDelete) for the viewer;</li>
+ *   <li>Contains immutable, chronologically ordered visible replies nested under their root;</li>
  *   <li>Edited flag derived from {@code updatedAt > createdAt};</li>
  *   <li>Secondary blockKey is null for STALE and UNANCHORED anchors to prevent invalid navigation.</li>
  * </ul>
@@ -22,10 +25,13 @@ public record ChapterDiscussionFeedItemDTO(
         Instant createdAt,
         Instant updatedAt,
         boolean edited,
+        boolean canEdit,
+        boolean canDelete,
         int replyCount,
         String anchorStatus,
         String blockKey,
-        String passageExcerpt
+        String passageExcerpt,
+        List<CommentReadDTO> replies
 ) {
     public ChapterDiscussionFeedItemDTO {
         Objects.requireNonNull(rootCommentId, "rootCommentId cannot be null");
@@ -34,5 +40,6 @@ public record ChapterDiscussionFeedItemDTO(
         Objects.requireNonNull(createdAt, "createdAt cannot be null");
         Objects.requireNonNull(updatedAt, "updatedAt cannot be null");
         Objects.requireNonNull(anchorStatus, "anchorStatus cannot be null");
+        replies = replies == null ? List.of() : List.copyOf(replies);
     }
 }
