@@ -347,6 +347,38 @@
                   aria-live="polite"></span>
         </header>
 
+        <!-- Authenticated Chapter Root Comment Composer (MS-05E5H2F1) -->
+        <div class="novel-chapter-comment-composer-wrapper" sec:authorize="isAuthenticated()">
+            <form id="novelChapterCommentComposer"
+                  class="novel-chapter-comment-composer"
+                  novalidate>
+                <label for="novelChapterCommentComposerInput"
+                       class="novel-chapter-comment-composer-label">Viết bình luận</label>
+                <textarea id="novelChapterCommentComposerInput"
+                          class="novel-chapter-comment-composer-input"
+                          placeholder="Chia sẻ suy nghĩ của bạn về chương này..."
+                          rows="3"></textarea>
+                <div id="novelChapterCommentComposerStatus"
+                     class="novel-chapter-comment-composer-status"
+                     role="status"
+                     aria-live="polite"></div>
+                <div class="novel-chapter-comment-composer-actions">
+                    <button type="submit"
+                            id="novelChapterCommentComposerSubmit"
+                            class="novel-chapter-comment-composer-submit">
+                        Gửi
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Anonymous Participation Prompt (MS-05E5H2F1) -->
+        <div class="novel-chapter-comment-anonymous-prompt" sec:authorize="isAnonymous()">
+            <span>
+                <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug})}" class="novel-chapter-comment-login-link">Đăng nhập</a> để bình luận.
+            </span>
+        </div>
+
         <div id="novelChapterCommentsStatus"
              class="novel-chapter-comments-status"
              role="status"
@@ -909,6 +941,8 @@
 <script th:src="@{/js/novel/reader-block-discussion-restore.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-chapter-comments.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-composer.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>

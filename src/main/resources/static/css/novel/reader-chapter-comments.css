@@ -406,3 +406,128 @@
     outline-offset: 1px;
 }
 
+/* =========================================================
+   BOTTOM CHAPTER ROOT COMMENT COMPOSER (MS-05E5H2F1)
+   ========================================================= */
+
+.novel-chapter-comment-composer-wrapper {
+    margin-bottom: 2rem;
+}
+
+.novel-chapter-comment-composer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    padding: 1.25rem;
+    box-sizing: border-box;
+}
+
+.novel-chapter-comment-composer-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--reader-text, #111827);
+    margin: 0;
+}
+
+.novel-chapter-comment-composer-input {
+    width: 100%;
+    min-height: 5rem;
+    max-height: 15rem;
+    resize: vertical;
+    padding: 0.75rem 1rem;
+    font-family: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--reader-text, #111827);
+    background: var(--reader-surface, #ffffff);
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.novel-chapter-comment-composer-input:focus {
+    outline: none;
+    border-color: var(--color-primary, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.novel-chapter-comment-composer-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--reader-surface-disabled, #f3f4f6);
+}
+
+.novel-chapter-comment-composer-status {
+    font-size: 0.875rem;
+    line-height: 1.4;
+    min-height: 0;
+}
+
+.novel-chapter-comment-composer-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-composer-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-composer-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-composer-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.novel-chapter-comment-composer-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1.25rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary, #2563eb);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-composer-submit:hover:not(:disabled) {
+    background: var(--color-primary-hover, #1d4ed8);
+}
+
+.novel-chapter-comment-composer-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-anonymous-prompt {
+    margin-bottom: 2rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    color: var(--reader-text-muted, #4b5563);
+    text-align: center;
+}
+
+.novel-chapter-comment-login-link {
+    color: var(--color-primary, #2563eb);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.novel-chapter-comment-login-link:hover {
+    color: var(--color-primary-hover, #1d4ed8);
+}
+

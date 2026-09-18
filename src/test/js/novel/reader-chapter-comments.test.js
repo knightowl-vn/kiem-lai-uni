@@ -2620,3 +2620,278 @@ describe('MS-05E5H2E Per-Thread Reply Progressive Reveal', () => {
     });
 });
 
+describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () => {
+    afterEach(() => {
+        commentsModule.destroy();
+    });
+
+    test('REFRESH-A. existing rendered DOM remains visible while mutation refresh is pending', async () => {
+        const { doc, list } = createStandardFixture('c-ref-a');
+        let resolveRefresh;
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }];
+        const page1 = [{ rootCommentId: 'r1', author: { displayName: 'R1' }, body: 'B1' }];
+
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse(page1, false, 1))
+                    });
+                }
+                if (resolveRefresh) {
+                    return new Promise(r => { resolveRefresh = r; });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(page0, true, 0))
+                });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+
+        // Load page 1
+        commentsModule.loadMore();
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+
+        // Start mutation refresh (pending)
+        let refreshResolved = false;
+        resolveRefresh = true; // flag to trigger Promise
+        const refreshPromise = commentsModule.refreshFromPageZero().then(() => { refreshResolved = true; });
+
+        // REFRESH-A: Old DOM remains visible while GET page 0 is in-flight
+        assert.strictEqual(commentsModule.getState().isRefreshing, true);
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        assert.strictEqual(refreshResolved, false);
+
+        // Resolve refresh
+        const refreshedPage0 = [
+            { rootCommentId: 'r-new', author: { displayName: 'RNew' }, body: 'New Root' },
+            { rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }
+        ];
+        resolveRefresh({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(refreshedPage0, false, 0))
+        });
+        await refreshPromise;
+
+        assert.strictEqual(refreshResolved, true);
+        assert.strictEqual(commentsModule.getState().isRefreshing, false);
+    });
+
+    test('REFRESH-B to REFRESH-D. accepted response replaces feed, resets currentPage to 0, updates count, resets expanded replies', async () => {
+        const { doc, list, count } = createStandardFixture('c-ref-b');
+        const initialReplies = [
+            { id: 'rep1', body: '1' }, { id: 'rep2', body: '2' }, { id: 'rep3', body: '3' },
+            { id: 'rep4', body: '4' }, { id: 'rep5', body: '5' }
+        ];
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0', replies: initialReplies }];
+        const page1 = [{ rootCommentId: 'r1', author: { displayName: 'R1' }, body: 'B1', replies: [] }];
+
+        let fetchTarget = 'init';
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1, false, 1)) });
+                }
+                if (fetchTarget === 'refreshed') {
+                    const refreshedRoots = [
+                        { rootCommentId: 'r-new', author: { displayName: 'RNew' }, body: 'New Root', replies: [] },
+                        { rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0', replies: initialReplies }
+                    ];
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(refreshedRoots, false, 0)) });
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0, true, 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Expand r0 replies from 3 to 5
+        list.querySelector('.novel-comment-replies-more-btn').dispatchEvent({ type: 'click', preventDefault: () => {} });
+        assert.strictEqual(list.querySelectorAll('.novel-comment--reply').length, 5);
+
+        // Load page 1
+        commentsModule.loadMore();
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+
+        // Trigger mutation refresh
+        fetchTarget = 'refreshed';
+        await commentsModule.refreshFromPageZero();
+
+        // REFRESH-B: replaces feed with new page 0 (r-new at top, r0 below, r1 gone)
+        const threads = list.querySelectorAll('.novel-block-discussion-thread');
+        assert.strictEqual(threads.length, 2);
+        assert.strictEqual(threads[0].querySelector('.novel-comment-body').textContent, 'New Root');
+        assert.strictEqual(threads[1].querySelector('.novel-comment-body').textContent, 'B0');
+        assert.strictEqual(commentsModule.getState().currentPage, 0);
+        assert.strictEqual(commentsModule.getState().hasNext, false);
+
+        // REFRESH-C: header count recomputed (1 new root + 1 root r0 + 5 replies = 7 comments)
+        assert.strictEqual(count.textContent, '7 bình luận');
+
+        // REFRESH-D: replies on r0 reset to initial 3 visible (with reveal button)
+        assert.strictEqual(threads[1].querySelectorAll('.novel-comment--reply').length, 3);
+        assert.ok(threads[1].querySelector('.novel-comment-replies-more-btn'));
+    });
+
+    test('REFRESH-E & REFRESH-F. loadMore cannot begin while refresh pending, and stale loadMore cannot append', async () => {
+        const { doc, list } = createStandardFixture('c-ref-e');
+        let resolveLoadMore;
+        let loadMoreFetchCount = 0;
+        let resolveRefresh;
+        let refreshFetchCount = 0;
+
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }];
+        const page1 = [{ rootCommentId: 'r1', author: { displayName: 'R1' }, body: 'B1' }];
+
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('page=1')) {
+                    loadMoreFetchCount++;
+                    return new Promise(r => { resolveLoadMore = r; });
+                }
+                if (refreshFetchCount > 0) {
+                    return new Promise(r => { resolveRefresh = r; });
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0, true, 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+
+        // Start loadMore (pending)
+        commentsModule.loadMore();
+        assert.strictEqual(loadMoreFetchCount, 1);
+
+        // Start mutation refresh while loadMore is pending
+        refreshFetchCount = 1;
+        const refreshPromise = commentsModule.refreshFromPageZero();
+        assert.strictEqual(commentsModule.getState().isRefreshing, true);
+
+        // REFRESH-F: Calling loadMore while isRefreshing is true is a NO-OP
+        commentsModule.loadMore();
+        assert.strictEqual(loadMoreFetchCount, 1);
+
+        // Now stale loadMore resolves late
+        resolveLoadMore({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(page1, false, 1))
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        // REFRESH-E: Stale loadMore data was NOT appended
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+
+        // Refresh completes
+        const refreshedPage0 = [{ rootCommentId: 'r-fresh', author: { displayName: 'RFresh' }, body: 'Fresh' }];
+        resolveRefresh({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(refreshedPage0, false, 0))
+        });
+        await refreshPromise;
+
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+        assert.strictEqual(list.querySelector('.novel-comment-body').textContent, 'Fresh');
+        assert.strictEqual(commentsModule.getState().isRefreshing, false);
+    });
+
+    test('REFRESH-G. mutation refresh failure leaves existing items, DOM, and pagination intact without full-feed error UI', async () => {
+        const { doc, list, status, more } = createStandardFixture('c-ref-g');
+        const page0 = [{ rootCommentId: 'r0', author: { displayName: 'R0' }, body: 'B0' }];
+        const page1 = [{ rootCommentId: 'r1', author: { displayName: 'R1' }, body: 'B1' }];
+
+        let triggerRefreshFail = false;
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (triggerRefreshFail) {
+                    return Promise.resolve({ ok: false, status: 500 });
+                }
+                if (url.includes('page=1')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1, false, 1)) });
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0, true, 0)) });
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Load page 1 -> 2 cards rendered
+        commentsModule.loadMore();
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+
+        // Trigger failing mutation refresh
+        triggerRefreshFail = true;
+        let caughtError = null;
+        try {
+            await commentsModule.refreshFromPageZero();
+        } catch (e) {
+            caughtError = e;
+        }
+
+        assert.ok(caughtError);
+        assert.strictEqual(commentsModule.getState().isRefreshing, false);
+
+        // REFRESH-G: Existing items, DOM, and currentPage remain intact
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        assert.strictEqual(commentsModule.getState().currentPage, 1);
+        assert.strictEqual(commentsModule.getState().items.length, 2);
+
+        // Full-feed error is NOT displayed (status remains empty)
+        assert.strictEqual(status.childNodes.length, 0);
+    });
+
+    test('REFRESH-H & REFRESH-I. chapter change or destroy invalidates pending mutation refresh response', async () => {
+        const { doc, list } = createStandardFixture('c-ref-h');
+        let resolveRefreshH;
+
+        commentsModule.init(doc, {
+            fetch: (url) => {
+                if (url.includes('c-ref-h')) {
+                    return new Promise(r => { resolveRefreshH = r; });
+                }
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-chap-b', author: { displayName: 'RB' }, body: 'Chapter B Body' }], false, 0))
+                });
+            }
+        });
+
+        const refreshPromise = commentsModule.refreshFromPageZero();
+
+        // Switch chapter to Chapter B
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'c-chap-b' } });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Now Chapter A refresh resolves late
+        resolveRefreshH({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-late-a', author: { displayName: 'RA' }, body: 'Late A' }], false, 0))
+        });
+        await refreshPromise;
+
+        // Chapter B content is rendered; Late A is discarded
+        assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 1);
+        assert.strictEqual(list.querySelector('.novel-comment-body').textContent, 'Chapter B Body');
+
+        // REFRESH-I: Destroy invalidates refresh
+        let resolveRefreshI;
+        commentsModule.setFetchImplementation(() => new Promise(r => { resolveRefreshI = r; }));
+        const refreshPromiseI = commentsModule.refreshFromPageZero();
+        commentsModule.destroy();
+
+        resolveRefreshI({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-after-destroy', author: { displayName: 'RD' }, body: 'Dead' }], false, 0))
+        });
+        await refreshPromiseI;
+
+        assert.strictEqual(commentsModule.getState().items.length, 0);
+    });
+});
+

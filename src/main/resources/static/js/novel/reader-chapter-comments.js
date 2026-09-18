@@ -52,6 +52,7 @@
     let currentPage = 0;
     let hasNext = false;
     let isLoadingMore = false;
+    let isRefreshing = false;
     let chapterChangedHandler = null;
     let documentClickHandler = null;
     let documentKeydownHandler = null;
@@ -1247,7 +1248,7 @@
     function loadMore() {
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { listEl, countEl, moreEl } = getElements();
-        if (!doc || !listEl || !currentChapterId || isLoadingMore || !hasNext) {
+        if (!doc || !listEl || !currentChapterId || isLoadingMore || isRefreshing || !hasNext) {
             return;
         }
 
@@ -1324,13 +1325,9 @@
      *
      * @param {Event|Object} evt
      */
-    /**
-     * Handles chapter transition event.
-     *
-     * @param {Event|Object} evt
-     */
     function handleChapterChanged(evt) {
         closeActiveMenu(false);
+        isRefreshing = false;
 
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { sectionEl, moreEl } = getElements();
@@ -1354,6 +1351,80 @@
      */
     function retryFetch() {
         fetchFeed();
+    }
+
+    /**
+     * Authoritative mutation refresh from page 0.
+     * Preserves existing DOM and items while fetch is in-flight.
+     * Invalidates prior load-more requests and sets isRefreshing = true.
+     *
+     * @returns {Promise<Object>}
+     */
+    function refreshFromPageZero() {
+        const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        const { statusEl, listEl, countEl, moreEl } = getElements();
+        if (!doc || !listEl || !currentChapterId) {
+            return Promise.reject(new Error('Comments module not initialized.'));
+        }
+
+        const fetchFn = (typeof injectedFetch === 'function')
+            ? injectedFetch
+            : (typeof window !== 'undefined' && typeof window.fetch === 'function')
+                ? window.fetch.bind(window)
+                : (typeof fetch === 'function') ? fetch : null;
+
+        if (!fetchFn) {
+            return Promise.reject(new Error('Fetch implementation not available.'));
+        }
+
+        const token = ++loadToken;
+        const targetChapterId = currentChapterId;
+        isRefreshing = true;
+        isLoadingMore = false;
+
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20';
+
+        return fetchFn(url)
+            .then(function (res) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
+                    return null;
+                }
+                if (!res || !res.ok) {
+                    const status = res ? res.status : 0;
+                    throw new Error('HTTP ' + status);
+                }
+                return res.json();
+            })
+            .then(function (data) {
+                if (token !== loadToken || targetChapterId !== currentChapterId) {
+                    return null;
+                }
+                if (!data) {
+                    throw new Error('Empty response data');
+                }
+                isRefreshing = false;
+                const items = Array.isArray(data.items) ? data.items : [];
+                currentPage = 0;
+                hasNext = Boolean(data.hasNext);
+
+                if (items.length === 0) {
+                    renderEmpty(statusEl, listEl, countEl, moreEl, doc);
+                } else {
+                    renderPopulated(items, statusEl, listEl, countEl, doc);
+                    if (hasNext) {
+                        renderMoreReady(moreEl, doc);
+                    } else {
+                        renderMoreHidden(moreEl);
+                    }
+                }
+                return data;
+            })
+            .catch(function (err) {
+                if (token === loadToken && targetChapterId === currentChapterId) {
+                    isRefreshing = false;
+                }
+                throw err;
+            });
     }
 
     /**
@@ -1474,6 +1545,7 @@
         currentPage = 0;
         hasNext = false;
         isLoadingMore = false;
+        isRefreshing = false;
     }
 
     /**
@@ -1489,7 +1561,8 @@
             loadToken: loadToken,
             currentPage: currentPage,
             hasNext: hasNext,
-            isLoadingMore: isLoadingMore
+            isLoadingMore: isLoadingMore,
+            isRefreshing: isRefreshing
         };
     }
 
@@ -1517,6 +1590,7 @@
         init: initReaderChapterComments,
         destroy: destroyReaderChapterComments,
         retry: retryFetch,
+        refreshFromPageZero: refreshFromPageZero,
         loadMore: loadMore,
         getState: getState,
         formatCommentCount: formatCommentCount,
