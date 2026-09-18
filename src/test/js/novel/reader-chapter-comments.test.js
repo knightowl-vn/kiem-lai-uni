@@ -201,6 +201,18 @@ class FakeElement {
         return !evt.defaultPrevented;
     }
 
+    scrollIntoView(options) {
+        this.scrollIntoViewCalled = true;
+        this.lastScrollOptions = options;
+    }
+
+    focus() {
+        this.isFocused = true;
+        if (this.ownerDocument) {
+            this.ownerDocument.activeElement = this;
+        }
+    }
+
     querySelector(selector) {
         return querySelectorAllDeep(this, selector)[0] || null;
     }
@@ -336,6 +348,20 @@ function createStandardFixture(chapterId = 'c1234567-89ab-cdef-0123-456789abcdef
     const chapterBody = doc.createElement('div');
     chapterBody.className = 'novel-reader-chapter-body';
     chapterBody.setAttribute('data-chapter-id', chapterId);
+    chapterBody.setAttribute('data-content-version', '1');
+
+    const block1 = doc.createElement('p');
+    block1.className = 'novel-reader-block';
+    block1.setAttribute('data-reader-block-key', 'blk-test-1');
+    block1.textContent = 'Đoạn văn thứ nhất...';
+    chapterBody.appendChild(block1);
+
+    const block2 = doc.createElement('p');
+    block2.className = 'novel-reader-block';
+    block2.setAttribute('data-reader-block-key', 'blk-test-2');
+    block2.textContent = 'Đoạn văn thứ hai...';
+    chapterBody.appendChild(block2);
+
     doc.body.appendChild(chapterBody);
 
     const section = doc.createElement('section');
@@ -376,7 +402,7 @@ function createStandardFixture(chapterId = 'c1234567-89ab-cdef-0123-456789abcdef
 
     doc.body.appendChild(section);
 
-    return { doc, section, header, title, count, status, list };
+    return { doc, section, header, title, count, status, list, chapterBody, block1, block2 };
 }
 
 // Sample feed data fixtures
@@ -1132,5 +1158,720 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         // State remains idle and DOM remains empty
         assert.strictEqual(commentsModule.getState().status, 'idle');
         assert.strictEqual(list.childNodes.length, 0);
+    });
+
+    test('20. CURRENT root renders ⋯ with "Xem đoạn gốc" action', async () => {
+        const { doc, list } = createStandardFixture('c2000');
+        const items = [
+            {
+                rootCommentId: 'r-current',
+                author: { userId: 'u1', displayName: 'User 1', avatarUrl: null },
+                body: 'Current root comment',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger, 'Menu trigger button must exist on CURRENT root');
+        assert.strictEqual(trigger.getAttribute('aria-label'), 'Mở menu bình luận');
+        assert.strictEqual(trigger.getAttribute('aria-haspopup'), 'menu');
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+
+        const popover = list.querySelector('.novel-comment-menu-popover');
+        assert.ok(popover, 'Menu popover must exist');
+        assert.strictEqual(popover.hidden, true);
+
+        // Click trigger to open menu
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(popover.hidden, false);
+
+        const menuItem = popover.querySelector('.novel-comment-menu-item');
+        assert.ok(menuItem, 'Menu item must exist');
+        assert.strictEqual(menuItem.textContent, 'Xem đoạn gốc');
+        assert.strictEqual(menuItem.getAttribute('data-block-key'), 'blk-test-1');
+    });
+
+    test('21. RELOCATED root renders navigation action with relocated blockKey', async () => {
+        const { doc, list } = createStandardFixture('c2100');
+        const items = [
+            {
+                rootCommentId: 'r-relocated',
+                author: { userId: 'u2', displayName: 'User 2', avatarUrl: null },
+                body: 'Relocated root comment',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'RELOCATED',
+                blockKey: 'blk-test-2',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger, 'Menu trigger must exist on RELOCATED root');
+
+        const menuItem = list.querySelector('.novel-comment-menu-item');
+        assert.ok(menuItem);
+        assert.strictEqual(menuItem.getAttribute('data-block-key'), 'blk-test-2');
+    });
+
+    test('22. STALE root has no active origin action or menu trigger', async () => {
+        const { doc, list } = createStandardFixture('c2200');
+        const items = [
+            {
+                rootCommentId: 'r-stale',
+                author: { userId: 'u3', displayName: 'User 3', avatarUrl: null },
+                body: 'Stale root comment',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'STALE',
+                blockKey: null,
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(list.querySelector('.novel-comment-menu-trigger'), null, 'STALE root must not render ⋯ trigger');
+        assert.strictEqual(list.querySelector('.novel-comment-actions-menu'), null, 'STALE root must not render actions menu');
+    });
+
+    test('23. UNANCHORED root has no active origin action or menu trigger', async () => {
+        const { doc, list } = createStandardFixture('c2300');
+        const items = [
+            {
+                rootCommentId: 'r-unanchored',
+                author: { userId: 'u4', displayName: 'User 4', avatarUrl: null },
+                body: 'Unanchored root comment',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'UNANCHORED',
+                blockKey: null,
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(list.querySelector('.novel-comment-menu-trigger'), null, 'UNANCHORED root must not render ⋯ trigger');
+        assert.strictEqual(list.querySelector('.novel-comment-actions-menu'), null, 'UNANCHORED root must not render actions menu');
+    });
+
+    test('24. Active reply inherits root CURRENT blockKey and renders origin menu', async () => {
+        const { doc, list } = createStandardFixture('c2400');
+        const items = [
+            {
+                rootCommentId: 'r-parent',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root text',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-active',
+                        parentCommentId: 'r-parent',
+                        body: 'Active reply text',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        author: { userId: 'u2', displayName: 'Replier', avatarUrl: null }
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = list.querySelector('.novel-comment--reply');
+        assert.ok(replyEl);
+
+        const replyTrigger = replyEl.querySelector('.novel-comment-menu-trigger');
+        assert.ok(replyTrigger, 'Active reply must render menu trigger inherited from root');
+
+        const replyMenuItem = replyEl.querySelector('.novel-comment-menu-item');
+        assert.ok(replyMenuItem);
+        assert.strictEqual(replyMenuItem.getAttribute('data-block-key'), 'blk-test-1', 'Reply must inherit root blockKey');
+    });
+
+    test('25. Nested reply still inherits root blockKey, not immediate-parent identity', async () => {
+        const { doc, list } = createStandardFixture('c2500');
+        const items = [
+            {
+                rootCommentId: 'r-root',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root text',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 2,
+                replies: [
+                    {
+                        id: 'rep-1',
+                        parentCommentId: 'r-root',
+                        body: 'First reply',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        author: { userId: 'u2', displayName: 'User 2', avatarUrl: null }
+                    },
+                    {
+                        id: 'rep-2',
+                        parentCommentId: 'rep-1', // Nested reply
+                        body: 'Nested reply',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:10:00Z',
+                        updatedAt: '2026-09-18T10:10:00Z',
+                        author: { userId: 'u3', displayName: 'User 3', avatarUrl: null }
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const replies = list.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 2);
+
+        const nestedReply = replies[1];
+        const nestedMenuItem = nestedReply.querySelector('.novel-comment-menu-item');
+        assert.ok(nestedMenuItem);
+        assert.strictEqual(
+            nestedMenuItem.getAttribute('data-block-key'),
+            'blk-test-1',
+            'Nested reply must inherit root blockKey instead of deriving from parentCommentId'
+        );
+    });
+
+    test('26. Tombstone reply has no actions menu', async () => {
+        const { doc, list } = createStandardFixture('c2600');
+        const items = [
+            {
+                rootCommentId: 'r-root-tomb',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root text',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-deleted',
+                        parentCommentId: 'r-root-tomb',
+                        body: null,
+                        tombstone: true,
+                        status: 'DELETED',
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:10:00Z',
+                        author: null
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const tombstoneEl = list.querySelector('.novel-comment--reply.is-tombstone');
+        assert.ok(tombstoneEl);
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-actions-menu'), null, 'Tombstone must not have actions menu');
+        assert.strictEqual(tombstoneEl.querySelector('.novel-comment-menu-trigger'), null, 'Tombstone must not have menu trigger');
+    });
+
+    test('27. Click "Xem đoạn gốc" on root comment invokes openDiscussionTarget with { chapterId, blockKey, threadId: rootCommentId } without scrolling reader document', async () => {
+        const { doc, list, block1 } = createStandardFixture('c2700');
+        let bridgePayload = null;
+
+        const items = [
+            {
+                rootCommentId: 'r-nav',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Navigate root',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, {
+            fetch: fakeFetch,
+            openDiscussionTarget: (target) => {
+                bridgePayload = target;
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        const originBtn = list.querySelector('.novel-comment-menu-item');
+        originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Menu should be closed
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+
+        // Main reader document / paragraph scrollIntoView must NOT be invoked
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined, 'Must NOT scroll reader document or paragraph');
+        assert.strictEqual(block1.classList.contains('is-origin-target'), false, 'Must NOT add .is-origin-target to paragraph');
+
+        // Bridge must be called with chapterId, blockKey, and threadId (rootCommentId)
+        assert.ok(bridgePayload, 'Must invoke injected openDiscussionTarget bridge');
+        assert.strictEqual(bridgePayload.chapterId, 'c2700');
+        assert.strictEqual(bridgePayload.blockKey, 'blk-test-1');
+        assert.strictEqual(bridgePayload.threadId, 'r-nav');
+    });
+
+    test('28. Active reply "Xem đoạn gốc" targets ROOT discussion ID, never reply ID', async () => {
+        const { doc, list, block1 } = createStandardFixture('c2800');
+        let bridgePayload = null;
+
+        const items = [
+            {
+                rootCommentId: 'r-parent-root',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Parent text',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-child-1',
+                        parentCommentId: 'r-parent-root',
+                        body: 'Active reply body',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        author: { userId: 'u2', displayName: 'Replier', avatarUrl: null }
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, {
+            fetch: fakeFetch,
+            openDiscussionTarget: (target) => {
+                bridgePayload = target;
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const replyEl = list.querySelector('.novel-comment--reply');
+        assert.ok(replyEl);
+
+        const trigger = replyEl.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger);
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        const originBtn = replyEl.querySelector('.novel-comment-menu-item');
+        assert.ok(originBtn);
+        assert.strictEqual(originBtn.getAttribute('data-root-id'), 'r-parent-root', 'Reply menu item must reference rootCommentId');
+
+        originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Menu closed
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+
+        // Reader document scroll untouched
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined, 'Must NOT scroll reader document or paragraph');
+
+        // Bridge payload targets root discussion ID, NEVER child reply ID
+        assert.ok(bridgePayload, 'Must invoke openDiscussionTarget');
+        assert.strictEqual(bridgePayload.blockKey, 'blk-test-1');
+        assert.strictEqual(bridgePayload.threadId, 'r-parent-root', 'Must use rootCommentId, NEVER reply.id');
+    });
+
+    test('29. Nested reply still targets root discussion ID and does not alter URL or scroll reader document', async () => {
+        const { doc, list, block1 } = createStandardFixture('c2900');
+        let bridgePayload = null;
+
+        const items = [
+            {
+                rootCommentId: 'r-deep-root',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root text',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 2,
+                replies: [
+                    {
+                        id: 'rep-first-level',
+                        parentCommentId: 'r-deep-root',
+                        body: 'Level 1',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        author: { userId: 'u2', displayName: 'U2', avatarUrl: null }
+                    },
+                    {
+                        id: 'rep-nested-level',
+                        parentCommentId: 'rep-first-level',
+                        body: 'Level 2 nested',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:10:00Z',
+                        updatedAt: '2026-09-18T10:10:00Z',
+                        author: { userId: 'u3', displayName: 'U3', avatarUrl: null }
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, {
+            fetch: fakeFetch,
+            openDiscussionTarget: (target) => {
+                bridgePayload = target;
+            }
+        });
+        await new Promise(r => setTimeout(r, 10));
+
+        const replies = list.querySelectorAll('.novel-comment--reply');
+        assert.strictEqual(replies.length, 2);
+
+        const nestedReply = replies[1];
+        const trigger = nestedReply.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        const originBtn = nestedReply.querySelector('.novel-comment-menu-item');
+        originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+        // Reader document scroll untouched
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined);
+
+        // Targets root discussion ID, NOT nested reply ID or intermediate parent ID
+        assert.ok(bridgePayload);
+        assert.strictEqual(bridgePayload.threadId, 'r-deep-root');
+        assert.strictEqual(bridgePayload.blockKey, 'blk-test-1');
+    });
+
+    test('30. When restore bridge is unavailable, clicking "Xem đoạn gốc" safely no-ops without throwing or scrolling', async () => {
+        const { doc, list, block1, block2 } = createStandardFixture('c3000');
+
+        const items = [
+            {
+                rootCommentId: 'r-unavailable-bridge',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Target',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        // Init WITHOUT openDiscussionTarget and WITHOUT global NovelReaderBlockDiscussionRestore
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        const originBtn = list.querySelector('.novel-comment-menu-item');
+        assert.doesNotThrow(() => {
+            originBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+        });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(block1.scrollIntoViewCalled, undefined);
+        assert.strictEqual(block2.scrollIntoViewCalled, undefined);
+    });
+
+    test('31. Escape closes menu and restores focus to trigger', async () => {
+        const { doc, list } = createStandardFixture('c3100');
+        const items = [
+            {
+                rootCommentId: 'r-esc',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+        assert.ok(commentsModule.getActiveOpenMenu());
+
+        // Press Escape
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27, preventDefault: () => {} });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(commentsModule.getActiveOpenMenu(), null);
+        assert.strictEqual(trigger.isFocused, true, 'Escape must restore focus to trigger button');
+    });
+
+    test('32. Outside click closes active menu', async () => {
+        const { doc, list } = createStandardFixture('c3200');
+        const items = [
+            {
+                rootCommentId: 'r-click-out',
+                author: { userId: 'u1', displayName: 'Root', avatarUrl: null },
+                body: 'Root',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+
+        // Click outside on body
+        doc.dispatchEvent({ type: 'click', target: doc.body });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(commentsModule.getActiveOpenMenu(), null);
+    });
+
+    test('33. Opening menu B closes menu A', async () => {
+        const { doc, list } = createStandardFixture('c3300');
+        const items = [
+            {
+                rootCommentId: 'r-a',
+                author: { userId: 'u1', displayName: 'A', avatarUrl: null },
+                body: 'Comment A',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            },
+            {
+                rootCommentId: 'r-b',
+                author: { userId: 'u2', displayName: 'B', avatarUrl: null },
+                body: 'Comment B',
+                createdAt: '2026-09-18T09:00:00Z',
+                updatedAt: '2026-09-18T09:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-2',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const triggers = list.querySelectorAll('.novel-comment-menu-trigger');
+        assert.strictEqual(triggers.length, 2);
+
+        const triggerA = triggers[0];
+        const triggerB = triggers[1];
+
+        // Open menu A
+        triggerA.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        assert.strictEqual(triggerA.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(triggerB.getAttribute('aria-expanded'), 'false');
+
+        // Open menu B -> menu A must close
+        triggerB.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        assert.strictEqual(triggerA.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(triggerB.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(commentsModule.getActiveOpenMenu().triggerEl, triggerB);
+    });
+
+    test('34. Chapter change closes open menu and cleans up pending state', async () => {
+        const { doc, list, block1 } = createStandardFixture('c3400-orig');
+        const items = [
+            {
+                rootCommentId: 'r-orig',
+                author: { userId: 'u1', displayName: 'Orig', avatarUrl: null },
+                body: 'Orig',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+        assert.ok(commentsModule.getActiveOpenMenu());
+
+        // Transition chapter
+        doc.dispatchEvent({
+            type: 'kiemlai:chapter-changed',
+            detail: { chapterId: 'c3400-next' }
+        });
+
+        assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(commentsModule.getActiveOpenMenu(), null);
+    });
+
+    test('35. No passageExcerpt rendered anywhere in card or menu', async () => {
+        const { doc, list } = createStandardFixture('c3500');
+        const items = [
+            {
+                rootCommentId: 'r-excerpt-test',
+                author: { userId: 'u1', displayName: 'Author', avatarUrl: null },
+                body: 'Normal comment body',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                passageExcerpt: 'Đoạn trích này tuyệt đối không được render',
+                replyCount: 0,
+                replies: []
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        commentsModule.init(doc, { fetch: fakeFetch });
+        await new Promise(r => setTimeout(r, 10));
+
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        trigger.dispatchEvent({ type: 'click', preventDefault: () => {}, stopPropagation: () => {} });
+
+        const fullText = list.textContent;
+        assert.strictEqual(fullText.includes('Đoạn trích này tuyệt đối không được render'), false);
     });
 });

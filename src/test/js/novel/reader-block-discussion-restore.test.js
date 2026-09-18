@@ -1324,4 +1324,140 @@ describe('MS-05E5G3A3 Novel Interaction Restore Tests', () => {
             restoreModule.resetRestoreState();
         }
     });
+
+    test('29. openDiscussionTarget dispatches drawer event, sets activeRestore, and leaves URL unchanged', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('?tab=info');
+        win.history.win = win;
+
+        let requestedEvents = 0;
+        let eventDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedEvents++;
+            eventDetail = e.detail;
+        });
+
+        const success = restoreModule.openDiscussionTarget({
+            blockKey: 'blk-0123456789abcdef-1',
+            threadId: '11111111-1111-1111-1111-111111111111'
+        }, doc, win);
+
+        assert.strictEqual(success, true);
+        assert.strictEqual(requestedEvents, 1);
+        assert.ok(eventDetail);
+        assert.strictEqual(eventDetail.chapterId, '11111111-1111-1111-1111-111111111111');
+        assert.strictEqual(eventDetail.blockKey, 'blk-0123456789abcdef-1');
+        assert.strictEqual(eventDetail.contentVersion, 1);
+        assert.strictEqual(eventDetail.canonicalText, 'Nội dung đoạn văn A.');
+
+        const active = restoreModule.getActiveRestore();
+        assert.ok(active);
+        assert.strictEqual(active.chapterId, '11111111-1111-1111-1111-111111111111');
+        assert.strictEqual(active.blockKey, 'blk-0123456789abcdef-1');
+        assert.strictEqual(active.threadId, '11111111-1111-1111-1111-111111111111');
+
+        assert.strictEqual(win.location.search, '?tab=info', 'Programmatic bridge call must leave URL completely unchanged');
+        assert.strictEqual(win.history.getHistoryEntries().length, 0, 'Must not touch history state');
+    });
+
+    test('30. openDiscussionTarget matching loaded event targets and scrolls exact thread card inside drawer', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        // Build two thread cards inside drawer
+        const thread1 = doc.createElement('article');
+        thread1.setAttribute('class', 'novel-block-discussion-thread');
+        thread1.setAttribute('data-root-id', '11111111-1111-1111-1111-111111111111');
+        const root1 = doc.createElement('div');
+        root1.setAttribute('class', 'novel-comment novel-comment--root');
+        root1.setAttribute('data-comment-id', '11111111-1111-1111-1111-111111111111');
+        thread1.appendChild(root1);
+        contentEl.appendChild(thread1);
+
+        const thread2 = doc.createElement('article');
+        thread2.setAttribute('class', 'novel-block-discussion-thread');
+        thread2.setAttribute('data-root-id', '22222222-2222-2222-2222-222222222222');
+        const root2 = doc.createElement('div');
+        root2.setAttribute('class', 'novel-comment novel-comment--root');
+        root2.setAttribute('data-comment-id', '22222222-2222-2222-2222-222222222222');
+        thread2.appendChild(root2);
+        contentEl.appendChild(thread2);
+
+        const success = restoreModule.openDiscussionTarget({
+            blockKey: 'blk-0123456789abcdef-1',
+            threadId: '11111111-1111-1111-1111-111111111111'
+        }, doc, win);
+        assert.strictEqual(success, true);
+
+        // Dispatch matching loaded event
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                blockKey: 'blk-0123456789abcdef-1',
+                threadCount: 2,
+                commentCount: 2
+            }
+        });
+
+        // Exact thread1 card must be targeted and scrolled
+        assert.strictEqual(thread1.scrolledIntoView, true);
+        assert.strictEqual(thread1.classList.contains('is-restored-target'), true);
+
+        // Unrelated thread2 must NOT be targeted or scrolled
+        assert.strictEqual(thread2.scrolledIntoView, false);
+        assert.strictEqual(thread2.classList.contains('is-restored-target'), false);
+    });
+
+    test('31. openDiscussionTarget missing blockKey returns false with no event or activeRestore', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        let opened = false;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            opened = true;
+        });
+
+        const success = restoreModule.openDiscussionTarget({
+            blockKey: 'blk-missingnonexistent-1',
+            threadId: '11111111-1111-1111-1111-111111111111'
+        }, doc, win);
+
+        assert.strictEqual(success, false);
+        assert.strictEqual(opened, false);
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+    });
+
+    test('32. openDiscussionTarget completion with no transient params does not mutate URL', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('?other=value', '/novel/chapters/quyen-1-chuong-1', '#section2');
+        win.history.win = win;
+
+        const thread = doc.createElement('article');
+        thread.setAttribute('class', 'novel-block-discussion-thread');
+        thread.setAttribute('data-root-id', '11111111-1111-1111-1111-111111111111');
+        contentEl.appendChild(thread);
+
+        const success = restoreModule.openDiscussionTarget({
+            blockKey: 'blk-0123456789abcdef-1',
+            threadId: '11111111-1111-1111-1111-111111111111'
+        }, doc, win);
+        assert.strictEqual(success, true);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                blockKey: 'blk-0123456789abcdef-1',
+                threadCount: 1,
+                commentCount: 1
+            }
+        });
+
+        assert.strictEqual(win.location.search, '?other=value');
+        assert.strictEqual(win.location.hash, '#section2');
+        assert.strictEqual(win.history.getHistoryEntries().length, 0, 'No history mutation should occur for programmatic calls');
+    });
 });

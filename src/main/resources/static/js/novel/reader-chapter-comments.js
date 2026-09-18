@@ -11,7 +11,8 @@
  * - Manages status transitions: loading spinner, empty state, error with retry.
  * - Enforces race safety via load tokens against out-of-order responses.
  * - Responds to 'kiemlai:chapter-changed' to refresh comments for the new chapter.
- * - Strictly read-only: no mutation affordances, no actions menu, no passage excerpts.
+ * - Strictly read-only comments feed with read-only origin navigation (⋯ → Xem đoạn gốc).
+ * - Mutation affordances (reply creation, edit, delete) and passage excerpts are strictly absent.
  */
 (function (root, factory) {
     'use strict';
@@ -40,10 +41,14 @@
     let currentDoc = null;
     let currentChapterId = null;
     let injectedFetch = null;
+    let injectedOpenDiscussionTarget = null;
     let loadToken = 0;
     let currentStatus = 'idle'; // 'idle' | 'loading' | 'empty' | 'populated' | 'error'
     let currentItems = [];
     let chapterChangedHandler = null;
+    let documentClickHandler = null;
+    let documentKeydownHandler = null;
+    let activeOpenMenu = null; // { triggerEl, popoverEl, containerEl }
 
     /**
      * Formats comment count label (e.g. '3 bình luận').
@@ -320,6 +325,223 @@
     }
 
     /**
+     * Determines whether origin navigation is available for given anchor status and block key.
+     * Available for CURRENT and RELOCATED when blockKey is non-null and non-empty.
+     *
+     * @param {string|null} anchorStatus
+     * @param {string|null} blockKey
+     * @returns {boolean}
+     */
+    function isOriginNavigable(anchorStatus, blockKey) {
+        if (!blockKey || typeof blockKey !== 'string' || !blockKey.trim()) {
+            return false;
+        }
+        const status = (typeof anchorStatus === 'string') ? anchorStatus.trim().toUpperCase() : '';
+        return status === 'CURRENT' || status === 'RELOCATED';
+    }
+
+    /**
+     * Closes the active overflow menu and optionally restores focus to its trigger button.
+     *
+     * @param {boolean} [restoreFocus=false]
+     */
+    function closeActiveMenu(restoreFocus) {
+        if (!activeOpenMenu) {
+            return;
+        }
+        const { triggerEl, popoverEl, containerEl } = activeOpenMenu;
+        activeOpenMenu = null;
+
+        if (triggerEl) {
+            triggerEl.setAttribute('aria-expanded', 'false');
+            if (restoreFocus && typeof triggerEl.focus === 'function') {
+                try {
+                    triggerEl.focus();
+                } catch (_) {}
+            }
+        }
+        if (popoverEl) {
+            popoverEl.hidden = true;
+            popoverEl.setAttribute('hidden', '');
+        }
+        if (containerEl && containerEl.classList && typeof containerEl.classList.remove === 'function') {
+            containerEl.classList.remove('is-open');
+        }
+    }
+
+    /**
+     * Opens a specific overflow menu, closing any previously open menu first.
+     *
+     * @param {Element} triggerEl
+     * @param {Element} popoverEl
+     * @param {Element} containerEl
+     */
+    function openMenu(triggerEl, popoverEl, containerEl) {
+        if (activeOpenMenu && activeOpenMenu.triggerEl === triggerEl) {
+            closeActiveMenu(false);
+            return;
+        }
+        closeActiveMenu(false);
+
+        activeOpenMenu = { triggerEl: triggerEl, popoverEl: popoverEl, containerEl: containerEl };
+        triggerEl.setAttribute('aria-expanded', 'true');
+        popoverEl.hidden = false;
+        popoverEl.removeAttribute('hidden');
+        if (containerEl && containerEl.classList && typeof containerEl.classList.add === 'function') {
+            containerEl.classList.add('is-open');
+        }
+    }
+
+    /**
+     * Handles document click events to close the active menu if clicked outside.
+     *
+     * @param {Event} e
+     */
+    function onDocumentClick(e) {
+        if (!activeOpenMenu) {
+            return;
+        }
+        const container = activeOpenMenu.containerEl;
+        const target = (e && e.target) ? e.target : null;
+        if (container && target) {
+            if (typeof container.contains === 'function' && container.contains(target)) {
+                return;
+            }
+        }
+        closeActiveMenu(false);
+    }
+
+    /**
+     * Handles Escape key to close the active menu and restore focus.
+     *
+     * @param {KeyboardEvent} e
+     */
+    function onDocumentKeydown(e) {
+        if (!activeOpenMenu) {
+            return;
+        }
+        if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
+            if (typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            closeActiveMenu(true);
+        }
+    }
+
+    /**
+     * Opens the canonical block discussion drawer targeting the root discussion thread.
+     * Reuses reader-block-discussion-restore or injected options.openDiscussionTarget.
+     * If the canonical restore bridge is unavailable, safely no-ops without weaker fallback dispatch.
+     *
+     * @param {string} blockKey
+     * @param {string} rootCommentId
+     * @param {Document} [doc]
+     */
+    function openOriginDiscussion(blockKey, rootCommentId, doc) {
+        const documentRef = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!blockKey || !documentRef) {
+            return;
+        }
+
+        // 1. Injected handler takes precedence (for isolated testing or explicit orchestrator)
+        if (typeof injectedOpenDiscussionTarget === 'function') {
+            injectedOpenDiscussionTarget({
+                chapterId: currentChapterId,
+                blockKey: blockKey,
+                threadId: rootCommentId
+            }, documentRef);
+            return;
+        }
+
+        const win = (documentRef.defaultView) || (typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null));
+        const restoreModule = (win && (win.NovelReaderBlockDiscussionRestore || (win.KiemLai && win.KiemLai.NovelReaderBlockDiscussionRestore))) ||
+            (typeof NovelReaderBlockDiscussionRestore !== 'undefined' ? NovelReaderBlockDiscussionRestore : null);
+
+        // 2. Canonical restore bridge
+        if (restoreModule && typeof restoreModule.openDiscussionTarget === 'function') {
+            restoreModule.openDiscussionTarget({
+                chapterId: currentChapterId,
+                blockKey: blockKey,
+                threadId: rootCommentId
+            }, documentRef, win);
+            return;
+        }
+
+        // If the canonical restore bridge is unavailable: safely no-op
+    }
+
+    /**
+     * Constructs the three-dot overflow actions menu element containing "Xem đoạn gốc".
+     *
+     * @param {string} blockKey
+     * @param {string} rootCommentId
+     * @param {Document} doc
+     * @returns {Element}
+     */
+    function createActionsMenu(blockKey, rootCommentId, doc) {
+        const menuContainer = doc.createElement('div');
+        menuContainer.className = 'novel-comment-actions-menu';
+
+        const triggerBtn = doc.createElement('button');
+        triggerBtn.type = 'button';
+        triggerBtn.className = 'novel-comment-menu-trigger';
+        triggerBtn.setAttribute('aria-label', 'Mở menu bình luận');
+        triggerBtn.setAttribute('aria-haspopup', 'menu');
+        triggerBtn.setAttribute('aria-expanded', 'false');
+
+        const dotsSpan = doc.createElement('span');
+        dotsSpan.className = 'novel-comment-menu-dots';
+        dotsSpan.setAttribute('aria-hidden', 'true');
+        dotsSpan.textContent = '⋯';
+        triggerBtn.appendChild(dotsSpan);
+
+        const popoverDiv = doc.createElement('div');
+        popoverDiv.className = 'novel-comment-menu-popover';
+        popoverDiv.setAttribute('role', 'menu');
+        popoverDiv.hidden = true;
+        popoverDiv.setAttribute('hidden', '');
+
+        const originBtn = doc.createElement('button');
+        originBtn.type = 'button';
+        originBtn.className = 'novel-comment-menu-item';
+        originBtn.setAttribute('role', 'menuitem');
+        originBtn.setAttribute('data-action', 'view-origin');
+        originBtn.setAttribute('data-block-key', String(blockKey));
+        if (rootCommentId) {
+            originBtn.setAttribute('data-root-id', String(rootCommentId));
+        }
+        originBtn.textContent = 'Xem đoạn gốc';
+
+        originBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            closeActiveMenu(false);
+            openOriginDiscussion(blockKey, rootCommentId, doc);
+        });
+
+        triggerBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
+            if (e && typeof e.stopPropagation === 'function') {
+                e.stopPropagation();
+            }
+            if (activeOpenMenu && activeOpenMenu.triggerEl === triggerBtn) {
+                closeActiveMenu(false);
+            } else {
+                openMenu(triggerBtn, popoverDiv, menuContainer);
+            }
+        });
+
+        popoverDiv.appendChild(originBtn);
+        menuContainer.appendChild(triggerBtn);
+        menuContainer.appendChild(popoverDiv);
+
+        return menuContainer;
+    }
+
+    /**
      * Renders a single discussion thread card (root comment + visible replies).
      *
      * @param {Object} item ChapterDiscussionFeedItemDTO
@@ -367,6 +589,11 @@
             rootHeader.appendChild(rootEdited);
         }
 
+        if (isOriginNavigable(item.anchorStatus, item.blockKey)) {
+            const rootMenu = createActionsMenu(item.blockKey, rootId, doc);
+            rootHeader.appendChild(rootMenu);
+        }
+
         // Root Body (rendered safely as textContent)
         const rootBody = doc.createElement('div');
         rootBody.className = 'novel-comment-body';
@@ -375,7 +602,6 @@
         rootEl.appendChild(rootHeader);
         rootEl.appendChild(rootBody);
 
-        // Explicitly NO actions, NO passageExcerpt, NO anchorStatus, NO blockKey
         threadCard.appendChild(rootEl);
 
         // Replies container
@@ -471,6 +697,12 @@
                         replyEdited.className = 'novel-comment-edited';
                         replyEdited.textContent = 'đã chỉnh sửa';
                         replyHeader.appendChild(replyEdited);
+                    }
+
+                    // Active reply inherits root anchorStatus and root blockKey
+                    if (isOriginNavigable(item.anchorStatus, item.blockKey)) {
+                        const replyMenu = createActionsMenu(item.blockKey, rootId, doc);
+                        replyHeader.appendChild(replyMenu);
                     }
 
                     const replyBody = doc.createElement('div');
@@ -747,6 +979,8 @@
      * @param {Event|Object} evt
      */
     function handleChapterChanged(evt) {
+        closeActiveMenu(false);
+
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { sectionEl } = getElements();
 
@@ -783,15 +1017,30 @@
         }
 
         // Clean up any existing listeners on prior document
-        if (currentDoc && chapterChangedHandler && typeof currentDoc.removeEventListener === 'function') {
-            currentDoc.removeEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
+        if (currentDoc) {
+            if (chapterChangedHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
+            }
+            if (documentClickHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('click', documentClickHandler);
+            }
+            if (documentKeydownHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('keydown', documentKeydownHandler);
+            }
         }
+        closeActiveMenu(false);
 
         currentDoc = documentRef;
         const opts = (options && typeof options === 'object') ? options : {};
 
         if (typeof opts.fetch === 'function') {
             injectedFetch = opts.fetch;
+        }
+
+        if (typeof opts.openDiscussionTarget === 'function') {
+            injectedOpenDiscussionTarget = opts.openDiscussionTarget;
+        } else {
+            injectedOpenDiscussionTarget = null;
         }
 
         const { sectionEl, listEl } = getElements();
@@ -811,9 +1060,17 @@
         chapterChangedHandler = function (evt) {
             handleChapterChanged(evt);
         };
+        documentClickHandler = function (e) {
+            onDocumentClick(e);
+        };
+        documentKeydownHandler = function (e) {
+            onDocumentKeydown(e);
+        };
 
         if (typeof currentDoc.addEventListener === 'function') {
             currentDoc.addEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
+            currentDoc.addEventListener('click', documentClickHandler);
+            currentDoc.addEventListener('keydown', documentKeydownHandler);
         }
 
         fetchFeed();
@@ -824,9 +1081,18 @@
      */
     function destroyReaderChapterComments() {
         loadToken++; // Invalidate any in-flight request
+        closeActiveMenu(false);
 
-        if (currentDoc && chapterChangedHandler && typeof currentDoc.removeEventListener === 'function') {
-            currentDoc.removeEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
+        if (currentDoc) {
+            if (chapterChangedHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
+            }
+            if (documentClickHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('click', documentClickHandler);
+            }
+            if (documentKeydownHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('keydown', documentKeydownHandler);
+            }
         }
 
         const { statusEl, listEl, countEl } = getElements();
@@ -844,7 +1110,10 @@
         currentDoc = null;
         currentChapterId = null;
         injectedFetch = null;
+        injectedOpenDiscussionTarget = null;
         chapterChangedHandler = null;
+        documentClickHandler = null;
+        documentKeydownHandler = null;
         currentStatus = 'idle';
         currentItems = [];
     }
@@ -891,6 +1160,11 @@
         resolveTombstoneContextChildDisplayName: resolveTombstoneContextChildDisplayName,
         sanitizeAvatarUrl: sanitizeAvatarUrl,
         createAvatarFallback: createAvatarFallback,
-        setFetchImplementation: function (fn) { injectedFetch = fn; }
+        setFetchImplementation: function (fn) { injectedFetch = fn; },
+        isOriginNavigable: isOriginNavigable,
+        openOriginDiscussion: openOriginDiscussion,
+        closeActiveMenu: closeActiveMenu,
+        getActiveOpenMenu: function () { return activeOpenMenu; },
+        getHighlightedElement: function () { return null; }
     };
 });

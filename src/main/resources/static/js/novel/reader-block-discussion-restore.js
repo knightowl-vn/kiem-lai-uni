@@ -567,6 +567,119 @@
     }
 
     /**
+     * Programmatically opens a block discussion drawer and targets a thread/comment.
+     * Reusable by external UI triggers (e.g. Chapter Comments "Xem đoạn gốc").
+     *
+     * @param {Object} target { blockKey, threadId, replyTo, intent, chapterId, contentVersion }
+     * @param {Document} [documentRef]
+     * @param {Window} [windowRef]
+     * @returns {boolean} true if request was successfully dispatched, false otherwise
+     */
+    function openDiscussionTarget(target, documentRef, windowRef) {
+        const doc = documentRef || (typeof document !== 'undefined' ? document : null);
+        const win = windowRef || (typeof window !== 'undefined' ? window : null);
+
+        if (!doc || !target || typeof target !== 'object') {
+            return false;
+        }
+
+        const rawBlock = target.blockKey;
+        if (!rawBlock || typeof rawBlock !== 'string') {
+            return false;
+        }
+        const blockKey = rawBlock.trim();
+        if (!blockKey) {
+            return false;
+        }
+
+        let threadId = null;
+        if (target.threadId) {
+            const rawThread = String(target.threadId).trim();
+            if (rawThread) {
+                threadId = rawThread;
+            }
+        }
+
+        let replyTo = null;
+        if (target.replyTo) {
+            const rawReply = String(target.replyTo).trim();
+            if (rawReply) {
+                replyTo = rawReply;
+            }
+        }
+
+        let intent = 'open';
+        if (target.intent) {
+            const rawIntent = String(target.intent).trim().toLowerCase();
+            if (rawIntent === 'open' || rawIntent === 'reply') {
+                intent = rawIntent;
+            }
+        }
+
+        bindDocumentListeners(doc, win);
+
+        const chapterBody = doc.querySelector ? doc.querySelector('.novel-reader-chapter-body') : null;
+        if (!chapterBody) {
+            return false;
+        }
+
+        const blockEl = findReaderBlock(chapterBody, blockKey);
+        if (!blockEl) {
+            return false;
+        }
+
+        const chapterId = (
+            (typeof target.chapterId === 'string' && target.chapterId.trim()) ||
+            (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
+            (chapterBody.dataset && chapterBody.dataset.chapterId) ||
+            ''
+        ).trim();
+
+        const rawVersion = (
+            (target.contentVersion != null ? String(target.contentVersion) : null) ||
+            (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-content-version') : null) ||
+            (chapterBody.dataset && chapterBody.dataset.contentVersion) ||
+            null
+        );
+        let contentVersion = parseContentVersion(rawVersion);
+        if (contentVersion === null && target.contentVersion === undefined && !chapterBody.hasAttribute('data-content-version')) {
+            contentVersion = 1;
+        }
+
+        if (!chapterId || contentVersion === null) {
+            return false;
+        }
+
+        const currentToken = ++restoreToken;
+        activeRestore = {
+            token: currentToken,
+            chapterId: chapterId,
+            blockKey: blockKey,
+            threadId: threadId,
+            replyTo: replyTo,
+            intent: intent
+        };
+
+        const threadCount = parseThreadCount(blockEl);
+        const canonicalText = blockEl.textContent || '';
+
+        const detail = {
+            chapterId: chapterId,
+            contentVersion: contentVersion,
+            blockKey: blockKey,
+            threadCount: threadCount,
+            canonicalText: canonicalText
+        };
+
+        const openEvent = (typeof CustomEvent === 'function')
+            ? new CustomEvent(EVENT_DISCUSSION_REQUESTED, { detail: detail, bubbles: true })
+            : { type: EVENT_DISCUSSION_REQUESTED, detail: detail };
+
+        doc.dispatchEvent(openEvent);
+        return true;
+    }
+
+    /**
      * Initiates the post-auth discussion restoration flow.
      *
      * @param {Document} [documentRef]
@@ -594,62 +707,10 @@
             return;
         }
 
-        const chapterBody = doc.querySelector ? doc.querySelector('.novel-reader-chapter-body') : null;
-        if (!chapterBody) {
+        const success = openDiscussionTarget(restoreContext, doc, win);
+        if (!success) {
             cleanRestoreParameters(win);
-            return;
         }
-
-        const blockEl = findReaderBlock(chapterBody, restoreContext.blockKey);
-        if (!blockEl) {
-            cleanRestoreParameters(win);
-            return;
-        }
-
-        const chapterId = (
-            (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
-            (chapterBody.dataset && chapterBody.dataset.chapterId) ||
-            ''
-        ).trim();
-
-        const rawVersion = (
-            (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-content-version') : null) ||
-            (chapterBody.dataset && chapterBody.dataset.contentVersion) ||
-            null
-        );
-        const contentVersion = parseContentVersion(rawVersion);
-
-        if (!chapterId || contentVersion === null) {
-            cleanRestoreParameters(win);
-            return;
-        }
-
-        const currentToken = ++restoreToken;
-        activeRestore = {
-            token: currentToken,
-            chapterId: chapterId,
-            blockKey: restoreContext.blockKey,
-            threadId: restoreContext.threadId,
-            replyTo: restoreContext.replyTo,
-            intent: restoreContext.intent
-        };
-
-        const threadCount = parseThreadCount(blockEl);
-        const canonicalText = blockEl.textContent || '';
-
-        const detail = {
-            chapterId: chapterId,
-            contentVersion: contentVersion,
-            blockKey: restoreContext.blockKey,
-            threadCount: threadCount,
-            canonicalText: canonicalText
-        };
-
-        const openEvent = (typeof CustomEvent === 'function')
-            ? new CustomEvent(EVENT_DISCUSSION_REQUESTED, { detail: detail, bubbles: true })
-            : { type: EVENT_DISCUSSION_REQUESTED, detail: detail };
-
-        doc.dispatchEvent(openEvent);
     }
 
     /**
@@ -678,6 +739,7 @@
 
     return {
         init: init,
+        openDiscussionTarget: openDiscussionTarget,
         parseRestoreContext: parseRestoreContext,
         cleanRestoreParameters: cleanRestoreParameters,
         getActiveRestore: getActiveRestore,
