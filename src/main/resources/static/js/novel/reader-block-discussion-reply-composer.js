@@ -62,11 +62,42 @@
     let injectedDrawer = null;
     let injectedIndicators = null;
     let injectedEditComposer = null;
+    let injectedCommentMutations = null;
     let isSubmitting = false;
     let currentMutationToken = 0;
     let activeTarget = null;
     let activeComposerEl = null;
     let priorFocusedReplyBtn = null;
+
+    let nodeCommentMutations = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentMutations = require('./reader-comment-mutations.js');
+        } catch (_) {}
+    }
+
+    /**
+     * Resolves the shared comment mutations client.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentMutations() {
+        if (injectedCommentMutations) {
+            return injectedCommentMutations;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderCommentMutations ||
+                (window.KiemLai && window.KiemLai.NovelReaderCommentMutations) ||
+                null;
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.NovelReaderCommentMutations) {
+            return globalThis.NovelReaderCommentMutations;
+        }
+        if (nodeCommentMutations) {
+            return nodeCommentMutations;
+        }
+        return null;
+    }
 
     /**
      * Resolves the edit composer module instance.
@@ -604,9 +635,6 @@
         if (cancelBtn) cancelBtn.disabled = true;
         setStatus(statusEl, 'Đang gửi...', 'info');
 
-        const url = '/api/novel/chapters/' + encodeURIComponent(snapshot.chapterId) +
-            '/comments/' + encodeURIComponent(snapshot.parentCommentId) + '/replies';
-
         const fetchImpl = injectedFetch || (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
         if (!fetchImpl) {
             isSubmitting = false;
@@ -617,82 +645,66 @@
             return;
         }
 
-        try {
-            const headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            };
-            headers[csrf.headerName] = csrf.token;
+        const commentMutations = resolveCommentMutations();
+        if (!commentMutations || typeof commentMutations.createReply !== 'function') {
+            isSubmitting = false;
+            textarea.disabled = false;
+            if (submitBtn) submitBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
+            setStatus(statusEl, 'Không thể gửi phản hồi. Trình duyệt không hỗ trợ mutation.', 'error');
+            return;
+        }
 
-            const res = await fetchImpl(url, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify({ body: rawBody })
+        try {
+            await commentMutations.createReply({
+                chapterId: snapshot.chapterId,
+                parentCommentId: snapshot.parentCommentId,
+                body: rawBody
+            }, {
+                fetch: fetchImpl,
+                document: currentDoc,
+                csrf: csrf
             });
 
-            if (res.status === 201) {
-                const data = await res.json().catch(function () { return null; });
-                const validCommentId = data && typeof data.commentId === 'string' && data.commentId.trim().length > 0;
+            if (isMutationContextCurrent(mutationToken, snapshot)) {
+                isSubmitting = false;
+                closeReplyComposer(false);
 
-                if (!validCommentId) {
-                    if (isMutationContextCurrent(mutationToken, snapshot)) {
-                        isSubmitting = false;
-                        textarea.disabled = false;
-                        if (submitBtn) submitBtn.disabled = false;
-                        if (cancelBtn) cancelBtn.disabled = false;
-                        setStatus(statusEl, 'Không thể gửi phản hồi. Phản hồi máy chủ không hợp lệ.', 'error');
-                    }
-                    return;
+                // Refresh authoritative drawer (preserves open drawer and updates replies)
+                const drawer = resolveDrawerModule();
+                if (drawer && typeof drawer.refreshActiveDiscussion === 'function') {
+                    try {
+                        drawer.refreshActiveDiscussion().catch(function () {});
+                    } catch (_) {}
                 }
 
-                if (isMutationContextCurrent(mutationToken, snapshot)) {
-                    isSubmitting = false;
-                    closeReplyComposer(false);
-
-                    // Refresh authoritative drawer (preserves open drawer and updates replies)
-                    const drawer = resolveDrawerModule();
-                    if (drawer && typeof drawer.refreshActiveDiscussion === 'function') {
-                        try {
-                            drawer.refreshActiveDiscussion().catch(function () {});
-                        } catch (_) {}
-                    }
-
-                    // Refresh block indicators so paragraph badge updates with new commentCount
-                    const indicators = resolveIndicatorsModule();
-                    if (indicators && typeof indicators.refreshChapterIndicators === 'function') {
-                        try {
-                            indicators.refreshChapterIndicators().catch(function () {});
-                        } catch (_) {}
-                    }
+                // Refresh block indicators so paragraph badge updates with new commentCount
+                const indicators = resolveIndicatorsModule();
+                if (indicators && typeof indicators.refreshChapterIndicators === 'function') {
+                    try {
+                        indicators.refreshChapterIndicators().catch(function () {});
+                    } catch (_) {}
                 }
-                return;
             }
-
+        } catch (err) {
             if (!isMutationContextCurrent(mutationToken, snapshot)) {
                 return;
             }
-
             isSubmitting = false;
             textarea.disabled = false;
             if (submitBtn) submitBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
 
-            if (res.status === 401 || res.status === 403) {
+            const status = err && typeof err.status === 'number' ? err.status : 0;
+            if (status === 401 || status === 403) {
                 setStatus(statusEl, 'Phiên đăng nhập đã hết hạn hoặc không có quyền. Vui lòng đăng nhập lại.', 'error');
-            } else if (res.status === 404) {
+            } else if (status === 404) {
                 setStatus(statusEl, 'Bình luận không còn tồn tại.', 'error');
-            } else {
+            } else if (status > 0) {
                 setStatus(statusEl, 'Không thể gửi phản hồi. Vui lòng thử lại.', 'error');
+            } else {
+                setStatus(statusEl, 'Lỗi kết nối mạng. Vui lòng thử lại.', 'error');
             }
-        } catch (_) {
-            if (!isMutationContextCurrent(mutationToken, snapshot)) {
-                return;
-            }
-            isSubmitting = false;
-            textarea.disabled = false;
-            if (submitBtn) submitBtn.disabled = false;
-            if (cancelBtn) cancelBtn.disabled = false;
-            setStatus(statusEl, 'Lỗi kết nối mạng. Vui lòng thử lại.', 'error');
         }
     }
 
@@ -987,6 +999,9 @@
         if (options && options.editComposerModule) {
             injectedEditComposer = options.editComposerModule;
         }
+        if (options && options.commentMutations) {
+            injectedCommentMutations = options.commentMutations;
+        }
 
         bindEvents(doc);
 
@@ -1010,8 +1025,9 @@
         injectedDrawer = null;
         injectedIndicators = null;
         injectedEditComposer = null;
+        injectedCommentMutations = null;
         isSubmitting = false;
-        currentMutationToken = 0;
+        currentMutationToken++;
         activeTarget = null;
         activeComposerEl = null;
         priorFocusedReplyBtn = null;
@@ -1055,6 +1071,8 @@
         getActiveComposerEl: function () { return activeComposerEl; },
         isSubmittingReply: function () { return isSubmitting; },
         setFetchImplementation: function (fn) { injectedFetch = fn; },
-        setDrawerModule: function (mod) { injectedDrawer = mod; }
+        setDrawerModule: function (mod) { injectedDrawer = mod; },
+        setCommentMutations: function (mod) { injectedCommentMutations = mod; },
+        resolveCommentMutations: resolveCommentMutations
     };
 });

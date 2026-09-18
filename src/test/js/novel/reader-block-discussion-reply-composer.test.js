@@ -1018,4 +1018,157 @@ describe('MS-05E5G4A Novel Block Discussion Reply Composer Tests', () => {
         assert.strictEqual(getActiveReplyTarget().commentId, ROOT_ID);
     });
 
+    describe('MS-05E5H2F2A Shared createReply Mutation Client Wiring', () => {
+        test('A & B & C. drawer submit calls shared createReply exactly once with canonical inputs and triggers drawer refresh', async () => {
+            let createReplyCalls = [];
+            const mockMutationsClient = {
+                createReply: async (input, options) => {
+                    createReplyCalls.push({ input, options });
+                    return {
+                        ok: true,
+                        status: 201,
+                        commentId: 'reply-created-shared-123'
+                    };
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(doc, {
+                commentMutations: mockMutationsClient,
+                drawerModule: mockDrawerModule
+            });
+
+            const childReplyBtn = content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+            doc.dispatchEvent({ type: 'click', target: childReplyBtn });
+
+            const composer = content.querySelector('.' + REPLY_COMPOSER_CLASS);
+            const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+            textarea.value = 'Shared client test reply';
+
+            // Submit
+            doc.dispatchEvent({
+                type: 'submit',
+                target: composer,
+                preventDefault: () => {}
+            });
+
+            await new Promise(r => setTimeout(r, 10));
+
+            // A. Calls shared createReply exactly once
+            assert.strictEqual(createReplyCalls.length, 1);
+
+            // B. Correct canonical inputs passed
+            const call = createReplyCalls[0];
+            assert.strictEqual(call.input.chapterId, CHAPTER_ID);
+            assert.strictEqual(call.input.parentCommentId, REPLY_ID);
+            assert.strictEqual(call.input.body, 'Shared client test reply');
+
+            // C. Successful createReply triggers existing authoritative drawer refresh
+            assert.strictEqual(refreshActiveDiscussionCalled, 1);
+            assert.strictEqual(content.querySelector('.' + REPLY_COMPOSER_CLASS), null);
+            assert.strictEqual(getActiveReplyTarget(), null);
+            assert.strictEqual(isSubmittingReply(), false);
+        });
+
+        test('D. client failure leaves existing drawer failure and draft semantics intact', async () => {
+            const mockMutationsClient = {
+                createReply: async () => {
+                    const err = new Error('HTTP 404');
+                    err.status = 404;
+                    throw err;
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(doc, {
+                commentMutations: mockMutationsClient,
+                drawerModule: mockDrawerModule
+            });
+
+            const rootReplyBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            doc.dispatchEvent({ type: 'click', target: rootReplyBtn });
+
+            const composer = content.querySelector('.' + REPLY_COMPOSER_CLASS);
+            const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+            textarea.value = 'Draft to be preserved on failure';
+
+            doc.dispatchEvent({
+                type: 'submit',
+                target: composer,
+                preventDefault: () => {}
+            });
+
+            await new Promise(r => setTimeout(r, 10));
+
+            // Draft preserved, re-enabled
+            assert.strictEqual(textarea.value, 'Draft to be preserved on failure');
+            assert.strictEqual(textarea.disabled, false);
+
+            // Friendly error rendered
+            const statusEl = composer.querySelector('.' + REPLY_STATUS_CLASS);
+            assert.strictEqual(statusEl.textContent, 'Bình luận không còn tồn tại.');
+            assert.strictEqual(isSubmittingReply(), false);
+            assert.strictEqual(refreshActiveDiscussionCalled, 0);
+        });
+
+        test('E. double submit still does not cause duplicate createReply calls', async () => {
+            let callCount = 0;
+            let resolveSharedCall;
+            const mockMutationsClient = {
+                createReply: () => {
+                    callCount++;
+                    return new Promise(resolve => {
+                        resolveSharedCall = resolve;
+                    });
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(doc, {
+                commentMutations: mockMutationsClient,
+                drawerModule: mockDrawerModule
+            });
+
+            const rootReplyBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            doc.dispatchEvent({ type: 'click', target: rootReplyBtn });
+
+            const composer = content.querySelector('.' + REPLY_COMPOSER_CLASS);
+            composer.querySelector('.' + REPLY_INPUT_CLASS).value = 'Single flight check';
+
+            // First submit
+            doc.dispatchEvent({ type: 'submit', target: composer, preventDefault: () => {} });
+            assert.strictEqual(callCount, 1);
+            assert.strictEqual(isSubmittingReply(), true);
+
+            // Second submit while in-flight
+            doc.dispatchEvent({ type: 'submit', target: composer, preventDefault: () => {} });
+            assert.strictEqual(callCount, 1);
+
+            resolveSharedCall({ ok: true, status: 201, commentId: 'r-1' });
+            await new Promise(r => setTimeout(r, 10));
+            assert.strictEqual(isSubmittingReply(), false);
+        });
+
+        test('F. Reply/Edit mutual exclusion is not regressed', () => {
+            let closeEditCalled = false;
+            let closeEditRestoreFocusArg = null;
+            const mockEditComposer = {
+                closeEditComposer: (restoreFocus) => {
+                    closeEditCalled = true;
+                    closeEditRestoreFocusArg = restoreFocus;
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(doc, {
+                drawerModule: mockDrawerModule,
+                editComposerModule: mockEditComposer
+            });
+
+            const rootReplyBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault: () => {} });
+
+            assert.strictEqual(closeEditCalled, true);
+            assert.strictEqual(closeEditRestoreFocusArg, false);
+            const composer = content.querySelector('.' + REPLY_COMPOSER_CLASS);
+            assert.notStrictEqual(composer, null);
+        });
+    });
+
 });
