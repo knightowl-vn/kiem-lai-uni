@@ -146,7 +146,8 @@ public class InteractionArchitectureContractTest {
     public static final ArchRule interactionMustNotDependOnNovelAnchor =
             noClasses()
                     .that().resideInAPackage("com.universe.interaction..")
-                    .should().dependOnClassesThat().resideInAPackage("com.universe.novel..anchor..")
-                    .because("Interaction comments must remain generic and unaware of Novel Reader anchor sidecars")
+                    .and().resideOutsideOfPackage("com.universe.interaction.entry.novel..")
+                    .should().dependOnClassesThat().resideInAnyPackage("com.universe.novel..anchor..")
+                    .because("Only com.universe.interaction.entry.novel.. may coordinate with Novel-owned anchor concepts; all other interaction packages (domain, application, infrastructure, and generic entry) must remain generic and unaware of Novel Reader anchor sidecars")
                     .allowEmptyShould(true);
 }
