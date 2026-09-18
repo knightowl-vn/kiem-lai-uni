@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -1171,5 +1171,181 @@ describe('Reader Chapter Comment Edit Composer UI (MS-05E5H2F3B)', () => {
 
         // - no second PATCH
         assert.strictEqual(editCommentCallCount, 1, 'editComment must NOT be retried');
+    });
+});
+
+describe('MS-05E5H2F4B1 — Bottom Edit Cross-Surface Synchronization', () => {
+    let fixture;
+    let mockMutations;
+    let mockCommentsModule;
+    let mockDrawerModule;
+    let mockIndicatorsModule;
+    let drawerRefreshCalls;
+    let indicatorRefreshCalls;
+    let refreshRootThreadCalls;
+    let drawerOpen;
+    let drawerContext;
+
+    beforeEach(() => {
+        resetEditComposerState();
+        fixture = createBottomFixture();
+        refreshRootThreadCalls = [];
+        drawerRefreshCalls = 0;
+        indicatorRefreshCalls = 0;
+        drawerOpen = true;
+        drawerContext = { chapterId: CHAPTER_ID, blockKey: 'blk-root-1' };
+
+        mockMutations = {
+            editComment: async () => ({ ok: true, status: 204 })
+        };
+
+        mockCommentsModule = {
+            getState: () => ({
+                items: [
+                    {
+                        id: ROOT_ID_1,
+                        rootCommentId: ROOT_ID_1,
+                        anchorStatus: 'CURRENT',
+                        blockKey: 'blk-root-1'
+                    },
+                    {
+                        id: ROOT_ID_2,
+                        rootCommentId: ROOT_ID_2,
+                        anchorStatus: 'UNANCHORED',
+                        blockKey: null
+                    }
+                ]
+            }),
+            refreshRootThread: async (rootId) => {
+                refreshRootThreadCalls.push(rootId);
+            }
+        };
+
+        mockDrawerModule = {
+            isDrawerOpen: () => drawerOpen,
+            getActiveContext: () => drawerContext,
+            refreshActiveDiscussion: async () => {
+                drawerRefreshCalls++;
+            }
+        };
+
+        mockIndicatorsModule = {
+            refreshChapterIndicators: async () => {
+                indicatorRefreshCalls++;
+            }
+        };
+    });
+
+    afterEach(() => {
+        destroy();
+    });
+
+    test('Case A: Anchored same-block Drawer open refreshes Drawer once, local thread once, zero indicator refresh', async () => {
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open edit on Root 1 (anchored to blk-root-1)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Updated root comment body';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(refreshRootThreadCalls.length, 1, 'Local thread must refresh');
+        assert.strictEqual(refreshRootThreadCalls[0], ROOT_ID_1);
+        assert.strictEqual(drawerRefreshCalls, 1, 'Same-block open Drawer must refresh once');
+        assert.strictEqual(indicatorRefreshCalls, 0, 'Edit must NEVER refresh indicators (not count-changing)');
+    });
+
+    test('Case B: Anchored edit with different-block Drawer open skips Drawer refresh', async () => {
+        drawerContext = { chapterId: CHAPTER_ID, blockKey: 'blk-different' };
+
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Updated root comment body';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(refreshRootThreadCalls.length, 1);
+        assert.strictEqual(drawerRefreshCalls, 0, 'Drawer refresh must be skipped when blockKey differs');
+    });
+
+    test('Case C: UNANCHORED comment edit performs local refresh only (zero Drawer refresh)', async () => {
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open edit on Root 2 (UNANCHORED)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn2, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Updated unanchored body';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(refreshRootThreadCalls.length, 1);
+        assert.strictEqual(refreshRootThreadCalls[0], ROOT_ID_2);
+        assert.strictEqual(drawerRefreshCalls, 0, 'UNANCHORED comment must not trigger Drawer refresh');
+    });
+
+    test('Case D: Secondary Drawer rejection does not fail mutation or retry PATCH', async () => {
+        let editCommentCalls = 0;
+        mockMutations.editComment = async () => {
+            editCommentCalls++;
+            return { ok: true, status: 204 };
+        };
+        mockDrawerModule.refreshActiveDiscussion = () => Promise.reject(new Error('Drawer network error'));
+
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Updated root body';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(editCommentCalls, 1, 'PATCH must not be retried');
+        assert.strictEqual(refreshRootThreadCalls.length, 1, 'Local refresh must still proceed');
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer must close');
+    });
+
+    test('Case E: Stale A completion performs zero Drawer refresh', async () => {
+        let resolveEditA;
+        mockMutations.editComment = () => new Promise(r => { resolveEditA = r; });
+
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Start edit on Root 1
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const editPromiseA = handleSubmit({ preventDefault: () => {} });
+
+        // Cancel A by pressing Escape
+        fixture.doc.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault: () => {} });
+        assert.strictEqual(getActiveComposerEl(), null);
+
+        // Resolve old A
+        resolveEditA({ ok: true, status: 204 });
+        await editPromiseA;
+
+        assert.strictEqual(drawerRefreshCalls, 0, 'Stale mutation must not trigger Drawer refresh');
+        assert.strictEqual(refreshRootThreadCalls.length, 0, 'Stale mutation must not trigger local refresh');
     });
 });

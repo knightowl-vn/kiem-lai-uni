@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -1444,6 +1444,170 @@ describe('MS-05E5G3 Novel Block Discussion Root Comment Composer', () => {
                 global.window = priorWindow;
             }
         }
+    });
+
+});
+
+describe('MS-05E5H2F4B2 — Drawer Root Create → Bottom Synchronization', () => {
+
+    beforeEach(() => {
+        resetComposerState();
+    });
+
+    afterEach(() => {
+        resetComposerState();
+    });
+
+    test('Case A: Successful root creation triggers Drawer refresh, indicator refresh, and Bottom refreshFromPageZero', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let postCalls = 0;
+        let drawerRefreshCalls = 0;
+        let indicatorRefreshCalls = 0;
+        let bottomPageZeroCalls = 0;
+
+        const mockFetch = async () => {
+            postCalls++;
+            return {
+                status: 201,
+                json: async () => ({ commentId: 'c-root-new-123' })
+            };
+        };
+
+        const mockDrawer = {
+            refreshActiveDiscussion: async () => { drawerRefreshCalls++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshCalls++; }
+        };
+        const mockBottom = {
+            refreshFromPageZero: async () => { bottomPageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-sync-1', contentVersion: 1, blockKey: 'blk-sync-1' }
+        });
+
+        input.value = 'New root comment for paragraph';
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        assert.strictEqual(postCalls, 1, 'POST must be called once');
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer must refresh active discussion once');
+        assert.strictEqual(indicatorRefreshCalls, 1, 'Indicators must refresh once');
+        assert.strictEqual(bottomPageZeroCalls, 1, 'Bottom feed must refresh from page zero once');
+    });
+
+    test('Case B: Bottom secondary rejection does not retry POST or fail Drawer/indicator refresh', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let postCalls = 0;
+        let drawerRefreshCalls = 0;
+        let indicatorRefreshCalls = 0;
+        let bottomPageZeroCalls = 0;
+
+        const mockFetch = async () => {
+            postCalls++;
+            return {
+                status: 201,
+                json: async () => ({ commentId: 'c-root-new-123' })
+            };
+        };
+
+        const mockDrawer = {
+            refreshActiveDiscussion: async () => { drawerRefreshCalls++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshCalls++; }
+        };
+        const mockBottom = {
+            refreshFromPageZero: async () => {
+                bottomPageZeroCalls++;
+                throw new Error('Bottom network failure');
+            }
+        };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-sync-1', contentVersion: 1, blockKey: 'blk-sync-1' }
+        });
+
+        input.value = 'New root comment with bottom failure';
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        assert.strictEqual(postCalls, 1, 'POST must NOT be retried on secondary failure');
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer refresh must still occur');
+        assert.strictEqual(indicatorRefreshCalls, 1, 'Indicator refresh must still occur');
+        assert.strictEqual(bottomPageZeroCalls, 1, 'Bottom refresh was attempted once');
+        assert.strictEqual(input.value, '', 'Textarea must still be cleared on primary success');
+    });
+
+    test('Case C: Stale mutation completion performs zero Bottom synchronization', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA;
+        let bottomPageZeroCalls = 0;
+        let drawerRefreshCalls = 0;
+        let indicatorRefreshCalls = 0;
+
+        const mockFetch = async () => new Promise(r => { resolvePostA = r; });
+        const mockDrawer = {
+            refreshActiveDiscussion: async () => { drawerRefreshCalls++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshCalls++; }
+        };
+        const mockBottom = {
+            refreshFromPageZero: async () => { bottomPageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        // 1. Load Block A and submit
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-A' }
+        });
+        input.value = 'Draft for block A';
+        const submitPromiseA = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // 2. Switch to Block B before A completes: canonical block-switch lifecycle (same chapterId, different blockKey)
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-B' }
+        });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 2, blockKey: 'blk-B' }
+        });
+
+        // 3. Resolve A with 201
+        resolvePostA({
+            status: 201,
+            json: async () => ({ commentId: 'c-A-201' })
+        });
+        await submitPromiseA;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(drawerRefreshCalls, 0, 'Zero Drawer refresh must occur for stale completion');
+        assert.strictEqual(indicatorRefreshCalls, 0, 'Zero Indicator refresh must occur for stale completion');
+        assert.strictEqual(bottomPageZeroCalls, 0, 'Zero Bottom sync must occur for stale completion');
     });
 
 });

@@ -1215,3 +1215,307 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         assert.strictEqual(closeDeleteCalled, true, 'Opening Reply must close active Delete confirmation');
     });
 });
+
+describe('MS-05E5H2F4B1 — Bottom Reply Cross-Surface Synchronization', () => {
+
+    afterEach(() => {
+        replyComposerModule.destroy();
+    });
+
+    function setupSyncFixture() {
+        const fixture = createReplyFixture({ authenticated: true, chapterId: 'chap-reply-sync' });
+        const chapterBody = fixture.doc.createElement('div');
+        chapterBody.className = 'novel-reader-chapter-body';
+        fixture.doc.body.appendChild(chapterBody);
+
+        let indicatorRefreshCalls = [];
+        const mockIndicators = {
+            refreshChapterIndicators: async (body) => {
+                indicatorRefreshCalls.push(body);
+            }
+        };
+
+        let drawerRefreshCalls = 0;
+        let drawerOpen = true;
+        let drawerContext = { chapterId: 'chap-reply-sync', blockKey: 'blk-1' };
+        const mockDrawer = {
+            isDrawerOpen: () => drawerOpen,
+            getActiveContext: () => drawerContext,
+            refreshActiveDiscussion: async () => {
+                drawerRefreshCalls++;
+            }
+        };
+
+        let refreshedRootId = null;
+        const mockComments = {
+            getState: () => ({
+                items: [
+                    {
+                        id: 'root-1',
+                        rootCommentId: 'root-1',
+                        anchorStatus: 'CURRENT',
+                        blockKey: 'blk-1'
+                    },
+                    {
+                        id: 'root-2',
+                        rootCommentId: 'root-2',
+                        anchorStatus: 'UNANCHORED',
+                        blockKey: null
+                    }
+                ]
+            }),
+            refreshRootThread: async (rootId) => {
+                refreshedRootId = rootId;
+            }
+        };
+
+        return {
+            fixture,
+            chapterBody,
+            mockIndicators,
+            getIndicatorRefreshCalls: () => indicatorRefreshCalls,
+            mockDrawer,
+            getDrawerRefreshCalls: () => drawerRefreshCalls,
+            setDrawerOpen: (val) => { drawerOpen = val; },
+            setDrawerContext: (ctx) => { drawerContext = ctx; },
+            mockComments,
+            getRefreshedRootId: () => refreshedRootId
+        };
+    }
+
+    test('Case A: Anchored reply success triggers indicator refresh and same-block open Drawer refresh', async () => {
+        const env = setupSyncFixture();
+        let createReplyCalls = 0;
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => {
+                    createReplyCalls++;
+                    return { ok: true, status: 201, commentId: 'rep-new-1' };
+                }
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to anchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(createReplyCalls, 1);
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1', 'Local root thread must refresh');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 1, 'Indicator refresh must be called exactly once');
+        assert.strictEqual(env.getIndicatorRefreshCalls()[0], env.chapterBody, 'Indicator refresh must receive chapterBody');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 1, 'Same-block open Drawer must refresh exactly once');
+    });
+
+    test('Case B: Anchored reply success with different-block Drawer open skips Drawer refresh', async () => {
+        const env = setupSyncFixture();
+        env.setDrawerContext({ chapterId: 'chap-reply-sync', blockKey: 'different-blk' });
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => ({ ok: true, status: 201, commentId: 'rep-new-1' })
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to anchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 1, 'Indicator refresh must still run');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 0, 'Drawer refresh must be skipped for different blockKey');
+    });
+
+    test('Case C: Anchored reply success with Drawer closed skips Drawer refresh', async () => {
+        const env = setupSyncFixture();
+        env.setDrawerOpen(false);
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => ({ ok: true, status: 201, commentId: 'rep-new-1' })
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to anchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 1);
+        assert.strictEqual(env.getDrawerRefreshCalls(), 0, 'Closed drawer must not be refreshed');
+    });
+
+    test('Case D: UNANCHORED root reply success performs local refresh only (zero indicator, zero Drawer)', async () => {
+        const env = setupSyncFixture();
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => ({ ok: true, status: 201, commentId: 'rep-new-2' })
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root2ReplyBtn.click();
+        const composer = env.fixture.root2.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to unanchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(env.getRefreshedRootId(), 'root-2', 'Local root thread must refresh');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 0, 'Indicator must not refresh for UNANCHORED');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 0, 'Drawer must not refresh for UNANCHORED');
+    });
+
+    test('Case E: STALE root reply success performs local refresh only (zero indicator, zero Drawer)', async () => {
+        const env = setupSyncFixture();
+        env.mockComments.getState = () => ({
+            items: [
+                {
+                    id: 'root-1',
+                    rootCommentId: 'root-1',
+                    anchorStatus: 'STALE',
+                    blockKey: 'blk-stale'
+                }
+            ]
+        });
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => ({ ok: true, status: 201, commentId: 'rep-new-stale' })
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to stale root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 0, 'Indicator must not refresh for STALE');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 0, 'Drawer must not refresh for STALE');
+    });
+
+    test('Case F: Secondary indicator rejection does not retry mutation or fail local refresh', async () => {
+        const env = setupSyncFixture();
+        let createReplyCalls = 0;
+        env.mockIndicators.refreshChapterIndicators = () => Promise.reject(new Error('Network error on indicators'));
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => {
+                    createReplyCalls++;
+                    return { ok: true, status: 201, commentId: 'rep-new-1' };
+                }
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to anchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(createReplyCalls, 1, 'Mutation must not be retried');
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1', 'Local refresh must still succeed');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 1, 'Drawer refresh still runs');
+    });
+
+    test('Case G: Secondary Drawer rejection does not retry mutation or fail local refresh', async () => {
+        const env = setupSyncFixture();
+        let createReplyCalls = 0;
+        env.mockDrawer.refreshActiveDiscussion = () => Promise.reject(new Error('Drawer refresh error'));
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: async () => {
+                    createReplyCalls++;
+                    return { ok: true, status: 201, commentId: 'rep-new-1' };
+                }
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        env.fixture.root1ReplyBtn.click();
+        const composer = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
+        input.value = 'Reply to anchored root';
+        composer.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(createReplyCalls, 1, 'Mutation must not be retried');
+        assert.strictEqual(env.getRefreshedRootId(), 'root-1', 'Local refresh must still succeed');
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 1, 'Indicator refresh still runs');
+    });
+
+    test('Case H: Stale A mutation completion performs zero cross-surface synchronization', async () => {
+        const env = setupSyncFixture();
+        let resolveReplyA;
+
+        replyComposerModule.init(env.fixture.doc, {
+            mutations: {
+                createReply: () => new Promise(r => { resolveReplyA = r; })
+            },
+            commentsModule: env.mockComments,
+            indicatorsModule: env.mockIndicators,
+            drawerModule: env.mockDrawer
+        });
+
+        // Start reply on Root 1 (anchored)
+        env.fixture.root1ReplyBtn.click();
+        const composerA = env.fixture.root1.querySelector('.novel-chapter-comment-reply-composer');
+        const inputA = composerA.querySelector('.novel-chapter-comment-reply-composer-input');
+        inputA.value = 'Reply A in-flight';
+        composerA.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Cancel A before it resolves
+        const cancelBtnA = composerA.querySelector('.novel-chapter-comment-reply-cancel-btn');
+        cancelBtnA.click();
+
+        // Resolve A now
+        resolveReplyA({ ok: true, status: 201, commentId: 'rep-stale-a' });
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(env.getIndicatorRefreshCalls().length, 0, 'Zero indicator refresh for stale mutation');
+        assert.strictEqual(env.getDrawerRefreshCalls(), 0, 'Zero Drawer refresh for stale mutation');
+        assert.strictEqual(env.getRefreshedRootId(), null, 'Zero local refresh for stale mutation');
+    });
+});

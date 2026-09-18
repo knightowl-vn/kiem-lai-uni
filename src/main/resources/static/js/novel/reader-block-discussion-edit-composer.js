@@ -83,6 +83,75 @@
 
     let injectedCommentMutations = null;
 
+    let nodeCommentsModule = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentsModule = require('./reader-chapter-comments.js');
+        } catch (_) {}
+    }
+
+    let injectedCommentsModule = null;
+
+    /**
+     * Resolves the bottom chapter comments module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentsModule() {
+        if (injectedCommentsModule) {
+            return injectedCommentsModule;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderChapterComments ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterComments) ||
+                null;
+        }
+        return nodeCommentsModule;
+    }
+
+    /**
+     * Checks if a root thread is loaded in the Bottom comments module.
+     *
+     * @param {Object} bottomMod
+     * @param {string} rootId
+     * @returns {boolean}
+     */
+    function isBottomRootLoaded(bottomMod, rootId) {
+        if (!bottomMod || typeof bottomMod.getState !== 'function' || !rootId) {
+            return false;
+        }
+        try {
+            const state = bottomMod.getState();
+            if (!state || !state.rootPageMap) {
+                return false;
+            }
+            const strId = String(rootId);
+            return Object.prototype.hasOwnProperty.call(state.rootPageMap, strId) || (strId in state.rootPageMap);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Synchronizes Bottom comments feed after Drawer edit success.
+     * If rootId is loaded in Bottom, triggers authoritative refreshRootThread(rootId).
+     * If rootId is NOT loaded in Bottom, this is a NO-OP (not count changing).
+     *
+     * @param {string} rootId
+     */
+    function synchronizeBottomEdit(rootId) {
+        const bottomMod = resolveCommentsModule();
+        if (!bottomMod) return;
+
+        if (isBottomRootLoaded(bottomMod, rootId)) {
+            if (typeof bottomMod.refreshRootThread === 'function') {
+                try {
+                    bottomMod.refreshRootThread(rootId).catch(function () {});
+                } catch (_) {}
+            }
+        }
+    }
+
     /**
      * Resolves the shared comment mutations client.
      *
@@ -426,6 +495,7 @@
         const snapshot = {
             chapterId: activeEditTarget.chapterId,
             commentId: activeEditTarget.commentId,
+            rootId: activeEditTarget.rootId,
             blockKey: activeEditTarget.blockKey
         };
 
@@ -468,6 +538,11 @@
                         try {
                             drawer.refreshActiveDiscussion().catch(function () {});
                         } catch (_) {}
+                    }
+
+                    // Authoritative secondary synchronization: Bottom Comments feed
+                    if (snapshot.rootId) {
+                        synchronizeBottomEdit(snapshot.rootId);
                     }
                 }
                 return;
@@ -733,6 +808,9 @@
             if (options.replyComposerModule) {
                 injectedReplyComposer = options.replyComposerModule;
             }
+            if (options.commentsModule || options.chapterCommentsModule) {
+                injectedCommentsModule = options.commentsModule || options.chapterCommentsModule;
+            }
         }
 
         bindEvents(doc);
@@ -755,6 +833,7 @@
         injectedDrawer = null;
         injectedReplyComposer = null;
         injectedCommentMutations = null;
+        injectedCommentsModule = null;
         isSubmitting = false;
         currentMutationToken = 0;
         activeEditTarget = null;
@@ -793,6 +872,7 @@
         isSubmittingEdit: function () { return isSubmitting; },
         setFetchImplementation: function (fn) { injectedFetch = fn; },
         setDrawerModule: function (mod) { injectedDrawer = mod; },
-        setCommentMutations: function (m) { injectedCommentMutations = m; }
+        setCommentMutations: function (m) { injectedCommentMutations = m; },
+        setCommentsModule: function (mod) { injectedCommentsModule = mod; }
     };
 });

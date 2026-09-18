@@ -150,6 +150,87 @@
         return null;
     }
 
+    let injectedCommentsModule = null;
+
+    let nodeCommentsModule = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentsModule = require('./reader-chapter-comments.js');
+        } catch (_) {}
+    }
+
+    /**
+     * Resolves the bottom chapter comments module instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentsModule() {
+        if (injectedCommentsModule) {
+            return injectedCommentsModule;
+        }
+        if (typeof window !== 'undefined') {
+            const mod = window.NovelReaderChapterComments ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterComments);
+            if (mod) return mod;
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.NovelReaderChapterComments) {
+            return globalThis.NovelReaderChapterComments;
+        }
+        return nodeCommentsModule;
+    }
+
+    /**
+     * Checks whether a thread root is currently loaded in the bottom comments feed
+     * using authoritative rootPageMap membership.
+     *
+     * @param {Object|null} bottomModule
+     * @param {string} rootId
+     * @returns {boolean}
+     */
+    function isBottomRootLoaded(bottomModule, rootId) {
+        if (!bottomModule || !rootId || typeof bottomModule.getState !== 'function') {
+            return false;
+        }
+        try {
+            const state = bottomModule.getState();
+            if (!state || !state.rootPageMap) {
+                return false;
+            }
+            const strId = String(rootId).trim();
+            return Object.prototype.hasOwnProperty.call(state.rootPageMap, strId) || (strId in state.rootPageMap);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Synchronizes bottom comments feed after successful reply creation.
+     * If the root thread is loaded in Bottom, performs authoritative single-root refresh
+     * with newly created comment reveal depth.
+     * If the root thread is NOT loaded, falls back to page-0 refresh to update active comment counts.
+     * Best-effort: errors are silently caught.
+     *
+     * @param {string} rootId
+     * @param {string|null} newCommentId
+     */
+    function synchronizeBottomReply(rootId, newCommentId) {
+        try {
+            const bottomMod = resolveCommentsModule();
+            if (!bottomMod) return;
+            if (isBottomRootLoaded(bottomMod, rootId)) {
+                if (typeof bottomMod.refreshRootThread === 'function') {
+                    bottomMod.refreshRootThread(rootId, {
+                        revealCommentId: newCommentId || null
+                    }).catch(function () {});
+                }
+            } else {
+                if (typeof bottomMod.refreshFromPageZero === 'function') {
+                    bottomMod.refreshFromPageZero().catch(function () {});
+                }
+            }
+        } catch (_) {}
+    }
+
     /**
      * Extracts CSRF token and header name from document <meta> tags.
      *
@@ -627,6 +708,7 @@
         const snapshot = {
             chapterId: activeTarget.chapterId,
             parentCommentId: activeTarget.commentId,
+            rootId: activeTarget.rootId,
             blockKey: activeTarget.blockKey
         };
 
@@ -656,7 +738,7 @@
         }
 
         try {
-            await commentMutations.createReply({
+            const res = await commentMutations.createReply({
                 chapterId: snapshot.chapterId,
                 parentCommentId: snapshot.parentCommentId,
                 body: rawBody
@@ -685,6 +767,12 @@
                         indicators.refreshChapterIndicators().catch(function () {});
                     } catch (_) {}
                 }
+
+                // Secondary Bottom feed synchronization:
+                // If root is loaded in Bottom, refreshRootThread(rootId, { revealCommentId });
+                // If root is NOT loaded in Bottom, refreshFromPageZero() to update active comment count.
+                const newCommentId = (res && res.commentId) || (res && res.data && res.data.commentId) || null;
+                synchronizeBottomReply(snapshot.rootId, newCommentId);
             }
         } catch (err) {
             if (!isMutationContextCurrent(mutationToken, snapshot)) {
@@ -1035,6 +1123,9 @@
         if (options && options.commentMutations) {
             injectedCommentMutations = options.commentMutations;
         }
+        if (options && (options.commentsModule || options.bottomCommentsModule)) {
+            injectedCommentsModule = options.commentsModule || options.bottomCommentsModule;
+        }
 
         bindEvents(doc);
 
@@ -1059,6 +1150,7 @@
         injectedIndicators = null;
         injectedEditComposer = null;
         injectedCommentMutations = null;
+        injectedCommentsModule = null;
         isSubmitting = false;
         currentMutationToken++;
         activeTarget = null;
@@ -1106,6 +1198,8 @@
         setFetchImplementation: function (fn) { injectedFetch = fn; },
         setDrawerModule: function (mod) { injectedDrawer = mod; },
         setCommentMutations: function (mod) { injectedCommentMutations = mod; },
-        resolveCommentMutations: resolveCommentMutations
+        setCommentsModule: function (mod) { injectedCommentsModule = mod; },
+        resolveCommentMutations: resolveCommentMutations,
+        resolveCommentsModule: resolveCommentsModule
     };
 });

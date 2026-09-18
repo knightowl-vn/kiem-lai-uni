@@ -62,6 +62,8 @@
     let injectedAuthenticated = null;
     let injectedEditComposer = null;
     let injectedDeleteModule = null;
+    let injectedIndicatorsModule = null;
+    let injectedDrawerModule = null;
 
     /**
      * Resolves the shared comment mutations client.
@@ -105,6 +107,129 @@
             } catch (_) {}
         }
         return null;
+    }
+
+    /**
+     * Resolves the comment indicators module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveIndicatorsModule() {
+        if (injectedIndicatorsModule) {
+            return injectedIndicatorsModule;
+        }
+        if (typeof window !== 'undefined') {
+            const ind = window.NovelChapterCommentIndicators ||
+                (window.KiemLai && window.KiemLai.NovelChapterCommentIndicators);
+            if (ind) return ind;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./chapter-comment-indicators.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the block discussion drawer module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDrawerModule() {
+        if (injectedDrawerModule) {
+            return injectedDrawerModule;
+        }
+        if (typeof window !== 'undefined') {
+            const drawer = window.NovelReaderBlockDiscussionDrawer ||
+                (window.KiemLai && window.KiemLai.NovelReaderBlockDiscussionDrawer);
+            if (drawer) return drawer;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./reader-block-discussion-drawer.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves synchronization context for a root thread (canonical anchoring and block key).
+     *
+     * @param {string} rootId
+     * @param {Object} [commentsMod]
+     * @returns {{rootId: string, anchorStatus: string, blockKey: string|null, isCanonicalAnchored: boolean}|null}
+     */
+    function resolveRootSyncContext(rootId, commentsMod) {
+        if (!rootId) return null;
+        const mod = commentsMod || resolveCommentsModule();
+        if (!mod || typeof mod.getState !== 'function') return null;
+        try {
+            const state = mod.getState();
+            const items = (state && Array.isArray(state.items)) ? state.items : [];
+            const strRootId = String(rootId).trim();
+            const found = items.find(function (it) {
+                return it && String(it.rootCommentId || it.id).trim() === strRootId;
+            });
+            if (!found) return null;
+            const anchorStatus = (typeof found.anchorStatus === 'string') ? found.anchorStatus.trim() : '';
+            const rawBlockKey = (typeof found.blockKey === 'string') ? found.blockKey.trim() : '';
+            const isCanonicalAnchored = (anchorStatus === 'CURRENT' || anchorStatus === 'RELOCATED') && rawBlockKey.length > 0;
+            return {
+                rootId: strRootId,
+                anchorStatus: anchorStatus,
+                blockKey: rawBlockKey || null,
+                isCanonicalAnchored: isCanonicalAnchored
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Synchronizes paragraph indicators and/or open block discussion drawer after mutation.
+     * Best-effort: errors are silently caught.
+     *
+     * @param {string} chapterId
+     * @param {{rootId: string, anchorStatus: string, blockKey: string|null, isCanonicalAnchored: boolean}|null} rootSyncContext
+     * @param {boolean} isCountChanging
+     * @param {Document} [doc]
+     */
+    function synchronizeSecondarySurfaces(chapterId, rootSyncContext, isCountChanging, doc) {
+        if (!rootSyncContext || !rootSyncContext.isCanonicalAnchored || !chapterId) {
+            return;
+        }
+
+        // 1. Synchronize Paragraph Comment Indicators (for count-changing mutations)
+        if (isCountChanging) {
+            try {
+                const indMod = resolveIndicatorsModule();
+                if (indMod && typeof indMod.refreshChapterIndicators === 'function') {
+                    const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+                    const chapterBody = (d && typeof d.querySelector === 'function')
+                        ? d.querySelector('.novel-reader-chapter-body')
+                        : null;
+                    indMod.refreshChapterIndicators(chapterBody).catch(function () {});
+                }
+            } catch (_) {}
+        }
+
+        // 2. Synchronize Block Discussion Drawer (if open on the SAME canonical block)
+        try {
+            const drawerMod = resolveDrawerModule();
+            if (drawerMod && typeof drawerMod.isDrawerOpen === 'function' && drawerMod.isDrawerOpen()) {
+                const activeCtx = (typeof drawerMod.getActiveContext === 'function')
+                    ? drawerMod.getActiveContext()
+                    : null;
+                if (activeCtx &&
+                    String(activeCtx.chapterId).trim() === String(chapterId).trim() &&
+                    String(activeCtx.blockKey).trim() === String(rootSyncContext.blockKey).trim()) {
+                    if (typeof drawerMod.refreshActiveDiscussion === 'function') {
+                        drawerMod.refreshActiveDiscussion().catch(function () {});
+                    }
+                }
+            }
+        } catch (_) {}
     }
 
     /**
@@ -513,11 +638,14 @@
         isSubmitting = true;
         const token = ++currentMutationToken;
         const targetChapterId = chapterId;
+        const commentsMod = resolveCommentsModule();
+        const rootSyncContext = resolveRootSyncContext(rootId, commentsMod);
         const snapshot = {
             token: token,
             chapterId: targetChapterId,
             parentCommentId: parentCommentId,
-            rootId: rootId
+            rootId: rootId,
+            rootSyncContext: rootSyncContext
         };
 
         if (input) input.disabled = true;
@@ -546,8 +674,10 @@
             isSubmitting = false;
             closeActiveComposer(false);
 
+            // Secondary cross-surface synchronization (best-effort)
+            synchronizeSecondarySurfaces(targetChapterId, snapshot.rootSyncContext, true, doc);
+
             // Authoritative root refresh
-            const commentsMod = resolveCommentsModule();
             if (commentsMod && typeof commentsMod.refreshRootThread === 'function') {
                 try {
                     await commentsMod.refreshRootThread(rootId, {
@@ -653,6 +783,8 @@
         if (opts.commentsModule) injectedCommentsModule = opts.commentsModule;
         if (opts.editComposerModule) injectedEditComposer = opts.editComposerModule;
         if (opts.deleteModule) injectedDeleteModule = opts.deleteModule;
+        if (opts.indicatorsModule || opts.indicatorModule) injectedIndicatorsModule = opts.indicatorsModule || opts.indicatorModule;
+        if (opts.drawerModule) injectedDrawerModule = opts.drawerModule;
         if (typeof opts.authenticated === 'boolean') injectedAuthenticated = opts.authenticated;
 
         const sectionEl = resolveSection(d);
@@ -704,6 +836,8 @@
         injectedAuthenticated = null;
         injectedEditComposer = null;
         injectedDeleteModule = null;
+        injectedIndicatorsModule = null;
+        injectedDrawerModule = null;
         delegatedClickHandler = null;
         chapterChangedHandler = null;
         feedReplacingHandler = null;
@@ -748,6 +882,8 @@
         setCommentsModuleImplementation: function (mod) { injectedCommentsModule = mod; },
         setEditComposerModule: function (mod) { injectedEditComposer = mod; },
         setDeleteModule: function (mod) { injectedDeleteModule = mod; },
+        setIndicatorsModule: function (mod) { injectedIndicatorsModule = mod; },
+        setDrawerModule: function (mod) { injectedDrawerModule = mod; },
         handleReplyButtonClick: onDelegatedClick
     };
 });

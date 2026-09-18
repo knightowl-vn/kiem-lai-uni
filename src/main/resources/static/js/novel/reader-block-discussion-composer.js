@@ -58,6 +58,49 @@
     let injectedFetch = null;
     let injectedDrawer = null;
     let injectedIndicators = null;
+    let injectedCommentsModule = null;
+
+    let nodeCommentsModule = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentsModule = require('./reader-chapter-comments.js');
+        } catch (_) {}
+    }
+
+    /**
+     * Resolves the bottom chapter comments module instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentsModule() {
+        if (injectedCommentsModule) {
+            return injectedCommentsModule;
+        }
+        if (typeof window !== 'undefined') {
+            const mod = window.NovelReaderChapterComments ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterComments);
+            if (mod) return mod;
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.NovelReaderChapterComments) {
+            return globalThis.NovelReaderChapterComments;
+        }
+        return nodeCommentsModule;
+    }
+
+    /**
+     * Synchronizes bottom comments feed after successful root creation.
+     * Root creation changes threadCount, commentCount, and root ordering/pagination,
+     * so it always requests an authoritative page-0 reset.
+     * Best-effort: errors are silently caught.
+     */
+    function synchronizeBottomFeed() {
+        try {
+            const bottomMod = resolveCommentsModule();
+            if (bottomMod && typeof bottomMod.refreshFromPageZero === 'function') {
+                bottomMod.refreshFromPageZero().catch(function () {});
+            }
+        } catch (_) {}
+    }
 
     /**
      * Resolves the drawer module instance, preferring an injected module or falling back to the browser global.
@@ -378,11 +421,8 @@
                             drawer.refreshActiveDiscussion().catch(function () {});
                         } catch (_) {}
                     }
-                }
 
-                // Trigger indicator refresh if user is still on the same chapter
-                const isSameChapter = authoritativeContext && authoritativeContext.chapterId === activeSnapshot.chapterId;
-                if (isSameChapter) {
+                    // Trigger indicator refresh for active discussion
                     const indicators = injectedIndicators ||
                         (typeof window !== 'undefined' ? (window.NovelChapterCommentIndicators || (window.KiemLai && window.KiemLai.NovelChapterCommentIndicators)) : null);
                     if (indicators && typeof indicators.refreshChapterIndicators === 'function') {
@@ -390,6 +430,9 @@
                             indicators.refreshChapterIndicators().catch(function () {});
                         } catch (_) {}
                     }
+
+                    // Secondary Bottom feed synchronization: Root create changes ordering and count -> refreshFromPageZero()
+                    synchronizeBottomFeed();
                 }
 
                 return;
@@ -462,6 +505,9 @@
             if (options.fetchFn) injectedFetch = options.fetchFn;
             if (options.drawerModule) injectedDrawer = options.drawerModule;
             if (options.indicatorsModule) injectedIndicators = options.indicatorsModule;
+            if (options.commentsModule || options.bottomCommentsModule) {
+                injectedCommentsModule = options.commentsModule || options.bottomCommentsModule;
+            }
         }
 
         if (!currentDoc) {
@@ -505,6 +551,7 @@
         injectedFetch = null;
         injectedDrawer = null;
         injectedIndicators = null;
+        injectedCommentsModule = null;
 
         if (boundForm) {
             try {
@@ -555,10 +602,13 @@
         handleChapterChanged,
         isMutationContextCurrent,
         resolveDrawerModule,
+        resolveCommentsModule,
         getAuthoritativeContext: function () { return authoritativeContext; },
         isSubmitting: function () { return isSubmitting; },
         setFetchImplementation: function (fn) { injectedFetch = fn; },
         setDrawerImplementation: function (d) { injectedDrawer = d; },
-        setIndicatorsImplementation: function (ind) { injectedIndicators = ind; }
+        setIndicatorsImplementation: function (ind) { injectedIndicators = ind; },
+        setCommentsModule: function (mod) { injectedCommentsModule = mod; },
+        setCommentsModuleImplementation: function (mod) { injectedCommentsModule = mod; }
     };
 });

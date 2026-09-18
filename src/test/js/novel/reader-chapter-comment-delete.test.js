@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -1124,5 +1124,268 @@ describe('Reader Chapter Comment Delete UI (MS-05E5H2F3B)', () => {
 
         // - DELETE called exactly once
         assert.strictEqual(deleteCallCount, 1, 'DELETE must NOT be retried');
+    });
+});
+
+describe('MS-05E5H2F4B1 — Bottom Delete Cross-Surface Synchronization', () => {
+    let fixture;
+    let mockMutations;
+    let mockCommentsModule;
+    let mockIndicatorsModule;
+    let mockDrawerModule;
+    let chapterBody;
+    let indicatorRefreshCalls;
+    let drawerRefreshCalls;
+    let refreshRootThreadCalls;
+    let refreshFromPageZeroCalls;
+    let drawerOpen;
+    let drawerContext;
+
+    beforeEach(() => {
+        resetDeleteState();
+        fixture = createDeleteFixture();
+        chapterBody = fixture.doc.createElement('div');
+        chapterBody.className = 'novel-reader-chapter-body';
+        fixture.doc.body.appendChild(chapterBody);
+
+        indicatorRefreshCalls = [];
+        drawerRefreshCalls = 0;
+        refreshRootThreadCalls = [];
+        refreshFromPageZeroCalls = 0;
+        drawerOpen = true;
+        drawerContext = { chapterId: CHAPTER_ID, blockKey: 'blk-root-1' };
+
+        mockMutations = {
+            deleteComment: async () => ({ ok: true, status: 204 })
+        };
+
+        mockCommentsModule = {
+            getState: () => ({
+                items: [
+                    {
+                        id: ROOT_ID_1,
+                        rootCommentId: ROOT_ID_1,
+                        anchorStatus: 'CURRENT',
+                        blockKey: 'blk-root-1'
+                    },
+                    {
+                        id: ROOT_ID_2,
+                        rootCommentId: ROOT_ID_2,
+                        anchorStatus: 'UNANCHORED',
+                        blockKey: null
+                    }
+                ]
+            }),
+            refreshRootThread: async (rootId) => {
+                refreshRootThreadCalls.push(rootId);
+            },
+            refreshFromPageZero: async () => {
+                refreshFromPageZeroCalls++;
+            }
+        };
+
+        mockIndicatorsModule = {
+            refreshChapterIndicators: async (body) => {
+                indicatorRefreshCalls.push(body);
+            }
+        };
+
+        mockDrawerModule = {
+            isDrawerOpen: () => drawerOpen,
+            getActiveContext: () => drawerContext,
+            refreshActiveDiscussion: async () => {
+                drawerRefreshCalls++;
+            }
+        };
+    });
+
+    afterEach(() => {
+        destroy();
+    });
+
+    test('Case A: Anchored reply delete triggers indicator refresh and same-block open Drawer refresh', async () => {
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open delete on Reply 1 of Root 1 (anchored)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.repDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(refreshRootThreadCalls.length, 1, 'Local thread must refresh');
+        assert.strictEqual(refreshRootThreadCalls[0], ROOT_ID_1);
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator refresh must be called once');
+        assert.strictEqual(indicatorRefreshCalls[0], chapterBody);
+        assert.strictEqual(drawerRefreshCalls, 1, 'Same-block open Drawer must refresh once');
+    });
+
+    test('Case B: Anchored root delete triggers indicator refresh and same-block open Drawer refresh', async () => {
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open delete on Root 1 (anchored)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(refreshFromPageZeroCalls, 1, 'Local feed must refresh from page zero');
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator refresh must be called once');
+        assert.strictEqual(indicatorRefreshCalls[0], chapterBody);
+        assert.strictEqual(drawerRefreshCalls, 1, 'Same-block open Drawer must refresh once');
+    });
+
+    test('Case C: UNANCHORED root delete performs local refresh only (zero indicator, zero Drawer)', async () => {
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open delete on Root 2 (UNANCHORED)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn2, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(refreshFromPageZeroCalls, 1, 'Local feed must refresh from page zero');
+        assert.strictEqual(indicatorRefreshCalls.length, 0, 'Indicator must not refresh for UNANCHORED');
+        assert.strictEqual(drawerRefreshCalls, 0, 'Drawer must not refresh for UNANCHORED');
+    });
+
+    test('Case D: Anchored delete with different-block Drawer open skips Drawer refresh', async () => {
+        drawerContext = { chapterId: CHAPTER_ID, blockKey: 'blk-different' };
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator must still refresh');
+        assert.strictEqual(drawerRefreshCalls, 0, 'Drawer refresh must be skipped when blockKey differs');
+    });
+
+    test('Case E: Anchored delete with Drawer closed skips Drawer refresh', async () => {
+        drawerOpen = false;
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator must still refresh');
+        assert.strictEqual(drawerRefreshCalls, 0, 'Closed Drawer must not refresh');
+    });
+
+    test('Case F: Secondary indicator rejection does not retry DELETE or fail local refresh', async () => {
+        let deleteCalls = 0;
+        mockMutations.deleteComment = async () => {
+            deleteCalls++;
+            return { ok: true, status: 204 };
+        };
+        mockIndicatorsModule.refreshChapterIndicators = () => Promise.reject(new Error('Indicator network error'));
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(deleteCalls, 1, 'DELETE must not be retried');
+        assert.strictEqual(refreshFromPageZeroCalls, 1, 'Local refresh must still proceed');
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer refresh still runs');
+    });
+
+    test('Case G: Secondary Drawer rejection does not retry DELETE or fail local refresh', async () => {
+        let deleteCalls = 0;
+        mockMutations.deleteComment = async () => {
+            deleteCalls++;
+            return { ok: true, status: 204 };
+        };
+        mockDrawerModule.refreshActiveDiscussion = () => Promise.reject(new Error('Drawer network error'));
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(deleteCalls, 1, 'DELETE must not be retried');
+        assert.strictEqual(refreshFromPageZeroCalls, 1, 'Local refresh must still proceed');
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator refresh still runs');
+    });
+
+    test('Case H: Stale A completion performs zero cross-surface synchronization', async () => {
+        let resolveDeleteA;
+        mockMutations.deleteComment = () => new Promise(r => { resolveDeleteA = r; });
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Start delete on Root 1
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        const deletePromiseA = handleConfirmDelete();
+
+        // Cancel A by pressing Escape
+        fixture.doc.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault: () => {} });
+        assert.strictEqual(getActiveConfirmationEl(), null);
+
+        // Resolve old A
+        resolveDeleteA({ ok: true, status: 204 });
+        await deletePromiseA;
+
+        assert.strictEqual(indicatorRefreshCalls.length, 0, 'Zero indicator refresh for stale mutation');
+        assert.strictEqual(drawerRefreshCalls, 0, 'Zero Drawer refresh for stale mutation');
+        assert.strictEqual(refreshFromPageZeroCalls, 0, 'Zero local refresh for stale mutation');
+    });
+
+    test('Case I: Root sync context snapshot survives page-0 replacement even if state purges thread', async () => {
+        // Simulate feed state purging the deleted thread during refresh
+        mockCommentsModule.refreshFromPageZero = async () => {
+            refreshFromPageZeroCalls++;
+            // Empties items array
+            mockCommentsModule.getState = () => ({ items: [] });
+        };
+
+        initReaderChapterCommentDelete(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            indicatorsModule: mockIndicatorsModule,
+            drawerModule: mockDrawerModule
+        });
+
+        // Open delete on Root 1
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootDeleteBtn1, preventDefault: () => {} });
+        await handleConfirmDelete();
+
+        assert.strictEqual(refreshFromPageZeroCalls, 1);
+        assert.strictEqual(indicatorRefreshCalls.length, 1, 'Indicator must refresh because context was snapshotted before delete');
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer must refresh because context was snapshotted before delete');
     });
 });

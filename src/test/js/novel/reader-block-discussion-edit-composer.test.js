@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -1095,6 +1095,258 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
 
         assert.strictEqual(getActiveComposerEl(), null, 'Drawer edit composer must not open for bottom comments');
         assert.strictEqual(getActiveEditTarget(), null);
+    });
+
+    describe('MS-05E5H2F4B2 — Drawer Edit → Bottom Synchronization', () => {
+
+        beforeEach(() => {
+            resetEditComposerState();
+            setupDiscussionDOM(true);
+        });
+
+        afterEach(() => {
+            resetEditComposerState();
+        });
+
+        test('Case A: Root edit when root is loaded in rootPageMap triggers refreshRootThread(rootId)', async () => {
+            let editCommentCalls = 0;
+            let refreshedRootId = null;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                editComment: async () => {
+                    editCommentCalls++;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async (rootId) => {
+                    refreshedRootId = rootId;
+                },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'Updated root comment';
+
+            await handleSubmit({ preventDefault: () => {} });
+
+            assert.strictEqual(editCommentCalls, 1);
+            assert.strictEqual(refreshActiveDiscussionCalled, true, 'Drawer must refresh discussion');
+            assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread must receive ROOT_ID');
+            assert.strictEqual(pageZeroCalls, 0, 'No page-0 refresh for edit');
+            assert.strictEqual(getActiveComposerEl(), null, 'Composer should close on success');
+        });
+
+        test('Case B: Reply edit when root is loaded in rootPageMap triggers refreshRootThread(rootId) with thread rootId', async () => {
+            let editCommentInput = null;
+            let refreshedRootId = null;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                editComment: async (input) => {
+                    editCommentInput = input;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async (rootId) => {
+                    refreshedRootId = rootId;
+                },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            const editBtn = doc.querySelector('[data-comment-id="' + REPLY_ID_NESTED + '"] .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'Updated nested reply text';
+
+            await handleSubmit({ preventDefault: () => {} });
+
+            assert.strictEqual(editCommentInput.commentId, REPLY_ID_NESTED, 'PATCH commentId must be the reply ID');
+            assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread must be called with thread ROOT_ID, not reply ID');
+            assert.strictEqual(pageZeroCalls, 0);
+            assert.strictEqual(refreshActiveDiscussionCalled, true);
+        });
+
+        test('Case C: Edit root or reply when root is NOT loaded in rootPageMap triggers ZERO Bottom refresh', async () => {
+            let refreshedRootThreadCalls = 0;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                editComment: async () => ({ ok: true, status: 204 })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { 'unloaded-root-id': 0 }
+                }),
+                refreshRootThread: async () => { refreshedRootThreadCalls++; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'Updated root comment not in bottom';
+
+            await handleSubmit({ preventDefault: () => {} });
+
+            assert.strictEqual(refreshedRootThreadCalls, 0, 'Zero thread refresh when root is not loaded');
+            assert.strictEqual(pageZeroCalls, 0, 'Zero page-0 refresh when root is not loaded');
+            assert.strictEqual(refreshActiveDiscussionCalled, true, 'Drawer must still refresh');
+        });
+
+        test('Case D: Secondary Bottom rejection does not retry mutation or fail Drawer refresh', async () => {
+            let editCommentCalls = 0;
+            let bottomCalls = 0;
+
+            const mockMutations = {
+                editComment: async () => {
+                    editCommentCalls++;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async () => {
+                    bottomCalls++;
+                    throw new Error('Bottom network error');
+                }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'Updated root with bottom failure';
+
+            await handleSubmit({ preventDefault: () => {} });
+
+            assert.strictEqual(editCommentCalls, 1, 'editComment must NOT be retried');
+            assert.strictEqual(refreshActiveDiscussionCalled, true, 'Drawer refresh must still occur');
+            assert.strictEqual(bottomCalls, 1, 'Bottom refresh was attempted once');
+            assert.strictEqual(getActiveComposerEl(), null, 'Composer must still close on primary success');
+        });
+
+        test('Case E: Stale mutation completion performs zero Bottom synchronization', async () => {
+            let resolveEdit;
+            let refreshedRootThreadCalls = 0;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                editComment: () => new Promise(r => { resolveEdit = r; })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async () => { refreshedRootThreadCalls++; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            // 1. Open edit and submit
+            const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'In-flight edit text';
+
+            const submitPromise = handleSubmit({ preventDefault: () => {} });
+
+            // 2. Cancel edit while in flight
+            closeEditComposer(false);
+
+            // 3. Resolve edit with 204
+            resolveEdit({ ok: true, status: 204 });
+            await submitPromise;
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(refreshedRootThreadCalls, 0, 'Zero Bottom thread refresh for stale mutation');
+            assert.strictEqual(pageZeroCalls, 0, 'Zero Bottom page-0 refresh for stale mutation');
+        });
+
+        test('Case F: Later-page root loaded in rootPageMap (page 1) triggers refreshRootThread(rootId)', async () => {
+            let refreshedRootId = null;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                editComment: async () => ({ ok: true, status: 204 })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 1 }
+                }),
+                refreshRootThread: async (rootId) => { refreshedRootId = rootId; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionEditComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+            doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+            const composer = getActiveComposerEl();
+            const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+            textarea.value = 'Updated later-page root';
+
+            await handleSubmit({ preventDefault: () => {} });
+
+            assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh exact root thread even when on page 1');
+            assert.strictEqual(pageZeroCalls, 0, 'Zero page-0 refresh');
+        });
+
     });
 
 });

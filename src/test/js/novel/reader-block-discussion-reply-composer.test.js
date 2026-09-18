@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -1239,6 +1239,420 @@ describe('MS-05E5G4A Novel Block Discussion Reply Composer Tests', () => {
             assert.notStrictEqual(getActiveReplyTarget(), null);
             assert.strictEqual(getActiveReplyTarget().commentId, ROOT_ID);
         });
+    });
+
+});
+
+describe('MS-05E5H2F4B2 — Drawer Reply Create → Bottom Synchronization', () => {
+
+    const CHAPTER_ID = '11111111-1111-1111-1111-111111111111';
+    const BLOCK_KEY = 'blk-0123456789abcdef-1';
+    const ROOT_ID = 'root-uuid-1';
+    const REPLY_ID = 'reply-uuid-2';
+
+    function createFixture(options = {}) {
+        const d = new FakeDocument();
+
+        const csrfMeta = d.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-123');
+        d.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = d.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        d.head.appendChild(csrfHeaderMeta);
+
+        const dDrawer = d.createElement('aside');
+        dDrawer.id = 'novelBlockDiscussionDrawer';
+        dDrawer.setAttribute('data-chapter-slug', 'chuong-1');
+        dDrawer.setAttribute('data-authenticated', options.authenticated ? 'true' : 'false');
+        d.body.appendChild(dDrawer);
+
+        const rootComposer = d.createElement('form');
+        rootComposer.id = 'novelBlockDiscussionComposer';
+        dDrawer.appendChild(rootComposer);
+
+        const dContent = d.createElement('section');
+        dContent.id = 'novelBlockDiscussionContent';
+        dDrawer.appendChild(dContent);
+
+        const threadCard = d.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', ROOT_ID);
+        dContent.appendChild(threadCard);
+
+        const rootEl = d.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', ROOT_ID);
+        threadCard.appendChild(rootEl);
+
+        const rootHeader = d.createElement('header');
+        rootHeader.className = 'novel-comment-header';
+        rootEl.appendChild(rootHeader);
+
+        const rootBody = d.createElement('div');
+        rootBody.className = 'novel-comment-body';
+        rootBody.textContent = 'Bình luận mở đầu';
+        rootEl.appendChild(rootBody);
+
+        const rootActions = d.createElement('div');
+        rootActions.className = 'novel-comment-actions';
+        const rootReplyBtn = d.createElement('button');
+        rootReplyBtn.className = 'novel-comment-reply-btn';
+        rootReplyBtn.setAttribute('data-action', 'reply');
+        rootReplyBtn.setAttribute('data-comment-id', ROOT_ID);
+        rootReplyBtn.setAttribute('data-root-id', ROOT_ID);
+        rootReplyBtn.setAttribute('data-author-name', 'Tiêu Viêm');
+        rootReplyBtn.textContent = 'Trả lời';
+        rootActions.appendChild(rootReplyBtn);
+        rootEl.appendChild(rootActions);
+
+        const repliesContainer = d.createElement('div');
+        repliesContainer.className = 'novel-comment-replies';
+        threadCard.appendChild(repliesContainer);
+
+        const replyEl = d.createElement('article');
+        replyEl.className = 'novel-comment novel-comment--reply';
+        replyEl.setAttribute('data-reply-id', REPLY_ID);
+        replyEl.setAttribute('data-comment-id', REPLY_ID);
+        repliesContainer.appendChild(replyEl);
+
+        const replyHeader = d.createElement('header');
+        replyHeader.className = 'novel-comment-header';
+        replyEl.appendChild(replyHeader);
+
+        const replyBody = d.createElement('div');
+        replyBody.className = 'novel-comment-body';
+        replyBody.textContent = 'Phản hồi';
+        replyEl.appendChild(replyBody);
+
+        const replyActions = d.createElement('div');
+        replyActions.className = 'novel-comment-actions';
+        const replyBtn = d.createElement('button');
+        replyBtn.className = 'novel-comment-reply-btn';
+        replyBtn.setAttribute('data-action', 'reply');
+        replyBtn.setAttribute('data-comment-id', REPLY_ID);
+        replyBtn.setAttribute('data-reply-id', REPLY_ID);
+        replyBtn.setAttribute('data-root-id', ROOT_ID);
+        replyBtn.setAttribute('data-author-name', 'Dược Lão');
+        replyBtn.textContent = 'Trả lời';
+        replyActions.appendChild(replyBtn);
+        replyEl.appendChild(replyActions);
+
+        return {
+            doc: d,
+            drawer: dDrawer,
+            content: dContent,
+            threadCard,
+            rootEl,
+            replyEl
+        };
+    }
+
+    beforeEach(() => {
+        resetReplyComposerState();
+    });
+
+    afterEach(() => {
+        resetReplyComposerState();
+    });
+
+    test('Case A: Root loaded in rootPageMap triggers refreshRootThread with revealCommentId, no page-0 refresh', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let createReplyCalls = 0;
+        let drawerRefreshCalls = 0;
+        let indicatorRefreshCalls = 0;
+        let refreshedRootId = null;
+        let refreshedOptions = null;
+        let pageZeroCalls = 0;
+
+        const mockMutations = {
+            createReply: async () => {
+                createReplyCalls++;
+                return { ok: true, status: 201, commentId: 'rep-new-999' };
+            }
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshCalls++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshCalls++; }
+        };
+        const mockBottom = {
+            getState: () => ({
+                rootPageMap: { [ROOT_ID]: 0 }
+            }),
+            refreshRootThread: async (rootId, opts) => {
+                refreshedRootId = rootId;
+                refreshedOptions = opts;
+            },
+            refreshFromPageZero: async () => { pageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        assert.ok(composer);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying to root';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(createReplyCalls, 1);
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer must refresh active discussion');
+        assert.strictEqual(indicatorRefreshCalls, 1, 'Indicators must refresh');
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread must receive ROOT_ID');
+        assert.deepStrictEqual(refreshedOptions, { revealCommentId: 'rep-new-999' }, 'Must pass revealCommentId');
+        assert.strictEqual(pageZeroCalls, 0, 'Must NOT trigger page-0 refresh when root is loaded');
+    });
+
+    test('Case B: Nested reply uses exact THREAD ROOT ID, not immediate parentCommentId', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let createReplyInput = null;
+        let refreshedRootId = null;
+        let refreshedOptions = null;
+        let pageZeroCalls = 0;
+
+        const mockMutations = {
+            createReply: async (input) => {
+                createReplyInput = input;
+                return { ok: true, status: 201, commentId: 'rep-nested-888' };
+            }
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => {}
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => {}
+        };
+        const mockBottom = {
+            getState: () => ({
+                rootPageMap: { [ROOT_ID]: 0 }
+            }),
+            refreshRootThread: async (rootId, opts) => {
+                refreshedRootId = rootId;
+                refreshedOptions = opts;
+            },
+            refreshFromPageZero: async () => { pageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        // Click reply button on the nested reply (REPLY_ID)
+        const nestedReplyBtn = fixture.content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: nestedReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying to nested reply';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(createReplyInput.parentCommentId, REPLY_ID, 'API POST must use immediate parent commentId');
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread must use thread ROOT_ID, not REPLY_ID');
+        assert.deepStrictEqual(refreshedOptions, { revealCommentId: 'rep-nested-888' });
+        assert.strictEqual(pageZeroCalls, 0);
+    });
+
+    test('Case C: Root NOT loaded in rootPageMap triggers refreshFromPageZero, no refreshRootThread', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let refreshedRootThreadCalls = 0;
+        let pageZeroCalls = 0;
+
+        const mockMutations = {
+            createReply: async () => ({ ok: true, status: 201, commentId: 'rep-new-777' })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => {}
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => {}
+        };
+        const mockBottom = {
+            getState: () => ({
+                rootPageMap: { 'some-other-root': 0 }
+            }),
+            refreshRootThread: async () => { refreshedRootThreadCalls++; },
+            refreshFromPageZero: async () => { pageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying to unloaded root';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(refreshedRootThreadCalls, 0, 'Must NOT call refreshRootThread for unloaded root');
+        assert.strictEqual(pageZeroCalls, 1, 'Must call refreshFromPageZero once to update active comment counts');
+    });
+
+    test('Case D: Secondary Bottom rejection does not retry mutation or fail Drawer/indicator refresh', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let createReplyCalls = 0;
+        let drawerRefreshCalls = 0;
+        let indicatorRefreshCalls = 0;
+        let bottomCalls = 0;
+
+        const mockMutations = {
+            createReply: async () => {
+                createReplyCalls++;
+                return { ok: true, status: 201, commentId: 'rep-new-666' };
+            }
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshCalls++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshCalls++; }
+        };
+        const mockBottom = {
+            getState: () => ({
+                rootPageMap: { [ROOT_ID]: 0 }
+            }),
+            refreshRootThread: async () => {
+                bottomCalls++;
+                throw new Error('Bottom network failure');
+            }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying with bottom failure';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(createReplyCalls, 1, 'createReply must NOT be retried');
+        assert.strictEqual(drawerRefreshCalls, 1, 'Drawer refresh must still occur');
+        assert.strictEqual(indicatorRefreshCalls, 1, 'Indicator refresh must still occur');
+        assert.strictEqual(bottomCalls, 1, 'Bottom refresh was attempted once');
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer must still close on primary success');
+    });
+
+    test('Case E: Stale mutation completion performs zero Bottom synchronization', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let resolveReply;
+        let refreshedRootThreadCalls = 0;
+        let pageZeroCalls = 0;
+
+        const mockMutations = {
+            createReply: () => new Promise(r => { resolveReply = r; })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => {}
+        };
+        const mockBottom = {
+            getState: () => ({
+                rootPageMap: { [ROOT_ID]: 0 }
+            }),
+            refreshRootThread: async () => { refreshedRootThreadCalls++; },
+            refreshFromPageZero: async () => { pageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            commentsModule: mockBottom
+        });
+
+        // 1. Open reply and submit
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'In-flight reply';
+
+        const submitPromise = handleSubmit({ preventDefault: () => {} });
+
+        // 2. Cancel reply composer while in flight
+        closeReplyComposer(false);
+
+        // 3. Resolve reply with 201
+        resolveReply({ ok: true, status: 201, commentId: 'rep-stale' });
+        await submitPromise;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(refreshedRootThreadCalls, 0, 'Zero Bottom thread refresh for stale mutation');
+        assert.strictEqual(pageZeroCalls, 0, 'Zero Bottom page-0 refresh for stale mutation');
+    });
+
+    test('Case F: Later-page root loaded in rootPageMap (page 1) uses refreshRootThread, not page-0', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let refreshedRootId = null;
+        let pageZeroCalls = 0;
+
+        const mockMutations = {
+            createReply: async () => ({ ok: true, status: 201, commentId: 'rep-later-page' })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => {}
+        };
+        const mockBottom = {
+            getState: () => ({
+                // Root is loaded on page 1
+                rootPageMap: { [ROOT_ID]: 1 }
+            }),
+            refreshRootThread: async (rootId) => { refreshedRootId = rootId; },
+            refreshFromPageZero: async () => { pageZeroCalls++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            commentsModule: mockBottom
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying to later-page root';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh the exact root thread on page 1');
+        assert.strictEqual(pageZeroCalls, 0, 'Must NOT trigger page-0 reset when root is loaded on page 1');
     });
 
 });

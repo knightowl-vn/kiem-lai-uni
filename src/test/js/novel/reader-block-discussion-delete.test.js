@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -929,4 +929,238 @@ describe('Reader Block Discussion Delete Module Tests (MS-05E5G4C2)', () => {
         assert.strictEqual(getActiveConfirmationEl(), null, 'Drawer delete confirmation must not open for bottom comments');
         assert.strictEqual(getActiveDeleteTarget(), null);
     });
+
+    describe('MS-05E5H2F4B2 — Drawer Delete → Bottom Synchronization', () => {
+
+        beforeEach(() => {
+            resetDeleteState();
+            refreshDrawerCalled = false;
+            refreshIndicatorsCalled = false;
+            const fixture = setupTestDOM();
+            doc = fixture.doc;
+            rootDeleteBtn = fixture.rootDeleteBtn;
+            replyDeleteBtn = fixture.replyDeleteBtn;
+        });
+
+        afterEach(() => {
+            resetDeleteState();
+        });
+
+        test('Case A: Root delete unconditionally triggers Bottom refreshFromPageZero() (even if root loaded)', async () => {
+            let deleteCalls = 0;
+            let pageZeroCalls = 0;
+            let refreshedRootThreadCalls = 0;
+
+            const mockMutations = {
+                deleteComment: async () => {
+                    deleteCalls++;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async () => { refreshedRootThreadCalls++; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            doc.dispatchEvent({ type: 'click', target: rootDeleteBtn, preventDefault: () => {} });
+            assert.ok(getActiveConfirmationEl());
+
+            await handleConfirmDelete();
+
+            assert.strictEqual(deleteCalls, 1);
+            assert.strictEqual(refreshDrawerCalled, true);
+            assert.strictEqual(refreshIndicatorsCalled, true);
+            assert.strictEqual(pageZeroCalls, 1, 'Root delete must trigger refreshFromPageZero unconditionally');
+            assert.strictEqual(refreshedRootThreadCalls, 0, 'Must NOT call refreshRootThread for root deletion');
+            assert.strictEqual(getActiveConfirmationEl(), null);
+        });
+
+        test('Case B: Reply delete when root is loaded in rootPageMap triggers refreshRootThread(rootId) with thread rootId', async () => {
+            let deleteInput = null;
+            let refreshedRootId = null;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                deleteComment: async (input) => {
+                    deleteInput = input;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async (rootId) => { refreshedRootId = rootId; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            doc.dispatchEvent({ type: 'click', target: replyDeleteBtn, preventDefault: () => {} });
+            assert.ok(getActiveConfirmationEl());
+
+            await handleConfirmDelete();
+
+            assert.strictEqual(deleteInput.commentId, REPLY_ID, 'DELETE commentId must be the reply ID');
+            assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread must be called with thread ROOT_ID, not reply ID');
+            assert.strictEqual(pageZeroCalls, 0, 'No page-0 reset when root thread is loaded');
+            assert.strictEqual(refreshDrawerCalled, true);
+            assert.strictEqual(refreshIndicatorsCalled, true);
+        });
+
+        test('Case C: Reply delete when root is NOT loaded in rootPageMap triggers refreshFromPageZero()', async () => {
+            let refreshedRootThreadCalls = 0;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                deleteComment: async () => ({ ok: true, status: 204 })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { 'unloaded-root-id': 0 }
+                }),
+                refreshRootThread: async () => { refreshedRootThreadCalls++; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            doc.dispatchEvent({ type: 'click', target: replyDeleteBtn, preventDefault: () => {} });
+            assert.ok(getActiveConfirmationEl());
+
+            await handleConfirmDelete();
+
+            assert.strictEqual(refreshedRootThreadCalls, 0, 'Zero thread refresh when root is not loaded');
+            assert.strictEqual(pageZeroCalls, 1, 'Must call refreshFromPageZero to update active comment counts');
+            assert.strictEqual(refreshDrawerCalled, true);
+            assert.strictEqual(refreshIndicatorsCalled, true);
+        });
+
+        test('Case D: Secondary Bottom rejection does not retry mutation or fail Drawer/indicator refresh', async () => {
+            let deleteCalls = 0;
+            let bottomCalls = 0;
+
+            const mockMutations = {
+                deleteComment: async () => {
+                    deleteCalls++;
+                    return { ok: true, status: 204 };
+                }
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshFromPageZero: async () => {
+                    bottomCalls++;
+                    throw new Error('Bottom network error');
+                }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            doc.dispatchEvent({ type: 'click', target: rootDeleteBtn, preventDefault: () => {} });
+            await handleConfirmDelete();
+
+            assert.strictEqual(deleteCalls, 1, 'deleteComment must NOT be retried');
+            assert.strictEqual(refreshDrawerCalled, true, 'Drawer refresh must still occur');
+            assert.strictEqual(refreshIndicatorsCalled, true, 'Indicator refresh must still occur');
+            assert.strictEqual(bottomCalls, 1, 'Bottom refresh was attempted once');
+            assert.strictEqual(getActiveConfirmationEl(), null, 'Confirmation must still close on primary success');
+        });
+
+        test('Case E: Stale mutation completion performs zero Bottom synchronization', async () => {
+            let resolveDelete;
+            let refreshedRootThreadCalls = 0;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                deleteComment: () => new Promise(r => { resolveDelete = r; })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 0 }
+                }),
+                refreshRootThread: async () => { refreshedRootThreadCalls++; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            // 1. Open delete confirmation and confirm
+            doc.dispatchEvent({ type: 'click', target: rootDeleteBtn, preventDefault: () => {} });
+            const deletePromise = handleConfirmDelete();
+
+            // 2. Cancel delete while in flight
+            closeDeleteConfirmation(false);
+
+            // 3. Resolve delete with 204
+            resolveDelete({ ok: true, status: 204 });
+            await deletePromise;
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(refreshedRootThreadCalls, 0, 'Zero Bottom thread refresh for stale mutation');
+            assert.strictEqual(pageZeroCalls, 0, 'Zero Bottom page-0 refresh for stale mutation');
+        });
+
+        test('Case F: Reply delete when root is loaded on page 1 triggers refreshRootThread(rootId)', async () => {
+            let refreshedRootId = null;
+            let pageZeroCalls = 0;
+
+            const mockMutations = {
+                deleteComment: async () => ({ ok: true, status: 204 })
+            };
+            const mockBottom = {
+                getState: () => ({
+                    rootPageMap: { [ROOT_ID]: 1 }
+                }),
+                refreshRootThread: async (rootId) => { refreshedRootId = rootId; },
+                refreshFromPageZero: async () => { pageZeroCalls++; }
+            };
+
+            initReaderBlockDiscussionDelete(doc, {
+                drawerModule: mockDrawerModule,
+                indicatorsModule: mockIndicatorsModule,
+                commentMutations: mockMutations,
+                commentsModule: mockBottom
+            });
+
+            doc.dispatchEvent({ type: 'click', target: replyDeleteBtn, preventDefault: () => {} });
+            await handleConfirmDelete();
+
+            assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh exact root thread even when on page 1');
+            assert.strictEqual(pageZeroCalls, 0, 'Zero page-0 refresh for loaded later-page reply delete');
+        });
+
+    });
+
 });

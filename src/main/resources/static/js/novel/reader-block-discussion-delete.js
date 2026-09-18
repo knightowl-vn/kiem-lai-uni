@@ -87,6 +87,92 @@
 
     let injectedCommentMutations = null;
 
+    let nodeCommentsModule = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentsModule = require('./reader-chapter-comments.js');
+        } catch (_) {}
+    }
+
+    let injectedCommentsModule = null;
+
+    /**
+     * Resolves the bottom chapter comments module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentsModule() {
+        if (injectedCommentsModule) {
+            return injectedCommentsModule;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderChapterComments ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterComments) ||
+                null;
+        }
+        return nodeCommentsModule;
+    }
+
+    /**
+     * Checks if a root thread is loaded in the Bottom comments module.
+     *
+     * @param {Object} bottomMod
+     * @param {string} rootId
+     * @returns {boolean}
+     */
+    function isBottomRootLoaded(bottomMod, rootId) {
+        if (!bottomMod || typeof bottomMod.getState !== 'function' || !rootId) {
+            return false;
+        }
+        try {
+            const state = bottomMod.getState();
+            if (!state || !state.rootPageMap) {
+                return false;
+            }
+            const strId = String(rootId);
+            return Object.prototype.hasOwnProperty.call(state.rootPageMap, strId) || (strId in state.rootPageMap);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Synchronizes Bottom comments feed after Drawer delete success.
+     * - Root delete: calls Bottom refreshFromPageZero() unconditionally (changes root set).
+     * - Reply delete: if rootId loaded, calls Bottom refreshRootThread(rootId);
+     *                 if not loaded, calls Bottom refreshFromPageZero() (updates active comment count header).
+     *
+     * @param {string} rootId
+     * @param {boolean} isRoot
+     */
+    function synchronizeBottomDelete(rootId, isRoot) {
+        const bottomMod = resolveCommentsModule();
+        if (!bottomMod) return;
+
+        if (isRoot) {
+            if (typeof bottomMod.refreshFromPageZero === 'function') {
+                try {
+                    bottomMod.refreshFromPageZero().catch(function () {});
+                } catch (_) {}
+            }
+            return;
+        }
+
+        if (isBottomRootLoaded(bottomMod, rootId)) {
+            if (typeof bottomMod.refreshRootThread === 'function') {
+                try {
+                    bottomMod.refreshRootThread(rootId).catch(function () {});
+                } catch (_) {}
+            }
+        } else {
+            if (typeof bottomMod.refreshFromPageZero === 'function') {
+                try {
+                    bottomMod.refreshFromPageZero().catch(function () {});
+                } catch (_) {}
+            }
+        }
+    }
+
     /**
      * Resolves the shared comment mutations client.
      *
@@ -441,6 +527,9 @@
                             indicators.refreshChapterIndicators().catch(function () {});
                         } catch (_) {}
                     }
+
+                    // 3. Authoritative secondary synchronization: Bottom Comments feed
+                    synchronizeBottomDelete(snapshot.rootId, snapshot.isRoot);
                 }
                 return;
             }
@@ -716,6 +805,9 @@
             if (options.indicatorsModule) injectedIndicators = options.indicatorsModule;
             if (options.editComposerModule) injectedEditComposer = options.editComposerModule;
             if (options.replyComposerModule) injectedReplyComposer = options.replyComposerModule;
+            if (options.commentsModule || options.chapterCommentsModule) {
+                injectedCommentsModule = options.commentsModule || options.chapterCommentsModule;
+            }
         }
 
         bindEvents(doc);
@@ -740,6 +832,7 @@
         injectedEditComposer = null;
         injectedReplyComposer = null;
         injectedCommentMutations = null;
+        injectedCommentsModule = null;
         isDeleting = false;
         currentMutationToken = 0;
         activeDeleteTarget = null;
@@ -777,6 +870,7 @@
         setFetchImplementation: function (fn) { injectedFetch = fn; },
         setDrawerModule: function (mod) { injectedDrawer = mod; },
         setIndicatorsModule: function (mod) { injectedIndicators = mod; },
-        setCommentMutations: function (m) { injectedCommentMutations = m; }
+        setCommentMutations: function (m) { injectedCommentMutations = m; },
+        setCommentsModule: function (mod) { injectedCommentsModule = mod; }
     };
 });

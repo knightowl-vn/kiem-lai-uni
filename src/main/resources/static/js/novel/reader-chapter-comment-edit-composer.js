@@ -58,6 +58,7 @@
     let injectedCommentsModule = null;
     let injectedReplyComposer = null;
     let injectedDeleteModule = null;
+    let injectedDrawerModule = null;
 
     // Stable listener references
     let delegatedClickHandler = null;
@@ -131,6 +132,91 @@
             } catch (_) {}
         }
         return null;
+    }
+
+    /**
+     * Resolves the block discussion drawer module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDrawerModule() {
+        if (injectedDrawerModule) {
+            return injectedDrawerModule;
+        }
+        if (typeof window !== 'undefined') {
+            const drawer = window.NovelReaderBlockDiscussionDrawer ||
+                (window.KiemLai && window.KiemLai.NovelReaderBlockDiscussionDrawer);
+            if (drawer) return drawer;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./reader-block-discussion-drawer.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves synchronization context for a root thread (canonical anchoring and block key).
+     *
+     * @param {string} rootId
+     * @param {Object} [commentsMod]
+     * @returns {{rootId: string, anchorStatus: string, blockKey: string|null, isCanonicalAnchored: boolean}|null}
+     */
+    function resolveRootSyncContext(rootId, commentsMod) {
+        if (!rootId) return null;
+        const mod = commentsMod || resolveCommentsModule();
+        if (!mod || typeof mod.getState !== 'function') return null;
+        try {
+            const state = mod.getState();
+            const items = (state && Array.isArray(state.items)) ? state.items : [];
+            const strRootId = String(rootId).trim();
+            const found = items.find(function (it) {
+                return it && String(it.rootCommentId || it.id).trim() === strRootId;
+            });
+            if (!found) return null;
+            const anchorStatus = (typeof found.anchorStatus === 'string') ? found.anchorStatus.trim() : '';
+            const rawBlockKey = (typeof found.blockKey === 'string') ? found.blockKey.trim() : '';
+            const isCanonicalAnchored = (anchorStatus === 'CURRENT' || anchorStatus === 'RELOCATED') && rawBlockKey.length > 0;
+            return {
+                rootId: strRootId,
+                anchorStatus: anchorStatus,
+                blockKey: rawBlockKey || null,
+                isCanonicalAnchored: isCanonicalAnchored
+            };
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Synchronizes open block discussion drawer after edit mutation.
+     * Best-effort: errors are silently caught.
+     * Edit does NOT change counts, so indicators are never refreshed.
+     *
+     * @param {string} chapterId
+     * @param {{rootId: string, anchorStatus: string, blockKey: string|null, isCanonicalAnchored: boolean}|null} rootSyncContext
+     */
+    function synchronizeSecondaryDrawer(chapterId, rootSyncContext) {
+        if (!rootSyncContext || !rootSyncContext.isCanonicalAnchored || !chapterId) {
+            return;
+        }
+
+        try {
+            const drawerMod = resolveDrawerModule();
+            if (drawerMod && typeof drawerMod.isDrawerOpen === 'function' && drawerMod.isDrawerOpen()) {
+                const activeCtx = (typeof drawerMod.getActiveContext === 'function')
+                    ? drawerMod.getActiveContext()
+                    : null;
+                if (activeCtx &&
+                    String(activeCtx.chapterId).trim() === String(chapterId).trim() &&
+                    String(activeCtx.blockKey).trim() === String(rootSyncContext.blockKey).trim()) {
+                    if (typeof drawerMod.refreshActiveDiscussion === 'function') {
+                        drawerMod.refreshActiveDiscussion().catch(function () {});
+                    }
+                }
+            }
+        } catch (_) {}
     }
 
     /**
@@ -528,10 +614,13 @@
 
         isSubmitting = true;
         const mutationToken = ++currentMutationToken;
+        const commentsModule = resolveCommentsModule();
+        const rootSyncContext = resolveRootSyncContext(activeEditTarget.rootId, commentsModule);
         const snapshot = {
             chapterId: activeEditTarget.chapterId,
             commentId: activeEditTarget.commentId,
-            rootId: activeEditTarget.rootId
+            rootId: activeEditTarget.rootId,
+            rootSyncContext: rootSyncContext
         };
 
         if (textarea) textarea.disabled = true;
@@ -567,8 +656,10 @@
                     isSubmitting = false;
                     closeEditComposer(false);
 
+                    // Secondary Drawer synchronization (best-effort, only if canonical anchored and same block open)
+                    synchronizeSecondaryDrawer(snapshot.chapterId, snapshot.rootSyncContext);
+
                     // Authoritative refresh of the root thread
-                    const commentsModule = resolveCommentsModule();
                     if (commentsModule && typeof commentsModule.refreshRootThread === 'function') {
                         const refreshLifecycleToken = ++currentMutationToken;
                         const targetDoc = currentDoc;
@@ -797,6 +888,7 @@
         injectedCommentsModule = null;
         injectedReplyComposer = null;
         injectedDeleteModule = null;
+        injectedDrawerModule = null;
     }
 
     /**
@@ -822,6 +914,7 @@
             if (options.commentsModule) injectedCommentsModule = options.commentsModule;
             if (options.replyComposerModule) injectedReplyComposer = options.replyComposerModule;
             if (options.deleteModule) injectedDeleteModule = options.deleteModule;
+            if (options.drawerModule) injectedDrawerModule = options.drawerModule;
             if (options.fetchFn || options.fetch) injectedFetch = options.fetchFn || options.fetch;
         }
 
@@ -888,6 +981,7 @@
         setMutationsClient: function (m) { injectedMutations = m; },
         setCommentsModule: function (m) { injectedCommentsModule = m; },
         setReplyComposerModule: function (m) { injectedReplyComposer = m; },
-        setDeleteModule: function (m) { injectedDeleteModule = m; }
+        setDeleteModule: function (m) { injectedDeleteModule = m; },
+        setDrawerModule: function (m) { injectedDrawerModule = m; }
     };
 });
