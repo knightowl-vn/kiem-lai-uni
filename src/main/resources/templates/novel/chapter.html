@@ -39,6 +39,9 @@
 
     <link rel="stylesheet"
           th:href="@{/css/novel/reader-block-discussion-drawer.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-chapter-comments.css}">
 </head>
 
 <body>
@@ -326,6 +329,35 @@
         </span>
 
     </nav>
+
+
+    <!-- =====================================================
+         BOTTOM CHAPTER COMMENTS SECTION (MS-05E5H2C)
+         ===================================================== -->
+    <section class="novel-chapter-comments"
+             id="novelChapterComments"
+             aria-labelledby="novelChapterCommentsTitle"
+             th:attr="data-chapter-id=${chapter.id}">
+
+        <header class="novel-chapter-comments-header">
+            <h2 id="novelChapterCommentsTitle"
+                class="novel-chapter-comments-title">Bình luận</h2>
+            <span id="novelChapterCommentsCount"
+                  class="novel-chapter-comments-count"
+                  aria-live="polite"></span>
+        </header>
+
+        <div id="novelChapterCommentsStatus"
+             class="novel-chapter-comments-status"
+             role="status"
+             aria-live="polite"></div>
+
+        <div id="novelChapterCommentsList"
+             class="novel-chapter-comments-list"
+             role="feed"
+             aria-busy="false"></div>
+
+    </section>
 
     <div sec:authorize="isAuthenticated()"
          id="novelReadingProgressTracker"
@@ -871,6 +903,8 @@
 <script th:src="@{/js/novel/reader-block-discussion-delete.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-block-discussion-restore.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comments.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>
