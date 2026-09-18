@@ -29,6 +29,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function () {
     'use strict';
 
+    const DRAWER_ID = 'novelBlockDiscussionDrawer';
     const EDIT_COMPOSER_CLASS = 'novel-edit-composer';
     const EDIT_COMPOSER_FORM_ID = 'novelBlockDiscussionEditComposerForm';
     const EDIT_INPUT_CLASS = 'novel-edit-composer-input';
@@ -36,6 +37,27 @@
     const EDIT_SUBMIT_CLASS = 'novel-edit-composer-submit';
     const EDIT_CANCEL_CLASS = 'novel-edit-composer-cancel';
     const EDIT_ACTIONS_CLASS = 'novel-edit-composer-actions';
+
+    /**
+     * Checks whether an element belongs inside the Discussion Drawer (#novelBlockDiscussionDrawer).
+     *
+     * @param {Element} el
+     * @returns {boolean}
+     */
+    function isInsideDrawer(el) {
+        if (!el) return false;
+        if (typeof el.closest === 'function') {
+            return el.closest('#' + DRAWER_ID) !== null;
+        }
+        let cur = el;
+        while (cur) {
+            if (cur.id === DRAWER_ID || (typeof cur.getAttribute === 'function' && cur.getAttribute('id') === DRAWER_ID)) {
+                return true;
+            }
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
 
     const EVENT_DISCUSSION_REQUESTED = 'kiemlai:block-discussion-requested';
     const EVENT_DISCUSSION_CLOSED = 'kiemlai:block-discussion-closed';
@@ -571,20 +593,27 @@
     /**
      * Handles edit button click event.
      *
-     * @param {Event} e
+     * @param {Event|Element} e
      */
     function handleEditButtonClick(e) {
-        const target = e.target;
+        const target = e ? (e.target || e.srcElement || e) : null;
         if (!target) return;
 
         let editBtn = null;
         if (typeof target.closest === 'function') {
             editBtn = target.closest('.novel-comment-edit-btn') || target.closest('button[data-action="edit"]');
-        } else if (target.classList && target.classList.contains('novel-comment-edit-btn')) {
-            editBtn = target;
+        } else {
+            let cur = target;
+            while (cur) {
+                if (cur.getAttribute && (cur.getAttribute('data-action') === 'edit' || (cur.classList && cur.classList.contains('novel-comment-edit-btn')))) {
+                    editBtn = cur;
+                    break;
+                }
+                cur = cur.parentElement || cur.parentNode;
+            }
         }
 
-        if (!editBtn) return;
+        if (!editBtn || !isInsideDrawer(editBtn)) return;
 
         if (typeof e.preventDefault === 'function') {
             e.preventDefault();
@@ -613,15 +642,31 @@
             if (!target) return;
 
             // Edit button
-            if (typeof target.closest === 'function' && (target.closest('.novel-comment-edit-btn') || target.closest('button[data-action="edit"]'))) {
-                handleEditButtonClick(e);
+            let editBtn = null;
+            if (typeof target.closest === 'function') {
+                editBtn = target.closest('.novel-comment-edit-btn') || target.closest('button[data-action="edit"]');
+            } else if (target.classList && target.classList.contains('novel-comment-edit-btn')) {
+                editBtn = target;
+            }
+            if (editBtn) {
+                if (isInsideDrawer(editBtn)) {
+                    handleEditButtonClick(e);
+                }
                 return;
             }
 
             // Cancel edit composer
-            if (typeof target.closest === 'function' && target.closest('.' + EDIT_CANCEL_CLASS)) {
-                if (typeof e.preventDefault === 'function') e.preventDefault();
-                closeEditComposer(true);
+            let cancelBtn = null;
+            if (typeof target.closest === 'function') {
+                cancelBtn = target.closest('.' + EDIT_CANCEL_CLASS);
+            } else if (target.classList && target.classList.contains(EDIT_CANCEL_CLASS)) {
+                cancelBtn = target;
+            }
+            if (cancelBtn) {
+                if (isInsideDrawer(cancelBtn)) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    closeEditComposer(true);
+                }
                 return;
             }
         });

@@ -37,10 +37,33 @@
     const CONFIRM_BTN_CLASS = 'novel-delete-confirmation-confirm';
     const CANCEL_BTN_CLASS = 'novel-delete-confirmation-cancel';
 
+    const DRAWER_ID = 'novelBlockDiscussionDrawer';
+
     const EVENT_DISCUSSION_REQUESTED = 'kiemlai:block-discussion-requested';
     const EVENT_DISCUSSION_LOADED = 'kiemlai:block-discussion-loaded';
     const EVENT_DISCUSSION_CLOSED = 'kiemlai:block-discussion-closed';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
+
+    /**
+     * Checks whether an element is contained within the block discussion drawer.
+     *
+     * @param {Element|null} el
+     * @returns {boolean}
+     */
+    function isInsideDrawer(el) {
+        if (!el) return false;
+        if (typeof el.closest === 'function') {
+            return el.closest('#' + DRAWER_ID) !== null;
+        }
+        let cur = el;
+        while (cur) {
+            if (cur.id === DRAWER_ID || (typeof cur.getAttribute === 'function' && cur.getAttribute('id') === DRAWER_ID)) {
+                return true;
+            }
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
 
     // Module State
     let currentDoc = null;
@@ -536,7 +559,7 @@
      * @param {Event} e
      */
     function handleDeleteButtonClick(e) {
-        const target = e.target;
+        const target = e ? (e.target || e.srcElement || e) : null;
         if (!target) return;
 
         let deleteBtn = null;
@@ -546,7 +569,7 @@
             deleteBtn = target;
         }
 
-        if (!deleteBtn) return;
+        if (!deleteBtn || !isInsideDrawer(deleteBtn)) return;
 
         if (typeof e.preventDefault === 'function') {
             e.preventDefault();
@@ -575,31 +598,64 @@
             if (!target) return;
 
             // Delete button clicked
-            if (typeof target.closest === 'function' && (target.closest('.novel-comment-delete-btn') || target.closest('button[data-action="delete"]'))) {
-                handleDeleteButtonClick(e);
+            let deleteBtn = null;
+            if (typeof target.closest === 'function') {
+                deleteBtn = target.closest('.novel-comment-delete-btn') || target.closest('button[data-action="delete"]');
+            } else if (target.classList && target.classList.contains('novel-comment-delete-btn')) {
+                deleteBtn = target;
+            }
+            if (deleteBtn) {
+                if (isInsideDrawer(deleteBtn)) {
+                    handleDeleteButtonClick(e);
+                }
                 return;
             }
 
             // Cancel button inside confirmation
-            if (typeof target.closest === 'function' && target.closest('.' + CANCEL_BTN_CLASS)) {
-                if (typeof e.preventDefault === 'function') e.preventDefault();
-                closeDeleteConfirmation(true);
+            let cancelBtn = null;
+            if (typeof target.closest === 'function') {
+                cancelBtn = target.closest('.' + CANCEL_BTN_CLASS);
+            } else if (target.classList && target.classList.contains(CANCEL_BTN_CLASS)) {
+                cancelBtn = target;
+            }
+            if (cancelBtn) {
+                if (isInsideDrawer(cancelBtn)) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    closeDeleteConfirmation(true);
+                }
                 return;
             }
 
             // Confirm button inside confirmation
-            if (typeof target.closest === 'function' && target.closest('.' + CONFIRM_BTN_CLASS)) {
-                if (typeof e.preventDefault === 'function') e.preventDefault();
-                handleConfirmDelete();
+            let confirmBtn = null;
+            if (typeof target.closest === 'function') {
+                confirmBtn = target.closest('.' + CONFIRM_BTN_CLASS);
+            } else if (target.classList && target.classList.contains(CONFIRM_BTN_CLASS)) {
+                confirmBtn = target;
+            }
+            if (confirmBtn) {
+                if (isInsideDrawer(confirmBtn)) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    handleConfirmDelete();
+                }
                 return;
             }
 
             // Switching to Edit or Reply on any comment closes active delete confirmation
-            if (typeof target.closest === 'function' && (
-                target.closest('.novel-comment-edit-btn') || target.closest('button[data-action="edit"]') ||
-                target.closest('.novel-comment-reply-btn') || target.closest('button[data-action="reply"]')
+            let switchBtn = null;
+            if (typeof target.closest === 'function') {
+                switchBtn = target.closest('.novel-comment-edit-btn') || target.closest('button[data-action="edit"]') ||
+                    target.closest('.novel-comment-reply-btn') || target.closest('button[data-action="reply"]');
+            } else if (target.classList && (
+                target.classList.contains('novel-comment-edit-btn') ||
+                target.classList.contains('novel-comment-reply-btn')
             )) {
-                closeDeleteConfirmation(false);
+                switchBtn = target;
+            }
+            if (switchBtn) {
+                if (isInsideDrawer(switchBtn)) {
+                    closeDeleteConfirmation(false);
+                }
                 return;
             }
         });

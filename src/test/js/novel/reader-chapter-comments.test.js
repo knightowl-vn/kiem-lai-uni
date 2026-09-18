@@ -889,8 +889,8 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
                 createdAt: '2026-09-18T08:00:00Z',
                 updatedAt: '2026-09-18T08:00:00Z',
                 edited: false,
-                canEdit: true, // Backend gives permission, but read UI must NOT render buttons
-                canDelete: true,
+                canEdit: false,
+                canDelete: false,
                 anchorStatus: 'ANCHORED',
                 blockKey: 'p-42',
                 passageExcerpt: 'Trích đoạn bí mật không được hiển thị',
@@ -3263,6 +3263,459 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.strictEqual(page0RefreshCalled, true);
             assert.strictEqual(commentsModule.getState().items.length, 2);
             assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        });
+    });
+
+    describe('MS-05E5H2F3B Bottom Comment Owner Menu Capabilities (Cases A-J)', () => {
+        test('Case A: Anchored root owner renders ⋯ with origin + Edit + Delete, plus primary Phản hồi', async () => {
+            const { doc, list } = createStandardFixture('c-case-a');
+            const items = [{
+                rootCommentId: 'r-case-a',
+                author: { userId: 'u1', displayName: 'Owner' },
+                body: 'Anchored root owner',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                canEdit: true,
+                canDelete: true,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const trigger = list.querySelector('.novel-comment--root .novel-comment-menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist');
+
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.ok(popover);
+
+            const originBtn = popover.querySelector('button[data-action="view-origin"]');
+            assert.ok(originBtn, 'Origin action must exist');
+            assert.strictEqual(originBtn.textContent, 'Xem đoạn gốc');
+
+            const editBtn = popover.querySelector('.novel-comment-edit-btn');
+            assert.ok(editBtn, 'Edit action must exist');
+            assert.strictEqual(editBtn.getAttribute('data-action'), 'edit');
+            assert.strictEqual(editBtn.textContent, 'Chỉnh sửa');
+            assert.strictEqual(editBtn.getAttribute('data-comment-id'), 'r-case-a');
+            assert.strictEqual(editBtn.getAttribute('data-root-id'), 'r-case-a');
+
+            const deleteBtn = popover.querySelector('.novel-comment-delete-btn');
+            assert.ok(deleteBtn, 'Delete action must exist');
+            assert.strictEqual(deleteBtn.getAttribute('data-action'), 'delete');
+            assert.strictEqual(deleteBtn.textContent, 'Xóa');
+            assert.strictEqual(deleteBtn.getAttribute('data-comment-id'), 'r-case-a');
+            assert.strictEqual(deleteBtn.getAttribute('data-root-id'), 'r-case-a');
+
+            const replyBtn = list.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            assert.ok(replyBtn, 'Primary Phản hồi button must exist outside menu');
+        });
+
+        test('Case B: UNANCHORED root owner renders ⋯ with Edit + Delete, NO origin action', async () => {
+            const { doc, list } = createStandardFixture('c-case-b');
+            const items = [{
+                rootCommentId: 'r-case-b',
+                author: { userId: 'u1', displayName: 'Owner' },
+                body: 'Unanchored root owner',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                anchorStatus: 'UNANCHORED',
+                blockKey: null,
+                canEdit: true,
+                canDelete: true,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const trigger = list.querySelector('.novel-comment--root .novel-comment-menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist for unanchored owner');
+
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.ok(popover);
+
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null, 'Origin action must NOT exist');
+
+            const editBtn = popover.querySelector('.novel-comment-edit-btn');
+            assert.ok(editBtn, 'Edit action must exist');
+            assert.strictEqual(editBtn.getAttribute('data-action'), 'edit');
+
+            const deleteBtn = popover.querySelector('.novel-comment-delete-btn');
+            assert.ok(deleteBtn, 'Delete action must exist');
+            assert.strictEqual(deleteBtn.getAttribute('data-action'), 'delete');
+
+            const replyBtn = list.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            assert.ok(replyBtn, 'Primary Phản hồi button must exist');
+        });
+
+        test('Case C: Anchored root non-owner renders ⋯ with origin only', async () => {
+            const { doc, list } = createStandardFixture('c-case-c');
+            const items = [{
+                rootCommentId: 'r-case-c',
+                author: { userId: 'u2', displayName: 'Non-Owner' },
+                body: 'Anchored root non-owner',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const trigger = list.querySelector('.novel-comment--root .novel-comment-menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist for anchored non-owner');
+
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.ok(popover.querySelector('button[data-action="view-origin"]'));
+            assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null);
+            assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null);
+        });
+
+        test('Case D: UNANCHORED root non-owner has NO ⋯ menu', async () => {
+            const { doc, list } = createStandardFixture('c-case-d');
+            const items = [{
+                rootCommentId: 'r-case-d',
+                author: { userId: 'u2', displayName: 'Non-Owner' },
+                body: 'Unanchored root non-owner',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                anchorStatus: 'UNANCHORED',
+                blockKey: null,
+                canEdit: false,
+                canDelete: false,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-menu-trigger'), null);
+            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-actions-menu'), null);
+            assert.ok(list.querySelector('.novel-comment--root .novel-comment-reply-btn'), 'Phản hồi button remains');
+        });
+
+        test('Case E: Root tombstone has NO ⋯ menu, NO Reply', async () => {
+            const { doc, list } = createStandardFixture('c-case-e');
+            const items = [{
+                rootCommentId: 'r-case-e',
+                author: null,
+                body: null,
+                tombstone: true,
+                status: 'DELETED',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                canEdit: true, // ignored for tombstone
+                canDelete: true,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-menu-trigger'), null);
+            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-reply-btn'), null);
+        });
+
+        test('Case F: Anchored reply owner renders ⋯ with origin + Edit + Delete', async () => {
+            const { doc, list } = createStandardFixture('c-case-f');
+            const items = [{
+                rootCommentId: 'r-f',
+                author: { userId: 'u1', displayName: 'Root' },
+                body: 'Root',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [{
+                    id: 'rep-f',
+                    parentCommentId: 'r-f',
+                    body: 'Reply owner',
+                    canEdit: true,
+                    canDelete: true,
+                    createdAt: '2026-09-18T10:05:00Z',
+                    updatedAt: '2026-09-18T10:05:00Z',
+                    author: { userId: 'u2', displayName: 'ReplyOwner' }
+                }]
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            assert.ok(replyEl);
+
+            const trigger = replyEl.querySelector('.novel-comment-menu-trigger');
+            assert.ok(trigger);
+
+            const popover = replyEl.querySelector('.novel-comment-menu-popover');
+            assert.ok(popover.querySelector('button[data-action="view-origin"]'));
+
+            const editBtn = popover.querySelector('.novel-comment-edit-btn');
+            assert.ok(editBtn);
+            assert.strictEqual(editBtn.getAttribute('data-action'), 'edit');
+            assert.strictEqual(editBtn.getAttribute('data-comment-id'), 'rep-f');
+            assert.strictEqual(editBtn.getAttribute('data-root-id'), 'r-f');
+
+            const deleteBtn = popover.querySelector('.novel-comment-delete-btn');
+            assert.ok(deleteBtn);
+            assert.strictEqual(deleteBtn.getAttribute('data-action'), 'delete');
+            assert.strictEqual(deleteBtn.getAttribute('data-comment-id'), 'rep-f');
+            assert.strictEqual(deleteBtn.getAttribute('data-root-id'), 'r-f');
+
+            assert.ok(replyEl.querySelector('.novel-comment-reply-btn'));
+        });
+
+        test('Case G: UNANCHORED reply owner renders ⋯ with Edit + Delete, NO origin', async () => {
+            const { doc, list } = createStandardFixture('c-case-g');
+            const items = [{
+                rootCommentId: 'r-g',
+                author: { userId: 'u1', displayName: 'Root' },
+                body: 'Root',
+                anchorStatus: 'UNANCHORED',
+                blockKey: null,
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [{
+                    id: 'rep-g',
+                    parentCommentId: 'r-g',
+                    body: 'Reply owner unanchored',
+                    canEdit: true,
+                    canDelete: true,
+                    createdAt: '2026-09-18T10:05:00Z',
+                    updatedAt: '2026-09-18T10:05:00Z',
+                    author: { userId: 'u2', displayName: 'ReplyOwner' }
+                }]
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            const popover = replyEl.querySelector('.novel-comment-menu-popover');
+            assert.ok(popover);
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null);
+            assert.ok(popover.querySelector('button[data-action="edit"]'));
+            assert.ok(popover.querySelector('button[data-action="delete"]'));
+        });
+
+        test('Case H: Anchored reply non-owner renders ⋯ with origin only', async () => {
+            const { doc, list } = createStandardFixture('c-case-h');
+            const items = [{
+                rootCommentId: 'r-h',
+                author: { userId: 'u1', displayName: 'Root' },
+                body: 'Root',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [{
+                    id: 'rep-h',
+                    parentCommentId: 'r-h',
+                    body: 'Reply non-owner',
+                    canEdit: false,
+                    canDelete: false,
+                    createdAt: '2026-09-18T10:05:00Z',
+                    updatedAt: '2026-09-18T10:05:00Z',
+                    author: { userId: 'u2', displayName: 'NonOwner' }
+                }]
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            const popover = replyEl.querySelector('.novel-comment-menu-popover');
+            assert.ok(popover.querySelector('button[data-action="view-origin"]'));
+            assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null);
+            assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null);
+        });
+
+        test('Case I: UNANCHORED reply non-owner has NO ⋯ menu', async () => {
+            const { doc, list } = createStandardFixture('c-case-i');
+            const items = [{
+                rootCommentId: 'r-i',
+                author: { userId: 'u1', displayName: 'Root' },
+                body: 'Root',
+                anchorStatus: 'UNANCHORED',
+                blockKey: null,
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [{
+                    id: 'rep-i',
+                    parentCommentId: 'r-i',
+                    body: 'Reply unanchored non-owner',
+                    canEdit: false,
+                    canDelete: false,
+                    createdAt: '2026-09-18T10:05:00Z',
+                    updatedAt: '2026-09-18T10:05:00Z',
+                    author: { userId: 'u2', displayName: 'NonOwner' }
+                }]
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            assert.strictEqual(replyEl.querySelector('.novel-comment-menu-trigger'), null);
+            assert.ok(replyEl.querySelector('.novel-comment-reply-btn'));
+        });
+
+        test('Case J: Reply tombstone has NO ⋯ menu, NO Reply', async () => {
+            const { doc, list } = createStandardFixture('c-case-j');
+            const items = [{
+                rootCommentId: 'r-j',
+                author: { userId: 'u1', displayName: 'Root' },
+                body: 'Root',
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [{
+                    id: 'rep-tomb',
+                    parentCommentId: 'r-j',
+                    body: null,
+                    tombstone: true,
+                    status: 'DELETED',
+                    canEdit: true,
+                    canDelete: true,
+                    createdAt: '2026-09-18T10:05:00Z',
+                    updatedAt: '2026-09-18T10:05:00Z',
+                    author: null
+                }]
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const tombEl = list.querySelector('.novel-comment--reply.is-tombstone');
+            assert.ok(tombEl);
+            assert.strictEqual(tombEl.querySelector('.novel-comment-menu-trigger'), null);
+            assert.strictEqual(tombEl.querySelector('.novel-comment-reply-btn'), null);
+        });
+
+        test('Edit-only capability renders only Edit', async () => {
+            const { doc, list } = createStandardFixture('c-edit-only');
+            const items = [{
+                rootCommentId: 'r-edit-only',
+                author: { userId: 'u1', displayName: 'Editor' },
+                body: 'Edit only',
+                anchorStatus: 'UNANCHORED',
+                canEdit: true,
+                canDelete: false,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.ok(popover.querySelector('button[data-action="edit"]'));
+            assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null);
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null);
+        });
+
+        test('Delete-only capability renders only Delete', async () => {
+            const { doc, list } = createStandardFixture('c-del-only');
+            const items = [{
+                rootCommentId: 'r-del-only',
+                author: { userId: 'u1', displayName: 'Deleter' },
+                body: 'Delete only',
+                anchorStatus: 'UNANCHORED',
+                canEdit: false,
+                canDelete: true,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
+            await new Promise(r => setTimeout(r, 10));
+
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null);
+            assert.ok(popover.querySelector('button[data-action="delete"]'));
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null);
+        });
+
+        test('Later-page roots and progressively revealed replies preserve capability menus', async () => {
+            const { doc, list } = createStandardFixture('c-pages');
+            const page0Items = [{
+                rootCommentId: 'r-p0',
+                author: { userId: 'u1', displayName: 'P0' },
+                body: 'P0 body',
+                anchorStatus: 'UNANCHORED',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 4,
+                replies: [
+                    { id: 'rep-1', parentCommentId: 'r-p0', body: 'R1', canEdit: false, canDelete: false },
+                    { id: 'rep-2', parentCommentId: 'r-p0', body: 'R2', canEdit: false, canDelete: false },
+                    { id: 'rep-3', parentCommentId: 'r-p0', body: 'R3', canEdit: false, canDelete: false },
+                    { id: 'rep-4', parentCommentId: 'r-p0', body: 'R4', canEdit: true, canDelete: true, author: { displayName: 'Rep4' } }
+                ]
+            }];
+
+            const page1Items = [{
+                rootCommentId: 'r-p1',
+                author: { userId: 'u1', displayName: 'P1 Owner' },
+                body: 'P1 body',
+                anchorStatus: 'UNANCHORED',
+                canEdit: true,
+                canDelete: true,
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, {
+                fetch: (url) => {
+                    const u = String(url);
+                    if (u.includes('page=1')) {
+                        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1Items, false, 1)) });
+                    }
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0Items, true, 0)) });
+                }
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // 1. Progressively reveal 4th reply
+            const revealBtn = list.querySelector('.novel-comment-replies-more-btn');
+            assert.ok(revealBtn);
+            revealBtn.dispatchEvent({ type: 'click', preventDefault: () => {} });
+
+            const revealedReply = list.querySelector('.novel-comment--reply[data-comment-id="rep-4"]');
+            assert.ok(revealedReply);
+            assert.ok(revealedReply.querySelector('.novel-comment-menu-trigger'), 'Revealed reply must have menu trigger');
+            const revPopover = revealedReply.querySelector('.novel-comment-menu-popover');
+            assert.ok(revPopover.querySelector('button[data-action="edit"]'));
+            assert.ok(revPopover.querySelector('button[data-action="delete"]'));
+
+            // 2. Load page 1
+            await commentsModule.loadMore();
+            await new Promise(r => setTimeout(r, 10));
+
+            const p1Root = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p1"]');
+            assert.ok(p1Root);
+            const p1Popover = p1Root.querySelector('.novel-comment-menu-popover');
+            assert.ok(p1Popover);
+            assert.ok(p1Popover.querySelector('button[data-action="edit"]'));
+            assert.ok(p1Popover.querySelector('button[data-action="delete"]'));
         });
     });
 });

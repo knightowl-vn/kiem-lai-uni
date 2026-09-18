@@ -1070,4 +1070,31 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
         assert.strictEqual(getActiveComposerEl(), null, 'Composer should close on success');
     });
 
+    test('23. MS-05E5H2F3B: ignores edit button clicks originating outside the discussion drawer (e.g., bottom comments)', () => {
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule
+        });
+
+        const bottomSection = doc.createElement('section');
+        bottomSection.id = 'novelChapterComments';
+
+        const bottomComment = doc.createElement('div');
+        bottomComment.className = 'novel-comment novel-comment--root';
+        bottomComment.setAttribute('data-comment-id', 'bottom-comment-1');
+
+        const bottomEditBtn = doc.createElement('button');
+        bottomEditBtn.type = 'button';
+        bottomEditBtn.className = 'novel-comment-edit-btn';
+        bottomEditBtn.setAttribute('data-action', 'edit');
+        bottomEditBtn.setAttribute('data-comment-id', 'bottom-comment-1');
+        bottomComment.appendChild(bottomEditBtn);
+        bottomSection.appendChild(bottomComment);
+        doc.body.appendChild(bottomSection);
+
+        doc.dispatchEvent({ type: 'click', target: bottomEditBtn, preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Drawer edit composer must not open for bottom comments');
+        assert.strictEqual(getActiveEditTarget(), null);
+    });
+
 });

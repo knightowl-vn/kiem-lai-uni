@@ -60,6 +60,8 @@
     let injectedMutations = null;
     let injectedCommentsModule = null;
     let injectedAuthenticated = null;
+    let injectedEditComposer = null;
+    let injectedDeleteModule = null;
 
     /**
      * Resolves the shared comment mutations client.
@@ -261,9 +263,35 @@
     }
 
     /**
-     * Closes both composer and guest prompt.
+     * Closes active edit composer and active delete confirmation if present.
+     */
+    function closeOtherBottomInteractions() {
+        const editMod = injectedEditComposer || (typeof window !== 'undefined' && (
+            window.NovelReaderChapterCommentEditComposer ||
+            (window.KiemLai && window.KiemLai.NovelReaderChapterCommentEditComposer)
+        )) || null;
+        if (editMod && typeof editMod.closeEditComposer === 'function') {
+            try {
+                editMod.closeEditComposer(false);
+            } catch (_) {}
+        }
+
+        const deleteMod = injectedDeleteModule || (typeof window !== 'undefined' && (
+            window.NovelReaderChapterCommentDelete ||
+            (window.KiemLai && window.KiemLai.NovelReaderChapterCommentDelete)
+        )) || null;
+        if (deleteMod && typeof deleteMod.closeDeleteConfirmation === 'function') {
+            try {
+                deleteMod.closeDeleteConfirmation(false);
+            } catch (_) {}
+        }
+    }
+
+    /**
+     * Closes both composer and guest prompt, as well as active edit and delete UI.
      */
     function closeAllActive() {
+        closeOtherBottomInteractions();
         closeActiveComposer(false);
         closeActiveGuestPrompt();
     }
@@ -623,6 +651,8 @@
         if (typeof opts.fetch === 'function') injectedFetch = opts.fetch;
         if (opts.mutations || opts.mutationsClient) injectedMutations = opts.mutations || opts.mutationsClient;
         if (opts.commentsModule) injectedCommentsModule = opts.commentsModule;
+        if (opts.editComposerModule) injectedEditComposer = opts.editComposerModule;
+        if (opts.deleteModule) injectedDeleteModule = opts.deleteModule;
         if (typeof opts.authenticated === 'boolean') injectedAuthenticated = opts.authenticated;
 
         const sectionEl = resolveSection(d);
@@ -672,6 +702,8 @@
         injectedMutations = null;
         injectedCommentsModule = null;
         injectedAuthenticated = null;
+        injectedEditComposer = null;
+        injectedDeleteModule = null;
         delegatedClickHandler = null;
         chapterChangedHandler = null;
         feedReplacingHandler = null;
@@ -706,6 +738,7 @@
     return {
         init: init,
         destroy: destroy,
+        closeActiveComposer: closeActiveComposer,
         closeComposer: function () { closeActiveComposer(false); },
         getActiveComposer: function () { return activeComposerEl; },
         getActiveGuestPrompt: function () { return activeGuestPromptEl; },
@@ -713,6 +746,8 @@
         setFetchImplementation: function (fn) { injectedFetch = fn; },
         setMutationsImplementation: function (m) { injectedMutations = m; },
         setCommentsModuleImplementation: function (mod) { injectedCommentsModule = mod; },
+        setEditComposerModule: function (mod) { injectedEditComposer = mod; },
+        setDeleteModule: function (mod) { injectedDeleteModule = mod; },
         handleReplyButtonClick: onDelegatedClick
     };
 });

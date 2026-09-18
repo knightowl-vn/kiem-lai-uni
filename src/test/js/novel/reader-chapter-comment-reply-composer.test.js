@@ -1184,4 +1184,34 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         assert.ok(token3 >= token2, `re-init must not reset token to zero: ${token3} >= ${token2}`);
         assert.notStrictEqual(token3, 0, 'Token must never be reset to 0');
     });
+
+    test('30. MS-05E5H2F3B: opening Reply closes active Edit composer', () => {
+        const fixture = createReplyFixture({ authenticated: true });
+        let closeEditCalled = false;
+        const mockEdit = {
+            closeEditComposer: () => { closeEditCalled = true; }
+        };
+
+        replyComposerModule.init(fixture.doc, {
+            editComposerModule: mockEdit
+        });
+
+        fixture.root1ReplyBtn.click();
+        assert.strictEqual(closeEditCalled, true, 'Opening Reply must close active Edit composer');
+    });
+
+    test('31. MS-05E5H2F3B: opening Reply closes active Delete confirmation', () => {
+        const fixture = createReplyFixture({ authenticated: true });
+        let closeDeleteCalled = false;
+        const mockDel = {
+            closeDeleteConfirmation: () => { closeDeleteCalled = true; }
+        };
+
+        replyComposerModule.init(fixture.doc, {
+            deleteModule: mockDel
+        });
+
+        fixture.root1ReplyBtn.click();
+        assert.strictEqual(closeDeleteCalled, true, 'Opening Reply must close active Delete confirmation');
+    });
 });

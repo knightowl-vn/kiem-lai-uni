@@ -547,54 +547,115 @@
     }
 
     /**
-     * Constructs the three-dot overflow actions menu element containing "Xem đoạn gốc".
+     * Constructs the three-dot overflow actions menu element.
      *
-     * @param {string} blockKey
-     * @param {string} rootCommentId
-     * @param {Document} doc
+     * @param {Object|string} opts
+     * @param {Document} [doc]
      * @returns {Element}
      */
-    function createActionsMenu(blockKey, rootCommentId, doc) {
-        const menuContainer = doc.createElement('div');
+    function createActionsMenu(opts, doc) {
+        let options = opts;
+        let documentRef = doc;
+        if (typeof opts === 'string' || (opts === null && typeof doc === 'string')) {
+            const legacyBlockKey = opts;
+            const legacyRootId = arguments[1];
+            documentRef = arguments[2];
+            options = {
+                originNavigable: true,
+                blockKey: legacyBlockKey,
+                rootCommentId: legacyRootId,
+                commentId: legacyRootId,
+                canEdit: false,
+                canDelete: false
+            };
+        }
+        if (!documentRef) {
+            documentRef = currentDoc || (typeof document !== 'undefined' ? document : null);
+        }
+
+        const menuContainer = documentRef.createElement('div');
         menuContainer.className = 'novel-comment-actions-menu';
 
-        const triggerBtn = doc.createElement('button');
+        const triggerBtn = documentRef.createElement('button');
         triggerBtn.type = 'button';
         triggerBtn.className = 'novel-comment-menu-trigger';
         triggerBtn.setAttribute('aria-label', 'Mở menu bình luận');
         triggerBtn.setAttribute('aria-haspopup', 'menu');
         triggerBtn.setAttribute('aria-expanded', 'false');
 
-        const dotsSpan = doc.createElement('span');
+        const dotsSpan = documentRef.createElement('span');
         dotsSpan.className = 'novel-comment-menu-dots';
         dotsSpan.setAttribute('aria-hidden', 'true');
         dotsSpan.textContent = '⋯';
         triggerBtn.appendChild(dotsSpan);
 
-        const popoverDiv = doc.createElement('div');
+        const popoverDiv = documentRef.createElement('div');
         popoverDiv.className = 'novel-comment-menu-popover';
         popoverDiv.setAttribute('role', 'menu');
         popoverDiv.hidden = true;
         popoverDiv.setAttribute('hidden', '');
 
-        const originBtn = doc.createElement('button');
-        originBtn.type = 'button';
-        originBtn.className = 'novel-comment-menu-item';
-        originBtn.setAttribute('role', 'menuitem');
-        originBtn.setAttribute('data-action', 'view-origin');
-        originBtn.setAttribute('data-block-key', String(blockKey));
-        if (rootCommentId) {
-            originBtn.setAttribute('data-root-id', String(rootCommentId));
-        }
-        originBtn.textContent = 'Xem đoạn gốc';
-
-        originBtn.addEventListener('click', function (e) {
-            if (e && typeof e.preventDefault === 'function') {
-                e.preventDefault();
+        if (options && options.originNavigable && options.blockKey) {
+            const originBtn = documentRef.createElement('button');
+            originBtn.type = 'button';
+            originBtn.className = 'novel-comment-menu-item';
+            originBtn.setAttribute('role', 'menuitem');
+            originBtn.setAttribute('data-action', 'view-origin');
+            originBtn.setAttribute('data-block-key', String(options.blockKey));
+            if (options.rootCommentId) {
+                originBtn.setAttribute('data-root-id', String(options.rootCommentId));
             }
-            closeActiveMenu(false);
-            openOriginDiscussion(blockKey, rootCommentId, doc);
-        });
+            originBtn.textContent = 'Xem đoạn gốc';
+
+            originBtn.addEventListener('click', function (e) {
+                if (e && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                closeActiveMenu(false);
+                openOriginDiscussion(options.blockKey, options.rootCommentId, documentRef);
+            });
+            popoverDiv.appendChild(originBtn);
+        }
+
+        if (options && options.canEdit) {
+            const editBtn = documentRef.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'novel-comment-menu-item novel-comment-edit-btn';
+            editBtn.setAttribute('role', 'menuitem');
+            editBtn.setAttribute('data-action', 'edit');
+            if (options.commentId) {
+                editBtn.setAttribute('data-comment-id', String(options.commentId));
+            }
+            if (options.rootCommentId) {
+                editBtn.setAttribute('data-root-id', String(options.rootCommentId));
+            }
+            editBtn.textContent = 'Chỉnh sửa';
+
+            editBtn.addEventListener('click', function () {
+                closeActiveMenu(false);
+            });
+            popoverDiv.appendChild(editBtn);
+        }
+
+        if (options && options.canDelete) {
+            const deleteBtn = documentRef.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'novel-comment-menu-item novel-comment-delete-btn';
+            deleteBtn.setAttribute('role', 'menuitem');
+            deleteBtn.setAttribute('data-action', 'delete');
+            if (options.commentId) {
+                deleteBtn.setAttribute('data-comment-id', String(options.commentId));
+            }
+            if (options.rootCommentId) {
+                deleteBtn.setAttribute('data-root-id', String(options.rootCommentId));
+            }
+            deleteBtn.textContent = 'Xóa';
+
+            deleteBtn.addEventListener('click', function () {
+                closeActiveMenu(false);
+            });
+            popoverDiv.appendChild(deleteBtn);
+        }
 
         triggerBtn.addEventListener('click', function (e) {
             if (e && typeof e.preventDefault === 'function') {
@@ -610,7 +671,6 @@
             }
         });
 
-        popoverDiv.appendChild(originBtn);
         menuContainer.appendChild(triggerBtn);
         menuContainer.appendChild(popoverDiv);
 
@@ -703,9 +763,20 @@
                 replyHeader.appendChild(replyEdited);
             }
 
-            // Active reply inherits root anchorStatus and root blockKey
-            if (isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey)) {
-                const replyMenu = createActionsMenu(rootItem.blockKey, rootId, doc);
+            // Active reply inherits root anchorStatus and root blockKey for origin navigation
+            const replyOriginNavigable = isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey);
+            const canEditReply = Boolean(reply.canEdit);
+            const canDeleteReply = Boolean(reply.canDelete);
+
+            if (replyOriginNavigable || canEditReply || canDeleteReply) {
+                const replyMenu = createActionsMenu({
+                    originNavigable: replyOriginNavigable,
+                    blockKey: rootItem.blockKey,
+                    rootCommentId: strRootId,
+                    commentId: String(reply.id),
+                    canEdit: canEditReply,
+                    canDelete: canDeleteReply
+                }, doc);
                 replyHeader.appendChild(replyMenu);
             }
 
@@ -826,8 +897,20 @@
             rootHeader.appendChild(rootEdited);
         }
 
-        if (isOriginNavigable(item.anchorStatus, item.blockKey)) {
-            const rootMenu = createActionsMenu(item.blockKey, rootId, doc);
+        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
+        const originNavigable = !isRootTombstone && isOriginNavigable(item.anchorStatus, item.blockKey);
+        const canEditRoot = !isRootTombstone && Boolean(item.canEdit);
+        const canDeleteRoot = !isRootTombstone && Boolean(item.canDelete);
+
+        if (originNavigable || canEditRoot || canDeleteRoot) {
+            const rootMenu = createActionsMenu({
+                originNavigable: originNavigable,
+                blockKey: item.blockKey,
+                rootCommentId: rootId,
+                commentId: rootId,
+                canEdit: canEditRoot,
+                canDelete: canDeleteRoot
+            }, doc);
             rootHeader.appendChild(rootMenu);
         }
 
@@ -839,7 +922,6 @@
         rootEl.appendChild(rootHeader);
         rootEl.appendChild(rootBody);
 
-        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
         if (!isRootTombstone && rootId) {
             const rootActions = doc.createElement('div');
             rootActions.className = 'novel-comment-actions';

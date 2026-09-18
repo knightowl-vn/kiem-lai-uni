@@ -432,9 +432,12 @@ function setupTestDOM() {
     repliesContainer.appendChild(replyEl);
     threadCard.appendChild(repliesContainer);
 
-    doc.body.appendChild(threadCard);
+    const drawer = doc.createElement('div');
+    drawer.id = 'novelBlockDiscussionDrawer';
+    drawer.appendChild(threadCard);
+    doc.body.appendChild(drawer);
 
-    return { doc, threadCard, rootEl, replyEl, rootDeleteBtn, replyDeleteBtn };
+    return { doc, drawer, threadCard, rootEl, replyEl, rootDeleteBtn, replyDeleteBtn };
 }
 
 // ============================================================================
@@ -897,5 +900,33 @@ describe('Reader Block Discussion Delete Module Tests (MS-05E5G4C2)', () => {
         assert.strictEqual(refreshDrawerCalled, true, 'Authoritative drawer refresh must be called');
         assert.strictEqual(refreshIndicatorsCalled, true, 'Authoritative indicators refresh must be called');
         assert.strictEqual(getActiveConfirmationEl(), null, 'Confirmation should close on success');
+    });
+
+    test('MS-05E5H2F3B: ignores delete button clicks originating outside the discussion drawer (e.g., bottom comments)', () => {
+        initReaderBlockDiscussionDelete(doc, {
+            drawerModule: mockDrawerModule,
+            indicatorsModule: mockIndicatorsModule
+        });
+
+        const bottomSection = doc.createElement('section');
+        bottomSection.id = 'novelChapterComments';
+
+        const bottomComment = doc.createElement('div');
+        bottomComment.className = 'novel-comment novel-comment--root';
+        bottomComment.setAttribute('data-comment-id', 'bottom-comment-1');
+
+        const bottomDeleteBtn = doc.createElement('button');
+        bottomDeleteBtn.type = 'button';
+        bottomDeleteBtn.className = 'novel-comment-delete-btn';
+        bottomDeleteBtn.setAttribute('data-action', 'delete');
+        bottomDeleteBtn.setAttribute('data-comment-id', 'bottom-comment-1');
+        bottomComment.appendChild(bottomDeleteBtn);
+        bottomSection.appendChild(bottomComment);
+        doc.body.appendChild(bottomSection);
+
+        doc.dispatchEvent({ type: 'click', target: bottomDeleteBtn, preventDefault: () => {} });
+
+        assert.strictEqual(getActiveConfirmationEl(), null, 'Drawer delete confirmation must not open for bottom comments');
+        assert.strictEqual(getActiveDeleteTarget(), null);
     });
 });
