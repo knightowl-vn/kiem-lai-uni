@@ -21,15 +21,18 @@ import com.universe.interaction.application.mutation.EditCommentCommand;
 import com.universe.interaction.application.mutation.EditCommentUseCase;
 import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
+import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
+import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentRevision;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
@@ -83,6 +86,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -171,6 +175,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
+
+    @MockBean
+    private GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -1780,5 +1787,192 @@ class NovelChapterCommentControllerTest {
                 .andExpect(status().isNotFound());
 
         verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class), any());
+    }
+
+    // =========================================================================
+    // COMMENT REVISION HISTORY ENDPOINT TESTS (MS-05E5G5D)
+    // =========================================================================
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: guest can read revisions of ACTIVE comment on published chapter without authentication")
+    void shouldAllowGuestToReadRevisionsOnPublishedChapter() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentRevision rev1 = new CommentRevision(
+                UUID.randomUUID(),
+                ROOT_COMMENT_ID,
+                1,
+                "Prior historical body",
+                Instant.parse("2026-09-18T10:00:00Z")
+        );
+        CommentRevisionSlice slice = new CommentRevisionSlice(List.of(rev1), 0, 20, false);
+
+        when(getPublicCommentRevisionsUseCase.execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                0,
+                20
+        )).thenReturn(slice);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isArray())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].revisionNumber").value(1))
+                .andExpect(jsonPath("$.items[0].body").value("Prior historical body"))
+                .andExpect(jsonPath("$.items[0].createdAt").value("2026-09-18T10:00:00Z"))
+                // Assert no internal metadata leaked
+                .andExpect(jsonPath("$.items[0].id").doesNotExist())
+                .andExpect(jsonPath("$.items[0].commentId").doesNotExist())
+                .andExpect(jsonPath("$.items[0].authorUserId").doesNotExist())
+                .andExpect(jsonPath("$.items[0].displayName").doesNotExist())
+                .andExpect(jsonPath("$.items[0].avatarUrl").doesNotExist())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getPublicCommentRevisionsUseCase).execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                0,
+                20
+        );
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: applies default pagination page=0, size=20")
+    void shouldApplyDefaultPaginationForRevisions() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentRevisionSlice emptySlice = new CommentRevisionSlice(List.of(), 0, 20, false);
+        when(getPublicCommentRevisionsUseCase.execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                0,
+                20
+        )).thenReturn(emptySlice);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getPublicCommentRevisionsUseCase).execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                0,
+                20
+        );
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: clamps requested size to max 50 when size > 50")
+    void shouldClampSizeToMax50ForRevisions() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentRevisionSlice emptySlice = new CommentRevisionSlice(List.of(), 1, 50, true);
+        when(getPublicCommentRevisionsUseCase.execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                1,
+                50
+        )).thenReturn(emptySlice);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .param("page", "1")
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(50))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        verify(getPublicCommentRevisionsUseCase).execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                1,
+                50
+        );
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: returns 400 Bad Request when page < 0 or size <= 0")
+    void shouldReturn400WhenRevisionPaginationInvalid() throws Exception {
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .param("page", "-1"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .param("size", "-5"))
+                .andExpect(status().isBadRequest());
+
+        verify(getPublicCommentRevisionsUseCase, never()).execute(any(), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: returns 404 when chapter is unpublished or not found before querying revisions")
+    void shouldReturn404WhenChapterUnpublishedOnRevisions() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions"))
+                .andExpect(status().isNotFound());
+
+        verify(getPublicCommentRevisionsUseCase, never()).execute(any(), any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET revisions: returns 404 when comment is not found, deleted, or hidden by privacy")
+    void shouldReturn404WhenCommentNotFoundOrDeletedOrHidden() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        when(getPublicCommentRevisionsUseCase.execute(
+                ROOT_COMMENT_ID,
+                CommentTarget.novelChapter(CHAPTER_A_ID),
+                0,
+                20
+        )).thenThrow(new com.universe.interaction.application.exceptions.CommentNotFoundException(ROOT_COMMENT_ID));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Revisions route: rejects mutation methods (POST, PUT, PATCH, DELETE) with 405 Method Not Allowed")
+    void shouldRejectMutationMethodsOnRevisionsRoute() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .with(csrf()))
+                .andExpect(status().isMethodNotAllowed());
+
+        mockMvc.perform(put("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .with(csrf()))
+                .andExpect(status().isMethodNotAllowed());
+
+        mockMvc.perform(patch("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .with(csrf()))
+                .andExpect(status().isMethodNotAllowed());
+
+        mockMvc.perform(delete("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/revisions")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .with(csrf()))
+                .andExpect(status().isMethodNotAllowed());
     }
 }

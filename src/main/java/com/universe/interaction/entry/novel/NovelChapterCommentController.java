@@ -14,11 +14,13 @@ import com.universe.interaction.application.mutation.EditCommentCommand;
 import com.universe.interaction.application.mutation.EditCommentUseCase;
 import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
+import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
+import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
@@ -28,6 +30,8 @@ import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.entry.dto.CommentRevisionReadDTO;
+import com.universe.interaction.entry.dto.CommentRevisionSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
@@ -101,6 +105,7 @@ public class NovelChapterCommentController {
     private final NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
     private final NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
     private final NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
+    private final GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -116,7 +121,8 @@ public class NovelChapterCommentController {
             DeleteCommentUseCase deleteCommentUseCase,
             NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator,
             NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator,
-            NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator
+            NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator,
+            GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -132,6 +138,7 @@ public class NovelChapterCommentController {
         this.novelInlineCommentCreationCoordinator = Objects.requireNonNull(novelInlineCommentCreationCoordinator, "NovelInlineCommentCreationCoordinator cannot be null.");
         this.novelBlockDiscussionQueryCoordinator = Objects.requireNonNull(novelBlockDiscussionQueryCoordinator, "NovelBlockDiscussionQueryCoordinator cannot be null.");
         this.novelChapterDiscussionFeedQueryCoordinator = Objects.requireNonNull(novelChapterDiscussionFeedQueryCoordinator, "NovelChapterDiscussionFeedQueryCoordinator cannot be null.");
+        this.getPublicCommentRevisionsUseCase = Objects.requireNonNull(getPublicCommentRevisionsUseCase, "GetPublicCommentRevisionsUseCase cannot be null.");
     }
 
     /**
@@ -476,6 +483,38 @@ public class NovelChapterCommentController {
         deleteCommentUseCase.execute(command);
 
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * GET /api/novel/chapters/{chapterId}/comments/{commentId}/revisions
+     * Returns a slice of public edit history for an active comment.
+     */
+    @GetMapping("/{commentId}/revisions")
+    public ResponseEntity<CommentRevisionSliceResponseDTO> listCommentRevisions(
+            @PathVariable UUID chapterId,
+            @PathVariable UUID commentId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        if (chapterId == null || commentId == null || page < 0 || size <= 0) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (size > MAX_PAGE_SIZE) {
+            size = MAX_PAGE_SIZE;
+        }
+
+        if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        CommentTarget expectedTarget = CommentTarget.novelChapter(chapterId);
+        CommentRevisionSlice slice = getPublicCommentRevisionsUseCase.execute(commentId, expectedTarget, page, size);
+
+        List<CommentRevisionReadDTO> items = slice.items().stream()
+                .map(CommentRevisionReadDTO::from)
+                .toList();
+
+        return ResponseEntity.ok(new CommentRevisionSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
     }
 
     private UUID resolveAuthenticatedActor(HttpServletRequest request) {

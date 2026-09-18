@@ -165,6 +165,7 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/comments",
                                 "/api/novel/chapters/*/comments/feed",
                                 "/api/novel/chapters/*/comments/*/thread",
+                                "/api/novel/chapters/*/comments/*/revisions",
                                 "/api/novel/chapters/*/comments/indicators",
                                 "/api/novel/chapters/*/comments/blocks/*"
                         )
