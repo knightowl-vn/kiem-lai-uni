@@ -163,6 +163,7 @@ public class SecurityBeanConfig {
                                 "/api/novel/narration/voices",
                                 "/api/novel/chapters/*/narration/playback",
                                 "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/feed",
                                 "/api/novel/chapters/*/comments/*/thread",
                                 "/api/novel/chapters/*/comments/indicators",
                                 "/api/novel/chapters/*/comments/blocks/*"

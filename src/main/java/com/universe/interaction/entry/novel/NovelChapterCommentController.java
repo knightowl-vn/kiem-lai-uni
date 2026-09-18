@@ -25,6 +25,7 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
 import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
+import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentSliceResponseDTO;
@@ -99,6 +100,7 @@ public class NovelChapterCommentController {
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator;
     private final NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
+    private final NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -113,7 +115,8 @@ public class NovelChapterCommentController {
             EditCommentUseCase editCommentUseCase,
             DeleteCommentUseCase deleteCommentUseCase,
             NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator,
-            NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator
+            NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator,
+            NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -128,6 +131,7 @@ public class NovelChapterCommentController {
         this.deleteCommentUseCase = Objects.requireNonNull(deleteCommentUseCase, "DeleteCommentUseCase cannot be null.");
         this.novelInlineCommentCreationCoordinator = Objects.requireNonNull(novelInlineCommentCreationCoordinator, "NovelInlineCommentCreationCoordinator cannot be null.");
         this.novelBlockDiscussionQueryCoordinator = Objects.requireNonNull(novelBlockDiscussionQueryCoordinator, "NovelBlockDiscussionQueryCoordinator cannot be null.");
+        this.novelChapterDiscussionFeedQueryCoordinator = Objects.requireNonNull(novelChapterDiscussionFeedQueryCoordinator, "NovelChapterDiscussionFeedQueryCoordinator cannot be null.");
     }
 
     /**
@@ -164,6 +168,33 @@ public class NovelChapterCommentController {
                 .toList();
 
         return ResponseEntity.ok(new CommentSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
+    }
+
+    /**
+     * GET /api/novel/chapters/{chapterId}/comments/feed
+     * Returns a slice of active root comments enriched with anchor passage excerpts and reply counts.
+     */
+    @GetMapping("/feed")
+    public ResponseEntity<ChapterDiscussionFeedResponseDTO> getDiscussionFeed(
+            @PathVariable UUID chapterId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        if (chapterId == null || page < 0 || size <= 0) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (size > MAX_PAGE_SIZE) {
+            size = MAX_PAGE_SIZE;
+        }
+
+        if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+
+        ChapterDiscussionFeedResponseDTO response =
+                novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(chapterId, page, size);
+
+        return ResponseEntity.ok(response);
     }
 
     /**

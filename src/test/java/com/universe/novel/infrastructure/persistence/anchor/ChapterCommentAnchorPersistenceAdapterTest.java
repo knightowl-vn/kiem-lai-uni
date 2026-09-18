@@ -17,6 +17,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -150,5 +151,47 @@ class ChapterCommentAnchorPersistenceAdapterTest {
         assertThatThrownBy(() -> adapter.findByChapterId(null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Chapter ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("findByRootCommentIds: returns empty list when collection is null, empty, or all nulls")
+    void shouldReturnEmptyListWhenRootCommentIdsIsNullOrEmpty() {
+        assertThat(adapter.findByRootCommentIds(null)).isEmpty();
+        assertThat(adapter.findByRootCommentIds(List.of())).isEmpty();
+        assertThat(adapter.findByRootCommentIds(java.util.Collections.singletonList(null))).isEmpty();
+
+        verify(repository, never()).findByRootCommentIdIn(any());
+    }
+
+    @Test
+    @DisplayName("findByRootCommentIds: delegates to repository with distinct non-null String IDs and maps to domain")
+    void shouldReturnAnchorsForRootCommentIds() {
+        UUID root2 = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        ChapterCommentAnchor domain1 = ChapterCommentAnchor.createBlock(
+                ROOT_COMMENT_ID,
+                CHAPTER_ID,
+                1L,
+                "blk-0000000000000001-1",
+                "Text 1",
+                NOW
+        );
+        ChapterCommentAnchor domain2 = ChapterCommentAnchor.createBlock(
+                root2,
+                CHAPTER_ID,
+                1L,
+                "blk-0000000000000001-2",
+                "Text 2",
+                NOW
+        );
+
+        when(repository.findByRootCommentIdIn(List.of(ROOT_COMMENT_ID.toString(), root2.toString())))
+                .thenReturn(List.of(mapper.toJpaEntity(domain1), mapper.toJpaEntity(domain2)));
+
+        List<ChapterCommentAnchor> results = adapter.findByRootCommentIds(List.of(ROOT_COMMENT_ID, root2, ROOT_COMMENT_ID));
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).getRootCommentId()).isEqualTo(ROOT_COMMENT_ID);
+        assertThat(results.get(1).getRootCommentId()).isEqualTo(root2);
+        verify(repository).findByRootCommentIdIn(List.of(ROOT_COMMENT_ID.toString(), root2.toString()));
     }
 }

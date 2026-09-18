@@ -2,6 +2,7 @@ package com.universe.novel.application.ports;
 
 import com.universe.novel.domain.anchor.ChapterCommentAnchor;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,7 +15,8 @@ import java.util.UUID;
  *   <li>Framework-free interface;</li>
  *   <li>Append-only write contract (no mutation/update operations);</li>
  *   <li>One-to-one retrieval by {@code rootCommentId};</li>
- *   <li>Bulk retrieval by {@code chapterId}.</li>
+ *   <li>Bulk retrieval by {@code chapterId};</li>
+ *   <li>Bounded bulk retrieval by {@code rootCommentIds}.</li>
  * </ul>
  */
 public interface ChapterCommentAnchorRepositoryPort {
@@ -42,4 +44,12 @@ public interface ChapterCommentAnchorRepositoryPort {
      * @return list of anchors for the chapter, or empty list if none
      */
     List<ChapterCommentAnchor> findByChapterId(UUID chapterId);
+
+    /**
+     * Finds all immutable anchors associated with the specified root comment IDs.
+     *
+     * @param rootCommentIds collection of root comment scalar UUIDs
+     * @return list of matching anchors, or empty list if none found
+     */
+    List<ChapterCommentAnchor> findByRootCommentIds(Collection<UUID> rootCommentIds);
 }

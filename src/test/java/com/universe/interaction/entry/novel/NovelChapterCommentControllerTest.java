@@ -34,6 +34,9 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
+import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
+import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
+import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.novel.application.exceptions.ReaderBlockNotFoundException;
@@ -165,6 +168,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
+
+    @MockBean
+    private NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -1590,5 +1596,112 @@ class NovelChapterCommentControllerTest {
 
         mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/blocks/" + blockKey))
                 .andExpect(status().isInternalServerError());
+    }
+
+    // =========================================================================
+    // MS-05E5H1: CHAPTER DISCUSSION FEED ENDPOINT TESTS
+    // =========================================================================
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET discussion feed: returns 200 with default pagination and mapped items")
+    void shouldReturnDiscussionFeedWithDefaultPagination() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
+                ROOT_COMMENT_ID,
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                "Feed root comment body",
+                NOW,
+                NOW,
+                false,
+                4,
+                "CURRENT",
+                "blk-abc",
+                "Passage canonical excerpt..."
+        );
+        ChapterDiscussionFeedResponseDTO responseDTO = new ChapterDiscussionFeedResponseDTO(
+                List.of(item),
+                0,
+                20,
+                false
+        );
+
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 0, 20))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.hasNext").value(false))
+                .andExpect(jsonPath("$.items[0].rootCommentId").value(ROOT_COMMENT_ID.toString()))
+                .andExpect(jsonPath("$.items[0].body").value("Feed root comment body"))
+                .andExpect(jsonPath("$.items[0].author.displayName").value("Author One"))
+                .andExpect(jsonPath("$.items[0].author.avatarUrl").value("https://img/a1.png"))
+                .andExpect(jsonPath("$.items[0].edited").value(false))
+                .andExpect(jsonPath("$.items[0].replyCount").value(4))
+                .andExpect(jsonPath("$.items[0].anchorStatus").value("CURRENT"))
+                .andExpect(jsonPath("$.items[0].blockKey").value("blk-abc"))
+                .andExpect(jsonPath("$.items[0].passageExcerpt").value("Passage canonical excerpt..."));
+
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 0, 20);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET discussion feed: bounds size to max 50 when size exceeds limit")
+    void shouldBoundFeedSizeToMax50() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        ChapterDiscussionFeedResponseDTO responseDTO = new ChapterDiscussionFeedResponseDTO(
+                List.of(),
+                1,
+                50,
+                true
+        );
+
+        when(novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(CHAPTER_A_ID, 1, 50))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("page", "1")
+                        .param("size", "100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(50))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        verify(novelChapterDiscussionFeedQueryCoordinator).getDiscussionFeed(CHAPTER_A_ID, 1, 50);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET discussion feed: returns 400 when page < 0 or size <= 0")
+    void shouldReturn400WhenFeedPaginationInvalid() throws Exception {
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("page", "-1"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed")
+                        .param("size", "0"))
+                .andExpect(status().isBadRequest());
+
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET discussion feed: returns 404 when chapter is unpublished or not found")
+    void shouldReturn404WhenChapterUnpublishedOnFeed() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/feed"))
+                .andExpect(status().isNotFound());
+
+        verify(novelChapterDiscussionFeedQueryCoordinator, never()).getDiscussionFeed(any(), any(int.class), any(int.class));
     }
 }

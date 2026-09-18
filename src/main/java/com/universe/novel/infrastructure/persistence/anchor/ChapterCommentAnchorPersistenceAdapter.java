@@ -5,6 +5,7 @@ import com.universe.novel.domain.anchor.ChapterCommentAnchor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,6 +63,25 @@ public class ChapterCommentAnchorPersistenceAdapter implements ChapterCommentAnc
             throw new IllegalArgumentException("Chapter ID cannot be null.");
         }
         return repository.findByChapterId(chapterId.toString()).stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ChapterCommentAnchor> findByRootCommentIds(Collection<UUID> rootCommentIds) {
+        if (rootCommentIds == null || rootCommentIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> idStrings = rootCommentIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .distinct()
+                .toList();
+        if (idStrings.isEmpty()) {
+            return List.of();
+        }
+        return repository.findByRootCommentIdIn(idStrings).stream()
                 .map(mapper::toDomain)
                 .toList();
     }

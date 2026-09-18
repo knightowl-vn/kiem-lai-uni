@@ -365,4 +365,39 @@ class ChapterCommentAnchorJpaPersistenceIntegrationTest {
         assertThat(found.get().getSelectedText()).isEqualTo(largeText);
         assertThat(found.get().getSelectedText().length()).isEqualTo(largeText.length());
     }
+
+    @Test
+    @DisplayName("8. Batch findByRootCommentIds: Tìm đúng tập anchor theo danh sách rootCommentId và xử lý rỗng")
+    void shouldFindAnchorsByRootCommentIdsBatch() {
+        Instant now = Instant.now();
+        ChapterCommentAnchor anchor1 = ChapterCommentAnchor.createBlock(
+                ROOT_COMMENT_1_ID,
+                CHAPTER_ID,
+                1L,
+                BLOCK_KEY_1,
+                "Văn bản khối 1",
+                now
+        );
+        ChapterCommentAnchor anchor2 = ChapterCommentAnchor.createBlock(
+                ROOT_COMMENT_2_ID,
+                CHAPTER_ID,
+                1L,
+                BLOCK_KEY_2,
+                "Văn bản khối 2",
+                now
+        );
+        anchorRepositoryPort.save(anchor1);
+        anchorRepositoryPort.save(anchor2);
+
+        // Empty input returns empty list
+        assertThat(anchorRepositoryPort.findByRootCommentIds(java.util.List.of())).isEmpty();
+
+        // Query by multiple IDs
+        java.util.List<ChapterCommentAnchor> found = anchorRepositoryPort.findByRootCommentIds(
+                java.util.List.of(ROOT_COMMENT_1_ID, ROOT_COMMENT_2_ID, UUID.randomUUID())
+        );
+        assertThat(found).hasSize(2);
+        assertThat(found).extracting(ChapterCommentAnchor::getRootCommentId)
+                .containsExactlyInAnyOrder(ROOT_COMMENT_1_ID, ROOT_COMMENT_2_ID);
+    }
 }
