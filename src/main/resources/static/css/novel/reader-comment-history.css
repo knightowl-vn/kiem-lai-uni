@@ -1,0 +1,216 @@
+/**
+ * KiemLai Universe — Novel Reader Comment Revision History UI Styles (MS-05E5G5E)
+ */
+
+/* Clickable Edited Marker Affordance */
+button.novel-comment-edited,
+.novel-comment-edited {
+    font-size: 0.6875rem;
+    color: var(--reader-text-muted, #9ca3af);
+    font-style: italic;
+    margin-left: 0.25rem;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline;
+    vertical-align: baseline;
+    text-decoration: underline dotted;
+}
+
+button.novel-comment-edited:hover,
+button.novel-comment-edited:focus-visible {
+    color: var(--reader-text, #374151);
+    text-decoration: underline;
+    outline: none;
+}
+
+/* Modal Root */
+.novel-comment-history-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.novel-comment-history-modal[hidden] {
+    display: none !important;
+}
+
+/* Backdrop */
+.novel-comment-history-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1061;
+}
+
+/* Card / Dialog */
+.novel-comment-history-modal-card {
+    position: relative;
+    z-index: 1062;
+    background-color: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 0.5rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    width: 100%;
+    max-width: 32rem;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: novelCommentHistoryFadeIn 0.15s ease-out;
+}
+
+@keyframes novelCommentHistoryFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Header */
+.novel-comment-history-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--reader-border, #e5e7eb);
+}
+
+.novel-comment-history-modal-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--reader-text, #111827);
+}
+
+.novel-comment-history-modal-close {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font-size: 1.125rem;
+    line-height: 1;
+    color: var(--reader-text-muted, #6b7280);
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.novel-comment-history-modal-close:hover,
+.novel-comment-history-modal-close:focus-visible {
+    color: var(--reader-text, #111827);
+    background-color: var(--reader-bg-subtle, #f3f4f6);
+    outline: none;
+}
+
+/* Body */
+.novel-comment-history-modal-body {
+    padding: 1rem 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+}
+
+/* Status / Alert Messages */
+.novel-comment-history-status {
+    font-size: 0.875rem;
+    color: var(--reader-text-muted, #6b7280);
+    text-align: center;
+    padding: 0.5rem 0;
+}
+
+.novel-comment-history-status:empty {
+    display: none;
+}
+
+/* Revisions List */
+.novel-comment-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+}
+
+/* Revision Entry Card */
+.novel-comment-history-entry {
+    background-color: var(--reader-bg-subtle, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 0.375rem;
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.novel-comment-history-entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.novel-comment-history-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #2563eb;
+    background-color: #eff6ff;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+}
+
+.novel-comment-history-time {
+    font-size: 0.6875rem;
+    color: var(--reader-text-muted, #9ca3af);
+}
+
+.novel-comment-history-entry-body {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--reader-text, #374151);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Load More */
+.novel-comment-history-more {
+    text-align: center;
+    padding-top: 0.5rem;
+}
+
+.novel-comment-history-more[hidden] {
+    display: none !important;
+}
+
+.novel-comment-history-more-btn {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #2563eb;
+    background: none;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 0.375rem;
+    padding: 0.375rem 1rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.novel-comment-history-more-btn:hover:not(:disabled) {
+    background-color: var(--reader-bg-subtle, #f3f4f6);
+    border-color: #9ca3af;
+}
+
+.novel-comment-history-more-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

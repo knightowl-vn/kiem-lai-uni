@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 const CommentMutations = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-comment-mutations.js'));
-const { createReply, editComment, deleteComment, getCsrf } = CommentMutations;
+const { createReply, editComment, deleteComment, getCommentRevisions, getCsrf } = CommentMutations;
 
 describe('MS-05E5H2F2A Shared Novel Reader Comment Mutations Client', () => {
 
@@ -819,6 +819,100 @@ describe('MS-05E5H2F2A Shared Novel Reader Comment Mutations Client', () => {
         await assert.rejects(
             () => deleteComment({ chapterId: 'c-1', commentId: 'cm-1' }, { csrf: null, fetch: async () => {} }),
             { code: 'CSRF_MISSING' }
+        );
+    });
+
+    // =========================================================================
+    // MS-05E5G5E Revision History Transport Tests
+    // =========================================================================
+
+    test('37. getCommentRevisions constructs canonical GET URL with page and size defaults', async () => {
+        let capturedUrl = null;
+        let capturedMethod = null;
+        let capturedHeaders = null;
+
+        const fakeFetch = async (url, options) => {
+            capturedUrl = url;
+            capturedMethod = options.method;
+            capturedHeaders = options.headers;
+            return {
+                status: 200,
+                ok: true,
+                json: async () => ({ items: [], page: 0, size: 20, hasNext: false })
+            };
+        };
+
+        const res = await getCommentRevisions({
+            chapterId: 'chap-100',
+            commentId: 'comment-200'
+        }, { fetch: fakeFetch });
+
+        assert.strictEqual(
+            capturedUrl,
+            '/api/novel/chapters/chap-100/comments/comment-200/revisions?page=0&size=20'
+        );
+        assert.strictEqual(capturedMethod, 'GET');
+        assert.strictEqual(capturedHeaders['Accept'], 'application/json');
+        assert.strictEqual(res.ok, true);
+        assert.strictEqual(res.data.hasNext, false);
+    });
+
+    test('38. getCommentRevisions supports positional arguments and explicit page/size', async () => {
+        let capturedUrl = null;
+        const fakeFetch = async (url) => {
+            capturedUrl = url;
+            return {
+                status: 200,
+                ok: true,
+                json: async () => ({ items: [], page: 2, size: 10, hasNext: true })
+            };
+        };
+
+        const res = await getCommentRevisions('chap-100', 'comment-200', 2, 10, { fetch: fakeFetch });
+
+        assert.strictEqual(
+            capturedUrl,
+            '/api/novel/chapters/chap-100/comments/comment-200/revisions?page=2&size=10'
+        );
+        assert.strictEqual(res.status, 200);
+        assert.strictEqual(res.data.hasNext, true);
+    });
+
+    test('39. getCommentRevisions rejects on 404 with error status 404', async () => {
+        const fakeFetch = async () => ({
+            status: 404,
+            ok: false,
+            json: async () => ({ message: 'Not found' })
+        });
+
+        await assert.rejects(
+            () => getCommentRevisions({ chapterId: 'c-1', commentId: 'cm-1' }, { fetch: fakeFetch }),
+            (err) => err.status === 404
+        );
+    });
+
+    test('40. getCommentRevisions rejects on 500 with error status 500', async () => {
+        const fakeFetch = async () => ({
+            status: 500,
+            ok: false,
+            json: async () => ({ message: 'Server error' })
+        });
+
+        await assert.rejects(
+            () => getCommentRevisions({ chapterId: 'c-1', commentId: 'cm-1' }, { fetch: fakeFetch }),
+            (err) => err.status === 500
+        );
+    });
+
+    test('41. getCommentRevisions rejects when required target parameters are missing', async () => {
+        await assert.rejects(
+            () => getCommentRevisions({ chapterId: '', commentId: 'cm-1' }, { fetch: async () => {} }),
+            { code: 'INVALID_TARGET' }
+        );
+
+        await assert.rejects(
+            () => getCommentRevisions({ chapterId: 'c-1', commentId: '' }, { fetch: async () => {} }),
+            { code: 'INVALID_TARGET' }
         );
     });
 });

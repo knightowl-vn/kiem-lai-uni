@@ -336,10 +336,102 @@
         throw err;
     }
 
+    /**
+     * Retrieves public comment revision history (MS-05E5G5D / MS-05E5G5E).
+     * Issues: GET /api/novel/chapters/{chapterId}/comments/{commentId}/revisions?page={page}&size={size}
+     *
+     * Supports both parameter object and positional arguments:
+     * - getCommentRevisions({ chapterId, commentId, page, size }, options)
+     * - getCommentRevisions(chapterId, commentId, page, size, options)
+     *
+     * @param {Object|string} chapterIdOrInput
+     * @param {string|Object} [commentIdOrOptions]
+     * @param {number} [page=0]
+     * @param {number} [size=20]
+     * @param {Object} [options]
+     * @returns {Promise<{ok: boolean, status: number, data: {items: Array, page: number, size: number, hasNext: boolean}}>}
+     */
+    async function getCommentRevisions(chapterIdOrInput, commentIdOrOptions, page, size, options) {
+        let chapterId, commentId, p, s, opts;
+        if (typeof chapterIdOrInput === 'object' && chapterIdOrInput !== null) {
+            chapterId = chapterIdOrInput.chapterId;
+            commentId = chapterIdOrInput.commentId;
+            p = chapterIdOrInput.page !== undefined ? chapterIdOrInput.page : 0;
+            s = chapterIdOrInput.size !== undefined ? chapterIdOrInput.size : 20;
+            opts = commentIdOrOptions || {};
+        } else {
+            chapterId = chapterIdOrInput;
+            commentId = commentIdOrOptions;
+            p = page !== undefined ? page : 0;
+            s = size !== undefined ? size : 20;
+            opts = options || {};
+        }
+
+        chapterId = chapterId ? String(chapterId).trim() : '';
+        commentId = commentId ? String(commentId).trim() : '';
+        const pageNum = Math.max(0, parseInt(p, 10) || 0);
+        const sizeNum = Math.max(1, parseInt(s, 10) || 20);
+
+        if (!chapterId || !commentId) {
+            const err = new Error('chapterId and commentId are required.');
+            err.code = 'INVALID_TARGET';
+            throw err;
+        }
+
+        const fetchFn = opts.fetch || opts.fetchFn ||
+            (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
+        if (!fetchFn || typeof fetchFn !== 'function') {
+            const err = new Error('Fetch implementation not available');
+            err.code = 'FETCH_UNAVAILABLE';
+            throw err;
+        }
+
+        const url = '/api/novel/chapters/' + encodeURIComponent(chapterId) +
+            '/comments/' + encodeURIComponent(commentId) +
+            '/revisions?page=' + pageNum + '&size=' + sizeNum;
+
+        const res = await fetchFn(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!res) {
+            const err = new Error('Empty response received from server');
+            err.status = 0;
+            throw err;
+        }
+
+        if (res.status === 200 || (res.ok && res.status !== 204)) {
+            let payload = null;
+            if (typeof res.json === 'function') {
+                payload = await res.json();
+            }
+            return {
+                ok: true,
+                status: res.status,
+                data: payload
+            };
+        }
+
+        const err = new Error('HTTP ' + res.status);
+        err.status = res.status;
+        if (typeof res.json === 'function') {
+            try {
+                err.data = await res.json();
+            } catch (_) {
+                err.data = null;
+            }
+        }
+        throw err;
+    }
+
     return {
         createReply: createReply,
         editComment: editComment,
         deleteComment: deleteComment,
+        getCommentRevisions: getCommentRevisions,
         getCsrf: getCsrf
     };
 });

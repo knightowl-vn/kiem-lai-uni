@@ -757,8 +757,14 @@
             }
 
             if (isCommentEdited(reply)) {
-                const replyEdited = doc.createElement('span');
+                const replyEdited = doc.createElement('button');
+                replyEdited.type = 'button';
                 replyEdited.className = 'novel-comment-edited';
+                replyEdited.setAttribute('data-action', 'view-revisions');
+                if (reply.id) {
+                    replyEdited.setAttribute('data-comment-id', String(reply.id));
+                }
+                replyEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
                 replyEdited.textContent = 'đã chỉnh sửa';
                 replyHeader.appendChild(replyEdited);
             }
@@ -890,14 +896,20 @@
             rootHeader.appendChild(rootTime);
         }
 
-        if (isCommentEdited(item)) {
-            const rootEdited = doc.createElement('span');
+        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
+
+        if (!isRootTombstone && isCommentEdited(item)) {
+            const rootEdited = doc.createElement('button');
+            rootEdited.type = 'button';
             rootEdited.className = 'novel-comment-edited';
+            rootEdited.setAttribute('data-action', 'view-revisions');
+            if (rootId) {
+                rootEdited.setAttribute('data-comment-id', String(rootId));
+            }
+            rootEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
             rootEdited.textContent = 'đã chỉnh sửa';
             rootHeader.appendChild(rootEdited);
         }
-
-        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
         const originNavigable = !isRootTombstone && isOriginNavigable(item.anchorStatus, item.blockKey);
         const canEditRoot = !isRootTombstone && Boolean(item.canEdit);
         const canDeleteRoot = !isRootTombstone && Boolean(item.canDelete);

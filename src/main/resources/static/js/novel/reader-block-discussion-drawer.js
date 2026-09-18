@@ -780,8 +780,14 @@
             }
 
             if (!thread.root.tombstone && isCommentEdited(thread.root)) {
-                const rootEdited = doc.createElement('span');
+                const rootEdited = doc.createElement('button');
+                rootEdited.type = 'button';
                 rootEdited.className = 'novel-comment-edited';
+                rootEdited.setAttribute('data-action', 'view-revisions');
+                if (thread.root.id) {
+                    rootEdited.setAttribute('data-comment-id', String(thread.root.id));
+                }
+                rootEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
                 rootEdited.textContent = 'đã chỉnh sửa';
                 rootHeader.appendChild(rootEdited);
             }
@@ -925,8 +931,14 @@
                         }
 
                         if (!isTombstone && isCommentEdited(reply)) {
-                            const replyEdited = doc.createElement('span');
+                            const replyEdited = doc.createElement('button');
+                            replyEdited.type = 'button';
                             replyEdited.className = 'novel-comment-edited';
+                            replyEdited.setAttribute('data-action', 'view-revisions');
+                            if (reply.id) {
+                                replyEdited.setAttribute('data-comment-id', String(reply.id));
+                            }
+                            replyEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
                             replyEdited.textContent = 'đã chỉnh sửa';
                             replyHeader.appendChild(replyEdited);
                         }
