@@ -221,6 +221,10 @@ class FakeElement {
         this.lastScrollOptions = options;
     }
 
+    click() {
+        this.dispatchEvent({ type: 'click', target: this, currentTarget: this, preventDefault() {}, stopPropagation() {} });
+    }
+
     focus() {
         this.isFocused = true;
         if (this.ownerDocument) {
@@ -239,28 +243,38 @@ class FakeElement {
 
 function matchesSingleSelector(el, sel) {
     if (!el || !el.tagName) return false;
-    if (sel.startsWith('#')) {
-        return el.getAttribute('id') === sel.slice(1);
+    let attrPart = null;
+    let baseSel = sel;
+    const bracketIdx = sel.indexOf('[');
+    if (bracketIdx !== -1 && sel.endsWith(']')) {
+        attrPart = sel.slice(bracketIdx + 1, -1);
+        baseSel = sel.slice(0, bracketIdx);
     }
-    if (sel.startsWith('[') && sel.endsWith(']')) {
-        const raw = sel.slice(1, -1);
-        const eqIdx = raw.indexOf('=');
+    if (attrPart !== null) {
+        const eqIdx = attrPart.indexOf('=');
         if (eqIdx === -1) {
-            return el.getAttribute(raw) !== null;
+            if (el.getAttribute(attrPart) === null) return false;
+        } else {
+            const name = attrPart.slice(0, eqIdx);
+            const val = attrPart.slice(eqIdx + 1).replace(/^["']|["']$/g, '');
+            if (el.getAttribute(name) !== val) return false;
         }
-        const name = raw.slice(0, eqIdx);
-        const val = raw.slice(eqIdx + 1).replace(/^["']|["']$/g, '');
-        return el.getAttribute(name) === val;
+        if (!baseSel) {
+            return true;
+        }
+    }
+    if (baseSel.startsWith('#')) {
+        return el.getAttribute('id') === baseSel.slice(1);
     }
     let tag = null;
-    let classPart = sel;
-    if (!sel.startsWith('.')) {
-        const dotIdx = sel.indexOf('.');
+    let classPart = baseSel;
+    if (!baseSel.startsWith('.')) {
+        const dotIdx = baseSel.indexOf('.');
         if (dotIdx !== -1) {
-            tag = sel.slice(0, dotIdx);
-            classPart = sel.slice(dotIdx);
+            tag = baseSel.slice(0, dotIdx);
+            classPart = baseSel.slice(dotIdx);
         } else {
-            return el.tagName.toLowerCase() === sel.toLowerCase();
+            return el.tagName.toLowerCase() === baseSel.toLowerCase();
         }
     }
     if (tag && el.tagName.toLowerCase() !== tag.toLowerCase()) {
@@ -897,9 +911,9 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(html.includes('Trích đoạn bí mật'), false, 'passageExcerpt must NOT be rendered');
         assert.strictEqual(html.includes('p-42'), false, 'blockKey must NOT be rendered in text');
 
-        // No actions container, no reply/edit/delete buttons
-        assert.strictEqual(list.querySelector('.novel-comment-actions'), null);
-        assert.strictEqual(list.querySelector('.novel-comment-reply-btn'), null);
+        // Reply action is rendered on active comment, but edit/delete buttons remain excluded
+        assert.ok(list.querySelector('.novel-comment-actions'));
+        assert.ok(list.querySelector('.novel-comment-reply-btn'));
         assert.strictEqual(list.querySelector('.novel-comment-edit-btn'), null);
         assert.strictEqual(list.querySelector('.novel-comment-delete-btn'), null);
     });
@@ -2893,5 +2907,362 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
 
         assert.strictEqual(commentsModule.getState().items.length, 0);
     });
-});
 
+    describe('MS-05E5H2F2B Authoritative Root Thread Refresh (refreshRootThread)', () => {
+        test('A & B. accepted page 0 and page 1 record root to page mappings, T & U. refreshFromPageZero rebuilds and chapter change clears mapping', async () => {
+            const { doc, list } = createStandardFixture('c-map-1');
+            const page0Items = [
+                { rootCommentId: 'r-0a', author: { displayName: 'User 0A' }, body: 'Body 0A', replyCount: 0, replies: [] },
+                { rootCommentId: 'r-0b', author: { displayName: 'User 0B' }, body: 'Body 0B', replyCount: 0, replies: [] }
+            ];
+            const page1Items = [
+                { rootCommentId: 'r-1a', author: { displayName: 'User 1A' }, body: 'Body 1A', replyCount: 0, replies: [] }
+            ];
+
+            const fakeFetch = (url) => {
+                if (url.includes('page=0')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0Items, true, 0)) });
+                }
+                if (url.includes('page=1')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1Items, false, 1)) });
+                }
+                return Promise.reject(new Error('Unknown url: ' + url));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 10));
+
+            // A. Page 0 records mapping
+            let map = commentsModule.getState().rootPageMap;
+            assert.strictEqual(map['r-0a'], 0);
+            assert.strictEqual(map['r-0b'], 0);
+
+            // B. Load more page 1 records mapping
+            commentsModule.loadMore();
+            await new Promise(r => setTimeout(r, 10));
+
+            map = commentsModule.getState().rootPageMap;
+            assert.strictEqual(map['r-0a'], 0);
+            assert.strictEqual(map['r-0b'], 0);
+            assert.strictEqual(map['r-1a'], 1);
+
+            // T. refreshFromPageZero rebuilds rootPageMap
+            await commentsModule.refreshFromPageZero();
+            map = commentsModule.getState().rootPageMap;
+            assert.strictEqual(map['r-0a'], 0);
+            assert.strictEqual(map['r-0b'], 0);
+            assert.strictEqual(map['r-1a'], undefined);
+
+            // U. chapter change clears rootPageMap
+            doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'c-new-chap' } });
+            // Before new fetch resolves or during reset
+            map = commentsModule.getState().rootPageMap;
+            // Cleared and re-populated for new chapter
+            assert.strictEqual(typeof map, 'object');
+        });
+
+        test('C to J. refreshRootThread on page-1 root refetches page 1, replaces only target entry/DOM, preserves other DOM/pages/pagination, and updates count', async () => {
+            const { doc, list, count } = createStandardFixture('c-refresh-root');
+            const page0Items = [
+                { rootCommentId: 'r-p0-1', author: { displayName: 'P0 Root' }, body: 'P0 Root Body', replyCount: 0, replies: [] }
+            ];
+            const page1Items = [
+                { rootCommentId: 'r-p1-1', author: { displayName: 'P1 Target' }, body: 'P1 Target Old Body', replyCount: 0, replies: [] },
+                { rootCommentId: 'r-p1-2', author: { displayName: 'P1 Sibling' }, body: 'P1 Sibling Body', replyCount: 0, replies: [] }
+            ];
+
+            let requestedUrls = [];
+            const fakeFetch = (url) => {
+                requestedUrls.push(url);
+                if (url.includes('page=0')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0Items, true, 0)) });
+                }
+                if (url.includes('page=1')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1Items, false, 1)) });
+                }
+                return Promise.reject(new Error('Unknown url: ' + url));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 10));
+            commentsModule.loadMore();
+            await new Promise(r => setTimeout(r, 10));
+
+            // Verify initial setup: 3 roots rendered, count = 3
+            assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 3);
+            assert.strictEqual(count.textContent, '3 bình luận');
+            const initialP0Card = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p0-1"]');
+            const initialSiblingCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p1-2"]');
+            const initialTargetCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p1-1"]');
+
+            // Now target root has a new reply on server
+            const updatedPage1Items = [
+                {
+                    rootCommentId: 'r-p1-1',
+                    author: { displayName: 'P1 Target' },
+                    body: 'P1 Target Old Body',
+                    replyCount: 1,
+                    replies: [
+                        { id: 'rep-new-1', rootCommentId: 'r-p1-1', author: { displayName: 'Replier' }, body: 'New Reply Text' }
+                    ]
+                },
+                { rootCommentId: 'r-p1-2', author: { displayName: 'P1 Sibling' }, body: 'P1 Sibling Body', replyCount: 0, replies: [] }
+            ];
+
+            // Change fetch to return updated page 1
+            commentsModule.setFetchImplementation((url) => {
+                requestedUrls.push(url);
+                if (url.includes('page=1')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(updatedPage1Items, false, 1)) });
+                }
+                return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0Items, true, 0)) });
+            });
+
+            // C. refreshRootThread('r-p1-1')
+            const refreshedItem = await commentsModule.refreshRootThread('r-p1-1');
+
+            // Verify C: requests page=1&size=20
+            const lastUrl = requestedUrls[requestedUrls.length - 1];
+            assert.ok(lastUrl.includes('page=1&size=20'), 'Must request exact source page: ' + lastUrl);
+
+            // D. Target root found: only that currentItems entry replaced
+            const state = commentsModule.getState();
+            assert.strictEqual(state.items.length, 3);
+            assert.strictEqual(state.items[1].rootCommentId, 'r-p1-1');
+            assert.strictEqual(state.items[1].replyCount, 1);
+            assert.strictEqual(state.items[1].replies.length, 1);
+
+            // E & F. Only target root DOM replaced, others retain exact node identity
+            const currentP0Card = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p0-1"]');
+            const currentSiblingCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p1-2"]');
+            const currentTargetCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-p1-1"]');
+
+            assert.strictEqual(currentP0Card, initialP0Card, 'Unrelated page 0 root node identity must be preserved');
+            assert.strictEqual(currentSiblingCard, initialSiblingCard, 'Unrelated page 1 sibling node identity must be preserved');
+            assert.notStrictEqual(currentTargetCard, initialTargetCard, 'Target root card must be replaced in DOM');
+
+            // Newly added reply is visible in the target card
+            assert.ok(currentTargetCard.querySelector('.novel-comment--reply'));
+            assert.strictEqual(currentTargetCard.querySelector('.novel-comment--reply .novel-comment-body').textContent, 'New Reply Text');
+
+            // G & H & I. Pagination preserved
+            assert.strictEqual(state.currentPage, 1);
+            assert.strictEqual(state.hasNext, false);
+
+            // J. Header count recomputed from updated replyCount (1 + 1 + 1 + 1 = 4)
+            assert.strictEqual(count.textContent, '4 bình luận');
+        });
+
+        test('K & L & M & V. reveal depth preservation, revealCommentId inclusion, and unrelated roots expansion state preserved', async () => {
+            const { doc, list } = createStandardFixture('c-reveal-depth');
+            const repliesA = [];
+            for (let i = 1; i <= 6; i++) {
+                repliesA.push({ id: 'rep-a-' + i, rootCommentId: 'r-a', author: { displayName: 'User A' }, body: 'Reply A ' + i });
+            }
+            const repliesB = [];
+            for (let i = 1; i <= 5; i++) {
+                repliesB.push({ id: 'rep-b-' + i, rootCommentId: 'r-b', author: { displayName: 'User B' }, body: 'Reply B ' + i });
+            }
+
+            const initialItems = [
+                { rootCommentId: 'r-a', author: { displayName: 'RA' }, body: 'Root A', replyCount: 6, replies: repliesA },
+                { rootCommentId: 'r-b', author: { displayName: 'RB' }, body: 'Root B', replyCount: 5, replies: repliesB }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(initialItems, false, 0)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const cardA = list.querySelector('.novel-block-discussion-thread[data-root-id="r-a"]');
+            const cardB = list.querySelector('.novel-block-discussion-thread[data-root-id="r-b"]');
+
+            // Initially both show INITIAL_VISIBLE_REPLIES = 3
+            assert.strictEqual(cardA.querySelectorAll('.novel-comment--reply').length, 3);
+            assert.strictEqual(cardB.querySelectorAll('.novel-comment--reply').length, 3);
+
+            // Click expand on card B: 3 -> 5
+            const moreBtnB = cardB.querySelector('.novel-comment-replies-more-btn');
+            moreBtnB.click();
+            assert.strictEqual(cardB.querySelectorAll('.novel-comment--reply').length, 5);
+
+            // Expand card A once: 3 -> 6 (all 6 visible)
+            const moreBtnA = cardA.querySelector('.novel-comment-replies-more-btn');
+            moreBtnA.click();
+            assert.strictEqual(cardA.querySelectorAll('.novel-comment--reply').length, 6);
+
+            // Now root A gets a 7th reply on server
+            const newReply7 = { id: 'rep-a-7', rootCommentId: 'r-a', author: { displayName: 'User A' }, body: 'Reply A 7' };
+            const updatedRepliesA = [...repliesA, newReply7];
+            const updatedItems = [
+                { rootCommentId: 'r-a', author: { displayName: 'RA' }, body: 'Root A', replyCount: 7, replies: updatedRepliesA },
+                { rootCommentId: 'r-b', author: { displayName: 'RB' }, body: 'Root B', replyCount: 5, replies: repliesB }
+            ];
+
+            commentsModule.setFetchImplementation(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse(updatedItems, false, 0))
+            }));
+
+            // L. refreshRootThread with revealCommentId='rep-a-7'
+            await commentsModule.refreshRootThread('r-a', { revealCommentId: 'rep-a-7' });
+
+            const newCardA = list.querySelector('.novel-block-discussion-thread[data-root-id="r-a"]');
+            const currentCardB = list.querySelector('.novel-block-discussion-thread[data-root-id="r-b"]');
+
+            // K & L. Target root now renders all 7 replies (including the new reply)
+            assert.strictEqual(newCardA.querySelectorAll('.novel-comment--reply').length, 7);
+
+            // V. Unrelated Root B expansion state remains untouched (still 5 replies revealed)
+            assert.strictEqual(currentCardB, cardB);
+            assert.strictEqual(currentCardB.querySelectorAll('.novel-comment--reply').length, 5);
+        });
+
+        test('N. root refresh failure leaves currentItems, DOM, and pagination unchanged', async () => {
+            const { doc, list, count } = createStandardFixture('c-fail');
+            const items = [{ rootCommentId: 'r-1', author: { displayName: 'R1' }, body: 'Original Body', replyCount: 0, replies: [] }];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, false, 0)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Set failing fetch
+            commentsModule.setFetchImplementation(() => Promise.resolve({ ok: false, status: 500 }));
+
+            await assert.rejects(
+                () => commentsModule.refreshRootThread('r-1'),
+                (err) => {
+                    assert.strictEqual(err.message, 'HTTP 500');
+                    return true;
+                }
+            );
+
+            // N. DOM unchanged, items unchanged, isRefreshing reset to false
+            assert.strictEqual(list.querySelector('.novel-comment-body').textContent, 'Original Body');
+            assert.strictEqual(commentsModule.getState().isRefreshing, false);
+            assert.strictEqual(commentsModule.getState().items[0].body, 'Original Body');
+        });
+
+        test('O & P. loadMore cannot begin while root refresh is active, and stale loadMore cannot append', async () => {
+            const { doc, list } = createStandardFixture('c-race');
+            const items = [{ rootCommentId: 'r-1', author: { displayName: 'R1' }, body: 'Body 1', replyCount: 0, replies: [] }];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, true, 0)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            let resolveRefresh;
+            commentsModule.setFetchImplementation(() => new Promise(r => { resolveRefresh = r; }));
+
+            // Start root refresh (keeps pending)
+            const refreshPromise = commentsModule.refreshRootThread('r-1');
+            assert.strictEqual(commentsModule.getState().isRefreshing, true);
+
+            // P. loadMore cannot start
+            commentsModule.loadMore();
+            assert.strictEqual(commentsModule.getState().isLoadingMore, false);
+
+            resolveRefresh({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse(items, true, 0))
+            });
+            await refreshPromise;
+            assert.strictEqual(commentsModule.getState().isRefreshing, false);
+        });
+
+        test('Q & R. chapter change or destroy invalidates pending root refresh', async () => {
+            const { doc, list } = createStandardFixture('c-inval');
+            const items = [{ rootCommentId: 'r-1', author: { displayName: 'R1' }, body: 'Body 1', replyCount: 0, replies: [] }];
+
+            let resolvePending;
+            commentsModule.init(doc, {
+                fetch: (url) => {
+                    if (url.includes('c-chap-2')) {
+                        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-chap2', author: { displayName: 'C2' }, body: 'Chapter 2 Body' }], false, 0)) });
+                    }
+                    return new Promise(r => { resolvePending = r; });
+                }
+            });
+            resolvePending({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, false, 0)) });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Now start root refresh and change chapter while in flight
+            let resolveLateRefresh;
+            commentsModule.setFetchImplementation((url) => {
+                if (url.includes('c-chap-2')) {
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-chap2', author: { displayName: 'C2' }, body: 'Chapter 2 Body' }], false, 0)) });
+                }
+                return new Promise(r => { resolveLateRefresh = r; });
+            });
+
+            const refreshPromise = commentsModule.refreshRootThread('r-1');
+            doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'c-chap-2' } });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Now late old-chapter refresh resolves
+            resolveLateRefresh({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-1', author: { displayName: 'R1' }, body: 'Stale Root 1' }], false, 0))
+            });
+            await refreshPromise;
+
+            // Q. Old refresh does not corrupt new chapter
+            assert.strictEqual(list.querySelector('.novel-comment-body').textContent, 'Chapter 2 Body');
+
+            // R. Destroy invalidates
+            let resolveDestroyRefresh;
+            commentsModule.setFetchImplementation(() => new Promise(r => { resolveDestroyRefresh = r; }));
+            const refreshPromise2 = commentsModule.refreshRootThread('r-chap2');
+            commentsModule.destroy();
+
+            resolveDestroyRefresh({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-chap2', author: { displayName: 'C2' }, body: 'After Destroy' }], false, 0))
+            });
+            await refreshPromise2;
+            assert.strictEqual(commentsModule.getState().items.length, 0);
+        });
+
+        test('S. target missing from expected page triggers safe fallback to authoritative page-0 refresh', async () => {
+            const { doc, list } = createStandardFixture('c-shift');
+            const page0Items = [
+                { rootCommentId: 'r-shifted', author: { displayName: 'Shifted' }, body: 'Page 0 Old Body', replyCount: 0, replies: [] }
+            ];
+
+            let page0RefreshCalled = false;
+            commentsModule.init(doc, {
+                fetch: (url) => {
+                    if (url.includes('page=0')) {
+                        page0RefreshCalled = true;
+                        return Promise.resolve({
+                            ok: true,
+                            json: () => Promise.resolve(makeFeedResponse([
+                                { rootCommentId: 'r-new-top', author: { displayName: 'Top' }, body: 'New Top', replyCount: 0, replies: [] },
+                                { rootCommentId: 'r-shifted', author: { displayName: 'Shifted' }, body: 'Page 0 Fresh Body', replyCount: 0, replies: [] }
+                            ], false, 0))
+                        });
+                    }
+                    // Page 1 response where r-shifted was expected, but missing due to concurrent insertion
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([], false, 1))
+                    });
+                }
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Set map as if r-shifted is on page 1
+            commentsModule.getState().rootPageMap['r-shifted'] = 1;
+
+            page0RefreshCalled = false;
+            await commentsModule.refreshRootThread('r-shifted');
+
+            // Fallback triggered page-0 refresh and found it
+            assert.strictEqual(page0RefreshCalled, true);
+            assert.strictEqual(commentsModule.getState().items.length, 2);
+            assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
+        });
+    });
+});

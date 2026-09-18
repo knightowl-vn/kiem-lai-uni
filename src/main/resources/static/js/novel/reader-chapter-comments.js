@@ -11,8 +11,9 @@
  * - Manages status transitions: loading spinner, empty state, error with retry.
  * - Enforces race safety via load tokens against out-of-order responses.
  * - Responds to 'kiemlai:chapter-changed' to refresh comments for the new chapter.
- * - Strictly read-only comments feed with read-only origin navigation (⋯ → Xem đoạn gốc).
- * - Mutation affordances (reply creation, edit, delete) and passage excerpts are strictly absent.
+ * - Feed module owns read rendering plus Reply affordance metadata and authoritative refresh.
+ * - Actual Reply mutation orchestration belongs to reader-chapter-comment-reply-composer.js.
+ * - Edit/Delete affordances and passage excerpts remain strictly absent.
  */
 (function (root, factory) {
     'use strict';
@@ -37,6 +38,7 @@
     const MORE_ID = 'novelChapterCommentsMore';
 
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
+    const EVENT_FEED_REPLACING = 'kiemlai:chapter-comments-feed-replacing';
 
     const INITIAL_VISIBLE_REPLIES = 3;
     const REPLY_REVEAL_BATCH_SIZE = 5;
@@ -53,6 +55,7 @@
     let hasNext = false;
     let isLoadingMore = false;
     let isRefreshing = false;
+    let rootPageMap = Object.create(null);
     let chapterChangedHandler = null;
     let documentClickHandler = null;
     let documentKeydownHandler = null;
@@ -747,6 +750,28 @@
 
             replyEl.appendChild(replyHeader);
             replyEl.appendChild(replyBody);
+
+            if (reply.id) {
+                const replyActions = doc.createElement('div');
+                replyActions.className = 'novel-comment-actions';
+
+                const replyBtn = doc.createElement('button');
+                replyBtn.type = 'button';
+                replyBtn.className = 'novel-comment-reply-btn';
+                replyBtn.setAttribute('data-action', 'reply');
+                replyBtn.setAttribute('data-comment-id', String(reply.id));
+                replyBtn.setAttribute('data-root-id', String(strRootId));
+                const repAuthorName = (reply.author && typeof reply.author.displayName === 'string')
+                    ? reply.author.displayName.trim()
+                    : '';
+                if (repAuthorName) {
+                    replyBtn.setAttribute('data-author-name', repAuthorName);
+                }
+                replyBtn.textContent = 'Phản hồi';
+
+                replyActions.appendChild(replyBtn);
+                replyEl.appendChild(replyActions);
+            }
         }
 
         return replyEl;
@@ -757,9 +782,10 @@
      *
      * @param {Object} item ChapterDiscussionFeedItemDTO
      * @param {Document} doc
+     * @param {number} [initialRevealedCount]
      * @returns {Element}
      */
-    function renderThread(item, doc) {
+    function renderThread(item, doc, initialRevealedCount) {
         const rootId = item.rootCommentId || item.id;
         const threadCard = doc.createElement('article');
         threadCard.className = 'novel-block-discussion-thread';
@@ -813,6 +839,29 @@
         rootEl.appendChild(rootHeader);
         rootEl.appendChild(rootBody);
 
+        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
+        if (!isRootTombstone && rootId) {
+            const rootActions = doc.createElement('div');
+            rootActions.className = 'novel-comment-actions';
+
+            const replyBtn = doc.createElement('button');
+            replyBtn.type = 'button';
+            replyBtn.className = 'novel-comment-reply-btn';
+            replyBtn.setAttribute('data-action', 'reply');
+            replyBtn.setAttribute('data-comment-id', String(rootId));
+            replyBtn.setAttribute('data-root-id', String(rootId));
+            const authorDisplayName = (item.author && typeof item.author.displayName === 'string')
+                ? item.author.displayName.trim()
+                : '';
+            if (authorDisplayName) {
+                replyBtn.setAttribute('data-author-name', authorDisplayName);
+            }
+            replyBtn.textContent = 'Phản hồi';
+
+            rootActions.appendChild(replyBtn);
+            rootEl.appendChild(rootActions);
+        }
+
         threadCard.appendChild(rootEl);
 
         // Replies container with per-thread progressive reveal
@@ -839,7 +888,9 @@
                 }
             }
 
-            let revealedCount = Math.min(replies.length, INITIAL_VISIBLE_REPLIES);
+            let revealedCount = typeof initialRevealedCount === 'number'
+                ? Math.min(replies.length, initialRevealedCount)
+                : Math.min(replies.length, INITIAL_VISIBLE_REPLIES);
 
             for (let j = 0; j < revealedCount; j++) {
                 const reply = replies[j];
@@ -1048,6 +1099,26 @@
     }
 
     /**
+     * Dispatches feed replacement lifecycle notification.
+     *
+     * @param {Document} doc
+     */
+    function notifyFeedReplacing(doc) {
+        if (!doc || typeof doc.dispatchEvent !== 'function') return;
+        try {
+            if (typeof CustomEvent === 'function') {
+                doc.dispatchEvent(new CustomEvent(EVENT_FEED_REPLACING));
+            } else {
+                const evt = doc.createEvent ? doc.createEvent('CustomEvent') : { type: EVENT_FEED_REPLACING };
+                if (evt.initCustomEvent) {
+                    evt.initCustomEvent(EVENT_FEED_REPLACING, true, true, {});
+                }
+                doc.dispatchEvent(evt);
+            }
+        } catch (_) {}
+    }
+
+    /**
      * Renders empty comments state.
      *
      * @param {Element} statusEl
@@ -1057,6 +1128,7 @@
      * @param {Document} doc
      */
     function renderEmpty(statusEl, listEl, countEl, moreEl, doc) {
+        notifyFeedReplacing(doc);
         currentStatus = 'empty';
         currentItems = [];
         currentPage = 0;
@@ -1097,8 +1169,9 @@
      * @param {Document} doc
      */
     function renderPopulated(items, statusEl, listEl, countEl, doc) {
+        notifyFeedReplacing(doc);
         currentStatus = 'populated';
-        currentItems = items;
+        currentItems = Array.isArray(items) ? items.slice() : [];
 
         if (statusEl) {
             clearElement(statusEl);
@@ -1219,6 +1292,14 @@
                     return;
                 }
                 const items = Array.isArray(data.items) ? data.items : [];
+                rootPageMap = Object.create(null);
+                for (let k = 0; k < items.length; k++) {
+                    const it = items[k];
+                    const id = it ? (it.rootCommentId || it.id) : null;
+                    if (id) {
+                        rootPageMap[String(id)] = 0;
+                    }
+                }
                 currentPage = 0;
                 hasNext = Boolean(data.hasNext);
                 isLoadingMore = false;
@@ -1296,6 +1377,10 @@
                     currentItems.push(item);
                     const threadCard = renderThread(item, doc);
                     listEl.appendChild(threadCard);
+                    const id = item ? (item.rootCommentId || item.id) : null;
+                    if (id) {
+                        rootPageMap[String(id)] = requestedPage;
+                    }
                 }
 
                 currentPage = requestedPage;
@@ -1328,6 +1413,7 @@
     function handleChapterChanged(evt) {
         closeActiveMenu(false);
         isRefreshing = false;
+        rootPageMap = Object.create(null);
 
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { sectionEl, moreEl } = getElements();
@@ -1404,6 +1490,14 @@
                 }
                 isRefreshing = false;
                 const items = Array.isArray(data.items) ? data.items : [];
+                rootPageMap = Object.create(null);
+                for (let k = 0; k < items.length; k++) {
+                    const it = items[k];
+                    const id = it ? (it.rootCommentId || it.id) : null;
+                    if (id) {
+                        rootPageMap[String(id)] = 0;
+                    }
+                }
                 currentPage = 0;
                 hasNext = Boolean(data.hasNext);
 
@@ -1425,6 +1519,165 @@
                 }
                 throw err;
             });
+    }
+
+    /**
+     * Locates a thread card in the list element by root comment ID.
+     *
+     * @param {Element} listEl
+     * @param {string} rootId
+     * @returns {Element|null}
+     */
+    function findThreadCard(listEl, rootId) {
+        if (!listEl || !rootId) return null;
+        if (typeof listEl.querySelector === 'function') {
+            try {
+                const found = listEl.querySelector('.novel-block-discussion-thread[data-root-id="' + String(rootId).replace(/"/g, '\\"') + '"]');
+                if (found) return found;
+            } catch (_) {}
+        }
+        const children = listEl.children || listEl.childNodes || [];
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child && typeof child.getAttribute === 'function') {
+                if (child.getAttribute('data-root-id') === String(rootId)) {
+                    return child;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Authoritatively refreshes a single root thread after a mutation.
+     * Preserves other root DOM elements, currentPage, hasNext, and loaded pages.
+     *
+     * @param {string} rootCommentId
+     * @param {Object} [options]
+     * @param {string} [options.revealCommentId]
+     * @returns {Promise<Object>}
+     */
+    async function refreshRootThread(rootCommentId, options) {
+        if (!rootCommentId) {
+            return Promise.reject(new Error('rootCommentId is required.'));
+        }
+
+        const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        const { listEl, countEl } = getElements();
+        if (!doc || !currentChapterId || !listEl) {
+            return Promise.reject(new Error('Comments module not initialized.'));
+        }
+
+        const fetchFn = (typeof injectedFetch === 'function')
+            ? injectedFetch
+            : (typeof window !== 'undefined' && typeof window.fetch === 'function')
+                ? window.fetch.bind(window)
+                : (typeof fetch === 'function') ? fetch : null;
+
+        if (!fetchFn) {
+            return Promise.reject(new Error('Fetch implementation not available.'));
+        }
+
+        const strRootId = String(rootCommentId).trim();
+        const sourcePage = (rootPageMap && rootPageMap[strRootId] !== undefined)
+            ? rootPageMap[strRootId]
+            : 0;
+
+        const token = ++loadToken;
+        const targetChapterId = currentChapterId;
+        isRefreshing = true;
+
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) +
+            '/comments/feed?page=' + encodeURIComponent(sourcePage) + '&size=20';
+
+        try {
+            const res = await fetchFn(url);
+            if (token !== loadToken || targetChapterId !== currentChapterId) {
+                return null;
+            }
+            if (!res || !res.ok) {
+                const status = res ? res.status : 0;
+                throw new Error('HTTP ' + status);
+            }
+
+            const data = await res.json();
+            if (token !== loadToken || targetChapterId !== currentChapterId) {
+                return null;
+            }
+            if (!data) {
+                throw new Error('Empty response data');
+            }
+
+            const items = Array.isArray(data.items) ? data.items : [];
+            const foundItem = items.find(function (it) {
+                return it && String(it.rootCommentId || it.id) === strRootId;
+            });
+
+            if (!foundItem) {
+                // Target root missing from expected source page (e.g. concurrent shifts)
+                // Fallback to authoritative page-0 refresh
+                isRefreshing = false;
+                return refreshFromPageZero();
+            }
+
+            // Replace in currentItems
+            const itemIdx = currentItems.findIndex(function (it) {
+                return it && String(it.rootCommentId || it.id) === strRootId;
+            });
+            if (itemIdx >= 0) {
+                currentItems[itemIdx] = foundItem;
+            } else {
+                currentItems.push(foundItem);
+            }
+
+            // Update rootPageMap
+            if (!rootPageMap) {
+                rootPageMap = Object.create(null);
+            }
+            rootPageMap[strRootId] = sourcePage;
+
+            // Preserve reply expansion depth & reveal newly created reply if requested
+            const oldThreadCard = findThreadCard(listEl, strRootId);
+            let oldRenderedCount = INITIAL_VISIBLE_REPLIES;
+            if (oldThreadCard && typeof oldThreadCard.querySelectorAll === 'function') {
+                const renderedReplies = oldThreadCard.querySelectorAll('.novel-comment--reply');
+                if (renderedReplies && renderedReplies.length > 0) {
+                    oldRenderedCount = renderedReplies.length;
+                }
+            }
+
+            let targetRevealCount = Math.max(oldRenderedCount, INITIAL_VISIBLE_REPLIES);
+            const replies = Array.isArray(foundItem.replies) ? foundItem.replies : [];
+            if (options && options.revealCommentId && replies.length > 0) {
+                const strRevealId = String(options.revealCommentId).trim();
+                const repIdx = replies.findIndex(function (r) {
+                    return r && String(r.id) === strRevealId;
+                });
+                if (repIdx >= 0) {
+                    targetRevealCount = Math.max(targetRevealCount, repIdx + 1);
+                }
+            }
+            targetRevealCount = Math.min(targetRevealCount, replies.length);
+
+            // Re-render target root card and swap in DOM
+            const newThreadCard = renderThread(foundItem, doc, targetRevealCount);
+            if (oldThreadCard && oldThreadCard.parentNode) {
+                oldThreadCard.parentNode.replaceChild(newThreadCard, oldThreadCard);
+            }
+
+            // Recalculate loaded active-comment header count
+            if (countEl) {
+                countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
+            }
+
+            isRefreshing = false;
+            return foundItem;
+        } catch (err) {
+            if (token === loadToken && targetChapterId === currentChapterId) {
+                isRefreshing = false;
+            }
+            throw err;
+        }
     }
 
     /**
@@ -1546,6 +1799,7 @@
         hasNext = false;
         isLoadingMore = false;
         isRefreshing = false;
+        rootPageMap = Object.create(null);
     }
 
     /**
@@ -1562,7 +1816,8 @@
             currentPage: currentPage,
             hasNext: hasNext,
             isLoadingMore: isLoadingMore,
-            isRefreshing: isRefreshing
+            isRefreshing: isRefreshing,
+            rootPageMap: Object.assign({}, rootPageMap)
         };
     }
 
@@ -1587,10 +1842,13 @@
         INITIAL_VISIBLE_REPLIES: INITIAL_VISIBLE_REPLIES,
         REPLY_REVEAL_BATCH_SIZE: REPLY_REVEAL_BATCH_SIZE,
         EVENT_CHAPTER_CHANGED: EVENT_CHAPTER_CHANGED,
+        EVENT_FEED_REPLACING: EVENT_FEED_REPLACING,
         init: initReaderChapterComments,
         destroy: destroyReaderChapterComments,
         retry: retryFetch,
         refreshFromPageZero: refreshFromPageZero,
+        refreshRootThread: refreshRootThread,
+        findThreadCard: findThreadCard,
         loadMore: loadMore,
         getState: getState,
         formatCommentCount: formatCommentCount,

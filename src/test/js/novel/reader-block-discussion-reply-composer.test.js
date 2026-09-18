@@ -1171,4 +1171,74 @@ describe('MS-05E5G4A Novel Block Discussion Reply Composer Tests', () => {
         });
     });
 
+    describe('MS-05E5H2F2B Surface Ownership & Scope Tests', () => {
+        test('Drawer Reply module completely ignores Reply clicks from #novelChapterComments', () => {
+            let createReplyCalled = false;
+            const mockMutations = {
+                createReply: () => {
+                    createReplyCalled = true;
+                    return Promise.resolve({ ok: true });
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(doc, {
+                drawerModule: mockDrawerModule,
+                commentMutations: mockMutations
+            });
+
+            // Create Bottom comments fixture
+            const bottomSection = doc.createElement('section');
+            bottomSection.id = 'novelChapterComments';
+            bottomSection.setAttribute('id', 'novelChapterComments');
+
+            const bottomComment = doc.createElement('div');
+            bottomComment.className = 'novel-comment novel-comment--root';
+            bottomComment.setAttribute('data-comment-id', 'bottom-root-1');
+
+            const bottomReplyBtn = doc.createElement('button');
+            bottomReplyBtn.className = 'novel-comment-reply-btn';
+            bottomReplyBtn.setAttribute('data-action', 'reply');
+            bottomReplyBtn.setAttribute('data-comment-id', 'bottom-root-1');
+            bottomReplyBtn.setAttribute('data-root-id', 'bottom-root-1');
+            bottomReplyBtn.textContent = 'Phản hồi';
+
+            bottomComment.appendChild(bottomReplyBtn);
+            bottomSection.appendChild(bottomComment);
+            doc.body.appendChild(bottomSection);
+
+            let preventDefaultCalled = false;
+            const clickEvt = {
+                type: 'click',
+                target: bottomReplyBtn,
+                preventDefault() { preventDefaultCalled = true; }
+            };
+
+            // Dispatch click on Bottom reply button
+            doc.dispatchEvent(clickEvt);
+
+            // Assertions for Bottom click:
+            assert.strictEqual(preventDefaultCalled, false, 'Drawer must not preventDefault on external surface click');
+            assert.strictEqual(doc.querySelector('.' + REPLY_COMPOSER_CLASS), null, 'Drawer composer must not open');
+            assert.strictEqual(getActiveComposerEl(), null, 'Drawer activeComposerEl must remain null');
+            assert.strictEqual(getActiveReplyTarget(), null, 'Drawer activeReplyTarget must remain null');
+            assert.strictEqual(createReplyCalled, false, 'createReply must not be called');
+
+            const authModal = doc.getElementById(AUTH_MODAL_ID);
+            assert.ok(!authModal || authModal.hidden, 'Drawer auth modal must not be displayed');
+
+            // Direct call to handleReplyButtonClick with bottom button also safely no-ops
+            handleReplyButtonClick(bottomReplyBtn);
+            assert.strictEqual(doc.querySelector('.' + REPLY_COMPOSER_CLASS), null);
+            assert.strictEqual(getActiveComposerEl(), null);
+
+            // Normal Drawer Reply button click still works normally
+            const drawerReplyBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            doc.dispatchEvent({ type: 'click', target: drawerReplyBtn, preventDefault() {} });
+
+            assert.notStrictEqual(content.querySelector('.' + REPLY_COMPOSER_CLASS), null, 'Drawer composer must open for drawer button');
+            assert.notStrictEqual(getActiveReplyTarget(), null);
+            assert.strictEqual(getActiveReplyTarget().commentId, ROOT_ID);
+        });
+    });
+
 });

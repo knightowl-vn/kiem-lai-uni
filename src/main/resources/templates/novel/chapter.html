@@ -337,7 +337,7 @@
     <section class="novel-chapter-comments"
              id="novelChapterComments"
              aria-labelledby="novelChapterCommentsTitle"
-             th:attr="data-chapter-id=${chapter.id}">
+             th:attr="data-chapter-id=${chapter.id}, data-chapter-slug=${chapter.slug}, data-authenticated=${#authorization.expression('isAuthenticated()')}">
 
         <header class="novel-chapter-comments-header">
             <h2 id="novelChapterCommentsTitle"
@@ -945,6 +945,8 @@
 <script th:src="@{/js/novel/reader-chapter-comments.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-chapter-comment-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-reply-composer.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>

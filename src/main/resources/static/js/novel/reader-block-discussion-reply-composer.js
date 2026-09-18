@@ -784,12 +784,36 @@
     }
 
     /**
-     * Handles reply button click event.
+     * Checks whether an element belongs inside the Block Discussion Drawer DOM surface (#novelBlockDiscussionDrawer).
      *
-     * @param {Event} e
+     * @param {Element} el
+     * @returns {boolean}
+     */
+    function isInsideDrawer(el) {
+        if (!el) return false;
+        if (typeof el.closest === 'function') {
+            return el.closest('#novelBlockDiscussionDrawer') !== null;
+        }
+        let cur = el;
+        while (cur) {
+            if (cur.id === 'novelBlockDiscussionDrawer' ||
+                (typeof cur.getAttribute === 'function' && cur.getAttribute('id') === 'novelBlockDiscussionDrawer')) {
+                return true;
+            }
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return false;
+    }
+
+    /**
+     * Handles reply button click event.
+     * Only processes clicks from inside #novelBlockDiscussionDrawer; safely ignores outside surfaces.
+     *
+     * @param {Event|Element} e
      */
     function handleReplyButtonClick(e) {
-        const target = e.target;
+        if (!e) return;
+        const target = e.target || e;
         if (!target) return;
 
         let replyBtn = null;
@@ -799,7 +823,7 @@
             replyBtn = target;
         }
 
-        if (!replyBtn) return;
+        if (!replyBtn || !isInsideDrawer(replyBtn)) return;
 
         if (typeof e.preventDefault === 'function') {
             e.preventDefault();
@@ -911,7 +935,16 @@
             if (!target) return;
 
             // Reply button
-            if (typeof target.closest === 'function' && (target.closest('.novel-comment-reply-btn') || target.closest('button[data-action="reply"]'))) {
+            let replyBtn = null;
+            if (typeof target.closest === 'function') {
+                replyBtn = target.closest('.novel-comment-reply-btn') || target.closest('button[data-action="reply"]');
+            } else if (target.classList && target.classList.contains('novel-comment-reply-btn')) {
+                replyBtn = target;
+            }
+            if (replyBtn) {
+                if (!isInsideDrawer(replyBtn)) {
+                    return;
+                }
                 handleReplyButtonClick(e);
                 return;
             }

@@ -531,3 +531,180 @@
     color: var(--color-primary-hover, #1d4ed8);
 }
 
+/* =========================================================
+   BOTTOM CHAPTER COMMENT REPLY UI (MS-05E5H2F2B)
+   ========================================================= */
+
+.novel-comment-actions {
+    margin-top: 0.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.novel-comment-reply-btn {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, #6b7280);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.novel-comment-reply-btn:hover {
+    color: var(--color-primary, #2563eb);
+    background-color: var(--reader-surface-soft, #f3f4f6);
+}
+
+.novel-chapter-comment-reply-composer {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-reply-composer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-reply-target-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-chapter-comment-reply-close-btn {
+    background: none;
+    border: none;
+    font-size: 0.875rem;
+    line-height: 1;
+    color: var(--reader-text-muted, #9ca3af);
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+}
+
+.novel-chapter-comment-reply-close-btn:hover {
+    color: var(--reader-text, #111827);
+}
+
+.novel-chapter-comment-reply-composer-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.novel-chapter-comment-reply-composer-input:focus {
+    outline: none;
+    border-color: var(--color-primary, #2563eb);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.novel-chapter-comment-reply-composer-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--reader-surface-disabled, #f3f4f6);
+}
+
+.novel-chapter-comment-reply-composer-status {
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    min-height: 0;
+}
+
+.novel-chapter-comment-reply-composer-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-reply-composer-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-reply-composer-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-reply-composer-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-reply-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    padding: 0.375rem 0.875rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text, #374151);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.novel-chapter-comment-reply-cancel-btn:hover:not(:disabled) {
+    background: var(--reader-surface-hover, #e5e7eb);
+}
+
+.novel-chapter-comment-reply-cancel-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-reply-submit-btn {
+    background: var(--color-primary, #2563eb);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.375rem 1rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-reply-submit-btn:hover:not(:disabled) {
+    background: var(--color-primary-hover, #1d4ed8);
+}
+
+.novel-chapter-comment-reply-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-reply-guest-prompt {
+    margin-top: 0.5rem;
+    padding: 0.625rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: var(--reader-text-muted, #4b5563);
+}
