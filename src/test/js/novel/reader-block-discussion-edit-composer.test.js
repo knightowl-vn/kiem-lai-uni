@@ -1028,4 +1028,46 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
         assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID);
     });
 
+    test('22. MS-05E5H2F3A: submit Edit calls shared editComment exactly once with correct inputs and no direct fetch', async () => {
+        let editCommentCallCount = 0;
+        let capturedInput = null;
+        let capturedOptions = null;
+        let directFetchCalled = false;
+
+        const mockMutations = {
+            editComment: async (input, options) => {
+                editCommentCallCount++;
+                capturedInput = input;
+                capturedOptions = options;
+                return { ok: true, status: 204 };
+            }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations,
+            fetchFn: async () => {
+                directFetchCalled = true;
+                return { status: 204 };
+            }
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Chỉnh sửa qua shared client';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(editCommentCallCount, 1, 'editComment must be called exactly once');
+        assert.strictEqual(capturedInput.chapterId, CHAPTER_ID);
+        assert.strictEqual(capturedInput.commentId, ROOT_ID);
+        assert.strictEqual(capturedInput.body, 'Chỉnh sửa qua shared client');
+        assert.strictEqual(directFetchCalled, false, 'No direct fetch path outside shared client');
+        assert.strictEqual(refreshActiveDiscussionCalled, true, 'Authoritative drawer refresh must still be triggered');
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer should close on success');
+    });
+
 });

@@ -156,8 +156,190 @@
         throw err;
     }
 
+    /**
+     * Canonical Comment edit transport mutation.
+     * Issues: PATCH /api/novel/chapters/{chapterId}/comments/{commentId}
+     *
+     * @param {Object} input
+     * @param {string} input.chapterId - ID of the Novel chapter.
+     * @param {string} input.commentId - ID of the comment being edited.
+     * @param {string} input.body - Raw updated text content of the comment.
+     * @param {Object} [options]
+     * @param {Function} [options.fetch] - Custom or test fetch implementation.
+     * @param {Document} [options.document] - Document to extract CSRF metadata from.
+     * @param {{token: string, headerName: string}} [options.csrf] - Explicit CSRF credentials.
+     * @returns {Promise<{ok: boolean, status: number, data: Object|null}>}
+     */
+    async function editComment(input, options) {
+        const params = input || {};
+        const opts = options || {};
+
+        const chapterId = params.chapterId ? String(params.chapterId).trim() : '';
+        const commentId = params.commentId ? String(params.commentId).trim() : '';
+        const rawBody = params.body !== undefined && params.body !== null ? String(params.body) : '';
+        const trimmedBody = rawBody.trim();
+
+        if (!chapterId || !commentId) {
+            const err = new Error('chapterId and commentId are required.');
+            err.code = 'INVALID_TARGET';
+            throw err;
+        }
+
+        if (!trimmedBody) {
+            const err = new Error('Comment body is required.');
+            err.code = 'INVALID_BODY';
+            throw err;
+        }
+
+        const doc = opts.document || params.document || (typeof document !== 'undefined' ? document : null);
+        const csrf = opts.csrf || params.csrf || getCsrf(doc);
+        if (!csrf || !csrf.token || !csrf.headerName) {
+            const err = new Error('CSRF token missing');
+            err.code = 'CSRF_MISSING';
+            throw err;
+        }
+
+        const fetchFn = opts.fetch || opts.fetchFn || params.fetch || params.fetchFn ||
+            (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
+        if (!fetchFn || typeof fetchFn !== 'function') {
+            const err = new Error('Fetch implementation not available');
+            err.code = 'FETCH_UNAVAILABLE';
+            throw err;
+        }
+
+        const url = '/api/novel/chapters/' + encodeURIComponent(chapterId) +
+            '/comments/' + encodeURIComponent(commentId);
+
+        const headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        };
+        headers[csrf.headerName] = csrf.token;
+
+        const res = await fetchFn(url, {
+            method: 'PATCH',
+            headers: headers,
+            body: JSON.stringify({ body: trimmedBody })
+        });
+
+        if (!res) {
+            const err = new Error('Empty response received from server');
+            err.status = 0;
+            throw err;
+        }
+
+        if (res.status === 204 || res.status === 200) {
+            let data = null;
+            if (typeof res.json === 'function') {
+                try {
+                    data = await res.json();
+                } catch (_) {
+                    data = null;
+                }
+            }
+            return {
+                ok: true,
+                status: res.status,
+                data: data
+            };
+        }
+
+        const err = new Error('HTTP ' + res.status);
+        err.status = res.status;
+        if (typeof res.json === 'function') {
+            try {
+                err.data = await res.json();
+            } catch (_) {
+                err.data = null;
+            }
+        }
+        throw err;
+    }
+
+    /**
+     * Canonical Comment deletion transport mutation.
+     * Issues: DELETE /api/novel/chapters/{chapterId}/comments/{commentId}
+     *
+     * @param {Object} input
+     * @param {string} input.chapterId - ID of the Novel chapter.
+     * @param {string} input.commentId - ID of the comment being deleted.
+     * @param {Object} [options]
+     * @param {Function} [options.fetch] - Custom or test fetch implementation.
+     * @param {Document} [options.document] - Document to extract CSRF metadata from.
+     * @param {{token: string, headerName: string}} [options.csrf] - Explicit CSRF credentials.
+     * @returns {Promise<{ok: boolean, status: number}>}
+     */
+    async function deleteComment(input, options) {
+        const params = input || {};
+        const opts = options || {};
+
+        const chapterId = params.chapterId ? String(params.chapterId).trim() : '';
+        const commentId = params.commentId ? String(params.commentId).trim() : '';
+
+        if (!chapterId || !commentId) {
+            const err = new Error('chapterId and commentId are required.');
+            err.code = 'INVALID_TARGET';
+            throw err;
+        }
+
+        const doc = opts.document || params.document || (typeof document !== 'undefined' ? document : null);
+        const csrf = opts.csrf || params.csrf || getCsrf(doc);
+        if (!csrf || !csrf.token || !csrf.headerName) {
+            const err = new Error('CSRF token missing');
+            err.code = 'CSRF_MISSING';
+            throw err;
+        }
+
+        const fetchFn = opts.fetch || opts.fetchFn || params.fetch || params.fetchFn ||
+            (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
+        if (!fetchFn || typeof fetchFn !== 'function') {
+            const err = new Error('Fetch implementation not available');
+            err.code = 'FETCH_UNAVAILABLE';
+            throw err;
+        }
+
+        const url = '/api/novel/chapters/' + encodeURIComponent(chapterId) +
+            '/comments/' + encodeURIComponent(commentId);
+
+        const headers = {
+            'Accept': 'application/json'
+        };
+        headers[csrf.headerName] = csrf.token;
+
+        const res = await fetchFn(url, {
+            method: 'DELETE',
+            headers: headers
+        });
+
+        if (!res) {
+            const err = new Error('Empty response received from server');
+            err.status = 0;
+            throw err;
+        }
+
+        if (res.status === 204 || res.status === 200) {
+            return {
+                ok: true,
+                status: res.status
+            };
+        }
+
+        const err = new Error('HTTP ' + res.status);
+        err.status = res.status;
+        if (typeof res.json === 'function') {
+            try {
+                err.data = await res.json();
+            } catch (_) {
+                err.data = null;
+            }
+        }
+        throw err;
+    }
+
     return {
         createReply: createReply,
+        editComment: editComment,
+        deleteComment: deleteComment,
         getCsrf: getCsrf
     };
 });

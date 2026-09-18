@@ -52,6 +52,32 @@
     let activeEditTarget = null;
     let activeComposerEl = null;
 
+    let nodeCommentMutations = null;
+    if (typeof require === 'function') {
+        try {
+            nodeCommentMutations = require('./reader-comment-mutations.js');
+        } catch (_) {}
+    }
+
+    let injectedCommentMutations = null;
+
+    /**
+     * Resolves the shared comment mutations client.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentMutations() {
+        if (injectedCommentMutations) {
+            return injectedCommentMutations;
+        }
+        if (typeof window !== 'undefined') {
+            return window.NovelReaderCommentMutations ||
+                (window.KiemLai && window.KiemLai.NovelReaderCommentMutations) ||
+                null;
+        }
+        return nodeCommentMutations;
+    }
+
     /**
      * Resolves the reply composer module instance.
      *
@@ -373,12 +399,6 @@
             return;
         }
 
-        const csrf = getCsrf();
-        if (!csrf) {
-            setStatus(statusEl, 'Không thể xác thực yêu cầu bảo mật (CSRF). Vui lòng tải lại trang.', 'error');
-            return;
-        }
-
         isSubmitting = true;
         const mutationToken = ++currentMutationToken;
         const snapshot = {
@@ -392,33 +412,30 @@
         if (cancelBtn) cancelBtn.disabled = true;
         setStatus(statusEl, 'Đang lưu...', 'info');
 
-        const url = '/api/novel/chapters/' + encodeURIComponent(snapshot.chapterId) +
-            '/comments/' + encodeURIComponent(snapshot.commentId);
-
-        const fetchImpl = injectedFetch || (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
-        if (!fetchImpl) {
+        const mutationsClient = resolveCommentMutations();
+        if (!mutationsClient || typeof mutationsClient.editComment !== 'function') {
             isSubmitting = false;
             textarea.disabled = false;
             if (submitBtn) submitBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
-            setStatus(statusEl, 'Không thể lưu bình luận. Trình duyệt không hỗ trợ fetch.', 'error');
+            setStatus(statusEl, 'Hệ thống chỉnh sửa bình luận chưa sẵn sàng.', 'error');
             return;
         }
 
         try {
-            const headers = {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            };
-            headers[csrf.headerName] = csrf.token;
+            const res = await mutationsClient.editComment(
+                {
+                    chapterId: snapshot.chapterId,
+                    commentId: snapshot.commentId,
+                    body: rawBody
+                },
+                {
+                    document: currentDoc,
+                    fetch: injectedFetch
+                }
+            );
 
-            const res = await fetchImpl(url, {
-                method: 'PATCH',
-                headers: headers,
-                body: JSON.stringify({ body: rawBody })
-            });
-
-            if (res.status === 204) {
+            if (res && (res.status === 204 || res.status === 200 || res.ok)) {
                 if (isMutationContextCurrent(mutationToken, snapshot)) {
                     isSubmitting = false;
                     closeEditComposer(false);
@@ -443,16 +460,17 @@
             if (submitBtn) submitBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
 
-            if (res.status === 400) {
+            const status = res ? res.status : 0;
+            if (status === 400) {
                 setStatus(statusEl, 'Nội dung bình luận không hợp lệ.', 'error');
-            } else if (res.status === 401 || res.status === 403) {
+            } else if (status === 401 || status === 403) {
                 setStatus(statusEl, 'Phiên đăng nhập đã hết hạn hoặc bạn không có quyền chỉnh sửa bình luận này.', 'error');
-            } else if (res.status === 404) {
+            } else if (status === 404) {
                 setStatus(statusEl, 'Bình luận không còn tồn tại.', 'error');
             } else {
                 setStatus(statusEl, 'Không thể lưu thay đổi. Vui lòng thử lại.', 'error');
             }
-        } catch (_) {
+        } catch (err) {
             if (!isMutationContextCurrent(mutationToken, snapshot)) {
                 return;
             }
@@ -460,7 +478,22 @@
             textarea.disabled = false;
             if (submitBtn) submitBtn.disabled = false;
             if (cancelBtn) cancelBtn.disabled = false;
-            setStatus(statusEl, 'Lỗi kết nối mạng. Vui lòng thử lại.', 'error');
+
+            if (err && err.code === 'CSRF_MISSING') {
+                setStatus(statusEl, 'Không thể xác thực yêu cầu bảo mật (CSRF). Vui lòng tải lại trang.', 'error');
+            } else if (err && err.code === 'FETCH_UNAVAILABLE') {
+                setStatus(statusEl, 'Không thể lưu bình luận. Trình duyệt không hỗ trợ fetch.', 'error');
+            } else if (err && err.status === 400) {
+                setStatus(statusEl, 'Nội dung bình luận không hợp lệ.', 'error');
+            } else if (err && (err.status === 401 || err.status === 403)) {
+                setStatus(statusEl, 'Phiên đăng nhập đã hết hạn hoặc bạn không có quyền chỉnh sửa bình luận này.', 'error');
+            } else if (err && err.status === 404) {
+                setStatus(statusEl, 'Bình luận không còn tồn tại.', 'error');
+            } else if (err && err.status) {
+                setStatus(statusEl, 'Không thể lưu thay đổi. Vui lòng thử lại.', 'error');
+            } else {
+                setStatus(statusEl, 'Lỗi kết nối mạng. Vui lòng thử lại.', 'error');
+            }
         }
     }
 
@@ -642,14 +675,19 @@
         if (!doc) return null;
         currentDoc = doc;
 
-        if (options && options.fetchFn) {
-            injectedFetch = options.fetchFn;
-        }
-        if (options && options.drawerModule) {
-            injectedDrawer = options.drawerModule;
-        }
-        if (options && options.replyComposerModule) {
-            injectedReplyComposer = options.replyComposerModule;
+        if (options) {
+            if (options.commentMutations || options.mutationsClient || options.mutations) {
+                injectedCommentMutations = options.commentMutations || options.mutationsClient || options.mutations;
+            }
+            if (options.fetchFn || options.fetch) {
+                injectedFetch = options.fetchFn || options.fetch;
+            }
+            if (options.drawerModule) {
+                injectedDrawer = options.drawerModule;
+            }
+            if (options.replyComposerModule) {
+                injectedReplyComposer = options.replyComposerModule;
+            }
         }
 
         bindEvents(doc);
@@ -671,6 +709,7 @@
         injectedFetch = null;
         injectedDrawer = null;
         injectedReplyComposer = null;
+        injectedCommentMutations = null;
         isSubmitting = false;
         currentMutationToken = 0;
         activeEditTarget = null;
@@ -708,6 +747,7 @@
         getActiveComposerEl: function () { return activeComposerEl; },
         isSubmittingEdit: function () { return isSubmitting; },
         setFetchImplementation: function (fn) { injectedFetch = fn; },
-        setDrawerModule: function (mod) { injectedDrawer = mod; }
+        setDrawerModule: function (mod) { injectedDrawer = mod; },
+        setCommentMutations: function (m) { injectedCommentMutations = m; }
     };
 });

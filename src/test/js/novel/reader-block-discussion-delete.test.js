@@ -859,4 +859,43 @@ describe('Reader Block Discussion Delete Module Tests (MS-05E5G4C2)', () => {
         assert.strictEqual(getActiveConfirmationEl(), null);
         assert.strictEqual(getActiveDeleteTarget(), null);
     });
+
+    test('MS-05E5H2F3A: confirmed Delete calls shared deleteComment exactly once with correct inputs and no direct fetch', async () => {
+        let deleteCommentCallCount = 0;
+        let capturedInput = null;
+        let directFetchCalled = false;
+
+        const mockMutations = {
+            deleteComment: async (input) => {
+                deleteCommentCallCount++;
+                capturedInput = input;
+                return { ok: true, status: 204 };
+            }
+        };
+
+        initReaderBlockDiscussionDelete(doc, {
+            drawerModule: mockDrawerModule,
+            indicatorsModule: mockIndicatorsModule,
+            commentMutations: mockMutations,
+            fetchFn: async () => {
+                directFetchCalled = true;
+                return { status: 204 };
+            }
+        });
+
+        doc.dispatchEvent({ type: 'click', target: rootDeleteBtn, preventDefault: () => {} });
+
+        const confirmBtn = doc.querySelector('.' + CONFIRM_BTN_CLASS);
+        doc.dispatchEvent({ type: 'click', target: confirmBtn, preventDefault: () => {} });
+
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(deleteCommentCallCount, 1, 'deleteComment must be called exactly once');
+        assert.strictEqual(capturedInput.chapterId, CHAPTER_ID);
+        assert.strictEqual(capturedInput.commentId, ROOT_ID);
+        assert.strictEqual(directFetchCalled, false, 'No direct fetch path outside shared client');
+        assert.strictEqual(refreshDrawerCalled, true, 'Authoritative drawer refresh must be called');
+        assert.strictEqual(refreshIndicatorsCalled, true, 'Authoritative indicators refresh must be called');
+        assert.strictEqual(getActiveConfirmationEl(), null, 'Confirmation should close on success');
+    });
 });
