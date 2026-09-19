@@ -51,6 +51,7 @@
     let highlightTimer = null;
     let highlightedElement = null;
     let completedDraftRootContext = null;
+    let completedDraftInteractionContext = null;
 
     let injectedDraftAdapter = null;
     let injectedDraftStore = null;
@@ -179,6 +180,152 @@
                     return; // Known future markers must not be touched
                 }
                 if (parsed.type === 'root' && typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim()) {
+                    store.remove(markerKey);
+                }
+            } else {
+                store.remove(markerKey);
+            }
+        } catch (_) {
+            store.remove(markerKey);
+        }
+    }
+
+    /**
+     * Validates an active-block Reply marker string.
+     * Removes corrupted JSON or malformed non-reply markers safely from store.
+     * Known non-reply markers (type 'root' or 'edit') are ignored without removal.
+     *
+     * @param {string} rawMarker
+     * @param {string} markerKey
+     * @param {Object} [store]
+     * @returns {{type: 'reply', blockKey: string, commentId: string}|null}
+     */
+    function validateReplyMarker(rawMarker, markerKey, store) {
+        if (!rawMarker || typeof rawMarker !== 'string') return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(rawMarker);
+        } catch (_) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (parsed.type === 'root' || parsed.type === 'edit') {
+            return null;
+        }
+        if (parsed.type !== 'reply') {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim() ||
+            typeof parsed.commentId !== 'string' || !parsed.commentId.trim()) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        return {
+            type: 'reply',
+            blockKey: parsed.blockKey.trim(),
+            commentId: parsed.commentId.trim()
+        };
+    }
+
+    /**
+     * Validates any active-block marker (root or reply).
+     *
+     * @param {string} rawMarker
+     * @param {string} markerKey
+     * @param {Object} [store]
+     * @returns {{type: 'root'|'reply', blockKey: string, commentId?: string}|null}
+     */
+    function validateActiveMarker(rawMarker, markerKey, store) {
+        if (!rawMarker || typeof rawMarker !== 'string') return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(rawMarker);
+        } catch (_) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (parsed.type === 'edit') {
+            return null; // Known future marker, ignore without removal
+        }
+        if (parsed.type === 'root') {
+            if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim()) {
+                if (store && markerKey && typeof store.remove === 'function') {
+                    store.remove(markerKey);
+                }
+                return null;
+            }
+            return {
+                type: 'root',
+                blockKey: parsed.blockKey.trim()
+            };
+        }
+        if (parsed.type === 'reply') {
+            if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim() ||
+                typeof parsed.commentId !== 'string' || !parsed.commentId.trim()) {
+                if (store && markerKey && typeof store.remove === 'function') {
+                    store.remove(markerKey);
+                }
+                return null;
+            }
+            return {
+                type: 'reply',
+                blockKey: parsed.blockKey.trim(),
+                commentId: parsed.commentId.trim()
+            };
+        }
+        // Unknown type
+        if (store && markerKey && typeof store.remove === 'function') {
+            store.remove(markerKey);
+        }
+        return null;
+    }
+
+    /**
+     * Removes the chapter-scoped active-block marker only if it matches type 'reply', the given blockKey, and commentId.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     * @param {string} commentId
+     */
+    function removeReplyMarkerIfMatching(chapterId, blockKey, commentId) {
+        if (!chapterId || !blockKey || !commentId) return;
+        const adapter = resolveDraftAdapter();
+        const store = resolveDraftStore();
+        if (!adapter || !store) return;
+        const markerKey = adapter.getBlockActiveMarkerKey(chapterId);
+        if (!markerKey) return;
+        const raw = store.load(markerKey);
+        if (!raw || typeof raw !== 'string') return;
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                if (parsed.type === 'root' || parsed.type === 'edit') {
+                    return; // Known other markers must not be touched
+                }
+                if (parsed.type === 'reply' &&
+                    typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim() &&
+                    typeof parsed.commentId === 'string' && parsed.commentId.trim() === String(commentId).trim()) {
                     store.remove(markerKey);
                 }
             } else {
@@ -411,6 +558,50 @@
     }
 
     /**
+     * Finds authoritative live thread root ID from enclosing thread card.
+     *
+     * @param {Element|null} commentEl
+     * @returns {string|null}
+     */
+    function findLiveEnclosingThreadRoot(commentEl) {
+        if (!commentEl) return null;
+        let threadCard = null;
+        if (typeof commentEl.closest === 'function') {
+            threadCard = commentEl.closest('.novel-block-discussion-thread');
+        } else {
+            let cur = commentEl.parentElement;
+            while (cur) {
+                if (cur.classList && cur.classList.contains('novel-block-discussion-thread')) {
+                    threadCard = cur;
+                    break;
+                }
+                cur = cur.parentElement;
+            }
+        }
+        if (threadCard && typeof threadCard.getAttribute === 'function') {
+            const rawRoot = threadCard.getAttribute('data-root-id') || threadCard.getAttribute('data-comment-id');
+            if (rawRoot && typeof rawRoot === 'string' && rawRoot.trim()) {
+                return rawRoot.trim();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Checks if a comment element has a live Reply action.
+     *
+     * @param {Element|null} commentEl
+     * @returns {boolean}
+     */
+    function hasReplyAction(commentEl) {
+        if (!commentEl || typeof commentEl.querySelector !== 'function') return false;
+        const btn = commentEl.querySelector('.novel-comment-reply-btn') ||
+            commentEl.querySelector('button[data-action="reply"]') ||
+            commentEl.querySelector('[data-action="reply"]');
+        return Boolean(btn);
+    }
+
+    /**
      * Locates the target comment or thread element inside the drawer content container.
      *
      * @param {Element} contentEl
@@ -593,17 +784,34 @@
         const restoreContext = activeRestore;
         activeRestore = null;
         if (restoreContext.source === 'draft-root') {
-            completedDraftRootContext = {
+            completedDraftInteractionContext = {
                 doc: doc,
                 chapterId: restoreContext.chapterId,
-                blockKey: restoreContext.blockKey
+                blockKey: restoreContext.blockKey,
+                type: 'root'
             };
+            completedDraftRootContext = completedDraftInteractionContext;
         } else {
+            completedDraftInteractionContext = null;
             completedDraftRootContext = null;
         }
 
         const contentEl = doc.getElementById ? doc.getElementById('novelBlockDiscussionContent') : doc.querySelector('.novel-block-discussion-content');
         const resolved = resolveTargetElement(contentEl, restoreContext.threadId, restoreContext.replyTo);
+
+        if (restoreContext.source === 'draft-reply') {
+            const liveRootId = findLiveEnclosingThreadRoot(resolved.targetEl);
+            const canReply = hasReplyAction(resolved.targetEl);
+
+            if (!resolved.targetEl ||
+                resolved.isTombstone ||
+                !resolved.resolvedCommentId ||
+                !liveRootId ||
+                !canReply) {
+                removeReplyMarkerIfMatching(restoreContext.chapterId, restoreContext.blockKey, restoreContext.replyTo);
+                return;
+            }
+        }
 
         if (resolved.targetEl) {
             if (typeof resolved.targetEl.scrollIntoView === 'function') {
@@ -620,21 +828,32 @@
             }
 
             if (restoreContext.intent === 'reply' && !resolved.isTombstone && resolved.resolvedCommentId) {
+                const liveRootId = findLiveEnclosingThreadRoot(resolved.targetEl) || resolved.resolvedThreadId;
                 const replyDetail = {
                     chapterId: restoreContext.chapterId,
                     blockKey: restoreContext.blockKey,
-                    threadId: resolved.resolvedThreadId || resolved.resolvedCommentId,
+                    threadId: liveRootId,
                     commentId: resolved.resolvedCommentId
                 };
                 const replyEvent = (typeof CustomEvent === 'function')
                     ? new CustomEvent(EVENT_REPLY_RESUME_REQUESTED, { detail: replyDetail, bubbles: true })
                     : { type: EVENT_REPLY_RESUME_REQUESTED, detail: replyDetail };
                 doc.dispatchEvent(replyEvent);
+
+                if (restoreContext.source === 'draft-reply') {
+                    completedDraftInteractionContext = {
+                        doc: doc,
+                        chapterId: restoreContext.chapterId,
+                        blockKey: restoreContext.blockKey,
+                        type: 'reply',
+                        commentId: restoreContext.replyTo
+                    };
+                }
             }
         }
 
         // Terminal success: remove transient query parameters if URL restore
-        if (restoreContext.source !== 'draft-root') {
+        if (restoreContext.source !== 'draft-root' && restoreContext.source !== 'draft-reply') {
             cleanRestoreParameters(win);
         }
     }
@@ -659,10 +878,13 @@
 
         if (failedContext.source === 'draft-root') {
             removeRootMarkerIfMatching(failedContext.chapterId, failedContext.blockKey);
+        } else if (failedContext.source === 'draft-reply') {
+            removeReplyMarkerIfMatching(failedContext.chapterId, failedContext.blockKey, failedContext.replyTo);
         } else {
             cleanRestoreParameters(win);
         }
         completedDraftRootContext = null;
+        completedDraftInteractionContext = null;
     }
 
     /**
@@ -676,12 +898,15 @@
             activeRestore = null;
             if (closedContext.source === 'draft-root') {
                 removeRootMarkerIfMatching(closedContext.chapterId, closedContext.blockKey);
+            } else if (closedContext.source === 'draft-reply') {
+                removeReplyMarkerIfMatching(closedContext.chapterId, closedContext.blockKey, closedContext.replyTo);
             } else {
                 cleanRestoreParameters(win);
             }
         }
         clearHighlight();
         completedDraftRootContext = null;
+        completedDraftInteractionContext = null;
     }
 
     /**
@@ -697,11 +922,14 @@
         if (prevContext) {
             if (prevContext.source === 'draft-root') {
                 removeRootMarkerIfMatching(prevContext.chapterId, prevContext.blockKey);
+            } else if (prevContext.source === 'draft-reply') {
+                removeReplyMarkerIfMatching(prevContext.chapterId, prevContext.blockKey, prevContext.replyTo);
             } else {
                 cleanRestoreParameters(win);
             }
         }
         completedDraftRootContext = null;
+        completedDraftInteractionContext = null;
     }
 
     /**
@@ -817,8 +1045,17 @@
             return false;
         }
 
-        if (completedDraftRootContext && (target.source !== 'draft-root' || completedDraftRootContext.blockKey !== blockKey || completedDraftRootContext.chapterId !== chapterId)) {
+        if (completedDraftInteractionContext && (
+            (target.source !== 'draft-root' && target.source !== 'draft-reply') ||
+            completedDraftInteractionContext.blockKey !== blockKey ||
+            completedDraftInteractionContext.chapterId !== chapterId ||
+            (completedDraftInteractionContext.type === 'reply' && completedDraftInteractionContext.commentId !== replyTo)
+        )) {
+            completedDraftInteractionContext = null;
             completedDraftRootContext = null;
+        } else if (completedDraftRootContext && (target.source !== 'draft-root' || completedDraftRootContext.blockKey !== blockKey || completedDraftRootContext.chapterId !== chapterId)) {
+            completedDraftRootContext = null;
+            completedDraftInteractionContext = null;
         }
 
         const currentToken = ++restoreToken;
@@ -891,37 +1128,80 @@
             return false;
         }
 
-        const validMarker = validateRootMarker(rawMarker, markerKey, store);
+        const validMarker = validateActiveMarker(rawMarker, markerKey, store);
         if (!validMarker) {
             return false;
         }
 
-        if (completedDraftRootContext &&
-            completedDraftRootContext.doc === doc &&
-            completedDraftRootContext.chapterId === currentChapterId &&
-            completedDraftRootContext.blockKey === validMarker.blockKey) {
-            return false;
+        if (validMarker.type === 'root') {
+            if (completedDraftInteractionContext &&
+                completedDraftInteractionContext.doc === doc &&
+                completedDraftInteractionContext.chapterId === currentChapterId &&
+                completedDraftInteractionContext.blockKey === validMarker.blockKey &&
+                completedDraftInteractionContext.type === 'root') {
+                return false;
+            }
+            if (completedDraftRootContext &&
+                completedDraftRootContext.doc === doc &&
+                completedDraftRootContext.chapterId === currentChapterId &&
+                completedDraftRootContext.blockKey === validMarker.blockKey) {
+                return false;
+            }
+
+            const blockEl = findReaderBlock(chapterBody, validMarker.blockKey);
+            if (!blockEl) {
+                // Missing or stale Reader block: do not fabricate drawer context, remove ONLY Root active marker, leave draft untouched
+                removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
+                return false;
+            }
+
+            const success = openDiscussionTarget({
+                chapterId: currentChapterId,
+                blockKey: validMarker.blockKey,
+                intent: 'open',
+                source: 'draft-root'
+            }, doc, win);
+
+            if (!success) {
+                removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
+            }
+
+            return success;
         }
 
-        const blockEl = findReaderBlock(chapterBody, validMarker.blockKey);
-        if (!blockEl) {
-            // Missing or stale Reader block: do not fabricate drawer context, remove ONLY Root active marker, leave draft untouched
-            removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
-            return false;
+        if (validMarker.type === 'reply') {
+            if (completedDraftInteractionContext &&
+                completedDraftInteractionContext.doc === doc &&
+                completedDraftInteractionContext.chapterId === currentChapterId &&
+                completedDraftInteractionContext.blockKey === validMarker.blockKey &&
+                completedDraftInteractionContext.type === 'reply' &&
+                completedDraftInteractionContext.commentId === validMarker.commentId) {
+                return false;
+            }
+
+            const blockEl = findReaderBlock(chapterBody, validMarker.blockKey);
+            if (!blockEl) {
+                // Missing or stale Reader block: do not fabricate drawer context, remove ONLY Reply active marker, leave draft untouched
+                removeReplyMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
+                return false;
+            }
+
+            const success = openDiscussionTarget({
+                chapterId: currentChapterId,
+                blockKey: validMarker.blockKey,
+                replyTo: validMarker.commentId,
+                intent: 'reply',
+                source: 'draft-reply'
+            }, doc, win);
+
+            if (!success) {
+                removeReplyMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
+            }
+
+            return success;
         }
 
-        const success = openDiscussionTarget({
-            chapterId: currentChapterId,
-            blockKey: validMarker.blockKey,
-            intent: 'open',
-            source: 'draft-root'
-        }, doc, win);
-
-        if (!success) {
-            removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
-        }
-
-        return success;
+        return false;
     }
 
     /**
@@ -974,6 +1254,7 @@
         restoreToken = 0;
         activeRestore = null;
         completedDraftRootContext = null;
+        completedDraftInteractionContext = null;
         clearHighlight();
         injectedDraftAdapter = null;
         injectedDraftStore = null;
@@ -1001,7 +1282,12 @@
         getActiveRestore: getActiveRestore,
         resetRestoreState: resetRestoreState,
         validateRootMarker: validateRootMarker,
+        validateReplyMarker: validateReplyMarker,
+        validateActiveMarker: validateActiveMarker,
         removeRootMarkerIfMatching: removeRootMarkerIfMatching,
+        removeReplyMarkerIfMatching: removeReplyMarkerIfMatching,
+        findLiveEnclosingThreadRoot: findLiveEnclosingThreadRoot,
+        hasReplyAction: hasReplyAction,
         attemptActiveBlockDraftRestore: attemptActiveBlockDraftRestore,
         setDraftAdapter: function (adapter) { injectedDraftAdapter = adapter; },
         setDraftAdapterImplementation: function (adapter) { injectedDraftAdapter = adapter; },

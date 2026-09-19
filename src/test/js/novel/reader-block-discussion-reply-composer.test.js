@@ -3,6 +3,8 @@ const assert = require('node:assert');
 const path = require('path');
 
 const ReplyComposerModule = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-block-discussion-reply-composer.js'));
+const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
+const draftsAdapter = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-comment-drafts.js'));
 
 const {
     REPLY_COMPOSER_CLASS,
@@ -29,7 +31,16 @@ const {
     isGuestUser,
     getActiveReplyTarget,
     getActiveComposerEl,
-    isSubmittingReply
+    isSubmittingReply,
+    getReplyDraftKey,
+    getActiveMarkerKey,
+    saveReplyMarker,
+    removeReplyMarkerIfMatching,
+    flushDraftForContext,
+    flushActiveDraft,
+    setDraftAdapter,
+    setDraftStore,
+    EVENT_FLUSH_DRAFTS
 } = ReplyComposerModule;
 
 // ============================================================================
@@ -1653,6 +1664,1086 @@ describe('MS-05E5H2F4B2 — Drawer Reply Create → Bottom Synchronization', () 
 
         assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh the exact root thread on page 1');
         assert.strictEqual(pageZeroCalls, 0, 'Must NOT trigger page-0 reset when root is loaded on page 1');
+    });
+
+});
+
+describe('UX-DRAFT-01D3B — Block Drawer Reply Draft Persistence', () => {
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+        }
+        getItem(k) {
+            return this.store.has(k) ? this.store.get(k) : null;
+        }
+        setItem(k, v) {
+            this.store.set(k, String(v));
+        }
+        removeItem(k) {
+            this.store.delete(k);
+        }
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let draftStore;
+
+    const CHAPTER_ID = '11111111-1111-1111-1111-111111111111';
+    const BLOCK_KEY = 'blk-0123456789abcdef-1';
+    const ROOT_ID = 'root-uuid-1';
+    const REPLY_ID = 'reply-uuid-2';
+
+    function createFixture(options = {}) {
+        const authenticated = options.authenticated !== false;
+        const testDoc = new FakeDocument();
+
+        // Add CSRF meta tags
+        const csrfMeta = testDoc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-123');
+        testDoc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = testDoc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        testDoc.head.appendChild(csrfHeaderMeta);
+
+        // Drawer element with chapter slug & authenticated state
+        const testDrawer = testDoc.createElement('aside');
+        testDrawer.id = 'novelBlockDiscussionDrawer';
+        testDrawer.setAttribute('data-chapter-slug', 'chuong-1');
+        testDrawer.setAttribute('data-authenticated', authenticated ? 'true' : 'false');
+        testDrawer.setAttribute('data-chapter-id', options.chapterId || CHAPTER_ID);
+        testDrawer.setAttribute('data-block-key', options.blockKey || BLOCK_KEY);
+        testDoc.body.appendChild(testDrawer);
+
+        // Authenticated root composer exists
+        if (authenticated) {
+            const rootComposer = testDoc.createElement('form');
+            rootComposer.id = 'novelBlockDiscussionComposer';
+            testDrawer.appendChild(rootComposer);
+        }
+
+        // Drawer content
+        const testContent = testDoc.createElement('section');
+        testContent.id = 'novelBlockDiscussionContent';
+        testDrawer.appendChild(testContent);
+
+        // Thread container
+        const threadCard = testDoc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', ROOT_ID);
+        testContent.appendChild(threadCard);
+
+        // Root comment
+        const rootEl = testDoc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', ROOT_ID);
+
+        const rootHeader = testDoc.createElement('header');
+        rootHeader.className = 'novel-comment-header';
+        const rootAuthor = testDoc.createElement('span');
+        rootAuthor.className = 'novel-comment-author';
+        rootAuthor.textContent = 'Tiêu Viêm';
+        rootHeader.appendChild(rootAuthor);
+        rootEl.appendChild(rootHeader);
+
+        const rootBody = testDoc.createElement('div');
+        rootBody.className = 'novel-comment-body';
+        rootBody.textContent = 'Bình luận mở đầu';
+        rootEl.appendChild(rootBody);
+
+        const rootActions = testDoc.createElement('div');
+        rootActions.className = 'novel-comment-actions';
+        const rootReplyBtn = testDoc.createElement('button');
+        rootReplyBtn.className = 'novel-comment-reply-btn';
+        rootReplyBtn.setAttribute('data-action', 'reply');
+        rootReplyBtn.setAttribute('data-comment-id', ROOT_ID);
+        rootReplyBtn.setAttribute('data-root-id', ROOT_ID);
+        rootReplyBtn.setAttribute('data-author-name', 'Tiêu Viêm');
+        rootReplyBtn.textContent = 'Trả lời';
+        rootActions.appendChild(rootReplyBtn);
+        rootEl.appendChild(rootActions);
+
+        threadCard.appendChild(rootEl);
+
+        // Replies container
+        const repliesContainer = testDoc.createElement('div');
+        repliesContainer.className = 'novel-comment-replies';
+        threadCard.appendChild(repliesContainer);
+
+        // Reply comment
+        const replyEl = testDoc.createElement('article');
+        replyEl.className = 'novel-comment novel-comment--reply';
+        replyEl.setAttribute('data-reply-id', REPLY_ID);
+        replyEl.setAttribute('data-comment-id', REPLY_ID);
+
+        const replyHeader = testDoc.createElement('header');
+        replyHeader.className = 'novel-comment-header';
+        const replyAuthor = testDoc.createElement('span');
+        replyAuthor.className = 'novel-comment-author';
+        replyAuthor.textContent = 'Dược Lão';
+        replyHeader.appendChild(replyAuthor);
+        replyEl.appendChild(replyHeader);
+
+        const replyBody = testDoc.createElement('div');
+        replyBody.className = 'novel-comment-body';
+        replyBody.textContent = 'Phản hồi đầu tiên';
+        replyEl.appendChild(replyBody);
+
+        const replyActions = testDoc.createElement('div');
+        replyActions.className = 'novel-comment-actions';
+        const replyBtn = testDoc.createElement('button');
+        replyBtn.className = 'novel-comment-reply-btn';
+        replyBtn.setAttribute('data-action', 'reply');
+        replyBtn.setAttribute('data-comment-id', REPLY_ID);
+        replyBtn.setAttribute('data-reply-id', REPLY_ID);
+        replyBtn.setAttribute('data-root-id', ROOT_ID);
+        replyBtn.setAttribute('data-author-name', 'Dược Lão');
+        replyBtn.textContent = 'Trả lời';
+        replyActions.appendChild(replyBtn);
+        replyEl.appendChild(replyActions);
+
+        repliesContainer.appendChild(replyEl);
+
+        // Tombstone reply
+        const tombstoneEl = testDoc.createElement('article');
+        tombstoneEl.className = 'novel-comment novel-comment--reply is-tombstone';
+        tombstoneEl.setAttribute('data-reply-id', 'tombstone-1');
+        tombstoneEl.setAttribute('data-comment-id', 'tombstone-1');
+        const tombBody = testDoc.createElement('div');
+        tombBody.className = 'novel-comment-body novel-comment-body--tombstone';
+        tombBody.textContent = '[Bình luận đã bị xóa]';
+        tombstoneEl.appendChild(tombBody);
+        repliesContainer.appendChild(tombstoneEl);
+
+        // Also add reader body element so chapterId/blockKey DOM lookup works
+        const chapterBody = testDoc.createElement('article');
+        chapterBody.className = 'novel-reader-chapter-body';
+        chapterBody.setAttribute('data-chapter-id', CHAPTER_ID);
+        chapterBody.setAttribute('data-content-version', '1');
+        const blockEl = testDoc.createElement('p');
+        blockEl.setAttribute('data-reader-block-key', BLOCK_KEY);
+        chapterBody.appendChild(blockEl);
+        testDoc.body.appendChild(chapterBody);
+
+        return {
+            doc: testDoc,
+            drawer: testDrawer,
+            content: testContent,
+            threadCard,
+            rootEl,
+            replyEl,
+            tombstoneEl
+        };
+    }
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        resetReplyComposerState();
+        ReplyComposerModule.setDraftStore(draftStore);
+        ReplyComposerModule.setDraftAdapter(draftsAdapter);
+    });
+
+    afterEach(() => {
+        resetReplyComposerState();
+    });
+
+    // ------------------------------------------------------------------------
+    // Category A: Load & Restore (Tests 1–3)
+    // ------------------------------------------------------------------------
+
+    test('1. Open without draft: textarea empty, no draft written, no marker written', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        assert.notStrictEqual(composer, null);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, '');
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        assert.strictEqual(draftStore.load(draftKey), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('2. Open with saved draft: exact Unicode/newlines/whitespace restored, active Reply marker written', () => {
+        const fixture = createFixture({ authenticated: true });
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        const rawSavedText = '  Đoạn phản hồi\nvới nhiều dòng\n   khoảng trắng cuối   ';
+        draftStore.save(draftKey, rawSavedText);
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        assert.notStrictEqual(composer, null);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, rawSavedText);
+        assert.strictEqual(textarea.isFocused, true);
+
+        const savedMarker = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(savedMarker.type, 'reply');
+        assert.strictEqual(savedMarker.blockKey, BLOCK_KEY);
+        assert.strictEqual(savedMarker.commentId, ROOT_ID);
+        assert.strictEqual(isSubmittingReply(), false);
+    });
+
+    test('3. Open with whitespace-only draft: treated as empty, whitespace draft removed, no marker written', () => {
+        const fixture = createFixture({ authenticated: true });
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, '   \n\t  ');
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, '');
+        assert.strictEqual(draftStore.load(draftKey), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category B: Debounced Autosave (400ms) & Input Lifecycle (Tests 4–5)
+    // ------------------------------------------------------------------------
+
+    test('4. Meaningful input: immediately writes Reply marker, persists draft after 400ms debounce', async () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Phản hồi đang soạn...';
+
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        // Marker written immediately
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(marker.type, 'reply');
+        assert.strictEqual(marker.blockKey, BLOCK_KEY);
+        assert.strictEqual(marker.commentId, ROOT_ID);
+
+        // Draft not saved yet (debounced)
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        // Wait for debounce timer (400ms + 50ms buffer)
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(draftStore.load(draftKey), 'Phản hồi đang soạn...');
+    });
+
+    test('5. Whitespace-only input: removes draft and removes matching Reply marker', () => {
+        const fixture = createFixture({ authenticated: true });
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, 'Nội dung cũ');
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Nội dung cũ');
+
+        textarea.value = '   ';
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        assert.strictEqual(draftStore.load(draftKey), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category C: Flush Bridge (Tests 6–7)
+    // ------------------------------------------------------------------------
+
+    test('6. EVENT_FLUSH_DRAFTS: synchronously saves dirty reply text, preserves Reply marker', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Chưa kịp debounce đã pagehide';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        // Synchronous flush
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+
+        assert.strictEqual(draftStore.load(draftKey), 'Chưa kịp debounce đã pagehide');
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(marker.type, 'reply');
+        assert.strictEqual(marker.blockKey, BLOCK_KEY);
+        assert.strictEqual(marker.commentId, ROOT_ID);
+    });
+
+    test('7. EVENT_FLUSH_DRAFTS while blank: store and marker remain empty', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+
+        assert.strictEqual(draftStore.load(draftKey), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category D: Target Switching & Isolation (Tests 8–9)
+    // ------------------------------------------------------------------------
+
+    test('8. Switch Reply target A -> B: A flushed under A key before opening B; A marker removed; B draft restored; no leakage', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        const childReplyBtn = fixture.content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+
+        // 1. Open Target A (Root) and type
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Bản nháp cho Root';
+
+        const rootDraftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const childDraftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, REPLY_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        // 2. Switch to Target B (Child Reply)
+        fixture.doc.dispatchEvent({ type: 'click', target: childReplyBtn, preventDefault() {} });
+
+        // Target A's draft was flushed under rootDraftKey with isLeaving=true
+        assert.strictEqual(draftStore.load(rootDraftKey), 'Bản nháp cho Root');
+
+        // Target B is open and empty
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, '');
+        assert.strictEqual(getActiveReplyTarget().commentId, REPLY_ID);
+
+        // Target B has no draft, so active marker is clean
+        assert.strictEqual(draftStore.load(markerKey), null);
+
+        // Type for B
+        textarea.value = 'Bản nháp cho Child';
+
+        // 3. Switch back to Target A
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        // B draft saved
+        assert.strictEqual(draftStore.load(childDraftKey), 'Bản nháp cho Child');
+
+        // A draft restored in textarea!
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Bản nháp cho Root');
+
+        // A active marker restored
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(marker.type, 'reply');
+        assert.strictEqual(marker.commentId, ROOT_ID);
+    });
+
+    test('9. Child reply target binds strictly to child commentId, not root threadId', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const childReplyBtn = fixture.content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: childReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Child target body';
+
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+
+        const childDraftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, REPLY_ID);
+        const rootDraftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        assert.strictEqual(draftStore.load(childDraftKey), 'Child target body');
+        assert.strictEqual(draftStore.load(rootDraftKey), null);
+
+        const marker = JSON.parse(draftStore.load(getActiveMarkerKey(CHAPTER_ID)));
+        assert.strictEqual(marker.commentId, REPLY_ID);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category E: Passive Lifecycle vs User Cancel (Tests 10–14)
+    // ------------------------------------------------------------------------
+
+    test('10. Explicit Cancel ("Hủy" button): removes draft from store, removes matching Reply marker, closes composer', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Nội dung chuẩn bị hủy';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        // Pre-save into store
+        draftStore.save(draftKey, 'Nội dung chuẩn bị hủy');
+        saveReplyMarker(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        // Click Cancel
+        const cancelBtn = composer.querySelector('.' + REPLY_CANCEL_CLASS);
+        fixture.doc.dispatchEvent({ type: 'click', target: cancelBtn, preventDefault() {} });
+
+        assert.strictEqual(fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS), null);
+        assert.strictEqual(getActiveReplyTarget(), null);
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft must be deleted on explicit Cancel');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker must be removed on explicit Cancel');
+    });
+
+    test('11. Discussion-closed: preserves dirty draft in store, removes matching Reply marker, closes composer', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Bản nháp khi drawer đóng';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        assert.strictEqual(fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS), null);
+        assert.strictEqual(getActiveReplyTarget(), null);
+        assert.strictEqual(draftStore.load(draftKey), 'Bản nháp khi drawer đóng', 'Draft preserved');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Active marker removed on drawer close');
+    });
+
+    test('12. Chapter-changed: old draft saved under old chapter/block/reply key; old marker removed; new chapter storage untouched', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Bản nháp trước khi chuyển chương';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'kiemlai:chapter-changed', detail: { chapterId: 'ch-new' } });
+
+        assert.strictEqual(draftStore.load(draftKey), 'Bản nháp trước khi chuyển chương', 'Draft preserved in old chapter');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed from old chapter');
+        assert.strictEqual(draftStore.load(getActiveMarkerKey('ch-new')), null, 'New chapter storage untouched');
+    });
+
+    test('13. Discussion-requested: old draft saved under old block key; old marker removed; composer closed', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Bản nháp trước khi đổi block';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'kiemlai:block-discussion-requested', detail: { blockKey: 'blk-new' } });
+
+        assert.strictEqual(draftStore.load(draftKey), 'Bản nháp trước khi đổi block', 'Draft preserved under old block');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Old marker removed');
+        assert.strictEqual(getActiveReplyTarget(), null);
+    });
+
+    test('14. Edit composer takes ownership: closeReplyComposer(false) called by edit module preserves reply draft and removes Reply marker', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Reply draft before edit opens';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        closeReplyComposer(false);
+
+        assert.strictEqual(draftStore.load(draftKey), 'Reply draft before edit opens');
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category F: Submit & Network Lifecycle (Tests 15–21)
+    // ------------------------------------------------------------------------
+
+    test('15. Submit storage: valid submit synchronously writes exact raw body to store before network dispatch', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let storeStateAtSubmit = null;
+        let resolveReply;
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        const mockMutations = {
+            createReply: () => {
+                storeStateAtSubmit = {
+                    draft: draftStore.load(draftKey),
+                    marker: draftStore.load(markerKey)
+                };
+                return new Promise(r => { resolveReply = r; });
+            }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Exact text to be sent';
+
+        const submitPromise = handleSubmit({ preventDefault() {} });
+
+        assert.notStrictEqual(storeStateAtSubmit, null);
+        assert.strictEqual(storeStateAtSubmit.draft, 'Exact text to be sent');
+        const marker = JSON.parse(storeStateAtSubmit.marker);
+        assert.strictEqual(marker.type, 'reply');
+        assert.strictEqual(marker.commentId, ROOT_ID);
+
+        resolveReply({ ok: true, status: 201, commentId: 'rep-new' });
+        await submitPromise;
+    });
+
+    test('16. Current 201: draft removed, marker removed, composer closed without flush, drawer and indicators refreshed, bottom synchronized', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let drawerRefreshed = 0;
+        let indicatorRefreshed = 0;
+        let bottomRefreshed = 0;
+
+        const mockMutations = {
+            createReply: async () => ({ ok: true, status: 201, commentId: 'rep-success' })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshed++; }
+        };
+        const mockIndicators = {
+            refreshChapterIndicators: async () => { indicatorRefreshed++; }
+        };
+        const mockBottom = {
+            getState: () => ({ rootPageMap: { [ROOT_ID]: 0 } }),
+            refreshRootThread: async () => { bottomRefreshed++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Replying now';
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        await handleSubmit({ preventDefault() {} });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed on 201');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on 201');
+        assert.strictEqual(fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS), null, 'Composer closed');
+        assert.strictEqual(drawerRefreshed, 1, 'Drawer refreshed once');
+        assert.strictEqual(indicatorRefreshed, 1, 'Indicators refreshed once');
+        assert.strictEqual(bottomRefreshed, 1, 'Bottom refreshed once');
+    });
+
+    test('17. Current failure (400, 401, 403, 404, 500, network error): draft preserved, marker preserved, textarea intact', async () => {
+        const statuses = [400, 401, 403, 404, 500, 0];
+
+        for (const status of statuses) {
+            resetReplyComposerState();
+            const fixture = createFixture({ authenticated: true });
+            const mockMutations = {
+                createReply: async () => {
+                    const err = new Error('Request failed');
+                    err.status = status;
+                    throw err;
+                }
+            };
+
+            initReaderBlockDiscussionReplyComposer(fixture.doc, {
+                draftStore,
+                draftAdapter: draftsAdapter,
+                commentMutations: mockMutations
+            });
+
+            const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+            const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+            const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+            textarea.value = 'Draft that must survive failure: ' + status;
+
+            const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+            const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+            await handleSubmit({ preventDefault() {} });
+
+            assert.strictEqual(draftStore.load(draftKey), 'Draft that must survive failure: ' + status);
+            assert.notStrictEqual(draftStore.load(markerKey), null);
+            assert.strictEqual(textarea.value, 'Draft that must survive failure: ' + status);
+            assert.strictEqual(textarea.disabled, false);
+        }
+    });
+
+    test('18. Stale A 201 after switch to B: captured A draft removed when generation matches; B composer/textarea unchanged; zero A refreshes', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let resolveReplyA;
+        let drawerRefreshes = 0;
+
+        const mockMutations = {
+            createReply: ({ parentCommentId }) => {
+                if (parentCommentId === ROOT_ID) {
+                    return new Promise(r => { resolveReplyA = r; });
+                }
+                return Promise.resolve({ ok: true, status: 201, commentId: 'rep-b' });
+            }
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshes++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer
+        });
+
+        // 1. Submit on Target A
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft A in flight';
+
+        const submitPromiseA = handleSubmit({ preventDefault() {} });
+
+        // 2. Switch to Target B before A resolves
+        const childReplyBtn = fixture.content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: childReplyBtn, preventDefault() {} });
+
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Active typing on B';
+
+        // 3. Resolve Target A with 201
+        resolveReplyA({ ok: true, status: 201, commentId: 'rep-a-done' });
+        await submitPromiseA;
+        await new Promise(r => setTimeout(r, 10));
+
+        // Captured Target A draft is cleaned
+        const draftKeyA = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(draftKeyA), null, 'Draft A cleaned on 201');
+
+        // Target B UI remains intact!
+        assert.strictEqual(textarea.value, 'Active typing on B');
+        assert.strictEqual(getActiveReplyTarget().commentId, REPLY_ID);
+        assert.strictEqual(drawerRefreshes, 0, 'Zero refreshes for stale A');
+    });
+
+    test('19. Same-key ABA: Draft A1 pending -> leave and return -> genuine Draft A2 typed -> old A1 201 resolves -> Draft A2 survives', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let resolveReplyA1;
+
+        const mockMutations = {
+            createReply: () => new Promise(r => { resolveReplyA1 = r; })
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft A1';
+
+        const submitPromiseA1 = handleSubmit({ preventDefault() {} });
+
+        // User cancels / closes composer while A1 in flight
+        closeReplyComposer(false, { skipFlush: true });
+
+        // User re-opens Target A and types genuine Draft A2
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft A2 genuine new content';
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        // A1 resolves
+        resolveReplyA1({ ok: true, status: 201, commentId: 'rep-a1' });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        // Draft A2 must NOT be deleted!
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft A2 genuine new content');
+    });
+
+    test('20. True stale accepted remount race: pending submit -> passive close -> remount -> old 201 resolves -> flush & drawer-requested do not resurrect -> genuine A2 typed persists', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let resolveReplyA1;
+        let drawerRefreshes = 0;
+
+        const mockMutations = {
+            createReply: () => new Promise(r => { resolveReplyA1 = r; })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshes++; }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations,
+            drawerModule: mockDrawer
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+
+        // 1. Open Reply target A
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+
+        // 2. Type A1 via input event
+        textarea.value = 'Draft A1 in flight';
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        // 3. Submit A1 with pending mutation promise
+        const submitPromiseA1 = handleSubmit({ preventDefault() {} });
+
+        // 4. While pending, passive close
+        closeReplyComposer(false);
+        assert.strictEqual(draftStore.load(draftKey), 'Draft A1 in flight', 'A1 flushed to store on passive close');
+
+        // 5. Reopen Reply target A
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft A1 in flight', 'A1 restored into textarea from store');
+
+        // 6. No input event dispatched
+
+        // 7. Resolve old pending A1 mutation promise with 201 success
+        resolveReplyA1({ ok: true, status: 201, commentId: 'rep-a1-success' });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Stored draft removed on 201 acceptance');
+        assert.strictEqual(drawerRefreshes, 0, 'Zero refreshes for stale A1 response');
+
+        // 8. EVENT_FLUSH_DRAFTS -> assert A1 does NOT resurrect
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 does not resurrect on global flush');
+
+        // 9. Discussion requested -> assert A1 remains absent, marker removed
+        fixture.doc.dispatchEvent({ type: 'kiemlai:block-discussion-requested', detail: { blockKey: 'blk-new' } });
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 remains absent on block requested');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on block requested');
+
+        // 10. Reopen target A and type genuine Draft A2 via input -> flush -> assert A2 persists
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, '', 'Textarea empty for fresh start');
+
+        textarea.value = 'Genuine Draft A2 content';
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Genuine Draft A2 content', 'Genuine Draft A2 persists');
+    });
+
+    test('20b. Drawer-close accepted remount: pending submit -> passive close -> remount -> old 201 resolves -> kiemlai:block-discussion-closed cleans marker and does NOT resurrect A1', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let resolveReplyA1;
+
+        const mockMutations = {
+            createReply: () => new Promise(r => { resolveReplyA1 = r; })
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft A1 in flight';
+        textarea.dispatchEvent({ type: 'input', target: textarea });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+
+        const submitPromiseA1 = handleSubmit({ preventDefault() {} });
+
+        closeReplyComposer(false);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft A1 in flight');
+
+        // Old 201 resolves
+        resolveReplyA1({ ok: true, status: 201, commentId: 'rep-a1-success' });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        // Drawer closed event dispatched
+        fixture.doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft A1 must not resurrect on drawer close');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Reply marker cleaned on drawer close');
+    });
+
+    test('21. Post-accepted direct submit failure: Draft 1 accepted (G1) -> reopen same target -> set textarea.value = "Draft 2" without input event -> submit fails (500) -> new generation G2 > G1 allocated -> Draft 2 persists across flush and passive close', async () => {
+        const fixture = createFixture({ authenticated: true });
+        let attempt = 0;
+        const mockMutations = {
+            createReply: async () => {
+                attempt++;
+                if (attempt === 1) {
+                    return { ok: true, status: 201, commentId: 'rep-g1' };
+                }
+                const err = new Error('Server 500');
+                err.status = 500;
+                throw err;
+            }
+        };
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, {
+            draftStore,
+            draftAdapter: draftsAdapter,
+            commentMutations: mockMutations
+        });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        let composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        let textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft 1';
+
+        await handleSubmit({ preventDefault() {} });
+
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        // Reopen same target, set Draft 2 directly without input event
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+        composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        textarea.value = 'Draft 2';
+
+        // Submit fails with 500
+        await handleSubmit({ preventDefault() {} });
+
+        // Draft 2 must now persist across flush and passive close!
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2');
+
+        closeReplyComposer(false);
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2');
+    });
+
+    // ------------------------------------------------------------------------
+    // Category G: Conditional Marker Ownership (Tests 22–25)
+    // ------------------------------------------------------------------------
+
+    test('22. Reply cleanup removes matching Reply marker only', () => {
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        saveReplyMarker(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        removeReplyMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('23. Reply cleanup strictly preserves Root marker', () => {
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: BLOCK_KEY }));
+
+        removeReplyMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        const loaded = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(loaded.type, 'root');
+        assert.strictEqual(loaded.blockKey, BLOCK_KEY);
+    });
+
+    test('24. Reply cleanup strictly preserves Edit marker', () => {
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: BLOCK_KEY, commentId: ROOT_ID }));
+
+        removeReplyMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        const loaded = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(loaded.type, 'edit');
+        assert.strictEqual(loaded.blockKey, BLOCK_KEY);
+    });
+
+    test('25. Reply cleanup on different commentId strictly preserves other reply marker', () => {
+        const markerKey = getActiveMarkerKey(CHAPTER_ID);
+        saveReplyMarker(CHAPTER_ID, BLOCK_KEY, REPLY_ID);
+
+        removeReplyMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+
+        const loaded = JSON.parse(draftStore.load(markerKey));
+        assert.strictEqual(loaded.type, 'reply');
+        assert.strictEqual(loaded.commentId, REPLY_ID);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category H: Resume requested & Live Thread Root (Tests 26–28)
+    // ------------------------------------------------------------------------
+
+    test('26. kiemlai:comment-reply-resume-requested opens reply composer and restores saved draft', () => {
+        const fixture = createFixture({ authenticated: true });
+        const draftKey = getReplyDraftKey(CHAPTER_ID, BLOCK_KEY, REPLY_ID);
+        draftStore.save(draftKey, 'Restored resume reply');
+
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        fixture.doc.dispatchEvent({
+            type: 'kiemlai:comment-reply-resume-requested',
+            detail: {
+                chapterId: CHAPTER_ID,
+                blockKey: BLOCK_KEY,
+                threadId: ROOT_ID,
+                commentId: REPLY_ID
+            }
+        });
+
+        const composer = fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS);
+        assert.notStrictEqual(composer, null);
+        assert.strictEqual(composer.parentElement.getAttribute('data-comment-id'), REPLY_ID);
+
+        const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Restored resume reply');
+
+        const activeTarget = getActiveReplyTarget();
+        assert.strictEqual(activeTarget.commentId, REPLY_ID);
+        assert.strictEqual(activeTarget.rootId, ROOT_ID);
+    });
+
+    test('27. kiemlai:comment-reply-resume-requested for tombstoned target does not open composer and does not alter store', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        // Mark replyEl as tombstone
+        fixture.replyEl.classList.add('is-tombstone');
+
+        fixture.doc.dispatchEvent({
+            type: 'kiemlai:comment-reply-resume-requested',
+            detail: {
+                chapterId: CHAPTER_ID,
+                blockKey: BLOCK_KEY,
+                threadId: ROOT_ID,
+                commentId: REPLY_ID
+            }
+        });
+
+        assert.strictEqual(fixture.content.querySelector('.' + REPLY_COMPOSER_CLASS), null);
+        assert.strictEqual(getActiveReplyTarget(), null);
+    });
+
+    test('28. Live thread root authority derives rootId from enclosing .novel-block-discussion-thread[data-root-id] even if button has outdated data-root-id', () => {
+        const fixture = createFixture({ authenticated: true });
+        initReaderBlockDiscussionReplyComposer(fixture.doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const rootReplyBtn = fixture.content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+        // Simulate corrupted/outdated data-root-id on button
+        rootReplyBtn.setAttribute('data-root-id', 'outdated-corrupted-root');
+
+        fixture.doc.dispatchEvent({ type: 'click', target: rootReplyBtn, preventDefault() {} });
+
+        const activeTarget = getActiveReplyTarget();
+        assert.strictEqual(activeTarget.rootId, ROOT_ID, 'Must derive authoritatively from enclosing thread card');
     });
 
 });

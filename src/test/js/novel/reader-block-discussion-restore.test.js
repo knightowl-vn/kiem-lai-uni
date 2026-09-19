@@ -1669,25 +1669,14 @@ describe('UX-DRAFT-01D3A — Block Drawer Root Active-Block Restore Tests', () =
         assert.strictEqual(restoreModule.getActiveRestore(), null);
     });
 
-    test('9. Reply marker ignored untouched', () => {
-        const { doc } = setupTestDOM();
-        const win = createFakeWindow('');
-        win.history.win = win;
-
+    test('9. Reply marker ignored untouched by validateRootMarker', () => {
         const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
         const replyPayload = JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-1' });
         draftStore.save(markerKey, replyPayload);
 
-        let requestedCount = 0;
-        doc.addEventListener('kiemlai:block-discussion-requested', () => {
-            requestedCount++;
-        });
-
-        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
-
-        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
-        assert.strictEqual(draftStore.load(markerKey), replyPayload, 'Reply marker left untouched');
-        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        const result = restoreModule.validateRootMarker(replyPayload, markerKey, draftStore);
+        assert.strictEqual(result, null, 'validateRootMarker returns null for reply');
+        assert.strictEqual(draftStore.load(markerKey), replyPayload, 'Reply marker left untouched in store');
     });
 
     test('10. Edit marker ignored untouched', () => {
@@ -1861,3 +1850,828 @@ describe('UX-DRAFT-01D3A — Block Drawer Root Active-Block Restore Tests', () =
         assert.strictEqual(requestedEvents[1].blockKey, blockKey2);
     });
 });
+
+describe('UX-DRAFT-01D3B — Block Drawer Reply Active-Block Restore Tests', () => {
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+        }
+        getItem(k) {
+            return this.store.has(k) ? this.store.get(k) : null;
+        }
+        setItem(k, v) {
+            this.store.set(k, String(v));
+        }
+        removeItem(k) {
+            this.store.delete(k);
+        }
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        restoreModule.resetRestoreState();
+    });
+
+    afterEach(() => {
+        restoreModule.resetRestoreState();
+    });
+
+    test('1. URL restore takes precedence over active Reply marker (exactly 1 open request, marker restore does not run)', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('?discussionBlock=blk-0123456789abcdef-1&threadId=11111111-1111-1111-1111-111111111111');
+        win.history.win = win;
+
+        // Set Reply marker for Block B
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey: 'blk-fedcba9876543210-1', commentId: 'c-99' }));
+
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedEvents.length, 1, 'Exactly one open request');
+        assert.strictEqual(requestedEvents[0].blockKey, 'blk-0123456789abcdef-1', 'URL block takes precedence');
+        assert.strictEqual(restoreModule.getActiveRestore().source, 'url');
+    });
+
+    test('2. Malformed transient URL cleans parameters and does not attempt draft restore in same turn', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('?discussionBlock=invalid-block-format');
+        win.history.win = win;
+
+        // Valid Reply marker exists for Block A
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const replyPayload = JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-reply-1' });
+        draftStore.save(markerKey, replyPayload);
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            requestedCount++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'No drawer open request in same turn');
+        assert.strictEqual(win.location.search, '', 'Transient parameters cleaned');
+        assert.strictEqual(draftStore.load(markerKey), replyPayload, 'Marker not consumed or cleared');
+    });
+
+    test('3. Valid current-chapter Reply marker dispatches openDiscussionTarget (replyTo = commentId, intent = reply, source = draft-reply)', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        draftStore.save(markerKey, JSON.stringify({
+            type: 'reply',
+            blockKey: 'blk-0123456789abcdef-1',
+            commentId: 'c-reply-100'
+        }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.notStrictEqual(requestedDetail, null, 'Discussion requested event emitted');
+        assert.strictEqual(requestedDetail.blockKey, 'blk-0123456789abcdef-1');
+        assert.strictEqual(requestedDetail.chapterId, '11111111-1111-1111-1111-111111111111');
+
+        const active = restoreModule.getActiveRestore();
+        assert.notStrictEqual(active, null);
+        assert.strictEqual(active.source, 'draft-reply');
+        assert.strictEqual(active.replyTo, 'c-reply-100');
+        assert.strictEqual(active.intent, 'reply');
+        assert.strictEqual(active.blockKey, 'blk-0123456789abcdef-1');
+    });
+
+    test('4. Live DOM chapterId and contentVersion used in Reply marker restore', () => {
+        const { doc, chapterBody } = setupTestDOM();
+        chapterBody.setAttribute('data-chapter-id', 'ch-live-reply-777');
+        chapterBody.setAttribute('data-content-version', '9');
+
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-live-reply-777');
+        draftStore.save(markerKey, JSON.stringify({
+            type: 'reply',
+            blockKey: 'blk-0123456789abcdef-1',
+            commentId: 'c-reply-200'
+        }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.notStrictEqual(requestedDetail, null);
+        assert.strictEqual(requestedDetail.chapterId, 'ch-live-reply-777');
+        assert.strictEqual(requestedDetail.contentVersion, 9);
+        assert.strictEqual(requestedDetail.blockKey, 'blk-0123456789abcdef-1');
+
+        const active = restoreModule.getActiveRestore();
+        assert.notStrictEqual(active, null);
+        assert.strictEqual(active.source, 'draft-reply');
+        assert.strictEqual(active.replyTo, 'c-reply-200');
+    });
+
+    test('5. Zero draft text in URL, open detail, or marker payload', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-reply-secret';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        const secretDraft = 'SECRET_SENSITIVE_REPLY_DRAFT_TEXT';
+
+        draftStore.save(draftKey, secretDraft);
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(win.location.search.includes(secretDraft), false, 'Draft text must not appear in URL');
+        assert.strictEqual(JSON.stringify(requestedDetail).includes(secretDraft), false, 'Draft text must not appear in event detail');
+        assert.strictEqual(draftStore.load(markerKey).includes(secretDraft), false, 'Draft text must not appear in marker');
+    });
+
+    test('6. Malformed JSON Reply marker safely removed, zero requests', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        draftStore.save(markerKey, '{corrupted-reply-marker-json');
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            requestedCount++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Corrupted marker safely removed');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+    });
+
+    test('7. Reply marker with missing/blank blockKey or commentId safely removed', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+
+        // Missing commentId
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1' }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(draftStore.load(markerKey), null, 'Missing commentId removed');
+
+        // Blank commentId
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1', commentId: '   ' }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(draftStore.load(markerKey), null, 'Blank commentId removed');
+
+        // Blank blockKey
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey: '   ', commentId: 'c-1' }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(draftStore.load(markerKey), null, 'Blank blockKey removed');
+    });
+
+    test('8. Root marker ignored untouched by validateReplyMarker', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const rootPayload = JSON.stringify({ type: 'root', blockKey: 'blk-0123456789abcdef-1' });
+        draftStore.save(markerKey, rootPayload);
+
+        const result = restoreModule.validateReplyMarker(rootPayload, markerKey, draftStore);
+        assert.strictEqual(result, null, 'validateReplyMarker returns null for root');
+        assert.strictEqual(draftStore.load(markerKey), rootPayload, 'Root marker left untouched in store');
+    });
+
+    test('9. Edit marker ignored untouched by validateActiveMarker', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const editPayload = JSON.stringify({ type: 'edit', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-edit-9' });
+        draftStore.save(markerKey, editPayload);
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            requestedCount++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        assert.strictEqual(draftStore.load(markerKey), editPayload, 'Edit marker left untouched');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+
+        const result = restoreModule.validateActiveMarker(editPayload, markerKey, draftStore);
+        assert.strictEqual(result, null, 'validateActiveMarker returns null for edit');
+        assert.strictEqual(draftStore.load(markerKey), editPayload, 'Edit marker still in store');
+    });
+
+    test('10. Stale/missing block in DOM: no drawer request, Reply marker removed, Reply draft preserved', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const missingBlockKey = 'blk-nonexistent-999';
+        const commentId = 'c-reply-stale';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey('11111111-1111-1111-1111-111111111111', missingBlockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+
+        draftStore.save(draftKey, 'Draft for stale reply block');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey: missingBlockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            requestedCount++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'No drawer requested for missing block');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Reply marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for stale reply block', 'Draft preserved');
+    });
+
+    test('11. Wrong chapter isolation: only current chapter active-block key consulted for Reply', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const otherChapterId = 'chapter-other-999';
+        const markerKeyOther = draftsAdapter.getBlockActiveMarkerKey(otherChapterId);
+        const otherPayload = JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-1' });
+        draftStore.save(markerKeyOther, otherPayload);
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            requestedCount++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'No drawer requested for other chapter marker');
+        assert.strictEqual(draftStore.load(markerKeyOther), otherPayload, 'Other chapter marker untouched');
+    });
+
+    test('12. Marker-driven load failure (kiemlai:block-discussion-load-failed): active restore cancelled, marker removed, draft preserved', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-reply-fail';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft content on load failure');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null, 'Active restore initiated');
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-load-failed',
+            detail: { chapterId: chapterId, blockKey: blockKey }
+        });
+
+        assert.strictEqual(restoreModule.getActiveRestore(), null, 'Active restore cancelled');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft content on load failure', 'Draft preserved');
+    });
+
+    test('13. Manual drawer close (kiemlai:block-discussion-closed) during restore: active restore cancelled, marker removed, draft preserved', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-reply-close';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft content on drawer close');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        assert.strictEqual(restoreModule.getActiveRestore(), null, 'Active restore cancelled');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft content on drawer close', 'Draft preserved');
+    });
+
+    test('14. Chapter changed (kiemlai:chapter-changed) cancels restore, removes marker, preserves draft', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-reply-chg';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft content on chapter changed');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed' });
+
+        assert.strictEqual(restoreModule.getActiveRestore(), null, 'Active restore cancelled');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft content on chapter changed', 'Draft preserved');
+    });
+
+    test('15. Repeated init on same document does not duplicate restore or dispatch duplicate open events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-reply-repeat';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        // Setup DOM in drawer for this comment
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', commentId);
+        const rootReplyBtn = doc.createElement('button');
+        rootReplyBtn.className = 'novel-comment-reply-btn';
+        rootReplyBtn.setAttribute('data-action', 'reply');
+        rootReplyBtn.setAttribute('data-comment-id', commentId);
+        rootEl.appendChild(rootReplyBtn);
+        thread.appendChild(rootEl);
+        contentEl.appendChild(thread);
+
+        let requestedCount = 0;
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedCount++;
+            requestedEvents.push(e.detail);
+        });
+
+        // 1. Initial restore: valid Reply marker => exactly one discussion-requested
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 1, 'Exactly one discussion-requested emitted on first init');
+
+        // 2. In-flight repeat init does not duplicate
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 1, 'In-flight repeat init does not duplicate request');
+
+        // 3. Dispatch matching loaded event so marker-driven restore COMPLETES
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                contentVersion: 1,
+                blockKey: blockKey,
+                threadCount: 1,
+                commentCount: 1
+            }
+        });
+
+        // 4. activeRestore is null, but marker still represents active Reply interaction
+        assert.strictEqual(restoreModule.getActiveRestore(), null, 'activeRestore is null after load completion');
+        assert.notStrictEqual(draftStore.load(markerKey), null, 'Reply marker still present in store');
+
+        // 5. Call init(doc, win) again -> assert NO second discussion-requested is emitted
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 1, 'Completed draft-reply restore suppresses duplicate init request');
+
+        // 6. Drawer close clears completed context
+        doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        // 7. A different Reply marker restores normally
+        const commentId2 = 'c-reply-other-99';
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: commentId2 }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 2, 'Different Reply marker restores normally');
+        assert.strictEqual(restoreModule.getActiveRestore().replyTo, commentId2);
+    });
+
+    test('16. Successful drawer load scrolls target, highlights, emits kiemlai:comment-reply-resume-requested, leaves URL untouched', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const rootId = 'c-root-16';
+        const replyId = 'c-reply-16';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: replyId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', rootId);
+
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', rootId);
+
+        const repliesContainer = doc.createElement('div');
+        repliesContainer.className = 'novel-comment-replies';
+
+        const replyEl = doc.createElement('article');
+        replyEl.className = 'novel-comment novel-comment--reply';
+        replyEl.setAttribute('data-comment-id', replyId);
+        const replyBtn = doc.createElement('button');
+        replyBtn.className = 'novel-comment-reply-btn';
+        replyBtn.setAttribute('data-action', 'reply');
+        replyBtn.setAttribute('data-comment-id', replyId);
+        replyEl.appendChild(replyBtn);
+        repliesContainer.appendChild(replyEl);
+
+        thread.appendChild(rootEl);
+        thread.appendChild(repliesContainer);
+        contentEl.appendChild(thread);
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(replyEl.scrolledIntoView, true, 'Reply element scrolled into view');
+        assert.strictEqual(replyEl.classList.contains('is-restored-target'), true, 'Reply element highlighted');
+        assert.strictEqual(replyEvents.length, 1, 'Exactly one resume event emitted');
+        assert.strictEqual(replyEvents[0].chapterId, chapterId);
+        assert.strictEqual(replyEvents[0].blockKey, blockKey);
+        assert.strictEqual(replyEvents[0].threadId, rootId);
+        assert.strictEqual(replyEvents[0].commentId, replyId);
+        assert.strictEqual(win.location.search, '', 'URL untouched');
+    });
+
+    test('17. Drawer load with missing target removes Reply marker, preserves draft, no resume event', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const missingCommentId = 'c-missing-target';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, missingCommentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for missing target');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: missingCommentId }));
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        // Drawer loaded with EMPTY contentEl (target does not exist)
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 0
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Reply marker removed because target missing');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for missing target', 'Draft preserved');
+        assert.strictEqual(replyEvents.length, 0, 'No reply resume event emitted');
+    });
+
+    test('18. Drawer load with tombstoned target removes Reply marker, preserves draft, no resume event', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const tombstoneCommentId = 'c-tombstone-18';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, tombstoneCommentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for tombstoned target');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: tombstoneCommentId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', tombstoneCommentId);
+
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root is-tombstone';
+        rootEl.setAttribute('data-comment-id', tombstoneCommentId);
+
+        thread.appendChild(rootEl);
+        contentEl.appendChild(thread);
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Reply marker removed because target is tombstone');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for tombstoned target', 'Draft preserved');
+        assert.strictEqual(replyEvents.length, 0, 'No reply resume event emitted');
+    });
+
+    test('19. Reply cleanup removes matching Reply marker only, preserving Root and Edit markers', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-target-19';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Inject store and adapter into restoreModule
+        restoreModule.setDraftStore(draftStore);
+        restoreModule.setDraftAdapter(draftsAdapter);
+
+        // 1. Root marker preserved
+        const rootPayload = JSON.stringify({ type: 'root', blockKey });
+        draftStore.save(markerKey, rootPayload);
+        restoreModule.removeReplyMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), rootPayload, 'Root marker preserved');
+
+        // 2. Edit marker preserved
+        const editPayload = JSON.stringify({ type: 'edit', blockKey, commentId });
+        draftStore.save(markerKey, editPayload);
+        restoreModule.removeReplyMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), editPayload, 'Edit marker preserved');
+
+        // 3. Mismatched Reply commentId preserved
+        const otherReplyPayload = JSON.stringify({ type: 'reply', blockKey, commentId: 'other-comment' });
+        draftStore.save(markerKey, otherReplyPayload);
+        restoreModule.removeReplyMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), otherReplyPayload, 'Mismatched reply marker preserved');
+
+        // 4. Mismatched Reply blockKey preserved
+        const otherBlockPayload = JSON.stringify({ type: 'reply', blockKey: 'other-blk', commentId });
+        draftStore.save(markerKey, otherBlockPayload);
+        restoreModule.removeReplyMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), otherBlockPayload, 'Mismatched blockKey preserved');
+
+        // 5. Exact matching Reply marker removed
+        const matchingPayload = JSON.stringify({ type: 'reply', blockKey, commentId });
+        draftStore.save(markerKey, matchingPayload);
+        restoreModule.removeReplyMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), null, 'Matching reply marker successfully removed');
+    });
+
+    test('20. Failed restore does NOT poison completed context: non-replyable target removes marker without completed context, subsequent restore when target becomes replyable succeeds', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-poison-check-20';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft 20 to restore eventually');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        // 1. Initial DOM: Target comment exists in live thread, BUT has NO reply button (non-replyable)
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', commentId);
+        thread.appendChild(rootEl);
+        contentEl.appendChild(thread);
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        // Drawer loaded: target is non-replyable
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on failed replyability check');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 20 to restore eventually', 'Draft preserved');
+        assert.strictEqual(replyEvents.length, 0, 'No reply resume event emitted');
+
+        // 2. Now target BECOMES replyable! Add live reply button to rootEl
+        const replyBtn = doc.createElement('button');
+        replyBtn.className = 'novel-comment-reply-btn';
+        replyBtn.setAttribute('data-action', 'reply');
+        replyBtn.setAttribute('data-comment-id', commentId);
+        rootEl.appendChild(replyBtn);
+
+        // Save new active Reply marker for same comment
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        // Because completedDraftInteractionContext was NOT poisoned, subsequent init/restore succeeds!
+        let discussionRequested = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => {
+            discussionRequested++;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(discussionRequested, 1, 'Subsequent restore is not suppressed by poisoned state');
+
+        // Drawer loaded again
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(replyEvents.length, 1, 'Reply resume event successfully emitted on subsequent restore');
+        assert.strictEqual(replyEvents[0].commentId, commentId);
+        assert.strictEqual(replyEvents[0].threadId, commentId);
+        assert.strictEqual(rootEl.scrolledIntoView, true);
+    });
+
+    test('21. Non-replyable target in live thread removes Reply marker, preserves draft, emits 0 resume events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const rootId = 'c-root-21';
+        const replyId = 'c-reply-21';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, replyId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for non-replyable target');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: replyId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', rootId);
+
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', rootId);
+
+        const repliesContainer = doc.createElement('div');
+        repliesContainer.className = 'novel-comment-replies';
+
+        const replyEl = doc.createElement('article');
+        replyEl.className = 'novel-comment novel-comment--reply';
+        replyEl.setAttribute('data-comment-id', replyId);
+        // Explicitly NO reply button inside replyEl!
+        repliesContainer.appendChild(replyEl);
+
+        thread.appendChild(rootEl);
+        thread.appendChild(repliesContainer);
+        contentEl.appendChild(thread);
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed because target is non-replyable');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for non-replyable target', 'Draft preserved');
+        assert.strictEqual(replyEvents.length, 0, 'No resume event emitted');
+    });
+
+    test('22. Broken live-thread target removes Reply marker, preserves draft, emits 0 resume events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-broken-thread-22';
+        const draftKey = draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for broken thread target');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId }));
+
+        // Thread card exists but has BLANK data-root-id and no data-comment-id
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', '   ');
+
+        const rootEl = doc.createElement('div');
+        rootEl.className = 'novel-comment novel-comment--root';
+        rootEl.setAttribute('data-comment-id', commentId);
+
+        const replyBtn = doc.createElement('button');
+        replyBtn.className = 'novel-comment-reply-btn';
+        replyBtn.setAttribute('data-action', 'reply');
+        rootEl.appendChild(replyBtn);
+
+        thread.appendChild(rootEl);
+        contentEl.appendChild(thread);
+
+        const replyEvents = [];
+        doc.addEventListener('kiemlai:comment-reply-resume-requested', (e) => {
+            replyEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed because live thread root is missing');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for broken thread target', 'Draft preserved');
+        assert.strictEqual(replyEvents.length, 0, 'No resume event emitted');
+    });
+});
+
