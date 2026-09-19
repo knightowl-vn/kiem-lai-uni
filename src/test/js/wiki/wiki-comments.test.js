@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 const wikiCommentsModule = require(path.join(__dirname, '../../../main/resources/static/js/wiki/wiki-comments.js'));
+const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
 
 // ============================================================================
 // Lightweight DOM Test Fixtures
@@ -160,6 +161,14 @@ class FakeElement {
         this.listeners[event].push(handler);
     }
 
+    removeEventListener(event, handler) {
+        if (!this.listeners[event]) return;
+        const idx = this.listeners[event].indexOf(handler);
+        if (idx >= 0) {
+            this.listeners[event].splice(idx, 1);
+        }
+    }
+
     dispatchEvent(event) {
         const evt = typeof event === 'string' ? { type: event } : event;
         if (!evt.target) {
@@ -241,6 +250,39 @@ class FakeElement {
     }
 }
 
+class FakeWindow {
+    constructor(href = 'http://localhost/wiki/character/tran-binh-an') {
+        this.location = {
+            href: href,
+            origin: 'http://localhost'
+        };
+        this.listeners = {};
+    }
+
+    addEventListener(event, handler) {
+        if (!this.listeners[event]) {
+            this.listeners[event] = [];
+        }
+        this.listeners[event].push(handler);
+    }
+
+    removeEventListener(event, handler) {
+        if (!this.listeners[event]) return;
+        const idx = this.listeners[event].indexOf(handler);
+        if (idx >= 0) {
+            this.listeners[event].splice(idx, 1);
+        }
+    }
+
+    dispatchEvent(event) {
+        const evt = typeof event === 'string' ? { type: event } : event;
+        const handlers = this.listeners[evt.type] || [];
+        for (const h of handlers) {
+            h(evt);
+        }
+    }
+}
+
 class FakeDocument {
     constructor() {
         this.elementsById = new Map();
@@ -250,12 +292,7 @@ class FakeDocument {
         this.root.appendChild(this.head);
         this.root.appendChild(this.body);
 
-        this.defaultView = {
-            location: {
-                href: 'http://localhost/wiki/character/tran-binh-an',
-                origin: 'http://localhost'
-            }
-        };
+        this.defaultView = new FakeWindow();
     }
 
     createElement(tag, attrs = {}) {
@@ -2789,6 +2826,568 @@ describe('WikiArticleComments Module Tests', () => {
         assert.strictEqual(finalState.historyCurrentPage, 0, 'historyCurrentPage must reflect session B (0)');
         assert.strictEqual(finalState.historyHasNext, false, 'historyHasNext must reflect session B (false)');
         assert.strictEqual(finalState.historyIsLoading, false);
+    });
+});
+
+describe('UX-DRAFT-01B Wiki Root Comment Draft Persistence Integration Tests', () => {
+
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+            this.shouldThrow = false;
+        }
+
+        getItem(key) {
+            if (this.shouldThrow) {
+                throw new Error('Storage access restricted');
+            }
+            return this.store.has(key) ? this.store.get(key) : null;
+        }
+
+        setItem(key, value) {
+            if (this.shouldThrow) {
+                throw new Error('QuotaExceededError');
+            }
+            this.store.set(key, String(value));
+        }
+
+        removeItem(key) {
+            if (this.shouldThrow) {
+                throw new Error('Storage access restricted');
+            }
+            this.store.delete(key);
+        }
+
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let mockTime;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        mockTime = 1_000_000;
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            clock: () => mockTime,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        wikiCommentsModule.resetState();
+        wikiCommentsModule.setDraftStore(draftStore);
+    });
+
+    test('0. getRootDraftKey validation: hardens against accidental fallback for empty/whitespace/null arguments', () => {
+        // Normal no-argument invocation when articleId is not set
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey(), null, 'No-arg call before init should return null');
+
+        // Normal no-argument invocation after init
+        const doc = createEnvironment({ articleIdVal: 'art-xyz-789' });
+        wikiCommentsModule.init(doc);
+        assert.strictEqual(
+            wikiCommentsModule.getRootDraftKey(),
+            'kiemlai:draft:wiki-comment:art-xyz-789:root',
+            'No-argument getRootDraftKey() must use active articleId'
+        );
+
+        // Explicit arguments: MUST NOT fall back to active articleId ('art-xyz-789')
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey(''), null, 'Explicit empty string must return null');
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey('   '), null, 'Explicit whitespace string must return null');
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey(null), null, 'Explicit null must return null');
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey(undefined), null, 'Explicit undefined must return null');
+        assert.strictEqual(wikiCommentsModule.getRootDraftKey(123), null, 'Non-string must return null');
+
+        // Valid explicit argument overrides active articleId
+        const keyUuid = wikiCommentsModule.getRootDraftKey('11111111-2222-3333-4444-555555555555');
+        assert.strictEqual(keyUuid, 'kiemlai:draft:wiki-comment:11111111-2222-3333-4444-555555555555:root');
+
+        const keyEncoded = wikiCommentsModule.getRootDraftKey('article/test#1');
+        assert.strictEqual(keyEncoded, 'kiemlai:draft:wiki-comment:article%2Ftest%231:root');
+    });
+
+    test('1. Root draft is restored into empty textarea on initialization', async () => {
+        const draftText = 'Bình luận dở dang từ phiên trước';
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        draftStore.save(key, draftText);
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        assert.strictEqual(inputEl.value, draftText, 'Draft text must be restored into textarea');
+    });
+
+    test('2. Root draft does NOT overwrite existing textarea content on initialization', async () => {
+        const draftText = 'Bản nháp trong storage';
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        draftStore.save(key, draftText);
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        inputEl.value = 'Nội dung người dùng đã gõ trước khi init';
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(inputEl.value, 'Nội dung người dùng đã gõ trước khi init', 'Existing content must not be overwritten');
+    });
+
+    test('3. Typing persists draft after 400ms debounce and clearing removes draft', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+
+        // User types
+        inputEl.value = 'Đang gõ bình luận mới...';
+        inputEl.dispatchEvent({ type: 'input' });
+
+        // Immediate check: debounce not yet elapsed
+        assert.strictEqual(draftStore.load(key), null, 'Draft should not be saved before debounce fires');
+
+        // Wait 450ms for debounce
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), 'Đang gõ bình luận mới...', 'Draft should be saved after debounce');
+
+        // User clears text
+        inputEl.value = '   ';
+        inputEl.dispatchEvent({ type: 'input' });
+
+        // Wait 450ms for debounce
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), null, 'Draft should be removed when textarea is cleared');
+    });
+
+    test('4. Successful submit (201 Created) clears textarea and removes draft from storage', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        const textToSubmit = 'Bình luận sắp gửi thành công';
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    json: async () => ({
+                        id: 'new-comment-id',
+                        body: textToSubmit,
+                        createdAt: '2026-09-19T10:00:00Z'
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        const formEl = doc.getElementById('wikiRootComposerForm');
+
+        inputEl.value = textToSubmit;
+        draftStore.save(key, textToSubmit);
+        assert.strictEqual(draftStore.load(key), textToSubmit);
+
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(inputEl.value, '', 'Textarea must be cleared on 201');
+        assert.strictEqual(draftStore.load(key), null, 'Draft must be removed from storage on 201');
+    });
+
+    test('5. Failed submit (400, 404, 500, network error) preserves textarea and draft', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        const textDraft = 'Bình luận không được mất khi lỗi';
+
+        let returnStatus = 400;
+        let throwNetwork = false;
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                if (throwNetwork) {
+                    throw new Error('Failed to fetch');
+                }
+                return { status: returnStatus, json: async () => ({}) };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        const formEl = doc.getElementById('wikiRootComposerForm');
+
+        // Test 400
+        returnStatus = 400;
+        inputEl.value = textDraft;
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+        assert.strictEqual(inputEl.value, textDraft, '400 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), textDraft, '400 must preserve draft in storage');
+
+        // Test 404
+        returnStatus = 404;
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+        assert.strictEqual(inputEl.value, textDraft, '404 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), textDraft, '404 must preserve draft in storage');
+
+        // Test 500
+        returnStatus = 500;
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+        assert.strictEqual(inputEl.value, textDraft, '500 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), textDraft, '500 must preserve draft in storage');
+
+        // Test Network Error
+        throwNetwork = true;
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+        assert.strictEqual(inputEl.value, textDraft, 'Network error must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), textDraft, 'Network error must preserve draft in storage');
+    });
+
+    test('6. Guest submit attempt persists draft immediately before login redirect', async () => {
+        const loginDest = '/login?returnTo=%2Fwiki%2Fcharacter%2Ftran-binh-an%23wikiDiscussion';
+        const doc = createEnvironment({ authenticated: 'false', loginUrlVal: loginDest });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        const formEl = doc.getElementById('wikiRootComposerForm');
+        const guestText = 'Bình luận khách gõ trước khi bị chuyển hướng đăng nhập';
+
+        inputEl.value = guestText;
+        // Do NOT wait for debounce; immediately dispatch submit
+        formEl.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+
+        // Verify redirect
+        assert.ok(doc.defaultView.location.href.includes('/login'));
+
+        // Verify draft was saved immediately
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        assert.strictEqual(draftStore.load(key), guestText, 'Draft must be saved synchronously prior to redirect');
+    });
+
+    test('7. Guest returns authenticated: draft is restored seamlessly', async () => {
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        const guestText = 'Bình luận khách đã lưu trước khi đăng nhập';
+        draftStore.save(key, guestText);
+
+        // Advance clock by 2 minutes (120,000ms) - well within 5min TTL
+        mockTime += 120_000;
+
+        wikiCommentsModule.resetState();
+        wikiCommentsModule.setDraftStore(draftStore);
+
+        const authenticatedDoc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(authenticatedDoc);
+        await new Promise(process.nextTick);
+
+        const inputEl = authenticatedDoc.getElementById('wikiRootComposerInput');
+        assert.strictEqual(inputEl.value, guestText, 'Draft must be restored when user returns authenticated');
+    });
+
+    test('8. Expired draft (>5 min) is not restored and is purged from storage', async () => {
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        draftStore.save(key, 'Bản nháp đã quá hạn');
+
+        // Advance clock by 5 minutes + 1 second (301,000ms)
+        mockTime += 301_000;
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        assert.strictEqual(inputEl.value, '', 'Expired draft must NOT be restored');
+        assert.strictEqual(draftStore.load(key), null, 'Expired draft must return null');
+        assert.strictEqual(mockStorage.getItem(key), null, 'Expired draft must be purged from storage');
+    });
+
+    test('9. Draft isolation across distinct articles', async () => {
+        const articleA = ARTICLE_ID;
+        const articleB = '99999999-9999-9999-9999-999999999999';
+
+        const keyA = wikiCommentsModule.getRootDraftKey(articleA);
+        const keyB = wikiCommentsModule.getRootDraftKey(articleB);
+
+        draftStore.save(keyA, 'Draft for Article A');
+
+        // Initialize for Article B
+        const docB = createEnvironment({ articleIdVal: articleB, authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(docB);
+        await new Promise(process.nextTick);
+
+        const inputB = docB.getElementById('wikiRootComposerInput');
+        assert.strictEqual(inputB.value, '', 'Article B must not receive Article A draft');
+
+        // Type on Article B
+        inputB.value = 'Draft for Article B';
+        inputB.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+
+        // Verify both drafts exist independently
+        assert.strictEqual(draftStore.load(keyA), 'Draft for Article A');
+        assert.strictEqual(draftStore.load(keyB), 'Draft for Article B');
+    });
+
+    test('10. Multiline text and special characters preserved accurately in draft', async () => {
+        const multilineText = 'Dòng 1: Mở đầu thảo luận\n  Dòng 2: Thụt đầu dòng\n\n"Trích dẫn" & ký tự đặc biệt <script>alert(1)</script>';
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        draftStore.save(key, multilineText);
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        assert.strictEqual(inputEl.value, multilineText, 'Exact multiline and special characters must be preserved');
+    });
+
+    test('11. Immediate page-exit flush on pagehide before 400ms debounce expires saves text and restores upon re-init', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        const fastDraft = 'Bình luận gõ rất nhanh trước khi reload';
+
+        // User types text
+        inputEl.value = fastDraft;
+        inputEl.dispatchEvent({ type: 'input' });
+
+        // Verify that before 400ms debounce, text is NOT yet saved in store
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        assert.strictEqual(draftStore.load(key), null, 'Draft should not be in store immediately after typing');
+
+        // Trigger immediate page-exit boundary (pagehide) before 400ms timer fires
+        doc.defaultView.dispatchEvent({ type: 'pagehide' });
+
+        // Prove A: Synchronously saved without waiting for 400ms timer
+        assert.strictEqual(
+            draftStore.load(key),
+            fastDraft,
+            'pagehide must synchronously flush pending draft to storage before debounce expires'
+        );
+
+        // Prove B: Subsequent initialization restores that exact text
+        wikiCommentsModule.resetState();
+        wikiCommentsModule.setDraftStore(draftStore);
+
+        const reloadDoc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(reloadDoc);
+        await new Promise(process.nextTick);
+
+        const reloadedInputEl = reloadDoc.getElementById('wikiRootComposerInput');
+        assert.strictEqual(
+            reloadedInputEl.value,
+            fastDraft,
+            'Subsequent initialization must restore the exact flushed draft text'
+        );
+    });
+
+    test('12. destroy/reset removes pagehide listener and does not allow stale lifecycle handlers', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Verify pagehide listener is registered on doc.defaultView
+        assert.strictEqual(
+            doc.defaultView.listeners['pagehide'] && doc.defaultView.listeners['pagehide'].length,
+            1,
+            'pagehide listener should be registered on defaultView after init'
+        );
+
+        // Type something
+        const inputEl = doc.getElementById('wikiRootComposerInput');
+        inputEl.value = 'Text before reset';
+        inputEl.dispatchEvent({ type: 'input' });
+
+        // Destroy/reset module
+        wikiCommentsModule.resetState();
+
+        // Verify listener was cleanly removed
+        assert.strictEqual(
+            doc.defaultView.listeners['pagehide'] && doc.defaultView.listeners['pagehide'].length,
+            0,
+            'resetState must remove pagehide listener from defaultView'
+        );
+
+        // Dispatch pagehide on old window - should have no effect
+        inputEl.value = 'Stale text after destroy';
+        doc.defaultView.dispatchEvent({ type: 'pagehide' });
+
+        const key = wikiCommentsModule.getRootDraftKey(ARTICLE_ID);
+        assert.strictEqual(
+            draftStore.load(key),
+            null,
+            'Stale pagehide event on destroyed module must not save draft'
+        );
     });
 });
 

@@ -75,6 +75,12 @@
     let injectedFetch = null;
     let injectedConfirm = null;
 
+    // Ephemeral Draft State (UX-DRAFT-01B)
+    let rootDraftDebounceTimer = null;
+    let rootDraftInputListener = null;
+    let rootDraftPageExitListener = null;
+    let injectedDraftStore = null;
+
     /**
      * Resets all module internal state.
      */
@@ -91,6 +97,28 @@
             currentDoc.removeEventListener('keydown', keydownHandler);
         }
         keydownHandler = null;
+
+        if (rootDraftDebounceTimer) {
+            clearTimeout(rootDraftDebounceTimer);
+            rootDraftDebounceTimer = null;
+        }
+        if (currentDoc) {
+            const els = getElements(currentDoc);
+            if (els.composerInputEl && rootDraftInputListener && typeof els.composerInputEl.removeEventListener === 'function') {
+                els.composerInputEl.removeEventListener('input', rootDraftInputListener);
+            }
+        }
+        rootDraftInputListener = null;
+
+        if (rootDraftPageExitListener) {
+            const win = (currentDoc && currentDoc.defaultView) ? currentDoc.defaultView : (typeof window !== 'undefined' ? window : null);
+            if (win && typeof win.removeEventListener === 'function') {
+                win.removeEventListener('pagehide', rootDraftPageExitListener);
+            }
+            rootDraftPageExitListener = null;
+        }
+
+        injectedDraftStore = null;
 
         currentDoc = null;
         articleId = null;
@@ -331,6 +359,104 @@
         if (els.statusEl) {
             clearElement(els.statusEl);
             els.statusEl.className = 'wiki-discussion-status';
+        }
+    }
+
+    /**
+     * Resolves the EphemeralDraftStore implementation.
+     */
+    function getDraftStore() {
+        if (injectedDraftStore) {
+            return injectedDraftStore;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.EphemeralDraftStore) return window.EphemeralDraftStore;
+            if (window.KiemLai && window.KiemLai.EphemeralDraftStore) return window.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.EphemeralDraftStore) return globalThis.EphemeralDraftStore;
+            if (globalThis.KiemLai && globalThis.KiemLai.EphemeralDraftStore) return globalThis.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/ephemeral-draft-store.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Builds canonical storage key for the article root comment draft.
+     * Schema: kiemlai:draft:wiki-comment:{encodedArticleId}:root
+     *
+     * @param {string} [artId] - Optional explicit article ID override.
+     * @returns {string|null} Canonical storage key or null if ID is invalid/empty.
+     */
+    function getRootDraftKey(artId) {
+        let rawId;
+        if (arguments.length > 0) {
+            // Explicit argument provided: do NOT fallback to current articleId
+            if (artId == null || typeof artId !== 'string') {
+                return null;
+            }
+            rawId = artId.trim();
+        } else {
+            // No-argument invocation: use active module articleId
+            rawId = (typeof articleId === 'string') ? articleId.trim() : '';
+        }
+
+        if (!rawId) {
+            return null;
+        }
+
+        return 'kiemlai:draft:wiki-comment:' + encodeURIComponent(rawId) + ':root';
+    }
+
+    /**
+     * Saves the current root comment draft into ephemeral storage.
+     */
+    function saveRootDraft(doc) {
+        const d = doc || currentDoc;
+        const key = getRootDraftKey();
+        if (!key) return false;
+        const els = getElements(d);
+        const text = els.composerInputEl ? els.composerInputEl.value : '';
+        const store = getDraftStore();
+        if (!store || typeof store.save !== 'function') return false;
+        return store.save(key, text);
+    }
+
+    /**
+     * Restores saved draft into root composer if input is currently empty.
+     */
+    function restoreRootDraft(doc) {
+        const d = doc || currentDoc;
+        const key = getRootDraftKey();
+        if (!key) return null;
+        const els = getElements(d);
+        if (!els.composerInputEl) return null;
+        if (typeof els.composerInputEl.value === 'string' && els.composerInputEl.value.trim().length > 0) {
+            return null; // Don't overwrite existing user text
+        }
+        const store = getDraftStore();
+        if (!store || typeof store.load !== 'function') return null;
+        const draft = store.load(key);
+        if (draft && typeof draft === 'string') {
+            els.composerInputEl.value = draft;
+            return draft;
+        }
+        return null;
+    }
+
+    /**
+     * Removes the root comment draft from ephemeral storage.
+     */
+    function removeRootDraft(artId) {
+        const key = arguments.length > 0 ? getRootDraftKey(artId) : getRootDraftKey();
+        if (!key) return;
+        const store = getDraftStore();
+        if (store && typeof store.remove === 'function') {
+            store.remove(key);
         }
     }
 
@@ -1134,6 +1260,11 @@
         const els = getElements(d);
 
         if (!isAuthenticated) {
+            if (rootDraftDebounceTimer) {
+                clearTimeout(rootDraftDebounceTimer);
+                rootDraftDebounceTimer = null;
+            }
+            saveRootDraft(d);
             redirectToLogin(d);
             return;
         }
@@ -1153,6 +1284,12 @@
         if (isMutating) return;
         isMutating = true;
 
+        if (rootDraftDebounceTimer) {
+            clearTimeout(rootDraftDebounceTimer);
+            rootDraftDebounceTimer = null;
+        }
+        saveRootDraft(d);
+
         if (els.composerSubmitEl) els.composerSubmitEl.disabled = true;
         if (els.composerInputEl) els.composerInputEl.disabled = true;
         if (els.composerErrorEl) els.composerErrorEl.hidden = true;
@@ -1166,12 +1303,14 @@
             });
 
             if (res && res.status === 201) {
+                removeRootDraft();
                 if (els.composerInputEl) {
                     els.composerInputEl.value = '';
                 }
                 // Refresh discussion authoritatively from page 0
                 await loadDiscussionFeed(0, false, d);
             } else if (res && (res.status === 401 || res.status === 302 || res.redirected)) {
+                saveRootDraft(d);
                 redirectToLogin(d);
             } else if (res && res.status === 400) {
                 if (els.composerErrorEl) {
@@ -1766,6 +1905,42 @@
         csrfToken = attrCsrfToken || (metaCsrf ? metaCsrf.getAttribute('content') : '');
         csrfHeader = attrCsrfHeader || (metaCsrfHeader ? metaCsrfHeader.getAttribute('content') : 'X-CSRF-TOKEN');
 
+        // Restore root comment draft if available
+        restoreRootDraft(currentDoc);
+
+        // Wire root composer draft auto-saving
+        if (els.composerInputEl) {
+            if (rootDraftInputListener && typeof els.composerInputEl.removeEventListener === 'function') {
+                els.composerInputEl.removeEventListener('input', rootDraftInputListener);
+            }
+            rootDraftInputListener = function () {
+                if (rootDraftDebounceTimer) {
+                    clearTimeout(rootDraftDebounceTimer);
+                }
+                rootDraftDebounceTimer = setTimeout(function () {
+                    saveRootDraft(currentDoc);
+                    rootDraftDebounceTimer = null;
+                }, 400);
+            };
+            els.composerInputEl.addEventListener('input', rootDraftInputListener);
+        }
+
+        // Wire immediate page-exit draft flush on pagehide
+        const win = (currentDoc && currentDoc.defaultView) ? currentDoc.defaultView : (typeof window !== 'undefined' ? window : null);
+        if (win && typeof win.addEventListener === 'function') {
+            if (rootDraftPageExitListener && typeof win.removeEventListener === 'function') {
+                win.removeEventListener('pagehide', rootDraftPageExitListener);
+            }
+            rootDraftPageExitListener = function () {
+                if (rootDraftDebounceTimer) {
+                    clearTimeout(rootDraftDebounceTimer);
+                    rootDraftDebounceTimer = null;
+                }
+                saveRootDraft(currentDoc);
+            };
+            win.addEventListener('pagehide', rootDraftPageExitListener);
+        }
+
         // Wire root composer
         if (els.composerFormEl) {
             els.composerFormEl.addEventListener('submit', function (e) {
@@ -1911,6 +2086,15 @@
         },
         setConfirmImplementation: function (fn) {
             injectedConfirm = fn;
-        }
+        },
+        setDraftStore: function (store) {
+            injectedDraftStore = store;
+        },
+        getDraftStore: getDraftStore,
+        saveRootDraft: saveRootDraft,
+        restoreRootDraft: restoreRootDraft,
+        removeRootDraft: removeRootDraft,
+        getRootDraftKey: getRootDraftKey,
+        buildWikiRootDraftKey: getRootDraftKey
     };
 }));
