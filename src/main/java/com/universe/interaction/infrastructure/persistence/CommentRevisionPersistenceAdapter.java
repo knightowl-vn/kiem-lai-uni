@@ -60,11 +60,6 @@ public class CommentRevisionPersistenceAdapter implements CommentRevisionReposit
             throw new IllegalArgumentException("CommentRevision cannot be null.");
         }
         CommentRevisionJpaEntity entity = mapper.toJpaEntity(revision);
-        if (entity.getId() != null && repository.existsById(entity.getId())) {
-            throw new DataIntegrityViolationException(
-                    "CommentRevision with ID " + entity.getId() + " already exists. Comment revisions are immutable and insert-only."
-            );
-        }
         try {
             entityManager.persist(entity);
             entityManager.flush();
