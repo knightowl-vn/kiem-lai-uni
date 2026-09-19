@@ -28,6 +28,8 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
         this.mapper = Objects.requireNonNull(mapper, "InteractionReportPersistenceMapper cannot be null.");
     }
 
+    private static final String UQ_PENDING_REPORTER = "uq_interaction_reports_pending_reporter";
+
     @Override
     @Transactional
     public InteractionReport save(InteractionReport report) {
@@ -35,8 +37,36 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
             throw new IllegalArgumentException("InteractionReport cannot be null.");
         }
         InteractionReportJpaEntity entity = mapper.toJpaEntity(report);
-        InteractionReportJpaEntity savedEntity = repository.saveAndFlush(entity);
-        return mapper.toDomain(savedEntity);
+        try {
+            InteractionReportJpaEntity savedEntity = repository.saveAndFlush(entity);
+            return mapper.toDomain(savedEntity);
+        } catch (org.springframework.dao.DataIntegrityViolationException ex) {
+            if (isDuplicatePendingConstraintViolation(ex)) {
+                throw new com.universe.interaction.application.exceptions.DuplicatePendingReportException(
+                        report.getCommentId(),
+                        report.getReporterUserId()
+                );
+            }
+            throw ex;
+        }
+    }
+
+    private boolean isDuplicatePendingConstraintViolation(org.springframework.dao.DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null
+                        && cve.getConstraintName().toLowerCase().contains(UQ_PENDING_REPORTER)) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null
+                    && current.getMessage().toLowerCase().contains(UQ_PENDING_REPORTER)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override

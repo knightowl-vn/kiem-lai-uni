@@ -161,8 +161,8 @@ class InteractionReportPersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("saveAndFlush surfaces database duplicate-pending constraint for concurrent PENDING rows")
-    void shouldSurfaceDatabaseDuplicatePendingConstraintForConcurrentPendingRows() {
+    @DisplayName("save surfaces database duplicate-pending constraint translated to DuplicatePendingReportException")
+    void shouldSurfaceDatabaseDuplicatePendingConstraintTranslatedToApplicationException() {
         UUID commentId = insertComment();
         UUID reporterUserId = UUID.randomUUID();
         Instant now = Instant.now();
@@ -189,8 +189,32 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         adapter.save(report1);
 
         assertThatThrownBy(() -> adapter.save(report2))
+                .isInstanceOf(com.universe.interaction.application.exceptions.DuplicatePendingReportException.class)
+                .hasMessageContaining(commentId.toString())
+                .hasMessageContaining(reporterUserId.toString());
+    }
+
+    @Test
+    @DisplayName("Non-duplicate data integrity violations (e.g. FK constraint) are not translated to DuplicatePendingReportException")
+    void shouldNotFalselyTranslateOtherDataIntegrityViolations() {
+        UUID nonExistentCommentId = UUID.randomUUID();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        InteractionReport orphanReport = InteractionReport.createPending(
+                UUID.randomUUID(),
+                nonExistentCommentId,
+                reporterUserId,
+                ReportReason.SPAM,
+                null,
+                "Snapshot",
+                now
+        );
+
+        assertThatThrownBy(() -> adapter.save(orphanReport))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("uq_interaction_reports_pending_reporter");
+                .isNotInstanceOf(com.universe.interaction.application.exceptions.DuplicatePendingReportException.class)
+                .hasMessageContaining("fk_interaction_reports_comment");
     }
 
     @Test
