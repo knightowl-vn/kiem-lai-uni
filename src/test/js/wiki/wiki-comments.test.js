@@ -89,12 +89,18 @@ class FakeElement {
         if (name === 'class') {
             this.classList.classes = new Set(String(value).trim().split(/\s+/).filter(Boolean));
         }
+        if (name === 'hidden') {
+            this.hidden = true;
+        }
     }
 
     removeAttribute(name) {
         delete this.attributes[name];
         if (name === 'class') {
             this.classList.classes.clear();
+        }
+        if (name === 'hidden') {
+            this.hidden = false;
         }
     }
 
@@ -274,6 +280,29 @@ class FakeDocument {
 
     querySelectorAll(selector) {
         return this.root.querySelectorAll(selector);
+    }
+
+    addEventListener(event, handler) {
+        if (!this.listeners) this.listeners = {};
+        if (!this.listeners[event]) this.listeners[event] = [];
+        this.listeners[event].push(handler);
+    }
+
+    removeEventListener(event, handler) {
+        if (!this.listeners || !this.listeners[event]) return;
+        const idx = this.listeners[event].indexOf(handler);
+        if (idx >= 0) {
+            this.listeners[event].splice(idx, 1);
+        }
+    }
+
+    dispatchEvent(event) {
+        if (!this.listeners) return;
+        const evt = typeof event === 'string' ? { type: event } : event;
+        const handlers = (this.listeners[evt.type] || []).slice();
+        for (const h of handlers) {
+            h(evt);
+        }
     }
 }
 
@@ -1574,6 +1603,1192 @@ describe('WikiArticleComments Module Tests', () => {
         const statusEl = doc.getElementById(wikiCommentsModule.STATUS_ID);
         assert.ok(statusEl.textContent.includes('Lỗi kết nối khi cập nhật thảo luận'));
         assert.ok(statusEl.className.includes('wiki-discussion-status--error'));
+    });
+
+    // ========================================================================
+    // MS-05E6D — Revision History UI Tests
+    // ========================================================================
+
+    test('22. Unedited comment & tombstone render no revision-history action button', async () => {
+        const doc = createEnvironment();
+
+        const uneditedThread = {
+            root: {
+                id: ROOT_ID,
+                authorUserId: '33333333-3333-3333-3333-333333333333',
+                body: 'Unedited comment',
+                tombstone: false,
+                createdAt: '2026-09-19T10:00:00Z',
+                updatedAt: '2026-09-19T10:00:00Z',
+                author: { displayName: 'Scholar' },
+                canEdit: false,
+                canDelete: false
+            },
+            replies: [
+                {
+                    id: REPLY_ID,
+                    parentCommentId: ROOT_ID,
+                    authorUserId: '22222222-2222-2222-2222-222222222222',
+                    body: 'Tombstone reply',
+                    tombstone: true,
+                    createdAt: '2026-09-19T10:05:00Z',
+                    updatedAt: '2026-09-19T10:10:00Z',
+                    edited: true,
+                    author: { displayName: 'Ghost' },
+                    canEdit: false,
+                    canDelete: false
+                }
+            ]
+        };
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [uneditedThread],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const listEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID);
+        const historyBtns = listEl.querySelectorAll('[data-action="history"]');
+        assert.strictEqual(historyBtns.length, 0, 'No history button should be rendered for unedited comments or tombstones');
+    });
+
+    test('23. Active edited comment renders accessible history action button', async () => {
+        const doc = createEnvironment();
+
+        const editedThread = {
+            root: {
+                id: ROOT_ID,
+                authorUserId: '33333333-3333-3333-3333-333333333333',
+                body: 'Edited root comment',
+                tombstone: false,
+                createdAt: '2026-09-19T10:00:00Z',
+                updatedAt: '2026-09-19T10:30:00Z',
+                edited: true,
+                author: { displayName: 'Scholar' },
+                canEdit: false,
+                canDelete: false
+            },
+            replies: []
+        };
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [editedThread],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const listEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID);
+        const historyBtn = listEl.querySelector('[data-action="history"]');
+        assert.ok(historyBtn, 'History button must be rendered for active edited comment');
+        assert.strictEqual(historyBtn.tagName, 'BUTTON', 'Must be a semantic <button>');
+        assert.strictEqual(historyBtn.textContent, 'đã chỉnh sửa');
+        assert.strictEqual(historyBtn.getAttribute('aria-label'), 'Xem lịch sử chỉnh sửa');
+        assert.strictEqual(historyBtn.getAttribute('data-comment-id'), ROOT_ID);
+        assert.ok(historyBtn.className.includes('wiki-comment-edited'));
+    });
+
+    test('24. Lazy GET behavior & correct endpoint', async () => {
+        const doc = createEnvironment();
+        const fetches = [];
+
+        const editedThread = {
+            root: {
+                id: ROOT_ID,
+                authorUserId: '33333333-3333-3333-3333-333333333333',
+                body: 'Edited comment',
+                tombstone: false,
+                createdAt: '2026-09-19T10:00:00Z',
+                updatedAt: '2026-09-19T10:30:00Z',
+                edited: true,
+                author: { displayName: 'Scholar' }
+            },
+            replies: []
+        };
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            fetches.push({ url, method: (opts && opts.method) || 'GET' });
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            { revisionNumber: 1, body: 'Historical revision 1', createdAt: '2026-09-19T10:00:00Z' }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [editedThread],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Initial feed load must make ZERO revision calls
+        const revisionCallsBeforeClick = fetches.filter(f => f.url.includes('/revisions'));
+        assert.strictEqual(revisionCallsBeforeClick.length, 0, 'No revisions calls on initial discussion load');
+
+        // Click history button
+        const listEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID);
+        const historyBtn = listEl.querySelector('[data-action="history"]');
+        assert.ok(historyBtn);
+
+        historyBtn.dispatchEvent({ type: 'click', target: historyBtn });
+        await new Promise(process.nextTick);
+
+        const revisionCallsAfterClick = fetches.filter(f => f.url.includes('/revisions'));
+        assert.strictEqual(revisionCallsAfterClick.length, 1, 'Exactly one revision GET executed on click');
+        const expectedUrl = '/api/wiki/articles/' + encodeURIComponent(ARTICLE_ID) +
+            '/comments/' + encodeURIComponent(ROOT_ID) +
+            '/revisions?page=0&size=20';
+        assert.strictEqual(revisionCallsAfterClick[0].url, expectedUrl);
+        assert.strictEqual(revisionCallsAfterClick[0].method, 'GET');
+    });
+
+    test('25. Safe body rendering: historical body with HTML/script text renders literally', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            {
+                                revisionNumber: 1,
+                                body: '<script>alert("xss")</script><img src="x" onerror="evil()"><div class="danger">payload</div>',
+                                createdAt: '2026-09-19T10:00:00Z'
+                            }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: ROOT_ID,
+                            authorUserId: '33333333-3333-3333-3333-333333333333',
+                            body: 'Current body',
+                            tombstone: false,
+                            createdAt: '2026-09-19T10:00:00Z',
+                            updatedAt: '2026-09-19T10:30:00Z',
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { listEl } = wikiCommentsModule.getHistoryElements(doc);
+        assert.ok(listEl);
+
+        // No executable script elements created
+        const scriptEl = listEl.querySelector('script');
+        assert.strictEqual(scriptEl, null, 'No script element should be created from revision body');
+
+        const imgEl = listEl.querySelector('img');
+        assert.strictEqual(imgEl, null, 'No img element should be created from revision body');
+
+        // Rendered as literal text
+        const bodyEl = listEl.querySelector('.wiki-comment-history-entry-body');
+        assert.ok(bodyEl);
+        assert.ok(bodyEl.textContent.includes('<script>alert("xss")</script>'));
+    });
+
+    test('26. Revision order & no current-body duplication', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            { revisionNumber: 2, body: 'Second historical version (B)', createdAt: '2026-09-19T10:15:00Z' },
+                            { revisionNumber: 1, body: 'First historical version (A)', createdAt: '2026-09-19T10:00:00Z' }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: ROOT_ID,
+                            authorUserId: '33333333-3333-3333-3333-333333333333',
+                            body: 'Current latest version (C)',
+                            tombstone: false,
+                            createdAt: '2026-09-19T10:00:00Z',
+                            updatedAt: '2026-09-19T10:30:00Z',
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { listEl } = wikiCommentsModule.getHistoryElements(doc);
+        const entries = listEl.querySelectorAll('.wiki-comment-history-entry');
+        assert.strictEqual(entries.length, 2, 'Must display exactly 2 previous revisions');
+
+        // Order preserved: newest-first (2, then 1)
+        assert.ok(entries[0].textContent.includes('Phiên bản #2'));
+        assert.ok(entries[0].textContent.includes('Second historical version (B)'));
+        assert.ok(entries[1].textContent.includes('Phiên bản #1'));
+        assert.ok(entries[1].textContent.includes('First historical version (A)'));
+
+        // Current body (C) is NOT duplicated in history list
+        assert.strictEqual(listEl.textContent.includes('Current latest version (C)'), false, 'Current body must NOT be in history list');
+    });
+
+    test('27. Load More fetches next page, appends in order, deduplicates, and hides when exhausted', async () => {
+        const doc = createEnvironment();
+        const requestedPages = [];
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                const match = url.match(/page=(\d+)/);
+                const pageNum = match ? parseInt(match[1], 10) : 0;
+                requestedPages.push(pageNum);
+
+                if (pageNum === 0) {
+                    return {
+                        status: 200,
+                        json: async () => ({
+                            items: [
+                                { revisionNumber: 3, body: 'Revision 3', createdAt: '2026-09-19T10:20:00Z' },
+                                { revisionNumber: 2, body: 'Revision 2', createdAt: '2026-09-19T10:10:00Z' }
+                            ],
+                            page: 0,
+                            size: 20,
+                            hasNext: true
+                        })
+                    };
+                }
+                if (pageNum === 1) {
+                    return {
+                        status: 200,
+                        json: async () => ({
+                            items: [
+                                { revisionNumber: 2, body: 'Revision 2 (duplicate)', createdAt: '2026-09-19T10:10:00Z' },
+                                { revisionNumber: 1, body: 'Revision 1', createdAt: '2026-09-19T10:00:00Z' }
+                            ],
+                            page: 1,
+                            size: 20,
+                            hasNext: false
+                        })
+                    };
+                }
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: ROOT_ID,
+                            authorUserId: '33333333-3333-3333-3333-333333333333',
+                            body: 'Active body',
+                            tombstone: false,
+                            createdAt: '2026-09-19T10:00:00Z',
+                            updatedAt: '2026-09-19T10:30:00Z',
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { listEl, moreContainer, moreBtn } = wikiCommentsModule.getHistoryElements(doc);
+        assert.strictEqual(moreContainer.hidden, false, 'Load More should be visible when hasNext=true');
+
+        // Click Load More
+        moreBtn.dispatchEvent({ type: 'click', target: moreBtn });
+        await new Promise(process.nextTick);
+
+        assert.deepStrictEqual(requestedPages, [0, 1]);
+
+        // Entries appended and deduplicated: 3, 2, 1 (no duplicate #2)
+        const entries = listEl.querySelectorAll('.wiki-comment-history-entry');
+        assert.strictEqual(entries.length, 3, 'Must have 3 unique revisions after deduplication');
+        assert.ok(entries[0].textContent.includes('Phiên bản #3'));
+        assert.ok(entries[1].textContent.includes('Phiên bản #2'));
+        assert.ok(entries[2].textContent.includes('Phiên bản #1'));
+
+        // Load more hidden when exhausted
+        assert.strictEqual(moreContainer.hidden, true, 'Load more hidden when exhausted');
+    });
+
+    test('28. Switching comments race protection: late response from Comment A does not overwrite Comment B', async () => {
+        const doc = createEnvironment();
+
+        let resolveA;
+        const promiseA = new Promise((resolve) => { resolveA = resolve; });
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/comments/comment-A/revisions')) {
+                await promiseA;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [{ revisionNumber: 1, body: 'Revision from Comment A', createdAt: '2026-09-19T10:00:00Z' }],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            if (url.includes('/comments/comment-B/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [{ revisionNumber: 1, body: 'Revision from Comment B', createdAt: '2026-09-19T10:05:00Z' }],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open A (delayed)
+        wikiCommentsModule.openRevisionHistory('comment-A', null, doc);
+
+        // Immediately open B
+        await wikiCommentsModule.openRevisionHistory('comment-B', null, doc);
+        await new Promise(process.nextTick);
+
+        const { listEl } = wikiCommentsModule.getHistoryElements(doc);
+        assert.ok(listEl.textContent.includes('Revision from Comment B'));
+
+        // Now resolve A late
+        resolveA();
+        await new Promise(process.nextTick);
+
+        // Modal content must STILL be B, never overwritten by A
+        assert.ok(listEl.textContent.includes('Revision from Comment B'));
+        assert.strictEqual(listEl.textContent.includes('Revision from Comment A'), false, 'Stale response A must NOT overwrite B');
+    });
+
+    test('29. Closing modal invalidates in-flight request & restores focus', async () => {
+        const doc = createEnvironment();
+
+        let resolveFetch;
+        const pendingPromise = new Promise((resolve) => { resolveFetch = resolve; });
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                await pendingPromise;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [{ revisionNumber: 1, body: 'Late arriving revision', createdAt: '2026-09-19T10:00:00Z' }],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const fakeTrigger = doc.createElement('button');
+        doc.body.appendChild(fakeTrigger);
+
+        // Open history
+        wikiCommentsModule.openRevisionHistory('comment-X', fakeTrigger, doc);
+
+        const { modal, closeBtn } = wikiCommentsModule.getHistoryElements(doc);
+        assert.strictEqual(modal.hidden, false);
+
+        // Close modal via close button
+        closeBtn.dispatchEvent({ type: 'click', target: closeBtn });
+        assert.strictEqual(modal.hidden, true, 'Modal should be hidden on close');
+        assert.strictEqual(fakeTrigger.isFocused, true, 'Focus should return to trigger');
+
+        // Resolve pending fetch late
+        resolveFetch();
+        await new Promise(process.nextTick);
+
+        // Modal must remain hidden and not render stale content
+        assert.strictEqual(modal.hidden, true, 'Modal remains hidden after late fetch resolution');
+    });
+
+    test('30. 404 response displays neutral unavailable message', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return { status: 404 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory('deleted-comment', null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl } = wikiCommentsModule.getHistoryElements(doc);
+        assert.ok(statusEl.textContent.includes('Lịch sử chỉnh sửa không còn khả dụng.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--unavailable'));
+    });
+
+    test('31. Network & 5xx failure: displays retryable error notice, leaves discussion feed DOM intact', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                throw new Error('Network error fetching revisions');
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: ROOT_ID,
+                            authorUserId: '33333333-3333-3333-3333-333333333333',
+                            body: 'Intact discussion thread body',
+                            tombstone: false,
+                            createdAt: '2026-09-19T10:00:00Z',
+                            updatedAt: '2026-09-19T10:30:00Z',
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Discussion thread is rendered
+        const threadEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID).querySelector('[data-thread-id="' + ROOT_ID + '"]');
+        assert.ok(threadEl);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        // Status shows retryable error
+        const { statusEl } = wikiCommentsModule.getHistoryElements(doc);
+        assert.ok(statusEl.textContent.includes('Lỗi kết nối khi tải lịch sử chỉnh sửa.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--error'));
+
+        // Discussion feed DOM must still exist and be intact
+        const threadStillIntact = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID).querySelector('[data-thread-id="' + ROOT_ID + '"]');
+        assert.ok(threadStillIntact, 'Discussion thread DOM remains intact on history failure');
+        assert.ok(threadStillIntact.textContent.includes('Intact discussion thread body'));
+    });
+
+    test('32. Read-only transparency & privacy: no mutation actions or author/moderator identity', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            {
+                                revisionNumber: 1,
+                                body: 'Historical content',
+                                createdAt: '2026-09-19T10:00:00Z'
+                            }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { modal, listEl } = wikiCommentsModule.getHistoryElements(doc);
+
+        // Absolutely no mutation actions
+        const buttons = modal.querySelectorAll('button');
+        const disallowedActions = ['restore', 'revert', 'undo', 'use', 'edit', 'delete'];
+        for (const btn of buttons) {
+            const action = btn.getAttribute('data-action') || '';
+            for (const disallowed of disallowedActions) {
+                assert.strictEqual(action.includes(disallowed), false, 'No mutation action permitted: ' + disallowed);
+            }
+            const text = (btn.textContent || '').toLowerCase();
+            assert.strictEqual(text.includes('khôi phục'), false, 'No restore button text');
+            assert.strictEqual(text.includes('hoàn tác'), false, 'No undo button text');
+        }
+
+        // Privacy: no user UUIDs or author names in history entries
+        assert.strictEqual(listEl.textContent.includes('Scholar'), false, 'Author name must not be exposed');
+        assert.strictEqual(listEl.textContent.includes('33333333-3333'), false, 'User UUID must not be exposed');
+    });
+
+    test('33. Empty history slice displays clean neutral message', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl, listEl } = wikiCommentsModule.getHistoryElements(doc);
+        assert.ok(statusEl.textContent.includes('Chưa có phiên bản chỉnh sửa trước đó.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--empty'));
+        assert.strictEqual(listEl.childNodes.length, 0);
+    });
+
+    test('34. Escape key & backdrop click closes history modal', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [{ revisionNumber: 1, body: 'Rev 1', createdAt: '2026-09-19T10:00:00Z' }],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { modal } = wikiCommentsModule.getHistoryElements(doc);
+        assert.strictEqual(modal.hidden, false);
+
+        // 1. Escape key closes modal
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27 });
+        assert.strictEqual(modal.hidden, true, 'Escape key should close modal');
+
+        // Re-open
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+        assert.strictEqual(modal.hidden, false);
+
+        // 2. Backdrop click closes modal
+        const backdrop = modal.querySelector('.wiki-comment-history-backdrop');
+        assert.ok(backdrop);
+        backdrop.dispatchEvent({ type: 'click', target: backdrop });
+        assert.strictEqual(modal.hidden, true, 'Backdrop click should close modal');
+    });
+
+    // ========================================================================
+    // MS-05E6D Correction Tests (A - F)
+    // ========================================================================
+
+    test('35. Initial history HTTP 500: retryable 5xx message appears and discussion DOM remains intact', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return { status: 500 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: ROOT_ID,
+                            authorUserId: '33333333-3333-3333-3333-333333333333',
+                            body: 'Intact thread root',
+                            tombstone: false,
+                            createdAt: '2026-09-19T10:00:00Z',
+                            updatedAt: '2026-09-19T10:30:00Z',
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const threadElBefore = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID).querySelector('[data-thread-id="' + ROOT_ID + '"]');
+        assert.ok(threadElBefore);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl } = wikiCommentsModule.getExistingHistoryElements(doc);
+        assert.ok(statusEl.textContent.includes('Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--error'));
+
+        // Discussion DOM intact
+        const threadElAfter = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID).querySelector('[data-thread-id="' + ROOT_ID + '"]');
+        assert.ok(threadElAfter, 'Discussion feed thread must remain intact');
+        assert.ok(threadElAfter.textContent.includes('Intact thread root'));
+    });
+
+    test('36. Load More network failure: previously rendered revisions remain, error message appears, page not advanced, retry available', async () => {
+        const doc = createEnvironment();
+        let loadMoreAttempted = false;
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                if (url.includes('page=0')) {
+                    return {
+                        status: 200,
+                        json: async () => ({
+                            items: [{ revisionNumber: 2, body: 'Revision 2 (initial)', createdAt: '2026-09-19T10:10:00Z' }],
+                            page: 0,
+                            size: 20,
+                            hasNext: true
+                        })
+                    };
+                }
+                loadMoreAttempted = true;
+                throw new Error('Network error on loadMore');
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl, listEl, moreContainer, moreBtn } = wikiCommentsModule.getExistingHistoryElements(doc);
+        assert.strictEqual(listEl.childNodes.length, 1);
+        assert.ok(listEl.textContent.includes('Revision 2 (initial)'));
+        assert.strictEqual(moreContainer.hidden, false);
+
+        // Click Load More -> triggers network error
+        moreBtn.dispatchEvent({ type: 'click', target: moreBtn });
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(loadMoreAttempted, true);
+
+        // 1. Previously rendered revisions remain
+        assert.strictEqual(listEl.childNodes.length, 1);
+        assert.ok(listEl.textContent.includes('Revision 2 (initial)'));
+
+        // 2. Network error message appears
+        assert.ok(statusEl.textContent.includes('Lỗi kết nối khi tải lịch sử chỉnh sửa.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--error'));
+
+        // 3. Current page is not advanced
+        const state = wikiCommentsModule.getState();
+        assert.strictEqual(state.historyCurrentPage, 0, 'Page must not advance on failure');
+        assert.strictEqual(state.historyHasNext, true, 'hasNext must not change on transient failure');
+
+        // 4. Retry button remains available with "Thử lại"
+        assert.strictEqual(moreContainer.hidden, false);
+        assert.strictEqual(moreBtn.disabled, false);
+        assert.strictEqual(moreBtn.textContent, 'Thử lại');
+    });
+
+    test('37. Load More HTTP 500: previously rendered revisions remain, retryable 5xx message appears, page not advanced, retry available', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                if (url.includes('page=0')) {
+                    return {
+                        status: 200,
+                        json: async () => ({
+                            items: [{ revisionNumber: 2, body: 'Revision 2 (initial)', createdAt: '2026-09-19T10:10:00Z' }],
+                            page: 0,
+                            size: 20,
+                            hasNext: true
+                        })
+                    };
+                }
+                return { status: 500 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl, listEl, moreContainer, moreBtn } = wikiCommentsModule.getExistingHistoryElements(doc);
+
+        // Click Load More -> returns 500
+        moreBtn.dispatchEvent({ type: 'click', target: moreBtn });
+        await new Promise(process.nextTick);
+
+        // 1. Previously rendered revisions remain
+        assert.strictEqual(listEl.childNodes.length, 1);
+        assert.ok(listEl.textContent.includes('Revision 2 (initial)'));
+
+        // 2. Retryable 5xx message appears
+        assert.ok(statusEl.textContent.includes('Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--error'));
+
+        // 3. Current page is not advanced
+        const state = wikiCommentsModule.getState();
+        assert.strictEqual(state.historyCurrentPage, 0);
+        assert.strictEqual(state.historyHasNext, true);
+
+        // 4. Retry button remains available
+        assert.strictEqual(moreContainer.hidden, false);
+        assert.strictEqual(moreBtn.disabled, false);
+        assert.strictEqual(moreBtn.textContent, 'Thử lại');
+    });
+
+    test('38. Successful retry after transient Load More failure: error status clears, next page appends once, ordering/dedupe correct', async () => {
+        const doc = createEnvironment();
+        let attempts = 0;
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                if (url.includes('page=0')) {
+                    return {
+                        status: 200,
+                        json: async () => ({
+                            items: [{ revisionNumber: 3, body: 'Revision 3', createdAt: '2026-09-19T10:20:00Z' }],
+                            page: 0,
+                            size: 20,
+                            hasNext: true
+                        })
+                    };
+                }
+                attempts++;
+                if (attempts === 1) {
+                    return { status: 500 }; // Transient failure on first attempt
+                }
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            { revisionNumber: 3, body: 'Revision 3 (dup)', createdAt: '2026-09-19T10:20:00Z' },
+                            { revisionNumber: 2, body: 'Revision 2', createdAt: '2026-09-19T10:10:00Z' }
+                        ],
+                        page: 1,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { statusEl, listEl, moreContainer, moreBtn } = wikiCommentsModule.getExistingHistoryElements(doc);
+
+        // First Load More attempt -> fails with 500
+        moreBtn.dispatchEvent({ type: 'click', target: moreBtn });
+        await new Promise(process.nextTick);
+
+        assert.ok(statusEl.textContent.includes('Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.'));
+        assert.ok(statusEl.className.includes('wiki-comment-history-status--error'));
+        assert.strictEqual(moreBtn.textContent, 'Thử lại');
+
+        // Retry Load More -> succeeds
+        moreBtn.dispatchEvent({ type: 'click', target: moreBtn });
+        await new Promise(process.nextTick);
+
+        // 1. Error status is cleared
+        assert.strictEqual(statusEl.textContent, '', 'Status error message must be cleared on successful retry');
+        assert.strictEqual(statusEl.className.includes('wiki-comment-history-status--error'), false);
+
+        // 2. Next page appends once with deduplication (Rev 3, Rev 2)
+        const entries = listEl.querySelectorAll('.wiki-comment-history-entry');
+        assert.strictEqual(entries.length, 2, 'Exactly 2 revisions after deduplicated append');
+        assert.ok(entries[0].textContent.includes('Phiên bản #3'));
+        assert.ok(entries[1].textContent.includes('Phiên bản #2'));
+
+        // 3. Load More hidden when exhausted
+        assert.strictEqual(moreContainer.hidden, true);
+    });
+
+    test('39. Escape before history was ever opened: does not create #wikiCommentHistoryModal', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Never opened history; press Escape
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27 });
+
+        // Must NOT create history modal
+        const modal = doc.getElementById(wikiCommentsModule.HISTORY_MODAL_ID);
+        assert.strictEqual(modal, null, 'Modal must NOT be created by Escape before history was ever opened');
+    });
+
+    test('40. resetState/destroy before history was ever opened: does not create the history modal', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [],
+                threadCount: 0,
+                commentCount: 0,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Destroy/reset before history was ever opened
+        wikiCommentsModule.resetState();
+
+        // Must NOT create history modal
+        const modal = doc.getElementById(wikiCommentsModule.HISTORY_MODAL_ID);
+        assert.strictEqual(modal, null, 'Modal must NOT be created by resetState/destroy before history was opened');
+    });
+
+    test('41. Stale revision history request across module lifecycles for same comment ID: stale response is ignored and cannot overwrite active session', async () => {
+        // 1. Init session A
+        const docA = createEnvironment();
+        const commentX = ROOT_ID;
+
+        let resolveSessionAFetch;
+        const sessionAPromise = new Promise((resolve) => {
+            resolveSessionAFetch = resolve;
+        });
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return sessionAPromise;
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(docA);
+        await new Promise(process.nextTick);
+
+        // 2. Trigger openRevisionHistory(commentX) whose response promise is delayed
+        const openPromiseA = wikiCommentsModule.openRevisionHistory(commentX, null, docA);
+        await new Promise(process.nextTick);
+
+        // 3. resetState() / destroy
+        wikiCommentsModule.resetState();
+
+        // 4. Init session B
+        const docB = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            { revisionNumber: 5, body: 'Session B Revision 5', createdAt: '2026-09-19T11:00:00Z' }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [],
+                    threadCount: 0,
+                    commentCount: 0,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(docB);
+        await new Promise(process.nextTick);
+
+        // 5. Trigger openRevisionHistory(commentX) for the SAME comment ID
+        // 6. Complete session B with distinct data
+        await wikiCommentsModule.openRevisionHistory(commentX, null, docB);
+        await new Promise(process.nextTick);
+
+        const { listEl: listElB } = wikiCommentsModule.getExistingHistoryElements(docB);
+        assert.ok(listElB);
+        assert.strictEqual(listElB.querySelectorAll('.wiki-comment-history-entry').length, 1);
+        assert.ok(listElB.textContent.includes('Session B Revision 5'));
+
+        const stateB = wikiCommentsModule.getState();
+        assert.strictEqual(stateB.historyActiveCommentId, commentX);
+        assert.strictEqual(stateB.historyCurrentPage, 0);
+        assert.strictEqual(stateB.historyHasNext, false);
+
+        // 7. Resolve the delayed response from session A
+        resolveSessionAFetch({
+            status: 200,
+            json: async () => ({
+                items: [
+                    { revisionNumber: 1, body: 'Session A Stale Revision 1', createdAt: '2026-09-19T10:00:00Z' }
+                ],
+                page: 99,
+                size: 20,
+                hasNext: true
+            })
+        });
+
+        await openPromiseA;
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        // 8. Verify:
+        //    - session B's modal content is not overwritten
+        //    - stale session A response is completely ignored
+        //    - state (historyCurrentPage, historyHasNext, rendered revisions) reflects session B
+        assert.ok(listElB.textContent.includes('Session B Revision 5'), 'Session B content must remain present');
+        assert.strictEqual(listElB.textContent.includes('Session A Stale Revision 1'), false, 'Stale session A content must NOT be rendered');
+        assert.strictEqual(listElB.querySelectorAll('.wiki-comment-history-entry').length, 1, 'Only session B entry should be in list');
+
+        const finalState = wikiCommentsModule.getState();
+        assert.strictEqual(finalState.historyActiveCommentId, commentX);
+        assert.strictEqual(finalState.historyCurrentPage, 0, 'historyCurrentPage must reflect session B (0)');
+        assert.strictEqual(finalState.historyHasNext, false, 'historyHasNext must reflect session B (false)');
+        assert.strictEqual(finalState.historyIsLoading, false);
     });
 });
 

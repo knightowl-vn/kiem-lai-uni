@@ -34,6 +34,13 @@
 
     const DEFAULT_PAGE_SIZE = 20;
 
+    const HISTORY_MODAL_ID = 'wikiCommentHistoryModal';
+    const HISTORY_TITLE_ID = 'wikiCommentHistoryModalTitle';
+    const HISTORY_STATUS_ID = 'wikiCommentHistoryStatus';
+    const HISTORY_LIST_ID = 'wikiCommentHistoryList';
+    const HISTORY_MORE_CONTAINER_ID = 'wikiCommentHistoryMore';
+    const HISTORY_MORE_BTN_ID = 'wikiCommentHistoryMoreBtn';
+
     // Module State
     let currentDoc = null;
     let articleId = null;
@@ -53,6 +60,17 @@
     let threadCount = 0;
     let commentCount = 0;
 
+    // Revision History State (MS-05E6D)
+    let historyActiveCommentId = null;
+    let historyCurrentPage = 0;
+    let historyHasNext = false;
+    let historyIsLoading = false;
+    let historyIsLoadingMore = false;
+    let historyRequestToken = 0;
+    let historyRenderedRevisionNumbers = new Set();
+    let historyPreviousFocusedElement = null;
+    let keydownHandler = null;
+
     // Injected implementations for testing
     let injectedFetch = null;
     let injectedConfirm = null;
@@ -61,6 +79,19 @@
      * Resets all module internal state.
      */
     function resetState() {
+        closeRevisionHistory();
+        historyActiveCommentId = null;
+        historyCurrentPage = 0;
+        historyHasNext = false;
+        historyIsLoading = false;
+        historyIsLoadingMore = false;
+        historyRenderedRevisionNumbers.clear();
+        historyPreviousFocusedElement = null;
+        if (currentDoc && typeof currentDoc.removeEventListener === 'function' && keydownHandler) {
+            currentDoc.removeEventListener('keydown', keydownHandler);
+        }
+        keydownHandler = null;
+
         currentDoc = null;
         articleId = null;
         isAuthenticated = false;
@@ -620,10 +651,16 @@
         }
 
         if (isCommentEdited(comment)) {
-            const editedSpan = doc.createElement('span');
-            editedSpan.className = 'wiki-comment-edited';
-            editedSpan.textContent = 'đã chỉnh sửa';
-            headerEl.appendChild(editedSpan);
+            const historyBtn = doc.createElement('button');
+            historyBtn.type = 'button';
+            historyBtn.className = 'wiki-comment-edited';
+            historyBtn.setAttribute('data-action', 'history');
+            historyBtn.setAttribute('data-comment-id', strCommentId);
+            historyBtn.setAttribute('data-root-id', String(rootCommentId));
+            historyBtn.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
+            historyBtn.title = 'Xem lịch sử chỉnh sửa';
+            historyBtn.textContent = 'đã chỉnh sửa';
+            headerEl.appendChild(historyBtn);
         }
 
         // Action buttons
@@ -1165,6 +1202,533 @@
     }
 
     /**
+     * Ensures the shared revision history modal exists in the document, creating it if absent.
+     */
+    function ensureHistoryModal(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        let modal = d.getElementById ? d.getElementById(HISTORY_MODAL_ID) : null;
+        if (!modal && typeof d.querySelector === 'function') {
+            modal = d.querySelector('#' + HISTORY_MODAL_ID);
+        }
+        if (modal) {
+            return modal;
+        }
+
+        modal = d.createElement('div');
+        modal.id = HISTORY_MODAL_ID;
+        modal.setAttribute('id', HISTORY_MODAL_ID);
+        modal.className = 'wiki-comment-history-modal';
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', HISTORY_TITLE_ID);
+        modal.hidden = true;
+        modal.setAttribute('hidden', '');
+
+        const backdrop = d.createElement('div');
+        backdrop.className = 'wiki-comment-history-backdrop';
+        backdrop.setAttribute('data-action', 'close-history-modal');
+
+        const card = d.createElement('div');
+        card.className = 'wiki-comment-history-card';
+        card.setAttribute('role', 'document');
+
+        const header = d.createElement('header');
+        header.className = 'wiki-comment-history-header';
+
+        const title = d.createElement('h3');
+        title.id = HISTORY_TITLE_ID;
+        title.setAttribute('id', HISTORY_TITLE_ID);
+        title.className = 'wiki-comment-history-title';
+        title.textContent = 'Lịch sử chỉnh sửa';
+
+        const closeBtn = d.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'wiki-comment-history-close-btn';
+        closeBtn.setAttribute('data-action', 'close-history-modal');
+        closeBtn.setAttribute('aria-label', 'Đóng');
+        closeBtn.textContent = '✕';
+
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+
+        const body = d.createElement('div');
+        body.className = 'wiki-comment-history-body';
+        body.id = 'wikiCommentHistoryBody';
+        body.setAttribute('id', 'wikiCommentHistoryBody');
+
+        const statusEl = d.createElement('div');
+        statusEl.id = HISTORY_STATUS_ID;
+        statusEl.setAttribute('id', HISTORY_STATUS_ID);
+        statusEl.className = 'wiki-comment-history-status';
+        statusEl.setAttribute('role', 'status');
+        statusEl.setAttribute('aria-live', 'polite');
+
+        const listEl = d.createElement('div');
+        listEl.id = HISTORY_LIST_ID;
+        listEl.setAttribute('id', HISTORY_LIST_ID);
+        listEl.className = 'wiki-comment-history-list';
+        listEl.setAttribute('role', 'feed');
+        listEl.setAttribute('aria-label', 'Danh sách các phiên bản cũ');
+
+        const moreContainer = d.createElement('div');
+        moreContainer.id = HISTORY_MORE_CONTAINER_ID;
+        moreContainer.setAttribute('id', HISTORY_MORE_CONTAINER_ID);
+        moreContainer.className = 'wiki-comment-history-more';
+        moreContainer.hidden = true;
+        moreContainer.setAttribute('hidden', '');
+
+        const moreBtn = d.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.id = HISTORY_MORE_BTN_ID;
+        moreBtn.setAttribute('id', HISTORY_MORE_BTN_ID);
+        moreBtn.className = 'wiki-comment-history-more-btn';
+        moreBtn.textContent = 'Xem thêm';
+
+        moreContainer.appendChild(moreBtn);
+
+        body.appendChild(statusEl);
+        body.appendChild(listEl);
+        body.appendChild(moreContainer);
+
+        card.appendChild(header);
+        card.appendChild(body);
+
+        modal.appendChild(backdrop);
+        modal.appendChild(card);
+
+        // Direct listeners for buttons (single execution path)
+        closeBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            closeRevisionHistory(d);
+        });
+
+        backdrop.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            closeRevisionHistory(d);
+        });
+
+        moreBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            loadMoreRevisions(d);
+        });
+
+        if (d.body && typeof d.body.appendChild === 'function') {
+            d.body.appendChild(modal);
+        } else if (typeof d.appendChild === 'function') {
+            d.appendChild(modal);
+        }
+
+        if (typeof d.registerElement === 'function' && d.elementsById instanceof Map) {
+            d.registerElement(HISTORY_MODAL_ID, modal);
+            d.registerElement(HISTORY_TITLE_ID, title);
+            d.registerElement(HISTORY_STATUS_ID, statusEl);
+            d.registerElement(HISTORY_LIST_ID, listEl);
+            d.registerElement(HISTORY_MORE_CONTAINER_ID, moreContainer);
+            d.registerElement(HISTORY_MORE_BTN_ID, moreBtn);
+        }
+
+        return modal;
+    }
+
+    /**
+     * Resolves existing history modal elements WITHOUT creating the modal if absent.
+     */
+    function getExistingHistoryElements(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) {
+            return { modal: null, statusEl: null, listEl: null, moreContainer: null, moreBtn: null, closeBtn: null };
+        }
+        let modal = d.getElementById ? d.getElementById(HISTORY_MODAL_ID) : null;
+        if (!modal && typeof d.querySelector === 'function') {
+            modal = d.querySelector('#' + HISTORY_MODAL_ID);
+        }
+        if (!modal) {
+            return { modal: null, statusEl: null, listEl: null, moreContainer: null, moreBtn: null, closeBtn: null };
+        }
+        const statusEl = modal.querySelector('#' + HISTORY_STATUS_ID) || (d.getElementById ? d.getElementById(HISTORY_STATUS_ID) : null);
+        const listEl = modal.querySelector('#' + HISTORY_LIST_ID) || (d.getElementById ? d.getElementById(HISTORY_LIST_ID) : null);
+        const moreContainer = modal.querySelector('#' + HISTORY_MORE_CONTAINER_ID) || (d.getElementById ? d.getElementById(HISTORY_MORE_CONTAINER_ID) : null);
+        const moreBtn = modal.querySelector('#' + HISTORY_MORE_BTN_ID) || (d.getElementById ? d.getElementById(HISTORY_MORE_BTN_ID) : null);
+        const closeBtn = modal.querySelector('.wiki-comment-history-close-btn') ||
+            modal.querySelector('button[data-action="close-history-modal"]') ||
+            modal.querySelector('[data-action="close-history-modal"]');
+        return { modal, statusEl, listEl, moreContainer, moreBtn, closeBtn };
+    }
+
+    /**
+     * Resolves key elements of the history modal, ensuring it exists in the document.
+     */
+    function getHistoryElements(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) {
+            return { modal: null, statusEl: null, listEl: null, moreContainer: null, moreBtn: null, closeBtn: null };
+        }
+        ensureHistoryModal(d);
+        return getExistingHistoryElements(d);
+    }
+
+    /**
+     * Displays an error notice inside the history modal.
+     */
+    function showHistoryStatusError(message, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+        const { statusEl, moreContainer } = getHistoryElements(d);
+        if (moreContainer) {
+            moreContainer.hidden = true;
+            moreContainer.setAttribute('hidden', '');
+        }
+        if (statusEl) {
+            clearElement(statusEl);
+            statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--error';
+            statusEl.textContent = message;
+        }
+    }
+
+    /**
+     * Renders a single revision item DOM element.
+     */
+    function renderRevisionItem(rev, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const itemEl = d.createElement('article');
+        itemEl.className = 'wiki-comment-history-entry';
+
+        const headerEl = d.createElement('header');
+        headerEl.className = 'wiki-comment-history-entry-header';
+
+        const badgeEl = d.createElement('span');
+        badgeEl.className = 'wiki-comment-history-badge';
+        const revNum = rev && rev.revisionNumber != null ? rev.revisionNumber : '';
+        badgeEl.textContent = 'Phiên bản #' + revNum;
+        headerEl.appendChild(badgeEl);
+
+        const timeStr = formatTimestamp(rev ? rev.createdAt : null);
+        if (timeStr) {
+            const timeEl = d.createElement('time');
+            timeEl.className = 'wiki-comment-history-time';
+            timeEl.setAttribute('datetime', String(rev.createdAt));
+            timeEl.textContent = timeStr;
+            headerEl.appendChild(timeEl);
+        }
+
+        const bodyEl = d.createElement('div');
+        bodyEl.className = 'wiki-comment-history-entry-body';
+        bodyEl.textContent = (rev && rev.body) ? String(rev.body) : '';
+
+        itemEl.appendChild(headerEl);
+        itemEl.appendChild(bodyEl);
+        return itemEl;
+    }
+
+    /**
+     * Opens the revision history modal for a comment and fetches page 0.
+     */
+    async function openRevisionHistory(commentId, triggerEl, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!articleId || !commentId || !d) return;
+
+        const strCommentId = String(commentId).trim();
+        if (!strCommentId) return;
+
+        const { modal, statusEl, listEl, moreContainer, moreBtn, closeBtn } = getHistoryElements(d);
+        if (!modal) return;
+
+        const token = ++historyRequestToken;
+        historyActiveCommentId = strCommentId;
+        historyCurrentPage = 0;
+        historyHasNext = false;
+        historyIsLoading = true;
+        historyIsLoadingMore = false;
+        historyRenderedRevisionNumbers.clear();
+
+        if (triggerEl && typeof triggerEl.focus === 'function') {
+            historyPreviousFocusedElement = triggerEl;
+        } else if (d.activeElement && d.activeElement !== modal) {
+            historyPreviousFocusedElement = d.activeElement;
+        }
+
+        modal.hidden = false;
+        modal.removeAttribute('hidden');
+
+        if (closeBtn && typeof closeBtn.focus === 'function') {
+            try {
+                closeBtn.focus();
+            } catch (_) {}
+        }
+
+        if (listEl) {
+            clearElement(listEl);
+        }
+        if (moreContainer) {
+            moreContainer.hidden = true;
+            moreContainer.setAttribute('hidden', '');
+        }
+        if (statusEl) {
+            clearElement(statusEl);
+            statusEl.className = 'wiki-comment-history-status';
+            statusEl.textContent = 'Đang tải lịch sử chỉnh sửa...';
+        }
+
+        try {
+            const url = '/api/wiki/articles/' + encodeURIComponent(articleId) +
+                '/comments/' + encodeURIComponent(strCommentId) +
+                '/revisions?page=0&size=' + DEFAULT_PAGE_SIZE;
+            const res = await doFetch(url, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (token !== historyRequestToken || historyActiveCommentId !== strCommentId) {
+                return;
+            }
+
+            historyIsLoading = false;
+
+            if (!res) {
+                showHistoryStatusError('Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.', d);
+                return;
+            }
+
+            if (res.status === 200) {
+                const data = await res.json();
+                if (token !== historyRequestToken || historyActiveCommentId !== strCommentId) {
+                    return;
+                }
+
+                const items = Array.isArray(data.items) ? data.items : [];
+                historyHasNext = Boolean(data.hasNext);
+                historyCurrentPage = data.page != null ? Number(data.page) : 0;
+
+                if (items.length === 0) {
+                    if (statusEl) {
+                        clearElement(statusEl);
+                        statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--empty';
+                        statusEl.textContent = 'Chưa có phiên bản chỉnh sửa trước đó.';
+                    }
+                    return;
+                }
+
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status';
+                }
+
+                if (listEl) {
+                    clearElement(listEl);
+                    for (let i = 0; i < items.length; i++) {
+                        const rev = items[i];
+                        if (!rev) continue;
+                        const revNum = rev.revisionNumber;
+                        if (revNum != null && historyRenderedRevisionNumbers.has(revNum)) {
+                            continue;
+                        }
+                        if (revNum != null) {
+                            historyRenderedRevisionNumbers.add(revNum);
+                        }
+                        listEl.appendChild(renderRevisionItem(rev, d));
+                    }
+                }
+
+                if (moreContainer && moreBtn) {
+                    if (historyHasNext) {
+                        moreContainer.hidden = false;
+                        moreContainer.removeAttribute('hidden');
+                        moreBtn.disabled = false;
+                        moreBtn.textContent = 'Xem thêm';
+                    } else {
+                        moreContainer.hidden = true;
+                        moreContainer.setAttribute('hidden', '');
+                    }
+                }
+            } else if (res.status === 404) {
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--unavailable';
+                    statusEl.textContent = 'Lịch sử chỉnh sửa không còn khả dụng.';
+                }
+            } else if (res.status === 400) {
+                showHistoryStatusError('Yêu cầu không hợp lệ.', d);
+            } else {
+                showHistoryStatusError('Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.', d);
+            }
+        } catch (err) {
+            if (token !== historyRequestToken || historyActiveCommentId !== strCommentId) {
+                return;
+            }
+            historyIsLoading = false;
+            showHistoryStatusError('Lỗi kết nối khi tải lịch sử chỉnh sửa.', d);
+        }
+    }
+
+    /**
+     * Loads the next page of revisions and appends them to the history list.
+     */
+    async function loadMoreRevisions(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !articleId || !historyActiveCommentId || historyIsLoading || historyIsLoadingMore || !historyHasNext) {
+            return;
+        }
+
+        const { statusEl, listEl, moreContainer, moreBtn } = getExistingHistoryElements(d);
+        if (!moreBtn) return;
+
+        historyIsLoadingMore = true;
+        const token = historyRequestToken;
+        const targetCommentId = historyActiveCommentId;
+        const nextPage = historyCurrentPage + 1;
+
+        moreBtn.disabled = true;
+        moreBtn.textContent = 'Đang tải...';
+
+        try {
+            const url = '/api/wiki/articles/' + encodeURIComponent(articleId) +
+                '/comments/' + encodeURIComponent(targetCommentId) +
+                '/revisions?page=' + nextPage + '&size=' + DEFAULT_PAGE_SIZE;
+            const res = await doFetch(url, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            });
+
+            if (token !== historyRequestToken || historyActiveCommentId !== targetCommentId) {
+                return;
+            }
+
+            historyIsLoadingMore = false;
+
+            if (!res) {
+                if (moreBtn) {
+                    moreBtn.disabled = false;
+                    moreBtn.textContent = 'Thử lại';
+                }
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--error';
+                    statusEl.textContent = 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.';
+                }
+                return;
+            }
+
+            if (res.status === 200) {
+                const data = await res.json();
+                if (token !== historyRequestToken || historyActiveCommentId !== targetCommentId) {
+                    return;
+                }
+
+                // Clear any previous transient error status on successful retry
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status';
+                }
+
+                historyCurrentPage = nextPage;
+                const newItems = Array.isArray(data.items) ? data.items : [];
+                historyHasNext = Boolean(data.hasNext);
+
+                if (listEl && newItems.length > 0) {
+                    for (let i = 0; i < newItems.length; i++) {
+                        const rev = newItems[i];
+                        if (!rev) continue;
+                        const revNum = rev.revisionNumber;
+                        if (revNum != null && historyRenderedRevisionNumbers.has(revNum)) {
+                            continue;
+                        }
+                        if (revNum != null) {
+                            historyRenderedRevisionNumbers.add(revNum);
+                        }
+                        listEl.appendChild(renderRevisionItem(rev, d));
+                    }
+                }
+
+                if (moreContainer && moreBtn) {
+                    if (historyHasNext) {
+                        moreContainer.hidden = false;
+                        moreContainer.removeAttribute('hidden');
+                        moreBtn.disabled = false;
+                        moreBtn.textContent = 'Xem thêm';
+                    } else {
+                        moreContainer.hidden = true;
+                        moreContainer.setAttribute('hidden', '');
+                    }
+                }
+            } else if (res.status === 404) {
+                historyHasNext = false;
+                if (moreContainer) {
+                    moreContainer.hidden = true;
+                    moreContainer.setAttribute('hidden', '');
+                }
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--unavailable';
+                    statusEl.textContent = 'Lịch sử chỉnh sửa không còn khả dụng.';
+                }
+            } else if (res.status === 400) {
+                if (moreBtn) {
+                    moreBtn.disabled = false;
+                    moreBtn.textContent = 'Thử lại';
+                }
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--error';
+                    statusEl.textContent = 'Yêu cầu không hợp lệ.';
+                }
+            } else {
+                if (moreBtn) {
+                    moreBtn.disabled = false;
+                    moreBtn.textContent = 'Thử lại';
+                }
+                if (statusEl) {
+                    clearElement(statusEl);
+                    statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--error';
+                    statusEl.textContent = 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại.';
+                }
+            }
+        } catch (err) {
+            if (token !== historyRequestToken || historyActiveCommentId !== targetCommentId) {
+                return;
+            }
+            historyIsLoadingMore = false;
+            if (moreBtn) {
+                moreBtn.disabled = false;
+                moreBtn.textContent = 'Thử lại';
+            }
+            if (statusEl) {
+                clearElement(statusEl);
+                statusEl.className = 'wiki-comment-history-status wiki-comment-history-status--error';
+                statusEl.textContent = 'Lỗi kết nối khi tải lịch sử chỉnh sửa.';
+            }
+        }
+    }
+
+    /**
+     * Closes the revision history modal and restores focus to trigger.
+     */
+    function closeRevisionHistory(doc) {
+        historyRequestToken++; // Invalidate pending requests
+        historyActiveCommentId = null;
+        historyIsLoading = false;
+        historyIsLoadingMore = false;
+        historyRenderedRevisionNumbers.clear();
+
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (d) {
+            const { modal } = getExistingHistoryElements(d);
+            if (modal) {
+                modal.hidden = true;
+                modal.setAttribute('hidden', '');
+            }
+        }
+
+        if (historyPreviousFocusedElement && typeof historyPreviousFocusedElement.focus === 'function') {
+            try {
+                historyPreviousFocusedElement.focus();
+            } catch (_) {}
+        }
+        historyPreviousFocusedElement = null;
+    }
+
+    /**
      * Load more button click handler.
      */
     async function handleLoadMore(doc) {
@@ -1216,13 +1780,20 @@
             });
         }
 
-        // Delegate comment action buttons (reply, edit, delete) on thread list
+        // Delegate comment action buttons (reply, edit, delete, history) on thread list
         if (els.threadListEl) {
             els.threadListEl.addEventListener('click', function (e) {
                 const target = e.target;
                 if (!target || typeof target.getAttribute !== 'function') return;
 
-                const actionBtn = target.closest ? target.closest('.wiki-comment-action-btn') : (target.classList && target.classList.contains('wiki-comment-action-btn') ? target : null);
+                let actionBtn = null;
+                if (typeof target.closest === 'function') {
+                    actionBtn = target.closest('.wiki-comment-action-btn') ||
+                                target.closest('[data-action="history"]') ||
+                                target.closest('.wiki-comment-edited');
+                } else if (target.getAttribute && (target.getAttribute('data-action') || (target.classList && target.classList.contains('wiki-comment-edited')))) {
+                    actionBtn = target;
+                }
                 if (!actionBtn) return;
 
                 const action = actionBtn.getAttribute('data-action');
@@ -1230,7 +1801,10 @@
                 const rootCommentId = actionBtn.getAttribute('data-root-id');
                 const authorName = actionBtn.getAttribute('data-author-name') || '';
 
-                if (action === 'reply' && commentId && rootCommentId) {
+                if ((action === 'history' || (actionBtn.classList && actionBtn.classList.contains('wiki-comment-edited'))) && commentId) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    openRevisionHistory(commentId, actionBtn, currentDoc);
+                } else if (action === 'reply' && commentId && rootCommentId) {
                     openReplyComposer(commentId, rootCommentId, authorName, currentDoc);
                 } else if (action === 'edit' && commentId && rootCommentId) {
                     openEditComposer(commentId, rootCommentId, currentDoc);
@@ -1238,6 +1812,20 @@
                     handleDeleteComment(commentId, rootCommentId, currentDoc);
                 }
             });
+        }
+
+        // Escape key listener for history modal
+        if (currentDoc && typeof currentDoc.addEventListener === 'function') {
+            keydownHandler = function (e) {
+                if (e && (e.key === 'Escape' || e.keyCode === 27)) {
+                    const { modal } = getExistingHistoryElements(currentDoc);
+                    if (modal && !modal.hidden) {
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
+                        closeRevisionHistory(currentDoc);
+                    }
+                }
+            };
+            currentDoc.addEventListener('keydown', keydownHandler);
         }
 
         // Initial feed load
@@ -1265,6 +1853,12 @@
         STATUS_ID: STATUS_ID,
         FOOTER_ID: FOOTER_ID,
         LOAD_MORE_BTN_ID: LOAD_MORE_BTN_ID,
+        HISTORY_MODAL_ID: HISTORY_MODAL_ID,
+        HISTORY_TITLE_ID: HISTORY_TITLE_ID,
+        HISTORY_STATUS_ID: HISTORY_STATUS_ID,
+        HISTORY_LIST_ID: HISTORY_LIST_ID,
+        HISTORY_MORE_CONTAINER_ID: HISTORY_MORE_CONTAINER_ID,
+        HISTORY_MORE_BTN_ID: HISTORY_MORE_BTN_ID,
         init: initWikiArticleComments,
         destroy: resetState,
         resetState: resetState,
@@ -1286,6 +1880,12 @@
         openEditComposer: openEditComposer,
         handleDeleteComment: handleDeleteComment,
         handleRootCommentSubmit: handleRootCommentSubmit,
+        openRevisionHistory: openRevisionHistory,
+        loadMoreRevisions: loadMoreRevisions,
+        closeRevisionHistory: closeRevisionHistory,
+        ensureHistoryModal: ensureHistoryModal,
+        getHistoryElements: getHistoryElements,
+        getExistingHistoryElements: getExistingHistoryElements,
         getState: function () {
             return {
                 articleId: articleId,
@@ -1298,7 +1898,12 @@
                 threadCount: threadCount,
                 commentCount: commentCount,
                 currentThreads: currentThreads,
-                renderedRootIds: Array.from(renderedRootIds)
+                renderedRootIds: Array.from(renderedRootIds),
+                historyActiveCommentId: historyActiveCommentId,
+                historyCurrentPage: historyCurrentPage,
+                historyHasNext: historyHasNext,
+                historyIsLoading: historyIsLoading,
+                historyIsLoadingMore: historyIsLoadingMore
             };
         },
         setFetchImplementation: function (fn) {
