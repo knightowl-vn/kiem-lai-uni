@@ -2,6 +2,7 @@ package com.universe.interaction.infrastructure.persistence;
 
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentSlice;
+import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 import org.springframework.data.domain.PageRequest;
@@ -196,5 +197,25 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
             }
         }
         return result;
+    }
+
+    @Override
+    public CommentTargetMetrics getMetricsForTarget(CommentTarget target) {
+        if (target == null) {
+            throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+
+        List<Object[]> rows = repository.countTargetMetrics(
+                target.type().name(),
+                target.targetId().toString()
+        );
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return CommentTargetMetrics.EMPTY;
+        }
+
+        Object[] row = rows.get(0);
+        long threadCount = row[0] != null ? ((Number) row[0]).longValue() : 0L;
+        long activeReplies = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+        return new CommentTargetMetrics(threadCount, threadCount + activeReplies);
     }
 }

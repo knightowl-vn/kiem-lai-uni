@@ -4,6 +4,7 @@ import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
+import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -16,18 +17,27 @@ import java.util.UUID;
  * <ul>
  *   <li>{@link CommentTargetType#NOVEL_CHAPTER}: delegates to {@link ReaderChapterAccessQueryPort} to ensure the chapter
  *       (and its parent volume) is currently published and readable.</li>
- *   <li>{@link CommentTargetType#WIKI_ARTICLE}: returns {@code false} without throwing (Wiki comment integration is deferred to MS-05E6).</li>
+ *   <li>{@link CommentTargetType#WIKI_ARTICLE}: delegates to {@link WikiArticleQueryPort} to ensure the article
+ *       is currently published and readable.</li>
  * </ul>
  */
 @Component
 public class CommentTargetEligibilityAdapter implements CommentTargetEligibilityPort {
 
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
+    private final WikiArticleQueryPort wikiArticleQueryPort;
 
-    public CommentTargetEligibilityAdapter(ReaderChapterAccessQueryPort readerChapterAccessQueryPort) {
+    public CommentTargetEligibilityAdapter(
+            ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
+            WikiArticleQueryPort wikiArticleQueryPort
+    ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
                 "ReaderChapterAccessQueryPort cannot be null."
+        );
+        this.wikiArticleQueryPort = Objects.requireNonNull(
+                wikiArticleQueryPort,
+                "WikiArticleQueryPort cannot be null."
         );
     }
 
@@ -39,7 +49,7 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
 
         return switch (target.type()) {
             case NOVEL_CHAPTER -> isNovelChapterEligible(target.targetId());
-            case WIKI_ARTICLE -> false;
+            case WIKI_ARTICLE -> isWikiArticleEligible(target.targetId());
         };
     }
 
@@ -48,5 +58,12 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
             return false;
         }
         return readerChapterAccessQueryPort.findPublishedById(chapterId).isPresent();
+    }
+
+    private boolean isWikiArticleEligible(UUID articleId) {
+        if (articleId == null) {
+            return false;
+        }
+        return wikiArticleQueryPort.isPublished(articleId);
     }
 }

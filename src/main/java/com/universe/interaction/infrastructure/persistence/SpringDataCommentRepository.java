@@ -143,4 +143,31 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     List<Object[]> countActiveRepliesByThreadRootIds(
             @Param("threadRootCommentIds") Collection<String> threadRootCommentIds
     );
+
+    /**
+     * Aggregates target discussion metrics in a single query:
+     * - threadCount: COUNT(DISTINCT r.id) of active roots for the target.
+     * - activeRepliesCount: COUNT(DISTINCT c.id) of active replies under active roots for the target.
+     *
+     * <p>Returns exactly one row: [threadCount, activeRepliesCount].
+     */
+    @Query("""
+            SELECT
+                COUNT(DISTINCT r.id),
+                COUNT(DISTINCT c.id)
+            FROM CommentJpaEntity r
+            LEFT JOIN CommentJpaEntity c
+                ON c.threadRootCommentId = r.id
+                AND c.targetType = :targetType
+                AND c.targetId = :targetId
+                AND c.status = 'ACTIVE'
+            WHERE r.targetType = :targetType
+              AND r.targetId = :targetId
+              AND r.parentCommentId IS NULL
+              AND r.status = 'ACTIVE'
+            """)
+    List<Object[]> countTargetMetrics(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId
+    );
 }

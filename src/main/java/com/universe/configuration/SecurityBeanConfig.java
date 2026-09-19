@@ -167,7 +167,11 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/comments/*/thread",
                                 "/api/novel/chapters/*/comments/*/revisions",
                                 "/api/novel/chapters/*/comments/indicators",
-                                "/api/novel/chapters/*/comments/blocks/*"
+                                "/api/novel/chapters/*/comments/blocks/*",
+                                "/api/wiki/articles/*/comments",
+                                "/api/wiki/articles/*/comments/feed",
+                                "/api/wiki/articles/*/comments/*/thread",
+                                "/api/wiki/articles/*/comments/*/revisions"
                         )
                         .permitAll()
 
@@ -181,19 +185,23 @@ public class SecurityBeanConfig {
                                 org.springframework.http.HttpMethod.POST,
                                 "/api/novel/chapters/*/comments",
                                 "/api/novel/chapters/*/comments/inline",
-                                "/api/novel/chapters/*/comments/*/replies"
+                                "/api/novel/chapters/*/comments/*/replies",
+                                "/api/wiki/articles/*/comments",
+                                "/api/wiki/articles/*/comments/*/replies"
                         )
                         .authenticated()
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.PATCH,
-                                "/api/novel/chapters/*/comments/*"
+                                "/api/novel/chapters/*/comments/*",
+                                "/api/wiki/articles/*/comments/*"
                         )
                         .authenticated()
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.DELETE,
-                                "/api/novel/chapters/*/comments/*"
+                                "/api/novel/chapters/*/comments/*",
+                                "/api/wiki/articles/*/comments/*"
                         )
                         .authenticated()
 

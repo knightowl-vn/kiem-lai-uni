@@ -1,5 +1,6 @@
 package com.universe.interaction.application.ports;
 
+import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 
@@ -115,4 +116,15 @@ public interface CommentRepositoryPort {
      * @return map of root comment UUID to active reply count
      */
     Map<UUID, Long> countActiveRepliesByThreadRootIds(Collection<UUID> threadRootCommentIds);
+
+    /**
+     * Retrieves aggregated discussion metrics for the given target directly from persistence.
+     *
+     * <p>Calculates threadCount (active roots) and commentCount (active roots + active replies under active roots)
+     * in constant query count without loading comment IDs or entities into memory.
+     *
+     * @param target target entity (cannot be null)
+     * @return immutable metrics for the target
+     */
+    CommentTargetMetrics getMetricsForTarget(CommentTarget target);
 }

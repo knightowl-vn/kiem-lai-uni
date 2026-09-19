@@ -1,6 +1,7 @@
 package com.universe.interaction.infrastructure.persistence;
 
 import com.universe.interaction.application.ports.CommentSlice;
+import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTarget;
@@ -641,5 +642,133 @@ class CommentPersistenceAdapterMySQLTest {
 
         assertThat(rootIds).containsExactlyInAnyOrder(activeRoot1, activeRoot2);
         assertThat(rootIds).doesNotContain(deletedRoot, replyId, activeRootTarget2);
+    }
+
+    // =========================================================================
+    // 7. GET METRICS FOR TARGET (DIRECT PERSISTENCE AGGREGATE)
+    // =========================================================================
+
+    @Test
+    @DisplayName("A. no comments -> threadCount=0, commentCount=0")
+    void shouldReturnZeroMetricsWhenTargetHasNoComments() {
+        CommentTarget target = CommentTarget.wikiArticle(UUID.randomUUID());
+        CommentTargetMetrics metrics = adapter.getMetricsForTarget(target);
+
+        assertThat(metrics.threadCount()).isZero();
+        assertThat(metrics.commentCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("B. 2 active roots + 4 active replies -> threadCount=2, commentCount=6")
+    void shouldReturnAccurateMetricsForActiveRootsAndReplies() {
+        UUID articleId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.wikiArticle(articleId);
+        UUID authorId = UUID.randomUUID();
+
+        // Root 1 with 3 replies
+        Comment root1 = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Root 1", Instant.parse("2026-09-19T10:00:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root1, authorId, "Reply 1.1", Instant.parse("2026-09-19T10:01:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root1, authorId, "Reply 1.2", Instant.parse("2026-09-19T10:02:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root1, authorId, "Reply 1.3", Instant.parse("2026-09-19T10:03:00Z")));
+
+        // Root 2 with 1 reply
+        Comment root2 = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Root 2", Instant.parse("2026-09-19T10:04:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root2, authorId, "Reply 2.1", Instant.parse("2026-09-19T10:05:00Z")));
+
+        CommentTargetMetrics metrics = adapter.getMetricsForTarget(target);
+
+        assertThat(metrics.threadCount()).isEqualTo(2);
+        assertThat(metrics.commentCount()).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("C. deleted root with active descendants -> entire deleted-root thread excluded")
+    void shouldExcludeEntireDeletedRootThread() {
+        UUID articleId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.wikiArticle(articleId);
+        UUID authorId = UUID.randomUUID();
+
+        // Active root with 1 reply
+        Comment activeRoot = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Active Root", Instant.parse("2026-09-19T10:00:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), activeRoot, authorId, "Active Reply", Instant.parse("2026-09-19T10:01:00Z")));
+
+        // Deleted root with active reply
+        Comment deletedRoot = Comment.createRoot(UUID.randomUUID(), target, authorId, "Deleted Root", Instant.parse("2026-09-19T10:02:00Z"));
+        deletedRoot = adapter.save(deletedRoot);
+        adapter.save(Comment.createReply(UUID.randomUUID(), deletedRoot, authorId, "Orphan Reply", Instant.parse("2026-09-19T10:03:00Z")));
+
+        deletedRoot.delete(Instant.parse("2026-09-19T10:04:00Z"));
+        adapter.save(deletedRoot);
+
+        CommentTargetMetrics metrics = adapter.getMetricsForTarget(target);
+
+        assertThat(metrics.threadCount()).isEqualTo(1);
+        assertThat(metrics.commentCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("D. deleted intermediate reply with active descendant -> tombstone counts 0, active descendant counts 1")
+    void shouldExcludeTombstoneAndCountActiveDescendant() {
+        UUID articleId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.wikiArticle(articleId);
+        UUID authorId = UUID.randomUUID();
+
+        Comment root = adapter.save(Comment.createRoot(UUID.randomUUID(), target, authorId, "Root", Instant.parse("2026-09-19T10:00:00Z")));
+        Comment intermediateReply = adapter.save(Comment.createReply(UUID.randomUUID(), root, authorId, "Intermediate", Instant.parse("2026-09-19T10:01:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), intermediateReply, authorId, "Active Descendant", Instant.parse("2026-09-19T10:02:00Z")));
+
+        // Soft-delete intermediate reply (tombstone)
+        intermediateReply.delete(Instant.parse("2026-09-19T10:03:00Z"));
+        adapter.save(intermediateReply);
+
+        CommentTargetMetrics metrics = adapter.getMetricsForTarget(target);
+
+        // 1 root + 1 active descendant = 2 active comments (tombstone is 0)
+        assertThat(metrics.threadCount()).isEqualTo(1);
+        assertThat(metrics.commentCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("E. comments from another CommentTarget are excluded")
+    void shouldExcludeCommentsFromAnotherTarget() {
+        UUID article1 = UUID.randomUUID();
+        UUID article2 = UUID.randomUUID();
+        CommentTarget target1 = CommentTarget.wikiArticle(article1);
+        CommentTarget target2 = CommentTarget.wikiArticle(article2);
+        UUID authorId = UUID.randomUUID();
+
+        Comment root1 = adapter.save(Comment.createRoot(UUID.randomUUID(), target1, authorId, "Root Art 1", Instant.parse("2026-09-19T10:00:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root1, authorId, "Reply Art 1", Instant.parse("2026-09-19T10:01:00Z")));
+
+        Comment root2 = adapter.save(Comment.createRoot(UUID.randomUUID(), target2, authorId, "Root Art 2", Instant.parse("2026-09-19T10:02:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), root2, authorId, "Reply Art 2", Instant.parse("2026-09-19T10:03:00Z")));
+
+        CommentTargetMetrics metricsTarget1 = adapter.getMetricsForTarget(target1);
+        assertThat(metricsTarget1.threadCount()).isEqualTo(1);
+        assertThat(metricsTarget1.commentCount()).isEqualTo(2);
+
+        CommentTargetMetrics metricsTarget2 = adapter.getMetricsForTarget(target2);
+        assertThat(metricsTarget2.threadCount()).isEqualTo(1);
+        assertThat(metricsTarget2.commentCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("F. Wiki and Novel target types remain isolated with identical UUID")
+    void shouldIsolateWikiAndNovelTargetTypes() {
+        UUID sharedId = UUID.randomUUID();
+        CommentTarget wikiTarget = CommentTarget.wikiArticle(sharedId);
+        CommentTarget novelTarget = CommentTarget.novelChapter(sharedId);
+        UUID authorId = UUID.randomUUID();
+
+        Comment wikiRoot = adapter.save(Comment.createRoot(UUID.randomUUID(), wikiTarget, authorId, "Wiki Root", Instant.parse("2026-09-19T10:00:00Z")));
+        adapter.save(Comment.createReply(UUID.randomUUID(), wikiRoot, authorId, "Wiki Reply", Instant.parse("2026-09-19T10:01:00Z")));
+
+        CommentTargetMetrics wikiMetrics = adapter.getMetricsForTarget(wikiTarget);
+        assertThat(wikiMetrics.threadCount()).isEqualTo(1);
+        assertThat(wikiMetrics.commentCount()).isEqualTo(2);
+
+        CommentTargetMetrics novelMetrics = adapter.getMetricsForTarget(novelTarget);
+        assertThat(novelMetrics.threadCount()).isZero();
+        assertThat(novelMetrics.commentCount()).isZero();
     }
 }

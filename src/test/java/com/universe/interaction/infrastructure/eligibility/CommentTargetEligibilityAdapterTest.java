@@ -25,6 +25,9 @@ class CommentTargetEligibilityAdapterTest {
     @Mock
     private ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
 
+    @Mock
+    private com.universe.wiki.application.ports.WikiArticleQueryPort wikiArticleQueryPort;
+
     private CommentTargetEligibilityAdapter adapter;
 
     private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -32,15 +35,19 @@ class CommentTargetEligibilityAdapterTest {
 
     @BeforeEach
     void setUp() {
-        adapter = new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort);
+        adapter = new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, wikiArticleQueryPort);
     }
 
     @Test
     @DisplayName("Should reject null dependency in constructor")
     void shouldRejectNullDependency() {
-        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null))
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(null, wikiArticleQueryPort))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ReaderChapterAccessQueryPort cannot be null.");
+
+        assertThatThrownBy(() -> new CommentTargetEligibilityAdapter(readerChapterAccessQueryPort, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("WikiArticleQueryPort cannot be null.");
     }
 
     @Test
@@ -53,6 +60,7 @@ class CommentTargetEligibilityAdapterTest {
         boolean result = adapter.isEligible(target);
 
         assertThat(result).isTrue();
+        verifyNoInteractions(wikiArticleQueryPort);
     }
 
     @Test
@@ -65,6 +73,7 @@ class CommentTargetEligibilityAdapterTest {
         boolean result = adapter.isEligible(target);
 
         assertThat(result).isFalse();
+        verifyNoInteractions(wikiArticleQueryPort);
     }
 
     @Test
@@ -74,12 +83,26 @@ class CommentTargetEligibilityAdapterTest {
 
         assertThat(result).isFalse();
         verifyNoInteractions(readerChapterAccessQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
     }
 
     @Test
-    @DisplayName("Should return false without querying Novel when target is WIKI_ARTICLE (deferred to MS-05E6)")
-    void shouldReturnFalseWhenTargetIsWikiArticle() {
+    @DisplayName("Should return true when WIKI_ARTICLE target is published")
+    void shouldReturnTrueWhenWikiArticleIsPublished() {
         CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+
+        boolean result = adapter.isEligible(target);
+
+        assertThat(result).isTrue();
+        verifyNoInteractions(readerChapterAccessQueryPort);
+    }
+
+    @Test
+    @DisplayName("Should return false when WIKI_ARTICLE target is not published or missing")
+    void shouldReturnFalseWhenWikiArticleIsUnpublished() {
+        CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(false);
 
         boolean result = adapter.isEligible(target);
 
