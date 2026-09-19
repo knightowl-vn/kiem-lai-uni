@@ -17,6 +17,11 @@ import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.exceptions.CommentNotReportableException;
+import com.universe.interaction.application.exceptions.DuplicatePendingReportException;
+import com.universe.interaction.application.exceptions.SelfReportNotAllowedException;
+import com.universe.interaction.application.mutation.SubmitCommentReportCommand;
+import com.universe.interaction.application.mutation.SubmitCommentReportUseCase;
 import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
@@ -30,9 +35,11 @@ import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.entry.dto.CommentReportResponseDTO;
 import com.universe.interaction.entry.dto.CommentRevisionReadDTO;
 import com.universe.interaction.entry.dto.CommentRevisionSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentSliceResponseDTO;
+import com.universe.interaction.entry.dto.SubmitCommentReportRequest;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
 import com.universe.interaction.entry.dto.CreateInlineCommentRequest;
@@ -106,6 +113,7 @@ public class NovelChapterCommentController {
     private final NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator;
     private final NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
     private final GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
+    private final SubmitCommentReportUseCase submitCommentReportUseCase;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -122,7 +130,8 @@ public class NovelChapterCommentController {
             NovelInlineCommentCreationCoordinator novelInlineCommentCreationCoordinator,
             NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator,
             NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator,
-            GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase
+            GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase,
+            SubmitCommentReportUseCase submitCommentReportUseCase
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -139,6 +148,7 @@ public class NovelChapterCommentController {
         this.novelBlockDiscussionQueryCoordinator = Objects.requireNonNull(novelBlockDiscussionQueryCoordinator, "NovelBlockDiscussionQueryCoordinator cannot be null.");
         this.novelChapterDiscussionFeedQueryCoordinator = Objects.requireNonNull(novelChapterDiscussionFeedQueryCoordinator, "NovelChapterDiscussionFeedQueryCoordinator cannot be null.");
         this.getPublicCommentRevisionsUseCase = Objects.requireNonNull(getPublicCommentRevisionsUseCase, "GetPublicCommentRevisionsUseCase cannot be null.");
+        this.submitCommentReportUseCase = Objects.requireNonNull(submitCommentReportUseCase, "SubmitCommentReportUseCase cannot be null.");
     }
 
     /**
@@ -517,6 +527,37 @@ public class NovelChapterCommentController {
         return ResponseEntity.ok(new CommentRevisionSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
     }
 
+    /**
+     * POST /api/novel/chapters/{chapterId}/comments/{commentId}/reports
+     * Submits a user report against an interaction comment on the chapter.
+     */
+    @PostMapping("/{commentId}/reports")
+    public ResponseEntity<CommentReportResponseDTO> submitCommentReport(
+            @PathVariable UUID chapterId,
+            @PathVariable UUID commentId,
+            @RequestBody(required = false) SubmitCommentReportRequest requestBody,
+            HttpServletRequest request
+    ) {
+        if (chapterId == null || commentId == null || requestBody == null || requestBody.reason() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        UUID actorUserId = resolveAuthenticatedActor(request);
+
+        CommentTarget expectedTarget = CommentTarget.novelChapter(chapterId);
+        validateCommentTargetScopeUseCase.execute(commentId, expectedTarget);
+
+        SubmitCommentReportCommand command = new SubmitCommentReportCommand(
+                commentId,
+                actorUserId,
+                requestBody.reason(),
+                requestBody.description()
+        );
+        var report = submitCommentReportUseCase.execute(command);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(CommentReportResponseDTO.from(report));
+    }
+
     private UUID resolveAuthenticatedActor(HttpServletRequest request) {
         Optional<AuthenticatedRequestIdentity> identityOptional =
                 AuthenticatedRequestIdentityAccessor.find(request);
@@ -545,19 +586,26 @@ public class NovelChapterCommentController {
             CommentNotFoundException.class,
             CommentTargetNotEligibleException.class,
             ReaderBlockNotFoundException.class,
-            ChapterNotFoundException.class
+            ChapterNotFoundException.class,
+            CommentNotReportableException.class
     })
     public ResponseEntity<Void> handleNotFound(Exception ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
-    @ExceptionHandler(ChapterCommentAnchorVersionConflictException.class)
-    public ResponseEntity<Void> handleVersionConflict(ChapterCommentAnchorVersionConflictException ex) {
+    @ExceptionHandler({
+            ChapterCommentAnchorVersionConflictException.class,
+            DuplicatePendingReportException.class
+    })
+    public ResponseEntity<Void> handleConflict(Exception ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 
-    @ExceptionHandler(CommentMutationForbiddenException.class)
-    public ResponseEntity<Void> handleForbidden(CommentMutationForbiddenException ex) {
+    @ExceptionHandler({
+            CommentMutationForbiddenException.class,
+            SelfReportNotAllowedException.class
+    })
+    public ResponseEntity<Void> handleForbidden(Exception ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 

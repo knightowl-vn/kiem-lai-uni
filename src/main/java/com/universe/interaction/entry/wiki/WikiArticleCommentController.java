@@ -6,6 +6,9 @@ import com.universe.interaction.application.exceptions.CommentMutationForbiddenE
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
 import com.universe.interaction.application.exceptions.CommentThreadIntegrityException;
+import com.universe.interaction.application.exceptions.CommentNotReportableException;
+import com.universe.interaction.application.exceptions.DuplicatePendingReportException;
+import com.universe.interaction.application.exceptions.SelfReportNotAllowedException;
 import com.universe.interaction.application.mutation.CreateRootCommentCommand;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
 import com.universe.interaction.application.mutation.DeleteCommentCommand;
@@ -14,17 +17,22 @@ import com.universe.interaction.application.mutation.EditCommentCommand;
 import com.universe.interaction.application.mutation.EditCommentUseCase;
 import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
+import com.universe.interaction.application.mutation.SubmitCommentReportCommand;
+import com.universe.interaction.application.mutation.SubmitCommentReportUseCase;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
+import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.entry.dto.CommentReportResponseDTO;
 import com.universe.interaction.entry.dto.CommentRevisionReadDTO;
 import com.universe.interaction.entry.dto.CommentRevisionSliceResponseDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
 import com.universe.interaction.entry.dto.CreateCommentRequest;
 import com.universe.interaction.entry.dto.EditCommentRequest;
+import com.universe.interaction.entry.dto.SubmitCommentReportRequest;
 import com.universe.interaction.entry.wiki.dto.WikiDiscussionFeedResponseDTO;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
@@ -78,6 +86,7 @@ public class WikiArticleCommentController {
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
+    private final SubmitCommentReportUseCase submitCommentReportUseCase;
 
     public WikiArticleCommentController(
             WikiArticleQueryPort wikiArticleQueryPort,
@@ -87,7 +96,8 @@ public class WikiArticleCommentController {
             EditCommentUseCase editCommentUseCase,
             DeleteCommentUseCase deleteCommentUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
-            GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase
+            GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase,
+            SubmitCommentReportUseCase submitCommentReportUseCase
     ) {
         this.wikiArticleQueryPort = Objects.requireNonNull(wikiArticleQueryPort, "WikiArticleQueryPort cannot be null.");
         this.wikiArticleDiscussionQueryCoordinator = Objects.requireNonNull(wikiArticleDiscussionQueryCoordinator, "WikiArticleDiscussionQueryCoordinator cannot be null.");
@@ -97,6 +107,7 @@ public class WikiArticleCommentController {
         this.deleteCommentUseCase = Objects.requireNonNull(deleteCommentUseCase, "DeleteCommentUseCase cannot be null.");
         this.validateCommentTargetScopeUseCase = Objects.requireNonNull(validateCommentTargetScopeUseCase, "ValidateCommentTargetScopeUseCase cannot be null.");
         this.getPublicCommentRevisionsUseCase = Objects.requireNonNull(getPublicCommentRevisionsUseCase, "GetPublicCommentRevisionsUseCase cannot be null.");
+        this.submitCommentReportUseCase = Objects.requireNonNull(submitCommentReportUseCase, "SubmitCommentReportUseCase cannot be null.");
     }
 
     /**
@@ -290,6 +301,39 @@ public class WikiArticleCommentController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * POST /api/wiki/articles/{articleId}/comments/{commentId}/reports
+     * Submits a user report against an interaction comment on the Wiki article.
+     */
+    @PostMapping("/{commentId}/reports")
+    public ResponseEntity<CommentReportResponseDTO> submitCommentReport(
+            @PathVariable UUID articleId,
+            @PathVariable UUID commentId,
+            @RequestBody(required = false) SubmitCommentReportRequest requestBody,
+            HttpServletRequest request
+    ) {
+        if (articleId == null || commentId == null || requestBody == null || requestBody.reason() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        UUID actorUserId = resolveAuthenticatedActor(request);
+
+        ensurePublishedArticle(articleId);
+
+        CommentTarget expectedTarget = CommentTarget.wikiArticle(articleId);
+        validateCommentTargetScopeUseCase.execute(commentId, expectedTarget);
+
+        SubmitCommentReportCommand command = new SubmitCommentReportCommand(
+                commentId,
+                actorUserId,
+                requestBody.reason(),
+                requestBody.description()
+        );
+        var report = submitCommentReportUseCase.execute(command);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(CommentReportResponseDTO.from(report));
+    }
+
     private void ensurePublishedArticle(UUID articleId) {
         if (articleId == null || !wikiArticleQueryPort.isPublished(articleId)) {
             throw new PublishedWikiArticleNotFoundException(articleId);
@@ -324,14 +368,23 @@ public class WikiArticleCommentController {
             CommentNotFoundException.class,
             CommentTargetNotEligibleException.class,
             PublishedWikiArticleNotFoundException.class,
-            WikiArticleNotFoundException.class
+            WikiArticleNotFoundException.class,
+            CommentNotReportableException.class
     })
     public ResponseEntity<Void> handleNotFound(Exception ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
     }
 
-    @ExceptionHandler(CommentMutationForbiddenException.class)
-    public ResponseEntity<Void> handleForbidden(CommentMutationForbiddenException ex) {
+    @ExceptionHandler(DuplicatePendingReportException.class)
+    public ResponseEntity<Void> handleConflict(DuplicatePendingReportException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    }
+
+    @ExceptionHandler({
+            CommentMutationForbiddenException.class,
+            SelfReportNotAllowedException.class
+    })
+    public ResponseEntity<Void> handleForbidden(Exception ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 

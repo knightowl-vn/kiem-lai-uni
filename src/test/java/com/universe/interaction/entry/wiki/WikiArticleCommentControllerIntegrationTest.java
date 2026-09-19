@@ -11,6 +11,9 @@ import com.universe.identity.infrastructure.security.CustomAuthenticationFailure
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
+import com.universe.interaction.application.exceptions.CommentNotReportableException;
+import com.universe.interaction.application.exceptions.DuplicatePendingReportException;
+import com.universe.interaction.application.exceptions.SelfReportNotAllowedException;
 import com.universe.interaction.application.mutation.CreateRootCommentCommand;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
 import com.universe.interaction.application.mutation.DeleteCommentCommand;
@@ -19,10 +22,15 @@ import com.universe.interaction.application.mutation.EditCommentCommand;
 import com.universe.interaction.application.mutation.EditCommentUseCase;
 import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
+import com.universe.interaction.application.mutation.SubmitCommentReportCommand;
+import com.universe.interaction.application.mutation.SubmitCommentReportUseCase;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportReason;
+import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.domain.CommentRevision;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
@@ -131,6 +139,9 @@ class WikiArticleCommentControllerIntegrationTest {
 
     @MockBean
     private GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
+
+    @MockBean
+    private SubmitCommentReportUseCase submitCommentReportUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -613,5 +624,270 @@ class WikiArticleCommentControllerIntegrationTest {
                         .with(csrf())
                         .with(authenticatedIdentity(USER_1_ID)))
                 .andExpect(status().isMethodNotAllowed());
+    }
+
+    // =========================================================================
+    // COMMENT REPORTING TESTS
+    // =========================================================================
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should submit comment report with 201 Created and minimal public response DTO on Wiki article")
+    void shouldSubmitWikiCommentReportSuccessfully() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+
+        UUID reportId = UUID.randomUUID();
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                ROOT_COMMENT_ID,
+                USER_1_ID,
+                ReportReason.SPAM,
+                "Spam comment on wiki",
+                "Authoritative wiki comment body snapshot",
+                NOW
+        );
+
+        when(submitCommentReportUseCase.execute(any(SubmitCommentReportCommand.class))).thenReturn(report);
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM",
+                                    "description": "Spam comment on wiki"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reportId").value(reportId.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.createdAt").exists())
+                // Assert privacy: internal and snapshot fields must not leak
+                .andExpect(jsonPath("$.reportedBodySnapshot").doesNotExist())
+                .andExpect(jsonPath("$.snapshot").doesNotExist())
+                .andExpect(jsonPath("$.reporterUserId").doesNotExist())
+                .andExpect(jsonPath("$.actorUserId").doesNotExist())
+                .andExpect(jsonPath("$.description").doesNotExist())
+                .andExpect(jsonPath("$.resolution").doesNotExist());
+
+        ArgumentCaptor<SubmitCommentReportCommand> captor = ArgumentCaptor.forClass(SubmitCommentReportCommand.class);
+        verify(submitCommentReportUseCase).execute(captor.capture());
+        SubmitCommentReportCommand cmd = captor.getValue();
+        assertThat(cmd.commentId()).isEqualTo(ROOT_COMMENT_ID);
+        assertThat(cmd.reporterUserId()).isEqualTo(USER_1_ID);
+        assertThat(cmd.reason()).isEqualTo(ReportReason.SPAM);
+        assertThat(cmd.description()).isEqualTo("Spam comment on wiki");
+
+        verify(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, CommentTarget.wikiArticle(ARTICLE_ID));
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should ignore client-supplied actor ID or snapshot and derive actor strictly from authenticated identity")
+    void shouldIgnoreClientSuppliedActorAndSnapshotInWikiReport() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+
+        UUID reportId = UUID.randomUUID();
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                ROOT_COMMENT_ID,
+                USER_1_ID,
+                ReportReason.HARASSMENT,
+                "Valid description",
+                "Real server snapshot",
+                NOW
+        );
+
+        when(submitCommentReportUseCase.execute(any(SubmitCommentReportCommand.class))).thenReturn(report);
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "HARASSMENT",
+                                    "description": "Valid description",
+                                    "reporterUserId": "00000000-0000-0000-0000-000000000000",
+                                    "reportedBodySnapshot": "Hacked snapshot"
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reportId").value(reportId.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+
+        ArgumentCaptor<SubmitCommentReportCommand> captor = ArgumentCaptor.forClass(SubmitCommentReportCommand.class);
+        verify(submitCommentReportUseCase).execute(captor.capture());
+        assertThat(captor.getValue().reporterUserId()).isEqualTo(USER_1_ID);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Anonymous user cannot submit report on Wiki article (redirected by security)")
+    void shouldRedirectAnonymousWhenSubmittingWikiReport() throws Exception {
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().is3xxRedirection());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Unauthenticated request missing identity accessor returns 403 Forbidden")
+    void shouldRejectUnauthenticatedWithoutIdentityOnWiki() throws Exception {
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 404 when Wiki article is not published")
+    void shouldReturn404WhenWikiArticleNotPublished() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(false);
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+
+        verify(validateCommentTargetScopeUseCase, never()).execute(any(), any());
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 404 when target scope validation fails on Wiki")
+    void shouldReturn404WhenTargetScopeMismatchOnWiki() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        doThrow(new CommentNotFoundException(ROOT_COMMENT_ID))
+                .when(validateCommentTargetScopeUseCase)
+                .execute(ROOT_COMMENT_ID, CommentTarget.wikiArticle(ARTICLE_ID));
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 409 Conflict when duplicate pending report exists on Wiki")
+    void shouldReturn409WhenDuplicatePendingReportOnWiki() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        when(submitCommentReportUseCase.execute(any(SubmitCommentReportCommand.class)))
+                .thenThrow(new DuplicatePendingReportException(ROOT_COMMENT_ID, USER_1_ID));
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 403 Forbidden when user attempts self-report on Wiki")
+    void shouldReturn403WhenSelfReportingOnWiki() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        when(submitCommentReportUseCase.execute(any(SubmitCommentReportCommand.class)))
+                .thenThrow(new SelfReportNotAllowedException(ROOT_COMMENT_ID, USER_1_ID));
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 404 Not Found when comment is not reportable on Wiki")
+    void shouldReturn404WhenCommentNotReportableOnWiki() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        when(submitCommentReportUseCase.execute(any(SubmitCommentReportCommand.class)))
+                .thenThrow(new CommentNotReportableException(ROOT_COMMENT_ID, "Comment is deleted."));
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Should return 400 Bad Request when request body is empty or reason is null on Wiki")
+    void shouldReturn400WhenReasonMissingOnWiki() throws Exception {
+        // Missing body
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        // Null reason
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\": \"Missing reason field\"}"))
+                .andExpect(status().isBadRequest());
+
+        // Invalid enum string
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\": \"INVALID_REASON\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
     }
 }
