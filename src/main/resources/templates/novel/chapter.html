@@ -909,43 +909,46 @@
         </div>
     </div>
 
-    <!-- Comment Revision History Modal (MS-05E5G5E) -->
-    <div id="novelCommentHistoryModal"
-         class="novel-comment-history-modal"
-         role="dialog"
-         aria-modal="true"
-         aria-labelledby="novelCommentHistoryModalTitle"
-         hidden>
-        <div class="novel-comment-history-modal-backdrop" data-action="close-history-modal"></div>
-        <div class="novel-comment-history-modal-card" role="document">
-            <div class="novel-comment-history-modal-header">
-                <h3 id="novelCommentHistoryModalTitle" class="novel-comment-history-modal-title">Lịch sử chỉnh sửa</h3>
+</aside>
+
+
+<!-- =====================================================
+     COMMENT REVISION HISTORY MODAL (MS-05E5G5E)
+     ===================================================== -->
+<div id="novelCommentHistoryModal"
+     class="novel-comment-history-modal"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="novelCommentHistoryModalTitle"
+     hidden>
+    <div class="novel-comment-history-modal-backdrop" data-action="close-history-modal"></div>
+    <div class="novel-comment-history-modal-card" role="document">
+        <div class="novel-comment-history-modal-header">
+            <h3 id="novelCommentHistoryModalTitle" class="novel-comment-history-modal-title">Lịch sử chỉnh sửa</h3>
+            <button type="button"
+                    class="novel-comment-history-modal-close"
+                    data-action="close-history-modal"
+                    aria-label="Đóng">✕</button>
+        </div>
+        <div class="novel-comment-history-modal-body" id="novelCommentHistoryModalBody">
+            <div id="novelCommentHistoryStatus"
+                 class="novel-comment-history-status"
+                 role="status"
+                 aria-live="polite"></div>
+            <div id="novelCommentHistoryList"
+                 class="novel-comment-history-list"
+                 role="feed"
+                 aria-label="Danh sách các phiên bản cũ"></div>
+            <div id="novelCommentHistoryMore"
+                 class="novel-comment-history-more"
+                 hidden>
                 <button type="button"
-                        class="novel-comment-history-modal-close"
-                        data-action="close-history-modal"
-                        aria-label="Đóng">✕</button>
-            </div>
-            <div class="novel-comment-history-modal-body" id="novelCommentHistoryModalBody">
-                <div id="novelCommentHistoryStatus"
-                     class="novel-comment-history-status"
-                     role="status"
-                     aria-live="polite"></div>
-                <div id="novelCommentHistoryList"
-                     class="novel-comment-history-list"
-                     role="feed"
-                     aria-label="Danh sách các phiên bản cũ"></div>
-                <div id="novelCommentHistoryMore"
-                     class="novel-comment-history-more"
-                     hidden>
-                    <button type="button"
-                            id="novelCommentHistoryMoreBtn"
-                            class="novel-comment-history-more-btn">Xem thêm</button>
-                </div>
+                        id="novelCommentHistoryMoreBtn"
+                        class="novel-comment-history-more-btn">Xem thêm</button>
             </div>
         </div>
     </div>
-
-</aside>
+</div>
 
 
 <script th:src="@{/js/theme.js}"></script>
