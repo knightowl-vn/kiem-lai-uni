@@ -39,6 +39,7 @@
 
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
     const EVENT_FEED_REPLACING = 'kiemlai:chapter-comments-feed-replacing';
+    const EVENT_FEED_RENDERED = 'kiemlai:chapter-comments-feed-rendered';
 
     const INITIAL_VISIBLE_REPLIES = 3;
     const REPLY_REVEAL_BATCH_SIZE = 5;
@@ -1213,6 +1214,30 @@
     }
 
     /**
+     * Dispatches the post-render event kiemlai:chapter-comments-feed-rendered.
+     *
+     * @param {Document} doc
+     * @param {string|null} [chapterId]
+     */
+    function notifyFeedRendered(doc, chapterId) {
+        if (!doc || typeof doc.dispatchEvent !== 'function') return;
+        const targetChapter = chapterId || currentChapterId || null;
+        try {
+            if (typeof CustomEvent === 'function') {
+                doc.dispatchEvent(new CustomEvent(EVENT_FEED_RENDERED, {
+                    detail: { chapterId: targetChapter }
+                }));
+            } else {
+                const evt = doc.createEvent ? doc.createEvent('CustomEvent') : { type: EVENT_FEED_RENDERED, detail: { chapterId: targetChapter } };
+                if (evt.initCustomEvent) {
+                    evt.initCustomEvent(EVENT_FEED_RENDERED, true, true, { chapterId: targetChapter });
+                }
+                doc.dispatchEvent(evt);
+            }
+        } catch (_) {}
+    }
+
+    /**
      * Renders empty comments state.
      *
      * @param {Element} statusEl
@@ -1251,6 +1276,7 @@
         if (countEl) {
             countEl.textContent = formatCommentCount(0);
         }
+        notifyFeedRendered(doc, currentChapterId);
     }
 
     /**
@@ -1284,6 +1310,7 @@
         if (countEl) {
             countEl.textContent = formatCommentCount(getActiveCommentCount(items));
         }
+        notifyFeedRendered(doc, currentChapterId);
     }
 
     /**
@@ -1489,6 +1516,8 @@
                 } else {
                     renderMoreHidden(moreEl);
                 }
+
+                notifyFeedRendered(doc, targetChapterId);
             })
             .catch(function (_) {
                 if (token !== loadToken || targetChapterId !== currentChapterId) {
@@ -1937,6 +1966,7 @@
         REPLY_REVEAL_BATCH_SIZE: REPLY_REVEAL_BATCH_SIZE,
         EVENT_CHAPTER_CHANGED: EVENT_CHAPTER_CHANGED,
         EVENT_FEED_REPLACING: EVENT_FEED_REPLACING,
+        EVENT_FEED_RENDERED: EVENT_FEED_RENDERED,
         init: initReaderChapterComments,
         destroy: destroyReaderChapterComments,
         retry: retryFetch,

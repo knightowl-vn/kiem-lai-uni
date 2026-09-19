@@ -3718,4 +3718,149 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.ok(p1Popover.querySelector('button[data-action="delete"]'));
         });
     });
+
+    describe('UX-DRAFT-01D2A Post-Render Feed Event (EVENT_FEED_RENDERED)', () => {
+        test('EVENT_FEED_RENDERED constant is exported', () => {
+            assert.strictEqual(commentsModule.EVENT_FEED_RENDERED, 'kiemlai:chapter-comments-feed-rendered');
+        });
+
+        test('Populated full render dispatches exactly once after DOM exists with safe chapterId detail', async () => {
+            const { doc, list } = createStandardFixture('c-feed-rendered-pop');
+            const events = [];
+            doc.addEventListener(commentsModule.EVENT_FEED_RENDERED, (e) => {
+                events.push({
+                    detail: e.detail,
+                    domExists: list.querySelectorAll('.novel-comment').length > 0
+                });
+            });
+
+            const items = [{
+                rootCommentId: 'r-1',
+                author: { displayName: 'User 1' },
+                body: 'Comment 1',
+                anchorStatus: 'UNANCHORED',
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items, false, 0)) })
+            });
+
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(events.length, 1);
+            assert.deepStrictEqual(events[0].detail, { chapterId: 'c-feed-rendered-pop' });
+            assert.strictEqual(events[0].domExists, true, 'Event must fire after DOM cards have been attached');
+        });
+
+        test('Empty render dispatches safe event with chapterId detail', async () => {
+            const { doc, list } = createStandardFixture('c-feed-rendered-empty');
+            const events = [];
+            doc.addEventListener(commentsModule.EVENT_FEED_RENDERED, (e) => {
+                events.push({
+                    detail: e.detail,
+                    emptyExists: list.querySelector('.novel-chapter-comments-empty') !== null
+                });
+            });
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([], false, 0)) })
+            });
+
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(events.length, 1);
+            assert.deepStrictEqual(events[0].detail, { chapterId: 'c-feed-rendered-empty' });
+            assert.strictEqual(events[0].emptyExists, true);
+        });
+
+        test('Load-more successful append emits rendered notification carrying chapterId', async () => {
+            const { doc, list } = createStandardFixture('c-load-more-rendered');
+            const events = [];
+
+            const page0 = [{
+                rootCommentId: 'r-0',
+                author: { displayName: 'P0' },
+                body: 'P0 body',
+                anchorStatus: 'UNANCHORED',
+                replyCount: 0,
+                replies: []
+            }];
+            const page1 = [{
+                rootCommentId: 'r-1',
+                author: { displayName: 'P1' },
+                body: 'P1 body',
+                anchorStatus: 'UNANCHORED',
+                replyCount: 0,
+                replies: []
+            }];
+
+            commentsModule.init(doc, {
+                fetch: (url) => {
+                    const u = String(url);
+                    if (u.includes('page=1')) {
+                        return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page1, false, 1)) });
+                    }
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(page0, true, 0)) });
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 15));
+
+            doc.addEventListener(commentsModule.EVENT_FEED_RENDERED, (e) => {
+                events.push({
+                    detail: e.detail,
+                    totalRoots: list.querySelectorAll('.novel-block-discussion-thread').length
+                });
+            });
+
+            await commentsModule.loadMore();
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(events.length, 1);
+            assert.deepStrictEqual(events[0].detail, { chapterId: 'c-load-more-rendered' });
+            assert.strictEqual(events[0].totalRoots, 2, 'Event must fire after page-1 roots are appended to DOM');
+        });
+
+        test('Stale/out-of-order feed response does NOT emit rendered event for the wrong chapter', async () => {
+            const { doc } = createStandardFixture('ch-orig');
+            const events = [];
+            doc.addEventListener(commentsModule.EVENT_FEED_RENDERED, (e) => {
+                events.push(e.detail);
+            });
+
+            let resolveOrig;
+            const origPromise = new Promise(r => { resolveOrig = r; });
+
+            commentsModule.init(doc, {
+                fetch: (url) => {
+                    if (String(url).includes('ch-orig')) {
+                        return origPromise;
+                    }
+                    return Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([], false, 0)) });
+                }
+            });
+
+            // Switch to Chapter B before Chapter A responds
+            doc.dispatchEvent({
+                type: 'kiemlai:chapter-changed',
+                detail: { chapterId: 'ch-second' }
+            });
+
+            await new Promise(r => setTimeout(r, 15));
+            assert.strictEqual(events.length, 1);
+            assert.deepStrictEqual(events[0], { chapterId: 'ch-second' });
+
+            // Old response A resolves
+            resolveOrig({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([{ rootCommentId: 'r-stale', body: 'Stale' }], false, 0))
+            });
+            await new Promise(r => setTimeout(r, 15));
+
+            // Must NOT emit any event for ch-orig
+            assert.strictEqual(events.length, 1, 'Stale completion must not emit rendered event');
+        });
+    });
 });
