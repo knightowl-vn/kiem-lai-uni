@@ -44,6 +44,14 @@
 
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
     const EVENT_FEED_REPLACING = 'kiemlai:chapter-comments-feed-replacing';
+    const EVENT_FEED_RENDERED = 'kiemlai:chapter-comments-feed-rendered';
+    const EVENT_FLUSH_DRAFTS = 'kiemlai:novel-comment-drafts-flush';
+    const DEBOUNCE_DELAY_MS = 400;
+
+    // Module-lifetime state: survives destroy/re-init across composer instances
+    let globalEditGeneration = 0;
+    const keyEditGenerations = new Map();
+    const acceptedEditGenerations = new Map();
 
     // Module State
     let currentDoc = null;
@@ -52,6 +60,9 @@
     let currentMutationToken = 0;
     let activeEditTarget = null;
     let activeComposerEl = null;
+    let activeOriginalBody = '';
+    let isDirty = false;
+    let draftDebounceTimer = null;
 
     let injectedFetch = null;
     let injectedMutations = null;
@@ -59,12 +70,16 @@
     let injectedReplyComposer = null;
     let injectedDeleteModule = null;
     let injectedDrawerModule = null;
+    let injectedDraftAdapter = null;
+    let injectedDraftStore = null;
 
     // Stable listener references
     let delegatedClickHandler = null;
     let submitHandler = null;
     let chapterChangedHandler = null;
     let feedReplacingHandler = null;
+    let feedRenderedHandler = null;
+    let flushDraftsHandler = null;
     let keydownHandler = null;
 
     let nodeMutations = null;
@@ -249,23 +264,492 @@
     }
 
     /**
+     * Resolves the reply composer module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveReplyComposerModule() {
+        if (injectedReplyComposer) return injectedReplyComposer;
+        if (typeof window !== 'undefined') {
+            const reply = window.NovelReaderChapterCommentReplyComposer ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterCommentReplyComposer);
+            if (reply) return reply;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const reply = globalThis.NovelReaderChapterCommentReplyComposer ||
+                (globalThis.KiemLai && globalThis.KiemLai.NovelReaderChapterCommentReplyComposer);
+            if (reply) return reply;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./reader-chapter-comment-reply-composer.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Checks whether a bottom reply composer is currently active.
+     *
+     * @param {Element} [sectionEl]
+     * @returns {boolean}
+     */
+    function isReplyComposerActive(sectionEl) {
+        const replyMod = resolveReplyComposerModule();
+        if (replyMod) {
+            try {
+                if (typeof replyMod.getActiveComposer === 'function') {
+                    const el = replyMod.getActiveComposer();
+                    if (el) return true;
+                }
+                if (typeof replyMod.getState === 'function') {
+                    const state = replyMod.getState();
+                    if (state && state.activeCommentId) return true;
+                }
+            } catch (_) {}
+        }
+        if (sectionEl && typeof sectionEl.querySelector === 'function') {
+            try {
+                const el = sectionEl.querySelector('.novel-chapter-comment-reply-composer');
+                if (el) return true;
+            } catch (_) {}
+        }
+        return false;
+    }
+
+    /**
+     * Resolves the comment delete module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDeleteModule() {
+        if (injectedDeleteModule) return injectedDeleteModule;
+        if (typeof window !== 'undefined') {
+            const del = window.NovelReaderChapterCommentDelete ||
+                (window.KiemLai && window.KiemLai.NovelReaderChapterCommentDelete);
+            if (del) return del;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const del = globalThis.NovelReaderChapterCommentDelete ||
+                (globalThis.KiemLai && globalThis.KiemLai.NovelReaderChapterCommentDelete);
+            if (del) return del;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./reader-chapter-comment-delete.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Checks whether a bottom delete confirmation is currently active.
+     *
+     * @param {Element} [sectionEl]
+     * @returns {boolean}
+     */
+    function isDeleteActive(sectionEl) {
+        const delMod = resolveDeleteModule();
+        if (delMod) {
+            try {
+                if (typeof delMod.getActiveConfirmationEl === 'function' && delMod.getActiveConfirmationEl()) {
+                    return true;
+                }
+                if (typeof delMod.getActiveDeleteTarget === 'function' && delMod.getActiveDeleteTarget()) {
+                    return true;
+                }
+                if (typeof delMod.isDeletingComment === 'function' && delMod.isDeletingComment()) {
+                    return true;
+                }
+            } catch (_) {}
+        }
+        if (sectionEl && typeof sectionEl.querySelector === 'function') {
+            try {
+                const el = sectionEl.querySelector('.novel-chapter-comment-delete-confirmation');
+                if (el) return true;
+            } catch (_) {}
+        }
+        return false;
+    }
+
+    /**
+     * Resolves the Novel Comment Drafts adapter module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftAdapter() {
+        if (injectedDraftAdapter) return injectedDraftAdapter;
+        if (typeof window !== 'undefined') {
+            if (window.NovelReaderCommentDrafts) return window.NovelReaderCommentDrafts;
+            if (window.KiemLai && window.KiemLai.NovelReaderCommentDrafts) return window.KiemLai.NovelReaderCommentDrafts;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.NovelReaderCommentDrafts) return globalThis.NovelReaderCommentDrafts;
+            if (globalThis.KiemLai && globalThis.KiemLai.NovelReaderCommentDrafts) return globalThis.KiemLai.NovelReaderCommentDrafts;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('./reader-comment-drafts.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the EphemeralDraftStore implementation.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftStore() {
+        if (injectedDraftStore) return injectedDraftStore;
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.resolveDraftStore === 'function') {
+            const resolved = adapter.resolveDraftStore();
+            if (resolved) return resolved;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.EphemeralDraftStore) return window.EphemeralDraftStore;
+            if (window.KiemLai && window.KiemLai.EphemeralDraftStore) return window.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.EphemeralDraftStore) return globalThis.EphemeralDraftStore;
+            if (globalThis.KiemLai && globalThis.KiemLai.EphemeralDraftStore) return globalThis.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/ephemeral-draft-store.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the canonical Edit draft key.
+     *
+     * @param {string} chapterId
+     * @param {string} commentId
+     * @returns {string|null}
+     */
+    function getEditDraftKey(chapterId, commentId) {
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.getChapterEditDraftKey === 'function') {
+            return adapter.getChapterEditDraftKey(chapterId, commentId);
+        }
+        if (typeof chapterId !== 'string' || !chapterId.trim() ||
+            typeof commentId !== 'string' || !commentId.trim()) {
+            return null;
+        }
+        return 'kiemlai:draft:novel-comment:' + encodeURIComponent(chapterId.trim()) + ':edit:' + encodeURIComponent(commentId.trim());
+    }
+
+    /**
+     * Resolves the canonical active inline marker key.
+     *
+     * @param {string} chapterId
+     * @returns {string|null}
+     */
+    function getMarkerKey(chapterId) {
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.getChapterActiveInlineMarkerKey === 'function') {
+            return adapter.getChapterActiveInlineMarkerKey(chapterId);
+        }
+        if (typeof chapterId !== 'string' || !chapterId.trim()) {
+            return null;
+        }
+        return 'kiemlai:draft:novel-comment:' + encodeURIComponent(chapterId.trim()) + ':active-inline';
+    }
+
+    /**
+     * Validates active inline marker for edit.
+     * Removes corrupted JSON marker from storage safely.
+     * Non-edit markers (e.g. reply) are safely ignored without removing.
+     *
+     * @param {string} rawMarker
+     * @param {string} markerKey
+     * @param {Object} [store]
+     * @returns {{type: string, commentId: string}|null}
+     */
+    function validateEditMarker(rawMarker, markerKey, store) {
+        if (!rawMarker || typeof rawMarker !== 'string') return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(rawMarker);
+        } catch (_) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (parsed.type !== 'edit') {
+            // Non-edit marker (e.g. reply) - safely ignore without removing
+            return null;
+        }
+        if (typeof parsed.commentId !== 'string' || !parsed.commentId.trim()) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        return {
+            type: 'edit',
+            commentId: parsed.commentId.trim()
+        };
+    }
+
+    /**
+     * Removes the active marker only if it still matches the specified edit target.
+     *
+     * @param {string} chapterId
+     * @param {string} commentId
+     */
+    function removeMarkerIfMatching(chapterId, commentId) {
+        if (!chapterId || !commentId) return;
+        const store = resolveDraftStore();
+        if (!store) return;
+        const markerKey = getMarkerKey(chapterId);
+        if (!markerKey) return;
+        const raw = store.load(markerKey);
+        if (!raw) return;
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.type === 'edit' && parsed.commentId === commentId) {
+                store.remove(markerKey);
+            }
+        } catch (_) {
+            store.remove(markerKey);
+        }
+    }
+
+    /**
+     * Cancels any pending debounced draft save timer.
+     */
+    function cancelDebounce() {
+        if (draftDebounceTimer) {
+            clearTimeout(draftDebounceTimer);
+            draftDebounceTimer = null;
+        }
+    }
+
+    /**
+     * Synchronously flushes the currently mounted edit draft to storage.
+     * Checks equality with originalBody (removes if clean), checks whitespace (removes if blank),
+     * and respects acceptedEditGenerations (resurrection prevention).
+     */
+    function flushActiveDraft() {
+        cancelDebounce();
+        if (!activeComposerEl || !activeEditTarget) {
+            return;
+        }
+        const textarea = activeComposerEl.querySelector('.' + EDIT_INPUT_CLASS);
+        if (!textarea) return;
+
+        const store = resolveDraftStore();
+        if (!store) return;
+
+        const draftKey = getEditDraftKey(activeEditTarget.chapterId, activeEditTarget.commentId);
+        if (!draftKey) return;
+
+        const currentVal = textarea.value;
+
+        // Clean (untouched server body) or empty/whitespace -> remove draft
+        if (currentVal === activeOriginalBody || currentVal.trim().length === 0) {
+            isDirty = false;
+            if (typeof store.remove === 'function') {
+                store.remove(draftKey);
+            }
+            return;
+        }
+
+        // Resurrection prevention against accepted submission generation
+        const currentEditGen = (draftKey && keyEditGenerations.get(draftKey)) || 0;
+        const acceptedGen = (draftKey && acceptedEditGenerations.get(draftKey)) || 0;
+        if (acceptedGen > 0 && currentEditGen <= acceptedGen) {
+            if (typeof store.remove === 'function') {
+                store.remove(draftKey);
+            }
+            return;
+        }
+
+        if (typeof store.save === 'function') {
+            store.save(draftKey, currentVal);
+        }
+    }
+
+    /**
+     * Finds comment DOM element inside section by comment ID.
+     * Safe walking/iteration without constructing unsafe dynamic CSS selectors.
+     *
+     * @param {Element} sectionEl
+     * @param {string} targetCommentId
+     * @returns {Element|null}
+     */
+    function findCommentElementByCommentId(sectionEl, targetCommentId) {
+        if (!sectionEl || !targetCommentId) return null;
+        const comments = (typeof sectionEl.querySelectorAll === 'function')
+            ? sectionEl.querySelectorAll('.novel-comment')
+            : [];
+        for (let i = 0; i < comments.length; i++) {
+            const c = comments[i];
+            const cid = (typeof c.getAttribute === 'function' ? c.getAttribute('data-comment-id') : null) ||
+                (c.dataset && c.dataset.commentId);
+            if (cid && String(cid).trim() === String(targetCommentId).trim()) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds the live Edit button for a target comment element.
+     *
+     * @param {Element} commentEl
+     * @param {string} targetCommentId
+     * @returns {Element|null}
+     */
+    function findEditButtonForComment(commentEl, targetCommentId) {
+        if (!commentEl || !targetCommentId) return null;
+        let buttons = [];
+        if (typeof commentEl.querySelectorAll === 'function') {
+            buttons = commentEl.querySelectorAll('.novel-comment-edit-btn');
+            if (!buttons || buttons.length === 0) {
+                buttons = commentEl.querySelectorAll('button[data-action="edit"]');
+            }
+            if (!buttons || buttons.length === 0) {
+                buttons = commentEl.querySelectorAll('[data-action="edit"]');
+            }
+        }
+        for (let i = 0; i < buttons.length; i++) {
+            const btn = buttons[i];
+            const cid = (typeof btn.getAttribute === 'function' ? btn.getAttribute('data-comment-id') : null) ||
+                (btn.dataset && btn.dataset.commentId);
+            if (cid && String(cid).trim() === String(targetCommentId).trim()) {
+                return btn;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Derives root ID from the LIVE DOM hierarchy by walking up to enclosing thread element.
+     *
+     * @param {Element} commentEl
+     * @returns {string|null}
+     */
+    function findEnclosingRootId(commentEl) {
+        let cur = commentEl;
+        while (cur) {
+            if (cur.classList && typeof cur.classList.contains === 'function' &&
+                cur.classList.contains('novel-block-discussion-thread')) {
+                const rid = (typeof cur.getAttribute === 'function' ? cur.getAttribute('data-root-id') : null) ||
+                    (cur.dataset && cur.dataset.rootId);
+                if (rid && String(rid).trim()) {
+                    return String(rid).trim();
+                }
+            }
+            cur = cur.parentElement || cur.parentNode;
+        }
+        return null;
+    }
+
+    /**
+     * Restores an active inline edit composer from persisted active-inline marker.
+     *
+     * @param {Document} [doc]
+     * @param {string} [chapterId]
+     */
+    function restoreActiveInlineComposer(doc, chapterId) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+        const sectionEl = d.getElementById ? d.getElementById(SECTION_ID) : null;
+        if (!sectionEl) return;
+
+        // Do not mount duplicate if active edit composer is already mounted
+        if (activeComposerEl && activeComposerEl.parentNode) return;
+
+        // DO NOT restore Edit over an active Bottom Reply composer
+        if (isReplyComposerActive(sectionEl)) return;
+
+        // DO NOT restore Edit over an active Bottom Delete interaction
+        if (isDeleteActive(sectionEl)) return;
+
+        const currentChapter = resolveChapterId(d);
+        if (chapterId && currentChapter && chapterId !== currentChapter) {
+            return;
+        }
+        const effectiveChapter = chapterId || currentChapter;
+        if (!effectiveChapter) return;
+
+        const store = resolveDraftStore();
+        if (!store) return;
+
+        const markerKey = getMarkerKey(effectiveChapter);
+        if (!markerKey) return;
+
+        const rawMarker = store.load(markerKey);
+        if (!rawMarker) return;
+
+        const marker = validateEditMarker(rawMarker, markerKey, store);
+        if (!marker || marker.type !== 'edit') return;
+
+        const targetCommentEl = findCommentElementByCommentId(sectionEl, marker.commentId);
+        if (!targetCommentEl) return;
+
+        // Reject tombstone / deleted target
+        if (targetCommentEl.classList && typeof targetCommentEl.classList.contains === 'function') {
+            if (targetCommentEl.classList.contains('novel-comment--tombstone')) {
+                return;
+            }
+        }
+        if (!isInsideBottomComments(targetCommentEl)) return;
+
+        // Must have live edit button (ensures user has permission to edit)
+        const editBtn = findEditButtonForComment(targetCommentEl, marker.commentId);
+        if (!editBtn) return;
+
+        // Authoritative root ID derived strictly from enclosing LIVE thread DOM hierarchy
+        const liveRootId = findEnclosingRootId(targetCommentEl);
+        const rootId = liveRootId ||
+            (typeof editBtn.getAttribute === 'function' ? editBtn.getAttribute('data-root-id') : null) ||
+            marker.commentId;
+
+        if (liveRootId && typeof editBtn.setAttribute === 'function') {
+            editBtn.setAttribute('data-root-id', liveRootId);
+        }
+
+        const bodyEl = targetCommentEl.querySelector ? targetCommentEl.querySelector('.novel-comment-body') : null;
+        const cleanBody = extractCommentBody(targetCommentEl);
+
+        const targetInfo = {
+            commentId: marker.commentId,
+            rootId: rootId,
+            chapterId: effectiveChapter,
+            cleanBody: cleanBody,
+            commentEl: targetCommentEl,
+            bodyEl: bodyEl,
+            editBtn: editBtn
+        };
+
+        openEditComposer(targetInfo, { isRestore: true });
+    }
+
+    /**
      * Closes other Bottom interactions (Reply composer and Delete confirmation) if active.
      */
     function closeOtherInteractions() {
-        const replyMod = injectedReplyComposer || (typeof window !== 'undefined' && (
-            window.NovelReaderChapterCommentReplyComposer ||
-            (window.KiemLai && window.KiemLai.NovelReaderChapterCommentReplyComposer)
-        )) || null;
+        const replyMod = resolveReplyComposerModule();
         if (replyMod && typeof replyMod.closeActiveComposer === 'function') {
             try {
                 replyMod.closeActiveComposer(false);
             } catch (_) {}
         }
 
-        const deleteMod = injectedDeleteModule || (typeof window !== 'undefined' && (
-            window.NovelReaderChapterCommentDelete ||
-            (window.KiemLai && window.KiemLai.NovelReaderChapterCommentDelete)
-        )) || null;
+        const deleteMod = resolveDeleteModule();
         if (deleteMod && typeof deleteMod.closeDeleteConfirmation === 'function') {
             try {
                 deleteMod.closeDeleteConfirmation(false);
@@ -347,7 +831,37 @@
      *
      * @param {boolean} [restoreFocus=false]
      */
-    function closeEditComposer(restoreFocus) {
+    /**
+     * Closes and removes any active edit composer from DOM, restoring hidden body elements.
+     *
+     * @param {boolean} [restoreFocus=false]
+     * @param {Object} [options]
+     * @param {boolean} [options.discard=false] - If true, discards draft and removes matching marker. Default: false (PRESERVE).
+     * @param {boolean} [options.skipFlush=false] - If true, skips flushing draft (e.g. on 200/204).
+     */
+    function closeEditComposer(restoreFocus, options) {
+        const discard = Boolean(options && options.discard);
+        const skipFlush = Boolean(options && options.skipFlush);
+        const targetCommentId = activeEditTarget ? activeEditTarget.commentId : null;
+        const chapterId = activeEditTarget ? activeEditTarget.chapterId : null;
+
+        cancelDebounce();
+
+        if (discard) {
+            if (chapterId && targetCommentId) {
+                const store = resolveDraftStore();
+                if (store) {
+                    const draftKey = getEditDraftKey(chapterId, targetCommentId);
+                    if (draftKey && typeof store.remove === 'function') {
+                        store.remove(draftKey);
+                    }
+                }
+                removeMarkerIfMatching(chapterId, targetCommentId);
+            }
+        } else if (!skipFlush) {
+            flushActiveDraft();
+        }
+
         currentMutationToken++;
         if (activeComposerEl && activeComposerEl.parentNode) {
             try {
@@ -376,6 +890,8 @@
         }
 
         activeEditTarget = null;
+        activeOriginalBody = '';
+        isDirty = false;
         isSubmitting = false;
 
         if (restoreFocus && prevTarget && prevTarget.editBtn && typeof prevTarget.editBtn.focus === 'function') {
@@ -396,7 +912,6 @@
         const commentId = editBtn.getAttribute('data-comment-id');
         if (!commentId) return null;
 
-        let rootId = editBtn.getAttribute('data-root-id');
         let commentEl = null;
         if (typeof editBtn.closest === 'function') {
             commentEl = editBtn.closest('.novel-comment');
@@ -413,25 +928,14 @@
 
         if (!commentEl) return null;
 
+        // Authoritative root ID derived strictly from live enclosing thread DOM hierarchy
+        const liveRootId = findEnclosingRootId(commentEl);
+        let rootId = liveRootId || editBtn.getAttribute('data-root-id');
         if (!rootId) {
-            let threadCard = null;
-            if (typeof commentEl.closest === 'function') {
-                threadCard = commentEl.closest('.novel-block-discussion-thread');
-            } else {
-                let cur = commentEl.parentElement;
-                while (cur) {
-                    if (cur.classList && cur.classList.contains('novel-block-discussion-thread')) {
-                        threadCard = cur;
-                        break;
-                    }
-                    cur = cur.parentElement || cur.parentNode;
-                }
-            }
-            if (threadCard && typeof threadCard.getAttribute === 'function') {
-                rootId = threadCard.getAttribute('data-root-id') || commentId;
-            } else {
-                rootId = commentId;
-            }
+            rootId = commentId;
+        }
+        if (liveRootId && typeof editBtn.setAttribute === 'function') {
+            editBtn.setAttribute('data-root-id', liveRootId);
         }
 
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
@@ -454,10 +958,14 @@
      * Opens or switches inline edit composer for a comment.
      *
      * @param {Object} targetInfo
+     * @param {Object} [options]
+     * @param {boolean} [options.isRestore=false]
      */
-    function openEditComposer(targetInfo) {
+    function openEditComposer(targetInfo, options) {
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         if (!doc || !targetInfo || !targetInfo.commentEl) return;
+
+        const isRestore = Boolean(options && options.isRestore);
 
         closeOtherInteractions();
         closeEditComposer(false);
@@ -472,6 +980,34 @@
             bodyEl: targetInfo.bodyEl,
             editBtn: targetInfo.editBtn
         };
+
+        activeOriginalBody = (typeof targetInfo.cleanBody === 'string') ? targetInfo.cleanBody : '';
+        isDirty = false;
+
+        const store = resolveDraftStore();
+        const markerKey = getMarkerKey(targetInfo.chapterId);
+        if (store && markerKey) {
+            store.save(markerKey, JSON.stringify({ type: 'edit', commentId: targetInfo.commentId }));
+        }
+
+        const draftKey = getEditDraftKey(targetInfo.chapterId, targetInfo.commentId);
+        let initialText = activeOriginalBody;
+        if (store && draftKey) {
+            const savedDraft = store.load(draftKey);
+            if (typeof savedDraft === 'string') {
+                if (savedDraft === activeOriginalBody) {
+                    // Redundant draft equal to server body -> remove it, remain clean
+                    if (typeof store.remove === 'function') {
+                        store.remove(draftKey);
+                    }
+                    isDirty = false;
+                    initialText = activeOriginalBody;
+                } else if (savedDraft.trim().length > 0) {
+                    initialText = savedDraft;
+                    isDirty = true;
+                }
+            }
+        }
 
         // Hide existing comment body while editing
         if (activeEditTarget.bodyEl) {
@@ -497,7 +1033,36 @@
         textarea.className = EDIT_INPUT_CLASS;
         textarea.setAttribute('aria-label', 'Chỉnh sửa bình luận');
         textarea.setAttribute('placeholder', 'Nhập nội dung chỉnh sửa...');
-        textarea.value = targetInfo.cleanBody || '';
+        textarea.value = initialText;
+
+        textarea.addEventListener('input', function () {
+            cancelDebounce();
+            const currentVal = textarea.value;
+            if (currentVal === activeOriginalBody) {
+                isDirty = false;
+                if (store && draftKey && typeof store.remove === 'function') {
+                    store.remove(draftKey);
+                }
+            } else if (currentVal.trim().length === 0) {
+                isDirty = false;
+                if (store && draftKey && typeof store.remove === 'function') {
+                    store.remove(draftKey);
+                }
+            } else {
+                isDirty = true;
+                if (draftKey) {
+                    const nextGen = ++globalEditGeneration;
+                    keyEditGenerations.set(draftKey, nextGen);
+                    if (acceptedEditGenerations.has(draftKey)) {
+                        acceptedEditGenerations.delete(draftKey);
+                    }
+                }
+                draftDebounceTimer = setTimeout(function () {
+                    draftDebounceTimer = null;
+                    flushActiveDraft();
+                }, DEBOUNCE_DELAY_MS);
+            }
+        });
 
         const statusEl = doc.createElement('div');
         statusEl.className = EDIT_STATUS_CLASS;
@@ -511,6 +1076,10 @@
         cancelBtn.type = 'button';
         cancelBtn.className = EDIT_CANCEL_CLASS;
         cancelBtn.textContent = 'Hủy';
+        cancelBtn.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            closeEditComposer(true, { discard: true });
+        });
 
         const submitBtn = doc.createElement('button');
         submitBtn.type = 'submit';
@@ -532,7 +1101,7 @@
 
         activeComposerEl = container;
 
-        if (typeof textarea.focus === 'function') {
+        if (!isRestore && typeof textarea.focus === 'function') {
             try {
                 textarea.focus();
             } catch (_) {}
@@ -603,13 +1172,41 @@
         const submitBtn = activeComposerEl.querySelector('.' + EDIT_SUBMIT_CLASS);
         const cancelBtn = activeComposerEl.querySelector('.' + EDIT_CANCEL_CLASS);
 
-        const newBody = textarea ? textarea.value.trim() : '';
+        const rawVal = textarea ? textarea.value : '';
+        const newBody = rawVal.trim();
         if (!newBody) {
             setStatus(statusEl, 'Vui lòng nhập nội dung bình luận.', 'error');
             if (textarea && typeof textarea.focus === 'function') {
                 try { textarea.focus(); } catch (_) {}
             }
             return;
+        }
+
+        cancelDebounce();
+
+        const draftKey = getEditDraftKey(activeEditTarget.chapterId, activeEditTarget.commentId);
+        const draftStore = resolveDraftStore();
+        const currentGeneration = (draftKey && keyEditGenerations.get(draftKey)) || 0;
+        const acceptedGeneration = (draftKey && acceptedEditGenerations.get(draftKey)) || 0;
+        let submittedEditGeneration = currentGeneration;
+
+        if (rawVal === activeOriginalBody || newBody.length === 0) {
+            isDirty = false;
+            if (draftStore && draftKey && typeof draftStore.remove === 'function') {
+                draftStore.remove(draftKey);
+            }
+        } else {
+            isDirty = true;
+            if (draftKey) {
+                if (submittedEditGeneration <= acceptedGeneration || submittedEditGeneration === 0) {
+                    submittedEditGeneration = ++globalEditGeneration;
+                    keyEditGenerations.set(draftKey, submittedEditGeneration);
+                    acceptedEditGenerations.delete(draftKey);
+                }
+            }
+            if (draftStore && draftKey && typeof draftStore.save === 'function') {
+                draftStore.save(draftKey, rawVal);
+            }
         }
 
         isSubmitting = true;
@@ -620,6 +1217,9 @@
             chapterId: activeEditTarget.chapterId,
             commentId: activeEditTarget.commentId,
             rootId: activeEditTarget.rootId,
+            draftKey: draftKey,
+            draftStore: draftStore,
+            editGeneration: submittedEditGeneration,
             rootSyncContext: rootSyncContext
         };
 
@@ -653,8 +1253,19 @@
 
             if (res && (res.status === 204 || res.status === 200 || res.ok)) {
                 if (isMutationContextCurrent(mutationToken, snapshot)) {
+                    const latestGeneration = (snapshot.draftKey && keyEditGenerations.get(snapshot.draftKey)) || 0;
+                    if (latestGeneration <= snapshot.editGeneration) {
+                        if (snapshot.draftKey) {
+                            acceptedEditGenerations.set(snapshot.draftKey, snapshot.editGeneration);
+                        }
+                        if (snapshot.draftStore && snapshot.draftKey && typeof snapshot.draftStore.remove === 'function') {
+                            snapshot.draftStore.remove(snapshot.draftKey);
+                        }
+                    }
+                    removeMarkerIfMatching(snapshot.chapterId, snapshot.commentId);
+
                     isSubmitting = false;
-                    closeEditComposer(false);
+                    closeEditComposer(false, { discard: false, skipFlush: true });
 
                     // Secondary Drawer synchronization (best-effort, only if canonical anchored and same block open)
                     synchronizeSecondaryDrawer(snapshot.chapterId, snapshot.rootSyncContext);
@@ -670,6 +1281,17 @@
                             if (isRefreshLifecycleCurrent(refreshLifecycleToken, targetDoc, targetChapterId)) {
                                 setSectionStatus('Bình luận đã được chỉnh sửa, nhưng chưa thể tải lại thảo luận.', 'error');
                             }
+                        }
+                    }
+                } else {
+                    // Stale success handling
+                    const latestGeneration = (snapshot.draftKey && keyEditGenerations.get(snapshot.draftKey)) || 0;
+                    if (latestGeneration <= snapshot.editGeneration) {
+                        if (snapshot.draftKey) {
+                            acceptedEditGenerations.set(snapshot.draftKey, snapshot.editGeneration);
+                        }
+                        if (snapshot.draftStore && snapshot.draftKey && typeof snapshot.draftStore.remove === 'function') {
+                            snapshot.draftStore.remove(snapshot.draftKey);
                         }
                     }
                 }
@@ -750,6 +1372,36 @@
     }
 
     /**
+     * Handles feed rendered event to restore active inline edit composer if marker exists.
+     *
+     * @param {CustomEvent} [evt]
+     */
+    function handleFeedRendered(evt) {
+        const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!doc) return;
+        const currentChapter = resolveChapterId(doc);
+
+        const eventChapterId = (evt && evt.detail && typeof evt.detail.chapterId === 'string' && evt.detail.chapterId.trim())
+            ? evt.detail.chapterId.trim()
+            : null;
+
+        // If event specifies a chapter that does not match current Bottom chapter, ignore completely
+        if (eventChapterId && currentChapter && eventChapterId !== currentChapter) {
+            return;
+        }
+
+        const effectiveChapterId = eventChapterId || currentChapter;
+        restoreActiveInlineComposer(doc, effectiveChapterId);
+    }
+
+    /**
+     * Handles flush drafts event (pagehide bridge).
+     */
+    function handleFlushDrafts() {
+        flushActiveDraft();
+    }
+
+    /**
      * Unbinds all registered event listeners from previously bound documents.
      *
      * @param {Document} [doc]
@@ -774,6 +1426,12 @@
                 if (feedReplacingHandler) {
                     d.removeEventListener(EVENT_FEED_REPLACING, feedReplacingHandler);
                 }
+                if (feedRenderedHandler) {
+                    d.removeEventListener(EVENT_FEED_RENDERED, feedRenderedHandler);
+                }
+                if (flushDraftsHandler) {
+                    d.removeEventListener(EVENT_FLUSH_DRAFTS, flushDraftsHandler);
+                }
                 if (keydownHandler) {
                     d.removeEventListener('keydown', keydownHandler);
                 }
@@ -784,6 +1442,8 @@
         submitHandler = null;
         chapterChangedHandler = null;
         feedReplacingHandler = null;
+        feedRenderedHandler = null;
+        flushDraftsHandler = null;
         keydownHandler = null;
         boundDoc = null;
     }
@@ -827,7 +1487,7 @@
             if (cancelBtn) {
                 if (isInsideBottomComments(cancelBtn)) {
                     if (typeof e.preventDefault === 'function') e.preventDefault();
-                    closeEditComposer(true);
+                    closeEditComposer(true, { discard: true });
                 }
                 return;
             }
@@ -844,19 +1504,29 @@
 
         chapterChangedHandler = function () {
             currentMutationToken++;
+            isSubmitting = false;
             closeEditComposer(false);
         };
 
         feedReplacingHandler = function () {
             currentMutationToken++;
+            isSubmitting = false;
             closeEditComposer(false);
+        };
+
+        feedRenderedHandler = function (e) {
+            handleFeedRendered(e);
+        };
+
+        flushDraftsHandler = function () {
+            handleFlushDrafts();
         };
 
         keydownHandler = function (e) {
             if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
                 if (activeComposerEl) {
                     if (typeof e.preventDefault === 'function') e.preventDefault();
-                    closeEditComposer(true);
+                    closeEditComposer(true, { discard: true });
                 }
             }
         };
@@ -865,6 +1535,8 @@
         doc.addEventListener('submit', submitHandler);
         doc.addEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
         doc.addEventListener(EVENT_FEED_REPLACING, feedReplacingHandler);
+        doc.addEventListener(EVENT_FEED_RENDERED, feedRenderedHandler);
+        doc.addEventListener(EVENT_FLUSH_DRAFTS, flushDraftsHandler);
         doc.addEventListener('keydown', keydownHandler);
     }
 
@@ -882,6 +1554,9 @@
         boundDoc = null;
         activeEditTarget = null;
         activeComposerEl = null;
+        activeOriginalBody = '';
+        isDirty = false;
+        cancelDebounce();
 
         injectedFetch = null;
         injectedMutations = null;
@@ -889,6 +1564,8 @@
         injectedReplyComposer = null;
         injectedDeleteModule = null;
         injectedDrawerModule = null;
+        injectedDraftAdapter = null;
+        injectedDraftStore = null;
     }
 
     /**
@@ -912,13 +1589,17 @@
                 injectedMutations = options.commentMutations || options.mutationsClient || options.mutations;
             }
             if (options.commentsModule) injectedCommentsModule = options.commentsModule;
-            if (options.replyComposerModule) injectedReplyComposer = options.replyComposerModule;
+            if (options.replyComposerModule || options.replyComposer) injectedReplyComposer = options.replyComposerModule || options.replyComposer;
             if (options.deleteModule) injectedDeleteModule = options.deleteModule;
             if (options.drawerModule) injectedDrawerModule = options.drawerModule;
             if (options.fetchFn || options.fetch) injectedFetch = options.fetchFn || options.fetch;
+            if (options.draftAdapter) injectedDraftAdapter = options.draftAdapter;
+            if (options.draftStore) injectedDraftStore = options.draftStore;
         }
 
         bindEvents(doc);
+
+        restoreActiveInlineComposer(doc);
 
         return {
             openEditComposer,
@@ -974,7 +1655,9 @@
                 isSubmitting: isSubmitting,
                 activeEditTarget: activeEditTarget,
                 activeComposerEl: activeComposerEl,
-                currentMutationToken: currentMutationToken
+                currentMutationToken: currentMutationToken,
+                isDirty: isDirty,
+                activeOriginalBody: activeOriginalBody
             };
         },
         setFetchImplementation: function (fn) { injectedFetch = fn; },
@@ -982,6 +1665,20 @@
         setCommentsModule: function (m) { injectedCommentsModule = m; },
         setReplyComposerModule: function (m) { injectedReplyComposer = m; },
         setDeleteModule: function (m) { injectedDeleteModule = m; },
-        setDrawerModule: function (m) { injectedDrawerModule = m; }
+        setDrawerModule: function (m) { injectedDrawerModule = m; },
+        setDraftAdapterImplementation: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftAdapter: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftStoreImplementation: function (store) { injectedDraftStore = store; },
+        setDraftStore: function (store) { injectedDraftStore = store; },
+        getKeyEditGeneration: function (key) { return keyEditGenerations.get(key) || 0; },
+        getAcceptedEditGeneration: function (key) { return acceptedEditGenerations.get(key) || 0; },
+        isDirty: function () { return isDirty; },
+        getActiveOriginalBody: function () { return activeOriginalBody; },
+        restoreActiveInlineComposer: restoreActiveInlineComposer,
+        flushActiveDraft: flushActiveDraft,
+        EVENT_CHAPTER_CHANGED: EVENT_CHAPTER_CHANGED,
+        EVENT_FEED_REPLACING: EVENT_FEED_REPLACING,
+        EVENT_FEED_RENDERED: EVENT_FEED_RENDERED,
+        EVENT_FLUSH_DRAFTS: EVENT_FLUSH_DRAFTS
     };
 });

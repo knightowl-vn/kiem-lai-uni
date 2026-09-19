@@ -3,6 +3,22 @@ const assert = require('node:assert');
 const path = require('path');
 
 const editComposerModule = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-chapter-comment-edit-composer.js'));
+const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
+const draftsAdapter = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-comment-drafts.js'));
+
+function createMockDraftStore() {
+    const storageMap = new Map();
+    const mockStorage = {
+        getItem: (k) => storageMap.has(k) ? storageMap.get(k) : null,
+        setItem: (k, v) => { storageMap.set(k, String(v)); },
+        removeItem: (k) => { storageMap.delete(k); },
+        clear: () => { storageMap.clear(); }
+    };
+    return {
+        store: EphemeralDraftStore.createStore({ storage: mockStorage }),
+        storageMap
+    };
+}
 
 const {
     SECTION_ID,
@@ -23,7 +39,19 @@ const {
     getActiveEditTarget,
     getActiveComposerEl,
     isSubmittingEdit,
-    getCurrentMutationToken
+    getCurrentMutationToken,
+    restoreActiveInlineComposer,
+    flushActiveDraft,
+    setDraftAdapterImplementation,
+    setDraftStoreImplementation,
+    getKeyEditGeneration,
+    getAcceptedEditGeneration,
+    isDirty,
+    getActiveOriginalBody,
+    EVENT_CHAPTER_CHANGED,
+    EVENT_FEED_REPLACING,
+    EVENT_FEED_RENDERED,
+    EVENT_FLUSH_DRAFTS
 } = editComposerModule;
 
 // ============================================================================
@@ -282,6 +310,16 @@ function matchesSingleSelector(el, sel) {
 }
 
 function querySelectorAllDeep(root, selector) {
+    if (selector.includes(',')) {
+        const subSelectors = selector.split(',').map(s => s.trim()).filter(Boolean);
+        const set = new Set();
+        for (const sub of subSelectors) {
+            for (const el of querySelectorAllDeep(root, sub)) {
+                set.add(el);
+            }
+        }
+        return Array.from(set);
+    }
     const parts = selector.trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return [];
     if (parts.length === 1) {
@@ -1349,3 +1387,949 @@ describe('MS-05E5H2F4B1 — Bottom Edit Cross-Surface Synchronization', () => {
         assert.strictEqual(refreshRootThreadCalls.length, 0, 'Stale mutation must not trigger local refresh');
     });
 });
+
+// ============================================================================
+// Test Suite: UX-DRAFT-01D2B — Bottom Chapter Edit Draft Persistence
+// ============================================================================
+
+describe('UX-DRAFT-01D2B — Bottom Chapter Edit Draft Persistence', () => {
+    let fixture;
+    let mockDraftStore;
+    let mockMutations;
+    let mockCommentsModule;
+    let mockReplyComposer;
+    let mockDeleteModule;
+    let refreshRootThreadCalls;
+
+    beforeEach(() => {
+        resetEditComposerState();
+        fixture = createBottomFixture();
+        mockDraftStore = createMockDraftStore();
+        refreshRootThreadCalls = [];
+
+        mockMutations = {
+            editComment: async (input, options) => {
+                return { ok: true, status: 204 };
+            }
+        };
+
+        mockCommentsModule = {
+            refreshRootThread: async (rootId) => {
+                refreshRootThreadCalls.push(rootId);
+            },
+            getState: () => ({ items: [] })
+        };
+
+        mockReplyComposer = {
+            closeActiveComposer: () => {},
+            getActiveComposer: () => null,
+            getState: () => ({ activeCommentId: null })
+        };
+
+        mockDeleteModule = {
+            closeDeleteConfirmation: () => {},
+            getActiveConfirmationEl: () => null,
+            getActiveDeleteTarget: () => null,
+            isDeletingComment: () => false,
+            getState: () => ({ isDeleting: false })
+        };
+
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            replyComposerModule: mockReplyComposer,
+            deleteModule: mockDeleteModule,
+            draftAdapter: draftsAdapter,
+            draftStore: mockDraftStore.store
+        });
+    });
+
+    afterEach(() => {
+        resetEditComposerState();
+    });
+
+    // ------------------------------------------------------------------------
+    // Part 1: Dirty State Discipline (Tests 1-13)
+    // ------------------------------------------------------------------------
+
+    test('1. Opening edit composer loads server clean body, dirty is false, zero draft stored in EphemeralDraftStore', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const composer = getActiveComposerEl();
+        assert.ok(composer);
+
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Root 1 original body');
+        assert.strictEqual(isDirty(), false);
+        assert.strictEqual(getActiveOriginalBody(), 'Root 1 original body');
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Untouched edit must not create draft');
+    });
+
+    test('2. Active inline marker { type: "edit", commentId } is saved upon opening', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+
+        const rawMarker = mockDraftStore.store.load(markerKey);
+        assert.ok(rawMarker);
+        const parsed = JSON.parse(rawMarker);
+        assert.strictEqual(parsed.type, 'edit');
+        assert.strictEqual(parsed.commentId, ROOT_ID_1);
+    });
+
+    test('3. Typing changes sets dirty = true, bumps generation, debounces flush to store', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const initialGen = getKeyEditGeneration(draftKey);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Modified draft text';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(isDirty(), true);
+        assert.ok(getKeyEditGeneration(draftKey) > initialGen);
+
+        // Before debounce fires: store is still empty
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+
+        // Wait for 400ms debounce
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Modified draft text');
+    });
+
+    test('4. Typing changes then reverting exactly back to clean body cancels debounce, sets dirty = false, immediately removes draft from store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Modified draft text';
+        textarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Modified draft text');
+
+        // Revert to clean body
+        textarea.value = 'Root 1 original body';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(isDirty(), false);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft must be immediately removed when clean');
+    });
+
+    test('5. Typing changes then deleting all text (empty or whitespace) sets dirty = false, removes draft from store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Modified draft text';
+        textarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Modified draft text');
+
+        // Delete text to whitespace
+        textarea.value = '   \n  ';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(isDirty(), false);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Whitespace-only draft must be removed');
+    });
+
+    test('6. flushActiveDraft() when clean (untouched server body) does not write draft to store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        assert.strictEqual(isDirty(), false);
+
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+    });
+
+    test('7. flushActiveDraft() when dirty persists exact raw string (preserving whitespace, newlines)', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        const rawText = '  \nline 1\n  line 2\t\n  ';
+        textarea.value = rawText;
+        textarea.dispatchEvent({ type: 'input' });
+
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), rawText);
+    });
+
+    test('8. Opening composer when store has draft identical to server body removes redundant draft from store and marks clean', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        mockDraftStore.store.save(draftKey, 'Root 1 original body');
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+
+        assert.strictEqual(isDirty(), false);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Redundant draft must be purged');
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Root 1 original body');
+    });
+
+    test('9. Opening composer when store has dirty draft pre-fills with saved draft and marks dirty = true', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        mockDraftStore.store.save(draftKey, 'Previously saved dirty draft');
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+
+        assert.strictEqual(isDirty(), true);
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Previously saved dirty draft');
+    });
+
+    test('10. Nested reply clean body pre-fill (omitting @mention) serves as clean body baseline for dirty tracking', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, REPLY_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.repEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        assert.strictEqual(textarea.value, 'Reply 1 clean body');
+        assert.strictEqual(getActiveOriginalBody(), 'Reply 1 clean body');
+        assert.strictEqual(isDirty(), false);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+    });
+
+    test('11. Generation tracking: each edit after clean bumps generation monotonically', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Edit 1';
+        textarea.dispatchEvent({ type: 'input' });
+        const gen1 = getKeyEditGeneration(draftKey);
+        assert.ok(gen1 > 0);
+
+        textarea.value = 'Edit 2';
+        textarea.dispatchEvent({ type: 'input' });
+        const gen2 = getKeyEditGeneration(draftKey);
+        assert.ok(gen2 > gen1);
+    });
+
+    test('12. getActiveOriginalBody() returns server clean body throughout editing session', () => {
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Something completely different';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(getActiveOriginalBody(), 'Root 1 original body');
+    });
+
+    test('13. Non-empty draft with trailing spaces is preserved exact in store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+
+        textarea.value = 'Text with trailing spaces   ';
+        textarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Text with trailing spaces   ');
+    });
+
+    // ------------------------------------------------------------------------
+    // Part 2: Discard vs. Preserve Discipline (Tests 14-23)
+    // ------------------------------------------------------------------------
+
+    test('14. Clicking "Hủy" (cancel button) discards draft, removes draft from store, removes matching marker from store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty text before cancel';
+        textarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+
+        assert.ok(mockDraftStore.store.load(draftKey));
+        assert.ok(mockDraftStore.store.load(markerKey));
+
+        const cancelBtn = getActiveComposerEl().querySelector('.' + EDIT_CANCEL_CLASS);
+        cancelBtn.click();
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft must be discarded');
+        assert.strictEqual(mockDraftStore.store.load(markerKey), null, 'Marker must be removed');
+    });
+
+    test('15. Pressing "Escape" discards draft, removes draft from store, removes matching marker from store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty text before Escape';
+        textarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+
+        fixture.doc.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft must be discarded');
+        assert.strictEqual(mockDraftStore.store.load(markerKey), null, 'Marker must be removed');
+    });
+
+    test('16. Switching from Comment A to Comment B flushes A\'s dirty draft to store (preserved), and updates marker to B', () => {
+        const draftKeyA = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        // Open A and type
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textareaA = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textareaA.value = 'Preserved A draft';
+        textareaA.dispatchEvent({ type: 'input' });
+
+        // Switch to B
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn2, preventDefault: () => {} });
+
+        // A draft must be preserved
+        assert.strictEqual(mockDraftStore.store.load(draftKeyA), 'Preserved A draft');
+
+        // Marker must point to B
+        const markerRaw = mockDraftStore.store.load(markerKey);
+        const markerParsed = JSON.parse(markerRaw);
+        assert.strictEqual(markerParsed.type, 'edit');
+        assert.strictEqual(markerParsed.commentId, ROOT_ID_2);
+    });
+
+    test('17. Switching from Comment A to Comment B when A was clean creates no draft for A in store', () => {
+        const draftKeyA = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        // Open A (untouched)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+
+        // Switch to B
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn2, preventDefault: () => {} });
+
+        assert.strictEqual(mockDraftStore.store.load(draftKeyA), null, 'Clean A must not save draft');
+    });
+
+    test('18. kiemlai:chapter-changed event flushes dirty draft to store (preserved), closes composer', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft before chapter changed';
+        textarea.dispatchEvent({ type: 'input' });
+
+        fixture.doc.dispatchEvent({ type: EVENT_CHAPTER_CHANGED });
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft before chapter changed');
+    });
+
+    test('19. kiemlai:chapter-comments-feed-replacing flushes dirty draft to store, preserves marker, closes composer', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft before feed replacing';
+        textarea.dispatchEvent({ type: 'input' });
+
+        fixture.doc.dispatchEvent({ type: EVENT_FEED_REPLACING });
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft before feed replacing');
+        assert.ok(mockDraftStore.store.load(markerKey), 'Marker must be preserved for subsequent feed-rendered');
+    });
+
+    test('20. destroy() flushes dirty draft to store (preserved), cancels debounce', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft before destroy';
+        textarea.dispatchEvent({ type: 'input' });
+
+        destroy();
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft before destroy');
+    });
+
+    test('21. kiemlai:novel-comment-drafts-flush (pagehide bridge) immediately flushes dirty draft to store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft before pagehide flush';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Store is empty before debounce
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft before pagehide flush');
+    });
+
+    test('22. Mutual exclusion: opening Reply composer closes Edit composer preserving Edit\'s dirty draft in store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft preserved when reply opened';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Close via reply opening (discard: false)
+        closeEditComposer(false);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft preserved when reply opened');
+    });
+
+    test('23. Mutual exclusion: opening Delete confirmation closes Edit composer preserving Edit\'s dirty draft in store', () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft preserved when delete opened';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Close via delete opening (discard: false)
+        closeEditComposer(false);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft preserved when delete opened');
+    });
+
+    // ------------------------------------------------------------------------
+    // Part 3: Automatic Inline Restore Foundation (Tests 24-38)
+    // ------------------------------------------------------------------------
+
+    test('24. restoreActiveInlineComposer() restores open edit composer if valid marker exists and feed is rendered', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        const composer = getActiveComposerEl();
+        assert.ok(composer);
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_1);
+    });
+
+    test('25. restoreActiveInlineComposer() restores dirty draft value if draft is in store', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+        mockDraftStore.store.save(draftKey, 'Restored dirty draft content');
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Restored dirty draft content');
+        assert.strictEqual(isDirty(), true);
+    });
+
+    test('26. restoreActiveInlineComposer() restores clean body if no draft in store', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Root 1 original body');
+        assert.strictEqual(isDirty(), false);
+    });
+
+    test('27. restoreActiveInlineComposer() safely removes corrupted JSON marker and aborts restore', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, 'not-valid-json{{{');
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(markerKey), null, 'Corrupt marker must be removed');
+    });
+
+    test('28. restoreActiveInlineComposer() safely ignores reply marker ({ type: "reply" }) without deleting it', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        const replyMarkerJson = JSON.stringify({ type: 'reply', targetCommentId: ROOT_ID_1 });
+        mockDraftStore.store.save(markerKey, replyMarkerJson);
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(markerKey), replyMarkerJson, 'Reply marker must not be touched');
+    });
+
+    test('29. restoreActiveInlineComposer() defers if Edit composer is already open', () => {
+        // Open edit on Root 1
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_1);
+
+        // Marker somehow points to Root 2
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_2 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        // Still Root 1, does not switch
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_1);
+    });
+
+    test('30. restoreActiveInlineComposer() defers if Bottom Reply composer is currently active', () => {
+        mockReplyComposer.getActiveComposer = () => ({ parentNode: {} });
+
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.ok(mockDraftStore.store.load(markerKey), 'Marker must be preserved for later restore');
+    });
+
+    test('31. restoreActiveInlineComposer() defers if Bottom Delete confirmation is currently active', () => {
+        mockDeleteModule.getActiveConfirmationEl = () => ({ parentNode: {} });
+
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.ok(mockDraftStore.store.load(markerKey), 'Marker must be preserved for later restore');
+    });
+
+    test('32. restoreActiveInlineComposer() aborts restore if target comment does not exist in DOM', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: 'non-existent-comment' }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+    });
+
+    test('33. restoreActiveInlineComposer() aborts restore if target comment is a tombstone (.novel-comment--tombstone)', () => {
+        fixture.rootComment1.classList.add('novel-comment--tombstone');
+
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null);
+    });
+
+    test('34. restoreActiveInlineComposer() aborts restore if target comment has no Edit button (lacks edit permission)', () => {
+        // Remove edit button
+        fixture.rootEditBtn1.parentNode.removeChild(fixture.rootEditBtn1);
+
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Must abort if edit button missing');
+    });
+
+    test('35. restoreActiveInlineComposer() derives authoritative rootId from enclosing live .novel-block-discussion-thread[data-root-id]', () => {
+        // Alter edit button's data-root-id to stale value
+        fixture.rootEditBtn1.setAttribute('data-root-id', 'stale-root-id');
+
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        assert.strictEqual(getActiveEditTarget().rootId, ROOT_ID_1, 'Live enclosing thread data-root-id is authoritative');
+        assert.strictEqual(fixture.rootEditBtn1.getAttribute('data-root-id'), ROOT_ID_1);
+    });
+
+    test('36. kiemlai:chapter-comments-feed-rendered triggers automatic restore for matching chapter', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        fixture.doc.dispatchEvent({
+            type: EVENT_FEED_RENDERED,
+            detail: { chapterId: CHAPTER_ID }
+        });
+
+        assert.ok(getActiveComposerEl());
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_1);
+    });
+
+    test('37. kiemlai:chapter-comments-feed-rendered ignores restore if event chapterId does not match current section', () => {
+        const wrongChapterId = 'other-different-chapter';
+        const wrongMarkerKey = draftsAdapter.getChapterActiveInlineMarkerKey(wrongChapterId);
+        const wrongDraftKey = draftsAdapter.getChapterEditDraftKey(wrongChapterId, ROOT_ID_1);
+        const wrongMarkerPayload = JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 });
+        const wrongDraftPayload = 'Draft for other chapter';
+
+        mockDraftStore.store.save(wrongMarkerKey, wrongMarkerPayload);
+        mockDraftStore.store.save(wrongDraftKey, wrongDraftPayload);
+
+        fixture.doc.dispatchEvent({
+            type: EVENT_FEED_RENDERED,
+            detail: { chapterId: wrongChapterId }
+        });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'No composer opens for wrong chapter');
+        assert.strictEqual(mockDraftStore.store.load(wrongMarkerKey), wrongMarkerPayload, 'Wrong-chapter marker remains unchanged');
+        assert.strictEqual(mockDraftStore.store.load(wrongDraftKey), wrongDraftPayload, 'Wrong-chapter draft remains unchanged');
+    });
+
+    test('38. restoreActiveInlineComposer does not steal focus (isRestore: true)', () => {
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+        mockDraftStore.store.save(markerKey, JSON.stringify({ type: 'edit', commentId: ROOT_ID_1 }));
+
+        restoreActiveInlineComposer(fixture.doc);
+
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.isFocused, false, 'Automatic restore must not steal focus');
+    });
+
+    // ------------------------------------------------------------------------
+    // Part 4: Submission & Race Safety (Tests 39-48)
+    // ------------------------------------------------------------------------
+
+    test('39. Blank body validation displays error, prevents submission, does not persist blank draft', async () => {
+        let editCalls = 0;
+        mockMutations.editComment = async () => { editCalls++; return { ok: true, status: 204 }; };
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = '   ';
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(editCalls, 0);
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+    });
+
+    test('40. Pre-submit synchronization flushes raw dirty draft before dispatching PATCH', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        let capturedDraftInStoreBeforePatch = null;
+
+        mockMutations.editComment = async () => {
+            capturedDraftInStoreBeforePatch = mockDraftStore.store.load(draftKey);
+            return { ok: true, status: 204 };
+        };
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Immediate submit without waiting for debounce';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(capturedDraftInStoreBeforePatch, 'Immediate submit without waiting for debounce');
+    });
+
+    test('41. Pre-submit synchronization removes draft if text equals server clean body', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        mockDraftStore.store.save(draftKey, 'old draft');
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Root 1 original body';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+    });
+
+    test('42. Successful submit (200/204) removes draft from store, removes marker from store, closes composer without re-flushing', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Successful new body';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft must be removed on success');
+        assert.strictEqual(mockDraftStore.store.load(markerKey), null, 'Marker must be removed on success');
+    });
+
+    test('43. Failed submit (400, 401, 500, network error) preserves draft in store, preserves marker, keeps composer open', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        mockMutations.editComment = async () => {
+            return { ok: false, status: 500 };
+        };
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Failed edit body to preserve';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.ok(getActiveComposerEl(), 'Composer must remain open on failure');
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Failed edit body to preserve');
+        assert.ok(mockDraftStore.store.load(markerKey), 'Marker must remain on failure');
+    });
+
+    test('44. Stale A -> B race: user starts submit on A, switches to B, old A 204 succeeds -> deletes A draft, does not close B, does not remove B marker', async () => {
+        let resolveEditA;
+        mockMutations.editComment = (input) => {
+            if (input.commentId === ROOT_ID_1) {
+                return new Promise(r => { resolveEditA = r; });
+            }
+            return Promise.resolve({ ok: true, status: 204 });
+        };
+
+        const draftKeyA = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        // Open A and submit (in-flight)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textareaA = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textareaA.value = 'Body A';
+        textareaA.dispatchEvent({ type: 'input' });
+        const promiseA = handleSubmit({ preventDefault: () => {} });
+
+        // Switch to B
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn2, preventDefault: () => {} });
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_2);
+
+        // Resolve old A
+        resolveEditA({ ok: true, status: 204 });
+        await promiseA;
+
+        // B must still be active and open!
+        assert.ok(getActiveComposerEl());
+        assert.strictEqual(getActiveEditTarget().commentId, ROOT_ID_2);
+
+        // A draft removed, B marker intact
+        assert.strictEqual(mockDraftStore.store.load(draftKeyA), null);
+        const markerRaw = mockDraftStore.store.load(markerKey);
+        const markerParsed = JSON.parse(markerRaw);
+        assert.strictEqual(markerParsed.commentId, ROOT_ID_2);
+    });
+
+    test('45. ABA generation race safety: submit A (gen 1), re-open A and type new draft (gen 2), old A 204 succeeds -> DOES NOT delete newer gen 2 draft', async () => {
+        let resolveEditA;
+        mockMutations.editComment = (input) => {
+            if (input.commentId === ROOT_ID_1) {
+                return new Promise(r => { resolveEditA = r; });
+            }
+            return Promise.resolve({ ok: true, status: 204 });
+        };
+
+        const draftKeyA = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        // Submit A at generation 1
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textareaA = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textareaA.value = 'Body A Generation 1';
+        textareaA.dispatchEvent({ type: 'input' });
+        const submitPromiseA = handleSubmit({ preventDefault: () => {} });
+
+        // User closes and re-opens A, typing newer draft (generation 2)
+        closeEditComposer(false);
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const newTextarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        newTextarea.value = 'Newer Generation 2 Draft';
+        newTextarea.dispatchEvent({ type: 'input' });
+        flushActiveDraft();
+
+        assert.strictEqual(mockDraftStore.store.load(draftKeyA), 'Newer Generation 2 Draft');
+
+        // Resolve old submission from generation 1
+        resolveEditA({ ok: true, status: 204 });
+        await submitPromiseA;
+
+        // The newer generation 2 draft MUST NOT be deleted!
+        assert.strictEqual(mockDraftStore.store.load(draftKeyA), 'Newer Generation 2 Draft');
+    });
+
+    test('46. Accepted generation tracking: flushActiveDraft() will not resurrect already accepted generation', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Successfully submitted text';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        // Successfully submitted -> draft is removed and generation accepted
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+        const acceptedGen = getAcceptedEditGeneration(draftKey);
+        assert.ok(acceptedGen > 0);
+
+        // Attempting to flush an already accepted generation must not resurrect it
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+    });
+
+    test('47. Double submit blocked during in-flight PATCH', async () => {
+        let editCalls = 0;
+        let resolveEdit;
+        mockMutations.editComment = () => {
+            editCalls++;
+            return new Promise(r => { resolveEdit = r; });
+        };
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        const textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Single flight submit';
+        textarea.dispatchEvent({ type: 'input' });
+
+        const p1 = handleSubmit({ preventDefault: () => {} });
+        const p2 = handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(editCalls, 1, 'Second submit call while in-flight must be ignored');
+
+        resolveEdit({ ok: true, status: 204 });
+        await Promise.all([p1, p2]);
+    });
+
+    test('48. Submitting clean text (if allowed by backend) does not create lingering draft', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        // Untouched: value equals original body
+        assert.strictEqual(isDirty(), false);
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null);
+        assert.strictEqual(mockDraftStore.store.load(markerKey), null);
+    });
+
+    test('49. Post-accepted direct-submit failure allocates new generation and preserves Draft 2 across flush and passive close', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        // 1. Submit Draft 1 successfully
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        let textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft 1';
+        textarea.dispatchEvent({ type: 'input' });
+
+        mockMutations.editComment = async () => ({ ok: true, status: 204 });
+        await handleSubmit({ preventDefault: () => {} });
+
+        const acceptedGen1 = getAcceptedEditGeneration(draftKey);
+        assert.ok(acceptedGen1 > 0, 'First draft must have an accepted generation');
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft 1 removed upon 204');
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed upon 204');
+
+        // 2. Reopen same comment and edit programmatically without typing event
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        assert.ok(getActiveComposerEl(), 'Composer reopened');
+        textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft 2 after previous accepted edit';
+
+        // 3. Configure PATCH to fail with HTTP 500
+        let capturedBody = null;
+        mockMutations.editComment = async (payload) => {
+            capturedBody = payload.body;
+            return { ok: false, status: 500 };
+        };
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(capturedBody, 'Draft 2 after previous accepted edit');
+        const newGen = getKeyEditGeneration(draftKey);
+        assert.ok(newGen > acceptedGen1, 'New generation must be allocated and exceed accepted generation');
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft 2 after previous accepted edit', 'Draft 2 must be stored');
+        assert.ok(getActiveComposerEl(), 'Composer remains open on failure');
+        assert.ok(mockDraftStore.store.load(markerKey), 'Active marker remains on failure');
+
+        // 4. Dispatch EVENT_FLUSH_DRAFTS
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft 2 after previous accepted edit', 'Draft 2 preserved after flush');
+
+        // 5. Call passive closeEditComposer(false)
+        closeEditComposer(false);
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft 2 after previous accepted edit', 'Draft 2 preserved after passive close');
+    });
+
+    test('50. Stale-accepted remount resurrection prevention across flush, passive close, and genuine new edit', async () => {
+        const draftKey = draftsAdapter.getChapterEditDraftKey(CHAPTER_ID, ROOT_ID_1);
+        const markerKey = draftsAdapter.getChapterActiveInlineMarkerKey(CHAPTER_ID);
+
+        let resolveEditA;
+        mockMutations.editComment = (input) => {
+            if (input.commentId === ROOT_ID_1) {
+                return new Promise(r => { resolveEditA = r; });
+            }
+            return Promise.resolve({ ok: true, status: 204 });
+        };
+
+        // 1. Open Edit A, type Draft A, submit A (PATCH pending)
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        let textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft A';
+        textarea.dispatchEvent({ type: 'input' });
+
+        const submitPromiseA = handleSubmit({ preventDefault: () => {} });
+        const genA = getKeyEditGeneration(draftKey);
+        assert.ok(genA > 0);
+
+        // 2. Destroy module while PATCH is pending
+        destroy();
+        assert.strictEqual(getActiveComposerEl(), null);
+
+        // 3. Re-init module on same fixture and remount composer
+        initReaderChapterCommentEditComposer(fixture.doc, {
+            commentMutations: mockMutations,
+            commentsModule: mockCommentsModule,
+            replyComposerModule: mockReplyComposer,
+            deleteModule: mockDeleteModule,
+            draftAdapter: draftsAdapter,
+            draftStore: mockDraftStore.store
+        });
+
+        const remountedComposer = getActiveComposerEl();
+        assert.ok(remountedComposer, 'Composer remounted from marker');
+        textarea = remountedComposer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft A');
+
+        // 4. Resolve old pending PATCH with 204
+        resolveEditA({ ok: true, status: 204 });
+        await submitPromiseA;
+
+        // Verify stale-accepted handling
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft A removed from store by accepted PATCH');
+        assert.strictEqual(getAcceptedEditGeneration(draftKey), genA, 'Accepted generation recorded');
+        assert.strictEqual(getActiveComposerEl(), remountedComposer, 'Remounted composer remains open');
+        assert.strictEqual(textarea.value, 'Draft A', 'Remounted composer content not mutated');
+        assert.ok(mockDraftStore.store.load(markerKey), 'Marker remains in store');
+
+        // 5. Dispatch EVENT_FLUSH_DRAFTS -> Draft A not resurrected
+        fixture.doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft A not resurrected by flush');
+
+        // 6. Passive close -> Draft A not resurrected
+        closeEditComposer(false);
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(mockDraftStore.store.load(draftKey), null, 'Draft A not resurrected by passive close');
+
+        // 7. Reopen Edit on Comment 1, dispatch genuine input with Draft B, flush draft
+        fixture.doc.dispatchEvent({ type: 'click', target: fixture.rootEditBtn1, preventDefault: () => {} });
+        textarea = getActiveComposerEl().querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft B';
+        textarea.dispatchEvent({ type: 'input' });
+
+        flushActiveDraft();
+        assert.strictEqual(mockDraftStore.store.load(draftKey), 'Draft B', 'Draft B persisted to store');
+        assert.ok(getKeyEditGeneration(draftKey) > genA, 'New edit generation exceeds accepted generation');
+    });
+});
+
+
