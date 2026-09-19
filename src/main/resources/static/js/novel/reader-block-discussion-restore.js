@@ -40,6 +40,7 @@
     const EVENT_DISCUSSION_LOAD_FAILED = 'kiemlai:block-discussion-load-failed';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
     const EVENT_REPLY_RESUME_REQUESTED = 'kiemlai:comment-reply-resume-requested';
+    const EVENT_EDIT_RESUME_REQUESTED = 'kiemlai:comment-edit-resume-requested';
 
     const RESTORED_TARGET_CLASS = 'is-restored-target';
     const HIGHLIGHT_DURATION_MS = 2500;
@@ -266,7 +267,7 @@
             return null;
         }
         if (parsed.type === 'edit') {
-            return null; // Known future marker, ignore without removal
+            return null; // Known non-root/reply marker, ignore without removal
         }
         if (parsed.type === 'root') {
             if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim()) {
@@ -302,6 +303,56 @@
     }
 
     /**
+     * Validates an active-block Edit marker string.
+     * Removes corrupted JSON or malformed non-edit markers safely from store.
+     * Known non-edit markers (type 'root' or 'reply') are ignored without removal.
+     *
+     * @param {string} rawMarker
+     * @param {string} markerKey
+     * @param {Object} [store]
+     * @returns {{type: 'edit', blockKey: string, commentId: string}|null}
+     */
+    function validateEditMarker(rawMarker, markerKey, store) {
+        if (!rawMarker || typeof rawMarker !== 'string') return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(rawMarker);
+        } catch (_) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (parsed.type === 'root' || parsed.type === 'reply') {
+            return null;
+        }
+        if (parsed.type !== 'edit') {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim() ||
+            typeof parsed.commentId !== 'string' || !parsed.commentId.trim()) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        return {
+            type: 'edit',
+            blockKey: parsed.blockKey.trim(),
+            commentId: parsed.commentId.trim()
+        };
+    }
+
+    /**
      * Removes the chapter-scoped active-block marker only if it matches type 'reply', the given blockKey, and commentId.
      *
      * @param {string} chapterId
@@ -324,6 +375,41 @@
                     return; // Known other markers must not be touched
                 }
                 if (parsed.type === 'reply' &&
+                    typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim() &&
+                    typeof parsed.commentId === 'string' && parsed.commentId.trim() === String(commentId).trim()) {
+                    store.remove(markerKey);
+                }
+            } else {
+                store.remove(markerKey);
+            }
+        } catch (_) {
+            store.remove(markerKey);
+        }
+    }
+
+    /**
+     * Removes the chapter-scoped active-block marker only if it matches type 'edit', the given blockKey, and commentId.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     * @param {string} commentId
+     */
+    function removeEditMarkerIfMatching(chapterId, blockKey, commentId) {
+        if (!chapterId || !blockKey || !commentId) return;
+        const adapter = resolveDraftAdapter();
+        const store = resolveDraftStore();
+        if (!adapter || !store) return;
+        const markerKey = adapter.getBlockActiveMarkerKey(chapterId);
+        if (!markerKey) return;
+        const raw = store.load(markerKey);
+        if (!raw || typeof raw !== 'string') return;
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                if (parsed.type === 'root' || parsed.type === 'reply') {
+                    return; // Known other markers must not be touched
+                }
+                if (parsed.type === 'edit' &&
                     typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim() &&
                     typeof parsed.commentId === 'string' && parsed.commentId.trim() === String(commentId).trim()) {
                     store.remove(markerKey);
@@ -602,6 +688,41 @@
     }
 
     /**
+     * Checks if a comment element has a live Edit action.
+     *
+     * @param {Element|null} commentEl
+     * @returns {boolean}
+     */
+    function hasEditAction(commentEl) {
+        if (!commentEl || typeof commentEl.querySelector !== 'function') return false;
+        const btn = commentEl.querySelector('.novel-comment-edit-btn') ||
+            commentEl.querySelector('button[data-action="edit"]') ||
+            commentEl.querySelector('[data-action="edit"]');
+        return Boolean(btn);
+    }
+
+    /**
+     * Extracts clean comment text, omitting Wattpad-style @parentName mention if present.
+     *
+     * @param {Element|null} commentEl
+     * @returns {string}
+     */
+    function extractCommentBody(commentEl) {
+        if (!commentEl || typeof commentEl.querySelector !== 'function') {
+            return '';
+        }
+        const replyBodyText = commentEl.querySelector('.novel-comment-reply-body-text');
+        if (replyBodyText) {
+            return replyBodyText.textContent || '';
+        }
+        const bodyEl = commentEl.querySelector('.novel-comment-body');
+        if (bodyEl) {
+            return bodyEl.textContent || '';
+        }
+        return '';
+    }
+
+    /**
      * Locates the target comment or thread element inside the drawer content container.
      *
      * @param {Element} contentEl
@@ -811,6 +932,38 @@
                 removeReplyMarkerIfMatching(restoreContext.chapterId, restoreContext.blockKey, restoreContext.replyTo);
                 return;
             }
+        } else if (restoreContext.source === 'draft-edit') {
+            const canEdit = hasEditAction(resolved.targetEl);
+            const liveRootId = findLiveEnclosingThreadRoot(resolved.targetEl);
+            const bodyEl = (resolved.targetEl && resolved.targetEl.querySelector) ? resolved.targetEl.querySelector('.novel-comment-body') : null;
+            const currentServerBody = extractCommentBody(resolved.targetEl);
+
+            if (!resolved.targetEl ||
+                resolved.isTombstone ||
+                !resolved.resolvedCommentId ||
+                !canEdit ||
+                !liveRootId ||
+                !bodyEl ||
+                currentServerBody === null ||
+                currentServerBody === undefined) {
+                removeEditMarkerIfMatching(restoreContext.chapterId, restoreContext.blockKey, restoreContext.replyTo);
+                return;
+            }
+
+            const adapter = resolveDraftAdapter();
+            const store = resolveDraftStore();
+            const draftKey = adapter && typeof adapter.getBlockEditDraftKey === 'function'
+                ? adapter.getBlockEditDraftKey(restoreContext.chapterId, restoreContext.blockKey, restoreContext.replyTo)
+                : null;
+            const savedDraft = (store && draftKey && typeof store.load === 'function') ? store.load(draftKey) : null;
+
+            if (!savedDraft || typeof savedDraft !== 'string' || savedDraft.trim().length === 0 || savedDraft === currentServerBody) {
+                if (store && draftKey && typeof store.remove === 'function') {
+                    store.remove(draftKey);
+                }
+                removeEditMarkerIfMatching(restoreContext.chapterId, restoreContext.blockKey, restoreContext.replyTo);
+                return;
+            }
         }
 
         if (resolved.targetEl) {
@@ -849,11 +1002,29 @@
                         commentId: restoreContext.replyTo
                     };
                 }
+            } else if (restoreContext.source === 'draft-edit' && !resolved.isTombstone && resolved.resolvedCommentId) {
+                const editDetail = {
+                    chapterId: restoreContext.chapterId,
+                    blockKey: restoreContext.blockKey,
+                    commentId: resolved.resolvedCommentId
+                };
+                const editEvent = (typeof CustomEvent === 'function')
+                    ? new CustomEvent(EVENT_EDIT_RESUME_REQUESTED, { detail: editDetail, bubbles: true })
+                    : { type: EVENT_EDIT_RESUME_REQUESTED, detail: editDetail };
+                doc.dispatchEvent(editEvent);
+
+                completedDraftInteractionContext = {
+                    doc: doc,
+                    chapterId: restoreContext.chapterId,
+                    blockKey: restoreContext.blockKey,
+                    type: 'edit',
+                    commentId: restoreContext.replyTo
+                };
             }
         }
 
         // Terminal success: remove transient query parameters if URL restore
-        if (restoreContext.source !== 'draft-root' && restoreContext.source !== 'draft-reply') {
+        if (restoreContext.source !== 'draft-root' && restoreContext.source !== 'draft-reply' && restoreContext.source !== 'draft-edit') {
             cleanRestoreParameters(win);
         }
     }
@@ -880,6 +1051,8 @@
             removeRootMarkerIfMatching(failedContext.chapterId, failedContext.blockKey);
         } else if (failedContext.source === 'draft-reply') {
             removeReplyMarkerIfMatching(failedContext.chapterId, failedContext.blockKey, failedContext.replyTo);
+        } else if (failedContext.source === 'draft-edit') {
+            removeEditMarkerIfMatching(failedContext.chapterId, failedContext.blockKey, failedContext.replyTo);
         } else {
             cleanRestoreParameters(win);
         }
@@ -900,6 +1073,8 @@
                 removeRootMarkerIfMatching(closedContext.chapterId, closedContext.blockKey);
             } else if (closedContext.source === 'draft-reply') {
                 removeReplyMarkerIfMatching(closedContext.chapterId, closedContext.blockKey, closedContext.replyTo);
+            } else if (closedContext.source === 'draft-edit') {
+                removeEditMarkerIfMatching(closedContext.chapterId, closedContext.blockKey, closedContext.replyTo);
             } else {
                 cleanRestoreParameters(win);
             }
@@ -924,6 +1099,8 @@
                 removeRootMarkerIfMatching(prevContext.chapterId, prevContext.blockKey);
             } else if (prevContext.source === 'draft-reply') {
                 removeReplyMarkerIfMatching(prevContext.chapterId, prevContext.blockKey, prevContext.replyTo);
+            } else if (prevContext.source === 'draft-edit') {
+                removeEditMarkerIfMatching(prevContext.chapterId, prevContext.blockKey, prevContext.replyTo);
             } else {
                 cleanRestoreParameters(win);
             }
@@ -1044,12 +1221,13 @@
         if (!chapterId || contentVersion === null) {
             return false;
         }
-
         if (completedDraftInteractionContext && (
-            (target.source !== 'draft-root' && target.source !== 'draft-reply') ||
+            (target.source !== 'draft-root' && target.source !== 'draft-reply' && target.source !== 'draft-edit') ||
             completedDraftInteractionContext.blockKey !== blockKey ||
             completedDraftInteractionContext.chapterId !== chapterId ||
-            (completedDraftInteractionContext.type === 'reply' && completedDraftInteractionContext.commentId !== replyTo)
+            (completedDraftInteractionContext.type === 'root' && target.source !== 'draft-root') ||
+            (completedDraftInteractionContext.type === 'reply' && (target.source !== 'draft-reply' || completedDraftInteractionContext.commentId !== replyTo)) ||
+            (completedDraftInteractionContext.type === 'edit' && (target.source !== 'draft-edit' || completedDraftInteractionContext.commentId !== replyTo))
         )) {
             completedDraftInteractionContext = null;
             completedDraftRootContext = null;
@@ -1099,10 +1277,17 @@
         if (activeRestore !== null) {
             return false;
         }
+        const adapter = resolveDraftAdapter();
+        const store = resolveDraftStore();
+        if (!adapter || !store) {
+            return false;
+        }
+
         const chapterBody = doc.querySelector ? doc.querySelector('.novel-reader-chapter-body') : null;
         if (!chapterBody) {
             return false;
         }
+
         const currentChapterId = (
             (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
             (chapterBody.dataset && chapterBody.dataset.chapterId) ||
@@ -1112,23 +1297,20 @@
             return false;
         }
 
-        const adapter = resolveDraftAdapter();
-        const store = resolveDraftStore();
-        if (!adapter || !store) {
-            return false;
-        }
-
         const markerKey = adapter.getBlockActiveMarkerKey(currentChapterId);
         if (!markerKey) {
             return false;
         }
 
         const rawMarker = store.load(markerKey);
-        if (!rawMarker) {
+        if (!rawMarker || typeof rawMarker !== 'string') {
             return false;
         }
 
-        const validMarker = validateActiveMarker(rawMarker, markerKey, store);
+        let validMarker = validateActiveMarker(rawMarker, markerKey, store);
+        if (!validMarker) {
+            validMarker = validateEditMarker(rawMarker, markerKey, store);
+        }
         if (!validMarker) {
             return false;
         }
@@ -1196,6 +1378,47 @@
 
             if (!success) {
                 removeReplyMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
+            }
+
+            return success;
+        }
+
+        if (validMarker.type === 'edit') {
+            const draftKey = adapter && typeof adapter.getBlockEditDraftKey === 'function'
+                ? adapter.getBlockEditDraftKey(currentChapterId, validMarker.blockKey, validMarker.commentId)
+                : null;
+            const savedDraft = (store && draftKey && typeof store.load === 'function') ? store.load(draftKey) : null;
+            if (!savedDraft || typeof savedDraft !== 'string' || savedDraft.trim().length === 0) {
+                removeEditMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
+                return false;
+            }
+
+            if (completedDraftInteractionContext &&
+                completedDraftInteractionContext.doc === doc &&
+                completedDraftInteractionContext.chapterId === currentChapterId &&
+                completedDraftInteractionContext.blockKey === validMarker.blockKey &&
+                completedDraftInteractionContext.type === 'edit' &&
+                completedDraftInteractionContext.commentId === validMarker.commentId) {
+                return false;
+            }
+
+            const blockEl = findReaderBlock(chapterBody, validMarker.blockKey);
+            if (!blockEl) {
+                // Missing or stale Reader block: do not fabricate drawer context, remove ONLY Edit active marker, leave draft untouched
+                removeEditMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
+                return false;
+            }
+
+            const success = openDiscussionTarget({
+                chapterId: currentChapterId,
+                blockKey: validMarker.blockKey,
+                replyTo: validMarker.commentId,
+                intent: 'open',
+                source: 'draft-edit'
+            }, doc, win);
+
+            if (!success) {
+                removeEditMarkerIfMatching(currentChapterId, validMarker.blockKey, validMarker.commentId);
             }
 
             return success;
@@ -1283,11 +1506,15 @@
         resetRestoreState: resetRestoreState,
         validateRootMarker: validateRootMarker,
         validateReplyMarker: validateReplyMarker,
+        validateEditMarker: validateEditMarker,
         validateActiveMarker: validateActiveMarker,
         removeRootMarkerIfMatching: removeRootMarkerIfMatching,
         removeReplyMarkerIfMatching: removeReplyMarkerIfMatching,
+        removeEditMarkerIfMatching: removeEditMarkerIfMatching,
         findLiveEnclosingThreadRoot: findLiveEnclosingThreadRoot,
         hasReplyAction: hasReplyAction,
+        hasEditAction: hasEditAction,
+        extractCommentBody: extractCommentBody,
         attemptActiveBlockDraftRestore: attemptActiveBlockDraftRestore,
         setDraftAdapter: function (adapter) { injectedDraftAdapter = adapter; },
         setDraftAdapterImplementation: function (adapter) { injectedDraftAdapter = adapter; },
@@ -1298,6 +1525,7 @@
         EVENT_DISCUSSION_LOAD_FAILED: EVENT_DISCUSSION_LOAD_FAILED,
         EVENT_DISCUSSION_CLOSED: EVENT_DISCUSSION_CLOSED,
         EVENT_CHAPTER_CHANGED: EVENT_CHAPTER_CHANGED,
-        EVENT_REPLY_RESUME_REQUESTED: EVENT_REPLY_RESUME_REQUESTED
+        EVENT_REPLY_RESUME_REQUESTED: EVENT_REPLY_RESUME_REQUESTED,
+        EVENT_EDIT_RESUME_REQUESTED: EVENT_EDIT_RESUME_REQUESTED
     };
 });

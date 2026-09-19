@@ -331,184 +331,181 @@ class FakeDocument {
 }
 
 // ============================================================================
-// Test Suite
-// ============================================================================
+let doc;
+let drawer;
+let content;
+let mockDrawerModule;
+let refreshActiveDiscussionCalled;
+
+const CHAPTER_ID = '11111111-1111-1111-1111-111111111111';
+const BLOCK_KEY = 'blk-0123456789abcdef-1';
+const ROOT_ID = 'root-uuid-1';
+const REPLY_ID_NESTED = 'reply-uuid-nested';
+const REPLY_ID_DIRECT = 'reply-uuid-direct';
+
+function setupDiscussionDOM(includeCsrf = true) {
+    doc = new FakeDocument();
+
+    if (includeCsrf) {
+        const csrfMeta = doc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-12345');
+        doc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = doc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        doc.head.appendChild(csrfHeaderMeta);
+    }
+
+    drawer = doc.createElement('div');
+    drawer.id = 'novelBlockDiscussionDrawer';
+    drawer.className = 'novel-block-discussion-drawer';
+    drawer.setAttribute('data-chapter-slug', 'chapter-1-slug');
+    drawer.setAttribute('data-authenticated', 'true');
+
+    content = doc.createElement('div');
+    content.id = 'novelBlockDiscussionContent';
+    content.className = 'novel-block-discussion-content';
+
+    // Thread Card
+    const threadCard = doc.createElement('article');
+    threadCard.className = 'novel-block-discussion-thread';
+    threadCard.setAttribute('data-root-id', ROOT_ID);
+
+    // 1. Root Comment (editable)
+    const rootComment = doc.createElement('div');
+    rootComment.className = 'novel-comment novel-comment--root';
+    rootComment.setAttribute('data-comment-id', ROOT_ID);
+    rootComment.setAttribute('data-author-user-id', 'author-user-1');
+
+    const rootHeader = doc.createElement('header');
+    rootHeader.className = 'novel-comment-header';
+    const rootAuthor = doc.createElement('span');
+    rootAuthor.className = 'novel-comment-author';
+    rootAuthor.textContent = 'Tiêu Viêm';
+    rootHeader.appendChild(rootAuthor);
+
+    const rootBody = doc.createElement('div');
+    rootBody.className = 'novel-comment-body';
+    rootBody.textContent = 'Bình luận gốc ban đầu';
+
+    const rootActions = doc.createElement('div');
+    rootActions.className = 'novel-comment-actions';
+
+    const rootEditBtn = doc.createElement('button');
+    rootEditBtn.type = 'button';
+    rootEditBtn.className = 'novel-comment-edit-btn';
+    rootEditBtn.setAttribute('data-action', 'edit');
+    rootEditBtn.setAttribute('data-comment-id', ROOT_ID);
+    rootEditBtn.setAttribute('data-root-id', ROOT_ID);
+    rootEditBtn.textContent = 'Chỉnh sửa';
+    rootActions.appendChild(rootEditBtn);
+
+    rootComment.appendChild(rootHeader);
+    rootComment.appendChild(rootBody);
+    rootComment.appendChild(rootActions);
+    threadCard.appendChild(rootComment);
+
+    // Replies Container
+    const repliesContainer = doc.createElement('div');
+    repliesContainer.className = 'novel-comment-replies';
+
+    // 2. Direct Reply
+    const directReply = doc.createElement('article');
+    directReply.className = 'novel-comment novel-comment--reply';
+    directReply.setAttribute('data-comment-id', REPLY_ID_DIRECT);
+    directReply.setAttribute('data-reply-id', REPLY_ID_DIRECT);
+
+    const directHeader = doc.createElement('header');
+    directHeader.className = 'novel-comment-header';
+    const directAuthor = doc.createElement('span');
+    directAuthor.className = 'novel-comment-author';
+    directAuthor.textContent = 'Dược Lão';
+    directHeader.appendChild(directAuthor);
+
+    const directBody = doc.createElement('div');
+    directBody.className = 'novel-comment-body';
+    directBody.textContent = 'Phản hồi trực tiếp gốc';
+
+    const directActions = doc.createElement('div');
+    directActions.className = 'novel-comment-actions';
+
+    const directEditBtn = doc.createElement('button');
+    directEditBtn.type = 'button';
+    directEditBtn.className = 'novel-comment-edit-btn';
+    directEditBtn.setAttribute('data-action', 'edit');
+    directEditBtn.setAttribute('data-comment-id', REPLY_ID_DIRECT);
+    directEditBtn.setAttribute('data-reply-id', REPLY_ID_DIRECT);
+    directEditBtn.setAttribute('data-root-id', ROOT_ID);
+    directEditBtn.textContent = 'Chỉnh sửa';
+    directActions.appendChild(directEditBtn);
+
+    directReply.appendChild(directHeader);
+    directReply.appendChild(directBody);
+    directReply.appendChild(directActions);
+    repliesContainer.appendChild(directReply);
+
+    // 3. Nested Reply with Wattpad-style @mention
+    const nestedReply = doc.createElement('article');
+    nestedReply.className = 'novel-comment novel-comment--reply';
+    nestedReply.setAttribute('data-comment-id', REPLY_ID_NESTED);
+    nestedReply.setAttribute('data-reply-id', REPLY_ID_NESTED);
+
+    const nestedHeader = doc.createElement('header');
+    nestedHeader.className = 'novel-comment-header';
+    const nestedAuthor = doc.createElement('span');
+    nestedAuthor.className = 'novel-comment-author';
+    nestedAuthor.textContent = 'Hải Ba Đông';
+    nestedHeader.appendChild(nestedAuthor);
+
+    const nestedBody = doc.createElement('div');
+    nestedBody.className = 'novel-comment-body';
+
+    const mentionSpan = doc.createElement('span');
+    mentionSpan.className = 'novel-comment-reply-mention';
+    mentionSpan.textContent = '@Dược Lão';
+
+    const bodyTextSpan = doc.createElement('span');
+    bodyTextSpan.className = 'novel-comment-reply-body-text';
+    bodyTextSpan.textContent = 'Phản hồi lồng ghép cho Dược Lão';
+
+    nestedBody.appendChild(mentionSpan);
+    nestedBody.appendChild(bodyTextSpan);
+
+    const nestedActions = doc.createElement('div');
+    nestedActions.className = 'novel-comment-actions';
+
+    const nestedEditBtn = doc.createElement('button');
+    nestedEditBtn.type = 'button';
+    nestedEditBtn.className = 'novel-comment-edit-btn';
+    nestedEditBtn.setAttribute('data-action', 'edit');
+    nestedEditBtn.setAttribute('data-comment-id', REPLY_ID_NESTED);
+    nestedEditBtn.setAttribute('data-reply-id', REPLY_ID_NESTED);
+    nestedEditBtn.setAttribute('data-root-id', ROOT_ID);
+    nestedEditBtn.textContent = 'Chỉnh sửa';
+    nestedActions.appendChild(nestedEditBtn);
+
+    nestedReply.appendChild(nestedHeader);
+    nestedReply.appendChild(nestedBody);
+    nestedReply.appendChild(nestedActions);
+    repliesContainer.appendChild(nestedReply);
+
+    threadCard.appendChild(repliesContainer);
+    content.appendChild(threadCard);
+    drawer.appendChild(content);
+    doc.body.appendChild(drawer);
+
+    refreshActiveDiscussionCalled = false;
+    mockDrawerModule = {
+        getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+        refreshActiveDiscussion: async () => {
+            refreshActiveDiscussionCalled = true;
+        }
+    };
+}
 
 describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
-
-    let doc;
-    let drawer;
-    let content;
-    let mockDrawerModule;
-    let refreshActiveDiscussionCalled;
-
-    const CHAPTER_ID = '11111111-1111-1111-1111-111111111111';
-    const BLOCK_KEY = 'blk-0123456789abcdef-1';
-    const ROOT_ID = 'root-uuid-1';
-    const REPLY_ID_NESTED = 'reply-uuid-nested';
-    const REPLY_ID_DIRECT = 'reply-uuid-direct';
-
-    function setupDiscussionDOM(includeCsrf = true) {
-        doc = new FakeDocument();
-
-        if (includeCsrf) {
-            const csrfMeta = doc.createElement('meta');
-            csrfMeta.setAttribute('name', '_csrf');
-            csrfMeta.setAttribute('content', 'test-csrf-token-12345');
-            doc.head.appendChild(csrfMeta);
-
-            const csrfHeaderMeta = doc.createElement('meta');
-            csrfHeaderMeta.setAttribute('name', '_csrf_header');
-            csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
-            doc.head.appendChild(csrfHeaderMeta);
-        }
-
-        drawer = doc.createElement('div');
-        drawer.id = 'novelBlockDiscussionDrawer';
-        drawer.className = 'novel-block-discussion-drawer';
-        drawer.setAttribute('data-chapter-slug', 'chapter-1-slug');
-        drawer.setAttribute('data-authenticated', 'true');
-
-        content = doc.createElement('div');
-        content.id = 'novelBlockDiscussionContent';
-        content.className = 'novel-block-discussion-content';
-
-        // Thread Card
-        const threadCard = doc.createElement('article');
-        threadCard.className = 'novel-block-discussion-thread';
-        threadCard.setAttribute('data-root-id', ROOT_ID);
-
-        // 1. Root Comment (editable)
-        const rootComment = doc.createElement('div');
-        rootComment.className = 'novel-comment novel-comment--root';
-        rootComment.setAttribute('data-comment-id', ROOT_ID);
-        rootComment.setAttribute('data-author-user-id', 'author-user-1');
-
-        const rootHeader = doc.createElement('header');
-        rootHeader.className = 'novel-comment-header';
-        const rootAuthor = doc.createElement('span');
-        rootAuthor.className = 'novel-comment-author';
-        rootAuthor.textContent = 'Tiêu Viêm';
-        rootHeader.appendChild(rootAuthor);
-
-        const rootBody = doc.createElement('div');
-        rootBody.className = 'novel-comment-body';
-        rootBody.textContent = 'Bình luận gốc ban đầu';
-
-        const rootActions = doc.createElement('div');
-        rootActions.className = 'novel-comment-actions';
-
-        const rootEditBtn = doc.createElement('button');
-        rootEditBtn.type = 'button';
-        rootEditBtn.className = 'novel-comment-edit-btn';
-        rootEditBtn.setAttribute('data-action', 'edit');
-        rootEditBtn.setAttribute('data-comment-id', ROOT_ID);
-        rootEditBtn.setAttribute('data-root-id', ROOT_ID);
-        rootEditBtn.textContent = 'Chỉnh sửa';
-        rootActions.appendChild(rootEditBtn);
-
-        rootComment.appendChild(rootHeader);
-        rootComment.appendChild(rootBody);
-        rootComment.appendChild(rootActions);
-        threadCard.appendChild(rootComment);
-
-        // Replies Container
-        const repliesContainer = doc.createElement('div');
-        repliesContainer.className = 'novel-comment-replies';
-
-        // 2. Direct Reply
-        const directReply = doc.createElement('article');
-        directReply.className = 'novel-comment novel-comment--reply';
-        directReply.setAttribute('data-comment-id', REPLY_ID_DIRECT);
-        directReply.setAttribute('data-reply-id', REPLY_ID_DIRECT);
-
-        const directHeader = doc.createElement('header');
-        directHeader.className = 'novel-comment-header';
-        const directAuthor = doc.createElement('span');
-        directAuthor.className = 'novel-comment-author';
-        directAuthor.textContent = 'Dược Lão';
-        directHeader.appendChild(directAuthor);
-
-        const directBody = doc.createElement('div');
-        directBody.className = 'novel-comment-body';
-        directBody.textContent = 'Phản hồi trực tiếp gốc';
-
-        const directActions = doc.createElement('div');
-        directActions.className = 'novel-comment-actions';
-
-        const directEditBtn = doc.createElement('button');
-        directEditBtn.type = 'button';
-        directEditBtn.className = 'novel-comment-edit-btn';
-        directEditBtn.setAttribute('data-action', 'edit');
-        directEditBtn.setAttribute('data-comment-id', REPLY_ID_DIRECT);
-        directEditBtn.setAttribute('data-reply-id', REPLY_ID_DIRECT);
-        directEditBtn.setAttribute('data-root-id', ROOT_ID);
-        directEditBtn.textContent = 'Chỉnh sửa';
-        directActions.appendChild(directEditBtn);
-
-        directReply.appendChild(directHeader);
-        directReply.appendChild(directBody);
-        directReply.appendChild(directActions);
-        repliesContainer.appendChild(directReply);
-
-        // 3. Nested Reply with Wattpad-style @mention
-        const nestedReply = doc.createElement('article');
-        nestedReply.className = 'novel-comment novel-comment--reply';
-        nestedReply.setAttribute('data-comment-id', REPLY_ID_NESTED);
-        nestedReply.setAttribute('data-reply-id', REPLY_ID_NESTED);
-
-        const nestedHeader = doc.createElement('header');
-        nestedHeader.className = 'novel-comment-header';
-        const nestedAuthor = doc.createElement('span');
-        nestedAuthor.className = 'novel-comment-author';
-        nestedAuthor.textContent = 'Hải Ba Đông';
-        nestedHeader.appendChild(nestedAuthor);
-
-        const nestedBody = doc.createElement('div');
-        nestedBody.className = 'novel-comment-body';
-
-        const mentionSpan = doc.createElement('span');
-        mentionSpan.className = 'novel-comment-reply-mention';
-        mentionSpan.textContent = '@Dược Lão';
-
-        const bodyTextSpan = doc.createElement('span');
-        bodyTextSpan.className = 'novel-comment-reply-body-text';
-        bodyTextSpan.textContent = 'Phản hồi lồng ghép cho Dược Lão';
-
-        nestedBody.appendChild(mentionSpan);
-        nestedBody.appendChild(bodyTextSpan);
-
-        const nestedActions = doc.createElement('div');
-        nestedActions.className = 'novel-comment-actions';
-
-        const nestedEditBtn = doc.createElement('button');
-        nestedEditBtn.type = 'button';
-        nestedEditBtn.className = 'novel-comment-edit-btn';
-        nestedEditBtn.setAttribute('data-action', 'edit');
-        nestedEditBtn.setAttribute('data-comment-id', REPLY_ID_NESTED);
-        nestedEditBtn.setAttribute('data-reply-id', REPLY_ID_NESTED);
-        nestedEditBtn.setAttribute('data-root-id', ROOT_ID);
-        nestedEditBtn.textContent = 'Chỉnh sửa';
-        nestedActions.appendChild(nestedEditBtn);
-
-        nestedReply.appendChild(nestedHeader);
-        nestedReply.appendChild(nestedBody);
-        nestedReply.appendChild(nestedActions);
-        repliesContainer.appendChild(nestedReply);
-
-        threadCard.appendChild(repliesContainer);
-        content.appendChild(threadCard);
-        drawer.appendChild(content);
-        doc.body.appendChild(drawer);
-
-        refreshActiveDiscussionCalled = false;
-        mockDrawerModule = {
-            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
-            refreshActiveDiscussion: async () => {
-                refreshActiveDiscussionCalled = true;
-            }
-        };
-    }
 
     beforeEach(() => {
         resetEditComposerState();
@@ -1349,4 +1346,1050 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
 
     });
 
+});
+
+describe('UX-DRAFT-01D3C — Block Drawer Edit Draft Persistence', () => {
+    const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
+    const draftsAdapter = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-comment-drafts.js'));
+
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+        }
+        getItem(k) {
+            return this.store.has(k) ? this.store.get(k) : null;
+        }
+        setItem(k, v) {
+            this.store.set(k, String(v));
+        }
+        removeItem(k) {
+            this.store.delete(k);
+        }
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        resetEditComposerState();
+        setupDiscussionDOM(true);
+        EditComposerModule.setDraftStore(draftStore);
+        EditComposerModule.setDraftAdapter(draftsAdapter);
+    });
+
+    afterEach(() => {
+        EditComposerModule.cancelDebounce();
+        resetEditComposerState();
+    });
+
+    test('1. getEditDraftKey generates canonical edit draft key', () => {
+        const key = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const expected = 'kiemlai:draft:novel-comment:' + encodeURIComponent(CHAPTER_ID) + ':block:' + encodeURIComponent(BLOCK_KEY) + ':edit:' + encodeURIComponent(ROOT_ID);
+        assert.strictEqual(key, expected);
+    });
+
+    test('2. getEditDraftKey returns null for invalid / missing inputs', () => {
+        assert.strictEqual(EditComposerModule.getEditDraftKey('', BLOCK_KEY, ROOT_ID), null);
+        assert.strictEqual(EditComposerModule.getEditDraftKey(CHAPTER_ID, '', ROOT_ID), null);
+        assert.strictEqual(EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ''), null);
+        assert.strictEqual(EditComposerModule.getEditDraftKey(null, BLOCK_KEY, ROOT_ID), null);
+        assert.strictEqual(EditComposerModule.getEditDraftKey(CHAPTER_ID, null, ROOT_ID), null);
+        assert.strictEqual(EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, null), null);
+    });
+
+    test('3. getActiveMarkerKey generates canonical chapter-scoped active-block marker key', () => {
+        const key = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        const expected = 'kiemlai:draft:novel-comment:' + encodeURIComponent(CHAPTER_ID) + ':active-block';
+        assert.strictEqual(key, expected);
+        assert.strictEqual(EditComposerModule.getActiveMarkerKey(''), null);
+        assert.strictEqual(EditComposerModule.getActiveMarkerKey(null), null);
+    });
+
+    test('4. saveEditMarker saves structured payload { type: edit, blockKey, commentId }', () => {
+        EditComposerModule.saveEditMarker(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        const raw = draftStore.load(markerKey);
+        assert.notStrictEqual(raw, null);
+        const parsed = JSON.parse(raw);
+        assert.strictEqual(parsed.type, 'edit');
+        assert.strictEqual(parsed.blockKey, BLOCK_KEY);
+        assert.strictEqual(parsed.commentId, ROOT_ID);
+    });
+
+    test('5. removeEditMarkerIfMatching removes only matching edit marker', () => {
+        EditComposerModule.saveEditMarker(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('6. removeEditMarkerIfMatching preserves non-matching edit marker', () => {
+        EditComposerModule.saveEditMarker(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, 'different-comment-id');
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, 'different-block', ROOT_ID);
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('7. removeEditMarkerIfMatching preserves root and reply markers untouched', () => {
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        const rootPayload = JSON.stringify({ type: 'root', blockKey: BLOCK_KEY });
+        draftStore.save(markerKey, rootPayload);
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(markerKey), rootPayload, 'Root marker untouched');
+
+        const replyPayload = JSON.stringify({ type: 'reply', blockKey: BLOCK_KEY, commentId: ROOT_ID });
+        draftStore.save(markerKey, replyPayload);
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(markerKey), replyPayload, 'Reply marker untouched');
+    });
+
+    test('8. removeEditMarkerIfMatching removes corrupted JSON marker safely', () => {
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(markerKey, '{corrupted-edit-marker-json');
+        EditComposerModule.removeEditMarkerIfMatching(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('9. Opening edit composer with no draft loads clean comment body (activeOriginalBody baseline)', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        assert.notStrictEqual(composer, null);
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Bình luận gốc ban đầu');
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        assert.strictEqual(draftStore.load(draftKey), null, 'No draft saved yet');
+        assert.strictEqual(draftStore.load(markerKey), null, 'No active marker saved yet');
+    });
+
+    test('10. Opening edit composer with matching saved dirty draft pre-fills draft and sets active edit marker', () => {
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, 'Saved dirty draft edit text');
+
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Saved dirty draft edit text');
+
+        const markerPayload = draftStore.load(markerKey);
+        assert.notStrictEqual(markerPayload, null);
+        const parsed = JSON.parse(markerPayload);
+        assert.strictEqual(parsed.type, 'edit');
+        assert.strictEqual(parsed.commentId, ROOT_ID);
+    });
+
+    test('11. Opening edit composer when saved draft equals comment body (clean) discards draft and loads clean body', () => {
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, 'Bình luận gốc ban đầu');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: BLOCK_KEY, commentId: ROOT_ID }));
+
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Bình luận gốc ban đầu');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Stale clean draft removed');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Active marker removed');
+    });
+
+    test('12. Opening edit composer with whitespace-only draft discards draft and loads clean body', () => {
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, '     ');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: BLOCK_KEY, commentId: ROOT_ID }));
+
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Bình luận gốc ban đầu');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Blank draft removed');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Active marker removed');
+    });
+
+    test('13. Typing identical to activeOriginalBody cleans draft from store and removes active edit marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        // First type dirty text
+        textarea.value = 'Different text';
+        textarea.dispatchEvent({ type: 'input' });
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        // Now revert to exactly original body
+        textarea.value = 'Bình luận gốc ban đầu';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed when back to original');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed when back to original');
+    });
+
+    test('14. Typing whitespace-only cleans draft from store and removes active edit marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        textarea.value = 'Something edited';
+        textarea.dispatchEvent({ type: 'input' });
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        textarea.value = '   ';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed when blank');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed when blank');
+    });
+
+    test('15. Typing dirty text saves active edit marker immediately and debounces draft persistence ~400ms', async () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        textarea.value = 'Modified draft text';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Marker saved synchronously
+        assert.notStrictEqual(draftStore.load(markerKey), null, 'Marker saved immediately');
+
+        // Draft not saved before debounce
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft not yet saved before debounce');
+
+        // Wait for debounce timer (400ms)
+        await new Promise(r => setTimeout(r, 450));
+
+        assert.strictEqual(draftStore.load(draftKey), 'Modified draft text', 'Draft saved after debounce');
+    });
+
+    test('16. Typing dirty text then reverting back to activeOriginalBody before debounce fires cancels timer and cleans draft', async () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        textarea.value = 'Temporary modified text';
+        textarea.dispatchEvent({ type: 'input' });
+
+        textarea.value = 'Bình luận gốc ban đầu';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await new Promise(r => setTimeout(r, 450));
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft remains null');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker remains null');
+    });
+
+    test('17. Clicking Cancel button (Hủy) discards draft from store and removes active edit marker', async () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        textarea.value = 'Draft text to discard';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(draftStore.load(draftKey), 'Draft text to discard');
+
+        const cancelBtn = composer.querySelector('.' + EDIT_CANCEL_CLASS);
+        doc.dispatchEvent({ type: 'click', target: cancelBtn, preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft deleted on Cancel');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker deleted on Cancel');
+    });
+
+    test('18. Pressing Escape key discards draft from store and removes active edit marker', async () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        textarea.value = 'Draft text before Escape';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(draftStore.load(draftKey), 'Draft text before Escape');
+
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27, preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed on Escape');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft deleted on Escape');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker deleted on Escape');
+    });
+
+    test('19. Passive close (switching to another comment) flushes dirty draft of previous target to store and removes its active marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        // Open editor on Root comment
+        const rootEditBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: rootEditBtn, preventDefault: () => {} });
+
+        const composer1 = getActiveComposerEl();
+        const textarea1 = composer1.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea1.value = 'Unsaved draft on root comment';
+
+        const rootDraftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        // Click edit on direct reply without canceling root
+        const directEditBtn = doc.querySelector('[data-comment-id="' + REPLY_ID_DIRECT + '"] .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: directEditBtn, preventDefault: () => {} });
+
+        // Root draft must have been passively flushed
+        assert.strictEqual(draftStore.load(rootDraftKey), 'Unsaved draft on root comment');
+
+        // Previous target's active marker must have been removed
+        assert.strictEqual(draftStore.load(markerKey), null, 'Previous active marker removed when new target is clean');
+
+        // When user types in new target, its active marker is established
+        const composer2 = getActiveComposerEl();
+        const textarea2 = composer2.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea2.value = 'Unsaved draft on direct reply';
+        textarea2.dispatchEvent({ type: 'input' });
+
+        const marker = JSON.parse(draftStore.load(markerKey) || '{}');
+        assert.strictEqual(marker.commentId, REPLY_ID_DIRECT);
+    });
+
+    test('20. Passive close on chapter-changed flushes dirty draft to store and removes active marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty draft before chapter change';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        doc.dispatchEvent({ type: 'kiemlai:chapter-changed' });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed');
+        assert.strictEqual(draftStore.load(draftKey), 'Dirty draft before chapter change');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on chapter change');
+    });
+
+    test('21. Passive close on drawer-closed flushes dirty draft to store and removes active marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty draft before drawer closed';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed');
+        assert.strictEqual(draftStore.load(draftKey), 'Dirty draft before drawer closed');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on drawer closed');
+    });
+
+    test('22. Passive close on block-discussion-requested flushes dirty draft to store and removes active marker', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty draft before block switch';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        doc.dispatchEvent({ type: 'kiemlai:block-discussion-requested', detail: { blockKey: 'blk-other-12345678-1' } });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed');
+        assert.strictEqual(draftStore.load(draftKey), 'Dirty draft before block switch');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on block switch');
+    });
+
+    test('23. kiemlai:novel-comment-drafts-flush (pagehide bridge) flushes active draft to store immediately', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Un-debounced draft text';
+        // Note: NO debounce wait!
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        doc.dispatchEvent({ type: 'kiemlai:novel-comment-drafts-flush' });
+
+        assert.strictEqual(draftStore.load(draftKey), 'Un-debounced draft text');
+    });
+
+    test('24. Submit with dirty body saves raw draft before network request and snapshots generation', async () => {
+        let resolveEdit;
+        const mockMutations = {
+            editComment: () => new Promise(resolve => { resolveEdit = resolve; })
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Dirty text before submit   ';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        const submitPromise = handleSubmit({ preventDefault: () => {} });
+
+        // Verify draft was saved immediately before network completes, preserving raw whitespace
+        assert.strictEqual(draftStore.load(draftKey), 'Dirty text before submit   ');
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+
+        resolveEdit({ ok: true, status: 204 });
+        await submitPromise;
+    });
+
+    test('25. Submit success (HTTP 200/204) cleans draft and active marker when generation has not advanced', async () => {
+        const mockMutations = {
+            editComment: async () => ({ ok: true, status: 204 })
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Successfully edited text';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.strictEqual(getActiveComposerEl(), null, 'Composer closed on success');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed on success');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on success');
+    });
+
+    test('26. Submit server error (HTTP 400/404/500) preserves draft and marker in store', async () => {
+        const mockMutations = {
+            editComment: async () => ({ ok: false, status: 500 })
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft text that failed on server';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.notStrictEqual(getActiveComposerEl(), null, 'Composer stays open');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft text that failed on server', 'Draft preserved');
+        assert.notStrictEqual(draftStore.load(markerKey), null, 'Marker preserved');
+    });
+
+    test('27. Submit network failure preserves draft and marker in store', async () => {
+        const mockMutations = {
+            editComment: async () => { throw new Error('Network offline'); }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft text with network error';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        await handleSubmit({ preventDefault: () => {} });
+
+        assert.notStrictEqual(getActiveComposerEl(), null, 'Composer stays open');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft text with network error', 'Draft preserved');
+        assert.notStrictEqual(draftStore.load(markerKey), null, 'Marker preserved');
+    });
+
+    test('28. Stale successful submit (user typed while submit was in flight) does NOT delete newer draft or marker', async () => {
+        let resolveEdit;
+        const mockMutations = {
+            editComment: () => new Promise(resolve => { resolveEdit = resolve; })
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'First draft in flight';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        const submitPromise = handleSubmit({ preventDefault: () => {} });
+
+        // In flight: user types newer text
+        textarea.value = 'Second draft typed while in flight';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Resolve first submit
+        resolveEdit({ ok: true, status: 204 });
+        await submitPromise;
+
+        // The newer draft must NOT be deleted!
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(draftStore.load(draftKey), 'Second draft typed while in flight');
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('29. ABA switch: Editing Comment A -> B -> A does not corrupt or overwrite drafts', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const rootDraftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const directDraftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, REPLY_ID_DIRECT);
+
+        // 1. Open Root (A) and type draft
+        const rootEditBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: rootEditBtn, preventDefault: () => {} });
+        let composer = getActiveComposerEl();
+        let textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft for Comment A';
+
+        // 2. Switch to Direct Reply (B) and type draft
+        const directEditBtn = doc.querySelector('[data-comment-id="' + REPLY_ID_DIRECT + '"] .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: directEditBtn, preventDefault: () => {} });
+
+        assert.strictEqual(draftStore.load(rootDraftKey), 'Draft for Comment A');
+
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft for Comment B';
+
+        // 3. Switch back to Root (A)
+        doc.dispatchEvent({ type: 'click', target: rootEditBtn, preventDefault: () => {} });
+
+        assert.strictEqual(draftStore.load(directDraftKey), 'Draft for Comment B');
+
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft for Comment A', 'Comment A draft correctly restored');
+    });
+
+    test('30. Re-editing same comment after successful submit starts clean with newly saved comment body', async () => {
+        let serverBody = 'Bình luận gốc ban đầu';
+        const mockMutations = {
+            editComment: async (input) => {
+                serverBody = input.body;
+                return { ok: true, status: 204 };
+            }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        // 1. Edit and submit
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        let composer = getActiveComposerEl();
+        let textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'New authoritative comment content';
+
+        await handleSubmit({ preventDefault: () => {} });
+        assert.strictEqual(getActiveComposerEl(), null);
+
+        // Update DOM comment body to simulate drawer refresh with updated body
+        const rootBody = doc.querySelector('.novel-comment--root .novel-comment-body');
+        rootBody.textContent = 'New authoritative comment content';
+
+        // 2. Re-open editor for same comment
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'New authoritative comment content');
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        assert.strictEqual(draftStore.load(draftKey), null, 'Clean baseline, no draft');
+        assert.strictEqual(draftStore.load(markerKey), null, 'No active marker');
+    });
+
+    test('31. handleEditResumeRequested: valid event detail opens edit composer on exact comment, pre-fills draft, and focuses textarea', () => {
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        draftStore.save(draftKey, 'Restored draft from resume event');
+
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:comment-edit-resume-requested',
+            detail: {
+                chapterId: CHAPTER_ID,
+                blockKey: BLOCK_KEY,
+                commentId: ROOT_ID
+            }
+        });
+
+        const composer = getActiveComposerEl();
+        assert.notStrictEqual(composer, null);
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Restored draft from resume event');
+        assert.strictEqual(textarea.isFocused, true);
+    });
+
+    test('32. True accepted-remount race: pending submit -> passive close -> remount -> old 204 resolves -> flush & discussion-requested do NOT resurrect A1', async () => {
+        let resolveEditA1;
+        let drawerRefreshes = 0;
+        let bottomSyncCalls = 0;
+
+        const mockMutations = {
+            editComment: () => new Promise(resolve => { resolveEditA1 = resolve; })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshes++; }
+        };
+        const mockBottom = {
+            getState: () => ({ rootPageMap: { [ROOT_ID]: 0 } }),
+            refreshRootThread: async () => { bottomSyncCalls++; }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawer,
+            commentMutations: mockMutations,
+            commentsModule: mockBottom
+        });
+
+        // 1. Open Edit A
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        // 2. Capture original server body O: 'Bình luận gốc ban đầu'
+        // 3. Type A1 via genuine input event
+        let composer = getActiveComposerEl();
+        let textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft A1 in flight';
+        textarea.dispatchEvent({ type: 'input' });
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        // 4. Submit A1 with editComment Promise kept PENDING
+        const submitPromiseA1 = handleSubmit({ preventDefault: () => {} });
+
+        // 5. Passive-close Edit A
+        closeEditComposer(false);
+
+        // 6. Assert A1 was flushed to draft store
+        assert.strictEqual(draftStore.load(draftKey), 'Draft A1 in flight');
+
+        // 7. Reopen SAME Edit A
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        // 8. Assert textarea restored A1 FROM STORE
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft A1 in flight');
+
+        // 9. Dispatch NO new input
+
+        // 10. Resolve OLD A1 request with success
+        resolveEditA1({ ok: true, status: 204 });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        // 11. Assert old response is stale:
+        // - current remounted composer remains open
+        // - textarea still visibly contains A1
+        // - zero current Drawer refresh
+        // - zero Bottom synchronization
+        // - stored A1 draft is removed due accepted generation
+        assert.notStrictEqual(getActiveComposerEl(), null, 'Current remounted composer remains open');
+        assert.strictEqual(textarea.value, 'Draft A1 in flight', 'Textarea still visibly contains A1');
+        assert.strictEqual(drawerRefreshes, 0, 'Zero Drawer refresh for stale A1 completion');
+        assert.strictEqual(bottomSyncCalls, 0, 'Zero Bottom sync for stale A1 completion');
+        assert.strictEqual(draftStore.load(draftKey), null, 'Stored draft removed on 204 acceptance');
+
+        // 12. Dispatch EVENT_FLUSH_DRAFTS
+        doc.dispatchEvent({ type: 'kiemlai:novel-comment-drafts-flush' });
+
+        // 13. Assert A1 does NOT resurrect
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 does not resurrect on global flush');
+
+        // 14. Dispatch REAL EVENT_DISCUSSION_REQUESTED
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-requested',
+            detail: { chapterId: CHAPTER_ID, blockKey: 'blk-other' }
+        });
+
+        // 15. Assert:
+        // - A1 still absent from store
+        // - matching Edit marker removed
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 remains absent on block requested');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on block requested');
+
+        // 16. Reopen A
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Bình luận gốc ban đầu', 'Clean body loaded');
+
+        // 17. Type genuine A2 via input
+        textarea.value = 'Genuine Draft A2 content';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // 18. Flush
+        doc.dispatchEvent({ type: 'kiemlai:novel-comment-drafts-flush' });
+
+        // 19. Assert A2 persists normally
+        assert.strictEqual(draftStore.load(draftKey), 'Genuine Draft A2 content', 'Genuine Draft A2 persists');
+    });
+
+    test('33. Drawer-close accepted-remount: pending submit -> passive close -> remount -> old 204 resolves -> kiemlai:block-discussion-closed cleans marker and does NOT resurrect A1', async () => {
+        let resolveEditA1;
+        let drawerRefreshes = 0;
+        let bottomSyncCalls = 0;
+
+        const mockMutations = {
+            editComment: () => new Promise(r => { resolveEditA1 = r; })
+        };
+        const mockDrawer = {
+            getActiveContext: () => ({ chapterId: CHAPTER_ID, blockKey: BLOCK_KEY }),
+            refreshActiveDiscussion: async () => { drawerRefreshes++; }
+        };
+        const mockBottom = {
+            getState: () => ({ rootPageMap: { [ROOT_ID]: 0 } }),
+            refreshRootThread: async () => { bottomSyncCalls++; }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawer,
+            commentMutations: mockMutations,
+            commentsModule: mockBottom
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        let composer = getActiveComposerEl();
+        let textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft A1 in flight';
+        textarea.dispatchEvent({ type: 'input' });
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+
+        const submitPromiseA1 = handleSubmit({ preventDefault: () => {} });
+
+        closeEditComposer(false);
+
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Draft A1 in flight');
+
+        // Old 204 resolves
+        resolveEditA1({ ok: true, status: 204 });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed on 204 acceptance');
+        assert.strictEqual(drawerRefreshes, 0, 'No refresh from stale response');
+        assert.strictEqual(bottomSyncCalls, 0, 'No bottom sync from stale response');
+
+        // Drawer closed event dispatched
+        doc.dispatchEvent({ type: 'kiemlai:block-discussion-closed' });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 does not resurrect on drawer close');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Matching Edit marker removed on drawer close');
+    });
+
+    test('34. Post-accepted direct-submit: Draft 1 accepted (G1) -> update server body -> reopen same target -> set textarea.value = "Draft 2" without input event -> submit fails (500) -> Draft 2 persists across flush and passive close', async () => {
+        let mutationCalls = 0;
+        const mockMutations = {
+            editComment: async () => {
+                mutationCalls++;
+                if (mutationCalls === 1) {
+                    return { ok: true, status: 204 };
+                }
+                const err = new Error('HTTP 500');
+                err.status = 500;
+                throw err;
+            }
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentMutations: mockMutations
+        });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        let composer = getActiveComposerEl();
+        let textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Draft 1 initial content';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Submit 1 succeeds
+        await handleSubmit({ preventDefault: () => {} });
+        assert.strictEqual(getActiveComposerEl(), null);
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft 1 cleaned on success');
+
+        // Update live server body in DOM
+        const rootBody = doc.querySelector('.novel-comment--root .novel-comment-body');
+        rootBody.textContent = 'Server updated body content';
+
+        // Reopen same target
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+        composer = getActiveComposerEl();
+        textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Server updated body content');
+
+        // Set textarea.value = "Draft 2" WITHOUT dispatching input event
+        textarea.value = 'Draft 2 content without input event';
+
+        // Submit 2 fails (HTTP 500)
+        await handleSubmit({ preventDefault: () => {} });
+
+        // Assert:
+        // - submit path allocated ownership newer than accepted generation behaviorally
+        // - exact Draft 2 exists in draft store
+        // - matching Edit marker exists
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2 content without input event', 'Draft 2 exists in store');
+        const marker = JSON.parse(draftStore.load(markerKey) || '{}');
+        assert.strictEqual(marker.type, 'edit');
+        assert.strictEqual(marker.commentId, ROOT_ID);
+
+        // EVENT_FLUSH_DRAFTS preserves Draft 2
+        doc.dispatchEvent({ type: 'kiemlai:novel-comment-drafts-flush' });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2 content without input event', 'Draft 2 preserved across flush');
+
+        // closeEditComposer(false) preserves Draft 2
+        closeEditComposer(false);
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2 content without input event', 'Draft 2 preserved across passive close');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed on passive close');
+    });
+
+    test('35. Live Root Authority: live thread root = ROOT_ID, button data-root-id = WRONG_ROOT -> getActiveEditTarget().rootId === ROOT_ID and Bottom sync uses ROOT_ID', async () => {
+        let refreshedRootId = null;
+        const mockBottom = {
+            getState: () => ({ rootPageMap: { [ROOT_ID]: 0 } }),
+            refreshRootThread: async (rootId) => { refreshedRootId = rootId; }
+        };
+        const mockMutations = {
+            editComment: async () => ({ ok: true, status: 204 })
+        };
+
+        initReaderBlockDiscussionEditComposer(doc, {
+            drawerModule: mockDrawerModule,
+            commentsModule: mockBottom,
+            commentMutations: mockMutations
+        });
+
+        // Corrupt button's data-root-id
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        editBtn.setAttribute('data-root-id', 'WRONG_ROOT_METADATA');
+
+        // Open edit through real click
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        // Assert: live enclosing thread root wins over button metadata
+        const activeTarget = EditComposerModule.getActiveEditTarget();
+        assert.notStrictEqual(activeTarget, null);
+        assert.strictEqual(activeTarget.rootId, ROOT_ID, 'Live thread root wins over button data-root-id');
+
+        // Submit and assert Bottom sync uses live thread ROOT_ID and NEVER WRONG_ROOT
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        textarea.value = 'Updated text with root authority';
+
+        await handleSubmit({ preventDefault: () => {} });
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Bottom refreshRootThread used live thread ROOT_ID');
+        assert.notStrictEqual(refreshedRootId, 'WRONG_ROOT_METADATA');
+    });
+
+    test('36. Resume Broken-Thread: exact comment exists, not tombstone, has Edit action, body exists, BUT no enclosing thread -> zero Edit composer mounted', () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        // Move comment outside of any .novel-block-discussion-thread
+        const rootComment = doc.querySelector('.novel-comment--root');
+        content.appendChild(rootComment); // directly in content, outside of article.novel-block-discussion-thread
+
+        doc.dispatchEvent({
+            type: 'kiemlai:comment-edit-resume-requested',
+            detail: {
+                chapterId: CHAPTER_ID,
+                blockKey: BLOCK_KEY,
+                commentId: ROOT_ID
+            }
+        });
+
+        // Assert zero Edit composer mounted, no fallback to commentId
+        assert.strictEqual(getActiveComposerEl(), null);
+        assert.strictEqual(EditComposerModule.getActiveEditTarget(), null);
+    });
+
+    test('37. Server Body Baseline: stored draft D restored, activeOriginalBody is live DOM body O2 (not old historical O1), setting textarea to O2 cleans draft and marker', () => {
+        // Historical O1: 'Old historical body'
+        // Live DOM body O2: 'Current live DOM body O2'
+        const rootBody = doc.querySelector('.novel-comment--root .novel-comment-body');
+        rootBody.textContent = 'Current live DOM body O2';
+
+        const draftKey = EditComposerModule.getEditDraftKey(CHAPTER_ID, BLOCK_KEY, ROOT_ID);
+        const markerKey = EditComposerModule.getActiveMarkerKey(CHAPTER_ID);
+        draftStore.save(draftKey, 'Stored draft text D');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: BLOCK_KEY, commentId: ROOT_ID }));
+
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+        assert.strictEqual(textarea.value, 'Stored draft text D');
+
+        const activeTarget = EditComposerModule.getActiveEditTarget();
+        assert.strictEqual(activeTarget.activeOriginalBody, 'Current live DOM body O2', 'Baseline is live O2');
+
+        // Set textarea exactly to O2 and dispatch input
+        textarea.value = 'Current live DOM body O2';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Draft and marker removed immediately upon matching baseline
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft removed when matching O2 baseline');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed when matching O2 baseline');
+    });
+
+    test('38. Single input ownership: one genuine input event produces one debounce/autosave lifecycle', async () => {
+        initReaderBlockDiscussionEditComposer(doc, { drawerModule: mockDrawerModule });
+
+        const editBtn = doc.querySelector('.novel-comment--root .novel-comment-edit-btn');
+        doc.dispatchEvent({ type: 'click', target: editBtn, preventDefault: () => {} });
+
+        const composer = getActiveComposerEl();
+        const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
+
+        let saveCount = 0;
+        const originalSave = draftStore.save.bind(draftStore);
+        draftStore.save = (k, v) => {
+            if (k.includes(':edit:')) {
+                saveCount++;
+            }
+            return originalSave(k, v);
+        };
+
+        textarea.value = 'Single input test text';
+        textarea.dispatchEvent({ type: 'input' });
+
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(saveCount, 1, 'Exactly one save occurred for one input event debounce cycle');
+    });
 });

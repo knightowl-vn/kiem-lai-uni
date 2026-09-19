@@ -1680,24 +1680,13 @@ describe('UX-DRAFT-01D3A — Block Drawer Root Active-Block Restore Tests', () =
     });
 
     test('10. Edit marker ignored untouched', () => {
-        const { doc } = setupTestDOM();
-        const win = createFakeWindow('');
-        win.history.win = win;
-
         const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
         const editPayload = JSON.stringify({ type: 'edit', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-2' });
         draftStore.save(markerKey, editPayload);
 
-        let requestedCount = 0;
-        doc.addEventListener('kiemlai:block-discussion-requested', () => {
-            requestedCount++;
-        });
-
-        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
-
-        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        const result = restoreModule.validateActiveMarker(editPayload, markerKey, draftStore);
+        assert.strictEqual(result, null, 'validateActiveMarker returns null for edit');
         assert.strictEqual(draftStore.load(markerKey), editPayload, 'Edit marker left untouched');
-        assert.strictEqual(restoreModule.getActiveRestore(), null);
     });
 
     test('11. Stale/missing block in DOM: no drawer request, Root marker removed, Root draft preserved', () => {
@@ -2074,24 +2063,9 @@ describe('UX-DRAFT-01D3B — Block Drawer Reply Active-Block Restore Tests', () 
     });
 
     test('9. Edit marker ignored untouched by validateActiveMarker', () => {
-        const { doc } = setupTestDOM();
-        const win = createFakeWindow('');
-        win.history.win = win;
-
         const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
         const editPayload = JSON.stringify({ type: 'edit', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-edit-9' });
         draftStore.save(markerKey, editPayload);
-
-        let requestedCount = 0;
-        doc.addEventListener('kiemlai:block-discussion-requested', () => {
-            requestedCount++;
-        });
-
-        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
-
-        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
-        assert.strictEqual(draftStore.load(markerKey), editPayload, 'Edit marker left untouched');
-        assert.strictEqual(restoreModule.getActiveRestore(), null);
 
         const result = restoreModule.validateActiveMarker(editPayload, markerKey, draftStore);
         assert.strictEqual(result, null, 'validateActiveMarker returns null for edit');
@@ -2674,4 +2648,949 @@ describe('UX-DRAFT-01D3B — Block Drawer Reply Active-Block Restore Tests', () 
         assert.strictEqual(replyEvents.length, 0, 'No resume event emitted');
     });
 });
+
+describe('UX-DRAFT-01D3C — Block Drawer Edit Active-Block Restore Tests', () => {
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+        }
+        getItem(k) {
+            return this.store.has(k) ? this.store.get(k) : null;
+        }
+        setItem(k, v) {
+            this.store.set(k, String(v));
+        }
+        removeItem(k) {
+            this.store.delete(k);
+        }
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        restoreModule.resetRestoreState();
+        restoreModule.setDraftStore(draftStore);
+        restoreModule.setDraftAdapter(draftsAdapter);
+    });
+
+    afterEach(() => {
+        restoreModule.resetRestoreState();
+    });
+
+    test('1. validateEditMarker returns parsed marker when valid and draft exists', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-1';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Unsaved edit draft');
+        const payload = JSON.stringify({ type: 'edit', blockKey, commentId });
+        draftStore.save(markerKey, payload);
+
+        const result = restoreModule.validateEditMarker(payload, markerKey, draftStore);
+        assert.notStrictEqual(result, null);
+        assert.strictEqual(result.type, 'edit');
+        assert.strictEqual(result.blockKey, blockKey);
+        assert.strictEqual(result.commentId, commentId);
+    });
+
+    test('2. validateEditMarker removes corrupted JSON and returns null', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        draftStore.save(markerKey, '{corrupted-edit-marker');
+
+        const result = restoreModule.validateEditMarker('{corrupted-edit-marker', markerKey, draftStore);
+        assert.strictEqual(result, null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('3. validateEditMarker removes marker with missing/blank blockKey and returns null', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const payload = JSON.stringify({ type: 'edit', blockKey: '   ', commentId: 'c-1' });
+        draftStore.save(markerKey, payload);
+
+        const result = restoreModule.validateEditMarker(payload, markerKey, draftStore);
+        assert.strictEqual(result, null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('4. validateEditMarker removes marker with missing/blank commentId and returns null', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const payload = JSON.stringify({ type: 'edit', blockKey: 'blk-0123456789abcdef-1', commentId: '' });
+        draftStore.save(markerKey, payload);
+
+        const result = restoreModule.validateEditMarker(payload, markerKey, draftStore);
+        assert.strictEqual(result, null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('5. validateEditMarker removes marker with unknown type and returns null', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const payload = JSON.stringify({ type: 'custom-unknown', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-1' });
+        draftStore.save(markerKey, payload);
+
+        const result = restoreModule.validateEditMarker(payload, markerKey, draftStore);
+        assert.strictEqual(result, null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('6. Live DOM chapterId and contentVersion used in Edit marker restore', () => {
+        const { doc, chapterBody } = setupTestDOM();
+        chapterBody.setAttribute('data-chapter-id', 'ch-live-edit-888');
+        chapterBody.setAttribute('data-content-version', '7');
+
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = 'ch-live-edit-888';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-live';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for live edit');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.notStrictEqual(requestedDetail, null);
+        assert.strictEqual(requestedDetail.chapterId, 'ch-live-edit-888');
+        assert.strictEqual(requestedDetail.contentVersion, 7);
+        assert.strictEqual(requestedDetail.blockKey, blockKey);
+
+        const active = restoreModule.getActiveRestore();
+        assert.notStrictEqual(active, null);
+        assert.strictEqual(active.chapterId, 'ch-live-edit-888');
+        assert.strictEqual(active.source, 'draft-edit');
+    });
+
+    test('7. validateEditMarker ignores root and reply markers untouched, returning null', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('11111111-1111-1111-1111-111111111111');
+        const rootPayload = JSON.stringify({ type: 'root', blockKey: 'blk-0123456789abcdef-1' });
+        const replyPayload = JSON.stringify({ type: 'reply', blockKey: 'blk-0123456789abcdef-1', commentId: 'c-1' });
+
+        draftStore.save(markerKey, rootPayload);
+        assert.strictEqual(restoreModule.validateEditMarker(rootPayload, markerKey, draftStore), null);
+        assert.strictEqual(draftStore.load(markerKey), rootPayload, 'Root marker untouched');
+
+        draftStore.save(markerKey, replyPayload);
+        assert.strictEqual(restoreModule.validateEditMarker(replyPayload, markerKey, draftStore), null);
+        assert.strictEqual(draftStore.load(markerKey), replyPayload, 'Reply marker untouched');
+    });
+
+    test('8. removeEditMarkerIfMatching removes matching edit marker', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-match';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+        restoreModule.removeEditMarkerIfMatching(chapterId, blockKey, commentId);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('9. removeEditMarkerIfMatching preserves non-matching edit marker', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        const payload = JSON.stringify({ type: 'edit', blockKey, commentId: 'c-different' });
+
+        draftStore.save(markerKey, payload);
+        restoreModule.removeEditMarkerIfMatching(chapterId, blockKey, 'c-expected');
+        assert.strictEqual(draftStore.load(markerKey), payload);
+    });
+
+    test('10. removeEditMarkerIfMatching preserves root and reply markers untouched', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        const rootPayload = JSON.stringify({ type: 'root', blockKey });
+        draftStore.save(markerKey, rootPayload);
+        restoreModule.removeEditMarkerIfMatching(chapterId, blockKey, 'c-1');
+        assert.strictEqual(draftStore.load(markerKey), rootPayload);
+
+        const replyPayload = JSON.stringify({ type: 'reply', blockKey, commentId: 'c-1' });
+        draftStore.save(markerKey, replyPayload);
+        restoreModule.removeEditMarkerIfMatching(chapterId, blockKey, 'c-1');
+        assert.strictEqual(draftStore.load(markerKey), replyPayload);
+    });
+
+    test('11. removeEditMarkerIfMatching cleans corrupted JSON marker', () => {
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(markerKey, 'not-valid-json');
+        restoreModule.removeEditMarkerIfMatching(chapterId, 'blk-1', 'c-1');
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    test('12. URL restore takes precedence over active Edit marker', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('?discussionBlock=blk-0123456789abcdef-1&threadId=11111111-1111-1111-1111-111111111111');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: 'blk-fedcba9876543210-1', commentId: 'c-99' }));
+
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedEvents.length, 1);
+        assert.strictEqual(requestedEvents[0].blockKey, 'blk-0123456789abcdef-1');
+        assert.strictEqual(restoreModule.getActiveRestore().source, 'url');
+    });
+
+    test('13. Valid Edit marker triggers block discussion requested with source draft-edit, replyTo commentId, intent open', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-open';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft to restore on open');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.notStrictEqual(requestedDetail, null);
+        assert.strictEqual(requestedDetail.blockKey, blockKey);
+        assert.strictEqual(requestedDetail.chapterId, chapterId);
+
+        const active = restoreModule.getActiveRestore();
+        assert.notStrictEqual(active, null);
+        assert.strictEqual(active.source, 'draft-edit');
+        assert.strictEqual(active.replyTo, commentId);
+        assert.strictEqual(active.intent, 'open');
+        assert.strictEqual(active.blockKey, blockKey);
+    });
+
+    test('14. Zero draft text leaks into URL, event detail, or active-block marker', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-secret';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+        const secretDraft = 'SECRET_SENSITIVE_EDIT_DRAFT_TEXT';
+
+        draftStore.save(draftKey, secretDraft);
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedDetail = null;
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedDetail = e.detail;
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(win.location.search.includes(secretDraft), false, 'Draft text must not appear in URL');
+        assert.strictEqual(JSON.stringify(requestedDetail).includes(secretDraft), false, 'Draft text must not appear in event detail');
+        assert.strictEqual(draftStore.load(markerKey).includes(secretDraft), false, 'Draft text must not appear in marker');
+    });
+
+    test('15. On loaded: valid editable target with dirty draft scrolls into view, highlights, and emits comment-edit-resume-requested', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-editable-15';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Modified draft content differing from server');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+
+        const commentEl = doc.createElement('div');
+        commentEl.className = 'novel-comment novel-comment--root';
+        commentEl.setAttribute('data-comment-id', commentId);
+
+        const bodyEl = doc.createElement('p');
+        bodyEl.className = 'novel-comment-body';
+        bodyEl.textContent = 'Original server body';
+        commentEl.appendChild(bodyEl);
+
+        const editBtn = doc.createElement('button');
+        editBtn.className = 'novel-comment-edit-btn';
+        editBtn.setAttribute('data-action', 'edit');
+        commentEl.appendChild(editBtn);
+
+        thread.appendChild(commentEl);
+        contentEl.appendChild(thread);
+
+        const editEvents = [];
+        doc.addEventListener('kiemlai:comment-edit-resume-requested', (e) => {
+            editEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(editEvents.length, 1);
+        assert.strictEqual(editEvents[0].commentId, commentId);
+        assert.strictEqual(editEvents[0].chapterId, chapterId);
+        assert.strictEqual(editEvents[0].blockKey, blockKey);
+        assert.strictEqual(commentEl.classList.contains('is-restored-target'), true);
+        assert.strictEqual(commentEl.scrolledIntoView, true);
+    });
+
+    test('16. On loaded: stale draft identical to current server body removes draft and marker, emits 0 resume events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-stale-16';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        const serverText = 'Authoritative body from server';
+        draftStore.save(draftKey, serverText);
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+
+        const commentEl = doc.createElement('div');
+        commentEl.className = 'novel-comment novel-comment--root';
+        commentEl.setAttribute('data-comment-id', commentId);
+
+        const bodyEl = doc.createElement('p');
+        bodyEl.className = 'novel-comment-body';
+        bodyEl.textContent = serverText;
+        commentEl.appendChild(bodyEl);
+
+        const editBtn = doc.createElement('button');
+        editBtn.className = 'novel-comment-edit-btn';
+        editBtn.setAttribute('data-action', 'edit');
+        commentEl.appendChild(editBtn);
+
+        thread.appendChild(commentEl);
+        contentEl.appendChild(thread);
+
+        const editEvents = [];
+        doc.addEventListener('kiemlai:comment-edit-resume-requested', (e) => {
+            editEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Stale draft removed');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(editEvents.length, 0, 'No resume event dispatched');
+    });
+
+    test('17. On loaded: target without edit action (non-editable) removes marker, preserves draft, emits 0 resume events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-non-editable-17';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for non-editable comment');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+
+        const commentEl = doc.createElement('div');
+        commentEl.className = 'novel-comment novel-comment--root';
+        commentEl.setAttribute('data-comment-id', commentId);
+
+        const bodyEl = doc.createElement('p');
+        bodyEl.className = 'novel-comment-body';
+        bodyEl.textContent = 'Server text';
+        commentEl.appendChild(bodyEl);
+        // NO edit button!
+
+        thread.appendChild(commentEl);
+        contentEl.appendChild(thread);
+
+        const editEvents = [];
+        doc.addEventListener('kiemlai:comment-edit-resume-requested', (e) => {
+            editEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for non-editable comment', 'Draft preserved');
+        assert.strictEqual(editEvents.length, 0, 'No resume event dispatched');
+    });
+
+    test('18. On loaded: tombstoned target removes marker, preserves draft, emits 0 resume events', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-tombstone-18';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft for deleted comment');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        const thread = doc.createElement('article');
+        thread.className = 'novel-block-discussion-thread';
+        thread.setAttribute('data-root-id', commentId);
+
+        const commentEl = doc.createElement('div');
+        commentEl.className = 'novel-comment novel-comment--root is-tombstone';
+        commentEl.setAttribute('data-comment-id', commentId);
+
+        const bodyEl = doc.createElement('p');
+        bodyEl.className = 'novel-comment-body novel-comment-body--tombstone';
+        bodyEl.textContent = 'Bình luận đã bị xóa';
+        commentEl.appendChild(bodyEl);
+
+        thread.appendChild(commentEl);
+        contentEl.appendChild(thread);
+
+        const editEvents = [];
+        doc.addEventListener('kiemlai:comment-edit-resume-requested', (e) => {
+            editEvents.push(e.detail);
+        });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: {
+                chapterId: chapterId,
+                blockKey: blockKey,
+                contentVersion: 1,
+                threadCount: 1
+            }
+        });
+
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft for deleted comment', 'Draft preserved');
+        assert.strictEqual(editEvents.length, 0, 'No resume event dispatched');
+    });
+
+    test('19. On load failed: cancels active restore, removes active edit marker, preserves draft', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-fail-19';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft on load failure');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-load-failed',
+            detail: { chapterId: chapterId, blockKey: blockKey }
+        });
+
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+        assert.strictEqual(draftStore.load(draftKey), 'Draft on load failure');
+    });
+
+    test('20. On drawer closed: cancels active restore, removes active edit marker, preserves draft', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-close-20';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft on drawer close');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-closed',
+            detail: { chapterId: chapterId, blockKey: blockKey }
+        });
+
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+        assert.strictEqual(draftStore.load(draftKey), 'Draft on drawer close');
+    });
+
+    test('21. Orphan Edit marker cleanup: valid Edit marker with missing draft => zero Drawer request, matching marker removed', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-orphan-1';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Marker exists, but draft does NOT exist in store
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        assert.strictEqual(draftStore.load(markerKey), null, 'Orphan edit marker removed from store');
+    });
+
+    test('22. Orphan Edit marker cleanup: valid Edit marker with whitespace-only draft => zero Drawer request, matching marker removed', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-orphan-blank';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Blank draft saved in store
+        draftStore.save(draftKey, '     ');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        assert.strictEqual(draftStore.load(markerKey), null, 'Orphan edit marker removed from store');
+    });
+
+    test('23. Restore failed-completion poison test: invalid target on loaded cleans marker and preserves draft without poisoning completed context, re-attempt on valid target succeeds', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-poison-test';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // A. Valid Edit marker + draft
+        draftStore.save(draftKey, 'Draft content for poison test');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => {
+            requestedEvents.push(e.detail);
+        });
+
+        let resumeEvents = [];
+        doc.addEventListener('kiemlai:comment-edit-resume-requested', (e) => {
+            resumeEvents.push(e.detail);
+        });
+
+        // B. init => exactly one discussion-requested
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 1);
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        // Add a comment to contentEl that is non-editable (has NO edit action)
+        const threadCard = doc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', 'root-1');
+
+        const nonEditableComment = doc.createElement('div');
+        nonEditableComment.className = 'novel-comment';
+        nonEditableComment.setAttribute('data-comment-id', commentId);
+        const commentBody = doc.createElement('div');
+        commentBody.className = 'novel-comment-body';
+        commentBody.textContent = 'Non-editable server body';
+        nonEditableComment.appendChild(commentBody);
+        threadCard.appendChild(nonEditableComment);
+        contentEl.appendChild(threadCard);
+
+        // C. Matching loaded event occurs with non-editable target
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        // D. Assert: zero resume events, marker removed, draft preserved
+        assert.strictEqual(resumeEvents.length, 0, 'Zero resume events');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft content for poison test', 'Draft preserved');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+
+        // E. Make SAME target valid/editable with valid live thread/root/body
+        const editBtn = doc.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'novel-comment-edit-btn';
+        editBtn.setAttribute('data-action', 'edit');
+        editBtn.setAttribute('data-comment-id', commentId);
+        editBtn.textContent = 'Sửa';
+        nonEditableComment.appendChild(editBtn);
+
+        // F. Save SAME Edit marker again
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        // G. init again
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        // H. Assert NEW discussion-requested occurs (proves failed restore did NOT poison completed context)
+        assert.strictEqual(requestedEvents.length, 2, 'New discussion-requested dispatched');
+        assert.notStrictEqual(restoreModule.getActiveRestore(), null);
+
+        // Complete second restore successfully
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        assert.strictEqual(resumeEvents.length, 1, 'Resume event dispatched on successful completion');
+
+        // Call init again with same marker/current interaction => no duplicate request after successful completion
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 2, 'No duplicate request after successful completion');
+    });
+
+    test('24. Completed Edit idempotency: repeated init on same document/chapter/block/comment/type produces no duplicate discussion-requested', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-idempotent';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft content');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 1);
+
+        // Provide valid comment in DOM
+        const threadCard = doc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', 'root-1');
+        const commentEl = doc.createElement('div');
+        commentEl.className = 'novel-comment';
+        commentEl.setAttribute('data-comment-id', commentId);
+        const bodyEl = doc.createElement('div');
+        bodyEl.className = 'novel-comment-body';
+        bodyEl.textContent = 'Server body';
+        const editBtn = doc.createElement('button');
+        editBtn.className = 'novel-comment-edit-btn';
+        editBtn.setAttribute('data-action', 'edit');
+        commentEl.appendChild(bodyEl);
+        commentEl.appendChild(editBtn);
+        threadCard.appendChild(commentEl);
+        contentEl.appendChild(threadCard);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        // Re-save marker and run init again
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 1, 'Idempotent: no duplicate discussion-requested');
+    });
+
+    test('25. Completed Edit context does not block restore for a different Edit comment marker', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const comment1 = 'c-edit-1';
+        const comment2 = 'c-edit-2';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Complete comment1
+        draftStore.save(draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, comment1), 'Draft 1');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId: comment1 }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 1);
+
+        const threadCard = doc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', 'root-1');
+        const c1El = doc.createElement('div');
+        c1El.className = 'novel-comment';
+        c1El.setAttribute('data-comment-id', comment1);
+        const b1 = doc.createElement('div');
+        b1.className = 'novel-comment-body';
+        b1.textContent = 'Body 1';
+        const btn1 = doc.createElement('button');
+        btn1.className = 'novel-comment-edit-btn';
+        btn1.setAttribute('data-action', 'edit');
+        c1El.appendChild(b1);
+        c1El.appendChild(btn1);
+        threadCard.appendChild(c1El);
+        contentEl.appendChild(threadCard);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        // Now save marker for comment2
+        draftStore.save(draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, comment2), 'Draft 2');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId: comment2 }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedCount, 2, 'Different commentId restores normally');
+    });
+
+    test('26. Completed Edit context does not block subsequent valid Root marker restore', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-prev';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Complete Edit restore
+        draftStore.save(draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId), 'Draft Edit');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => { requestedEvents.push(e.detail); });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 1);
+
+        const threadCard = doc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', 'root-1');
+        const cEl = doc.createElement('div');
+        cEl.className = 'novel-comment';
+        cEl.setAttribute('data-comment-id', commentId);
+        const bEl = doc.createElement('div');
+        bEl.className = 'novel-comment-body';
+        bEl.textContent = 'Server body';
+        const btn = doc.createElement('button');
+        btn.className = 'novel-comment-edit-btn';
+        btn.setAttribute('data-action', 'edit');
+        cEl.appendChild(bEl);
+        cEl.appendChild(btn);
+        threadCard.appendChild(cEl);
+        contentEl.appendChild(threadCard);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        // Now save valid Root marker
+        draftStore.save(draftsAdapter.getBlockRootDraftKey(chapterId, blockKey), 'Root Draft Text');
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 2, 'Root marker restores normally after completed Edit');
+    });
+
+    test('27. Completed Edit context does not block subsequent valid Reply marker restore', () => {
+        const { doc, contentEl } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-edit-prev';
+        const replyCommentId = 'c-reply-target';
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        // Complete Edit restore
+        draftStore.save(draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId), 'Draft Edit');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedEvents = [];
+        doc.addEventListener('kiemlai:block-discussion-requested', (e) => { requestedEvents.push(e.detail); });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 1);
+
+        const threadCard = doc.createElement('article');
+        threadCard.className = 'novel-block-discussion-thread';
+        threadCard.setAttribute('data-root-id', 'root-1');
+        const cEl = doc.createElement('div');
+        cEl.className = 'novel-comment';
+        cEl.setAttribute('data-comment-id', commentId);
+        const bEl = doc.createElement('div');
+        bEl.className = 'novel-comment-body';
+        bEl.textContent = 'Server body';
+        const btn = doc.createElement('button');
+        btn.className = 'novel-comment-edit-btn';
+        btn.setAttribute('data-action', 'edit');
+        cEl.appendChild(bEl);
+        cEl.appendChild(btn);
+        threadCard.appendChild(cEl);
+        contentEl.appendChild(threadCard);
+
+        doc.dispatchEvent({
+            type: 'kiemlai:block-discussion-loaded',
+            detail: { chapterId, blockKey }
+        });
+
+        // Now save valid Reply marker
+        draftStore.save(draftsAdapter.getBlockReplyDraftKey(chapterId, blockKey, replyCommentId), 'Reply Draft Text');
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', blockKey, commentId: replyCommentId }));
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+        assert.strictEqual(requestedEvents.length, 2, 'Reply marker restores normally after completed Edit');
+    });
+
+    test('28. Missing Reader block: valid Edit marker + draft but referenced Reader block absent in DOM => zero Drawer request, matching marker removed, draft preserved', () => {
+        const { doc } = setupTestDOM();
+        const win = createFakeWindow('');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const missingBlockKey = 'blk-nonexistent-999';
+        const commentId = 'c-missing-block';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, missingBlockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Draft preserved for missing block');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey: missingBlockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        assert.strictEqual(requestedCount, 0, 'Zero requests dispatched');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        assert.strictEqual(draftStore.load(markerKey), null, 'Matching edit marker removed');
+        assert.strictEqual(draftStore.load(draftKey), 'Draft preserved for missing block', 'Draft preserved');
+    });
+
+    test('29. Malformed transient URL precedence: valid Edit marker exists + malformed URL restore params => URL cleaned, zero marker restore in same turn', () => {
+        const { doc } = setupTestDOM();
+        // Malformed transient URL with illegal characters
+        const win = createFakeWindow('?discussionBlock=%3Cscript%3E&intent=open');
+        win.history.win = win;
+
+        const chapterId = '11111111-1111-1111-1111-111111111111';
+        const blockKey = 'blk-0123456789abcdef-1';
+        const commentId = 'c-url-precedence';
+        const draftKey = draftsAdapter.getBlockEditDraftKey(chapterId, blockKey, commentId);
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey(chapterId);
+
+        draftStore.save(draftKey, 'Meaningful edit draft');
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', blockKey, commentId }));
+
+        let requestedCount = 0;
+        doc.addEventListener('kiemlai:block-discussion-requested', () => { requestedCount++; });
+
+        restoreModule.init(doc, win, { draftStore, draftAdapter: draftsAdapter });
+
+        // Assert URL was cleaned
+        assert.strictEqual(win.location.search, '', 'Malformed URL parameters cleaned');
+        // Assert Edit marker was NOT consumed/restored in the same turn
+        assert.strictEqual(requestedCount, 0, 'Zero marker-owned Drawer request in this turn');
+        assert.strictEqual(restoreModule.getActiveRestore(), null);
+        // Marker and draft remain intact for subsequent turns
+        assert.strictEqual(draftStore.load(draftKey), 'Meaningful edit draft');
+        assert.notStrictEqual(draftStore.load(markerKey), null);
+    });
+});
+
 
