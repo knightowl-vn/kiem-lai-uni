@@ -23,6 +23,11 @@
 
 <link rel="stylesheet" th:href="@{/css/wiki/wiki.css}">
 
+<meta th:if="${_csrf != null}" name="_csrf" th:content="${_csrf.token}">
+<meta th:if="${_csrf != null}" name="_csrf_header" th:content="${_csrf.headerName}">
+
+<link rel="stylesheet" th:href="@{/css/wiki/wiki-comments.css}">
+
 </head>
 
 <body>
@@ -341,6 +346,64 @@
 
 		</div>
 
+		<!-- ================================================= -->
+		<!-- ARTICLE DISCUSSION                                -->
+		<!-- ================================================= -->
+		<section id="wikiDiscussion"
+			class="wiki-discussion-section"
+			aria-labelledby="wikiDiscussionHeading"
+			th:attr="data-article-id=${article.id},
+			         data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
+			         data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug + '#wikiDiscussion'})},
+			         data-csrf-token=${_csrf != null ? _csrf.token : ''},
+			         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
+
+			<header class="wiki-discussion-header">
+				<div class="wiki-discussion-heading-row">
+					<h2 id="wikiDiscussionHeading" class="wiki-discussion-title">
+						Thảo luận
+					</h2>
+					<span class="wiki-discussion-count-badge" id="wikiDiscussionCountBadge" aria-live="polite">
+						0 bình luận
+					</span>
+				</div>
+			</header>
+
+			<!-- ROOT COMMENT COMPOSER -->
+			<div class="wiki-comment-composer wiki-comment-composer--root" id="wikiRootComposer">
+				<form class="wiki-comment-composer-form" id="wikiRootComposerForm">
+					<label for="wikiRootComposerInput" class="visually-hidden">Viết bình luận</label>
+					<textarea id="wikiRootComposerInput"
+						class="wiki-comment-textarea"
+						rows="3"
+						placeholder="Chia sẻ ý kiến của bạn về bài viết này..."
+						maxlength="2000"></textarea>
+					<div class="wiki-comment-composer-footer">
+						<span class="wiki-comment-composer-error" id="wikiRootComposerError" role="alert" aria-live="polite" hidden></span>
+						<div class="wiki-comment-composer-actions">
+							<button type="submit" class="wiki-comment-btn wiki-comment-btn--primary" id="wikiRootComposerSubmit">
+								Bình luận
+							</button>
+						</div>
+					</div>
+				</form>
+			</div>
+
+			<!-- STATUS & ERROR REGION -->
+			<div id="wikiDiscussionStatus" class="wiki-discussion-status" role="status" aria-live="polite"></div>
+
+			<!-- THREAD LIST -->
+			<div id="wikiDiscussionThreadList" class="wiki-discussion-thread-list" role="feed" aria-busy="false" aria-label="Danh sách bình luận"></div>
+
+			<!-- LOAD MORE CONTAINER -->
+			<div class="wiki-discussion-footer" id="wikiDiscussionFooter" hidden>
+				<button type="button" class="wiki-comment-btn wiki-comment-btn--secondary" id="wikiDiscussionLoadMoreBtn">
+					Tải thêm bình luận
+				</button>
+			</div>
+
+		</section>
+
 	</main>
 
 	<script th:src="@{/js/theme.js}"></script>
@@ -350,5 +413,6 @@
 	<script th:src="@{/js/wiki/wiki-toc-scrollspy.js}"></script>
 	<script th:src="@{/js/wiki/wiki-mobile-toc.js}"></script>
 	<script th:src="@{/js/wiki/wiki-saved.js}" defer></script>
+	<script th:src="@{/js/wiki/wiki-comments.js}" defer></script>
 </body>
 </html>

@@ -1,0 +1,430 @@
+/* ==========================================================================
+   KIEM LAI WIKI — ARTICLE DISCUSSION / COMMENTS STYLES
+   MS-05E6C — Article-level discussion styling for public Wiki article detail
+   ========================================================================== */
+
+.wiki-discussion-section {
+    margin-top: 32px;
+    padding: 32px 36px;
+    border: 1px solid var(--border-color);
+    border-radius: 18px;
+    background: var(--surface-bg);
+    box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+/* =========================================================
+   HEADER & TITLE
+   ========================================================= */
+
+.wiki-discussion-header {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.wiki-discussion-heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.wiki-discussion-title {
+    margin: 0;
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.015em;
+}
+
+.wiki-discussion-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--surface-secondary);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* =========================================================
+   ROOT COMPOSER
+   ========================================================= */
+
+.wiki-comment-composer {
+    margin-bottom: 28px;
+}
+
+.wiki-comment-composer--root {
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--surface-secondary);
+}
+
+.wiki-comment-composer-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.wiki-comment-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--input-bg);
+    color: var(--input-text);
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    resize: vertical;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.wiki-comment-textarea:focus {
+    outline: none;
+    border-color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.2);
+}
+
+.wiki-comment-textarea::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+
+.wiki-comment-composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.wiki-comment-composer-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.wiki-comment-composer-error {
+    font-size: 0.85rem;
+    color: #dc3545;
+    font-weight: 500;
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.wiki-comment-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 7px 18px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.wiki-comment-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wiki-comment-btn--primary {
+    border: 1px solid transparent;
+    background-color: var(--bs-primary, #0d6efd);
+    color: #ffffff;
+}
+
+.wiki-comment-btn--primary:hover:not(:disabled),
+.wiki-comment-btn--primary:focus-visible:not(:disabled) {
+    filter: brightness(0.92);
+}
+
+.wiki-comment-btn--secondary {
+    border: 1px solid var(--border-color);
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+}
+
+.wiki-comment-btn--secondary:hover:not(:disabled),
+.wiki-comment-btn--secondary:focus-visible:not(:disabled) {
+    background-color: var(--surface-secondary);
+}
+
+.wiki-comment-action-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.wiki-comment-action-btn:hover,
+.wiki-comment-action-btn:focus-visible {
+    color: var(--text-primary);
+    background-color: var(--surface-secondary);
+}
+
+.wiki-comment-action-btn--danger:hover,
+.wiki-comment-action-btn--danger:focus-visible {
+    color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+/* =========================================================
+   STATUS / EMPTY / LOADING
+   ========================================================= */
+
+.wiki-discussion-status {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.wiki-discussion-status:empty {
+    display: none;
+}
+
+.wiki-discussion-status--empty {
+    padding: 32px 16px;
+    font-style: italic;
+}
+
+.wiki-discussion-status--error {
+    padding: 16px 20px;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+    border-radius: 10px;
+    background: rgba(220, 53, 69, 0.08);
+    color: #dc3545;
+    font-weight: 500;
+}
+
+/* =========================================================
+   THREAD LIST & THREADS
+   ========================================================= */
+
+.wiki-discussion-thread-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.wiki-thread {
+    padding: 18px 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--surface-bg);
+    transition: border-color 0.18s ease;
+}
+
+/* =========================================================
+   COMMENT CARD (ROOT & REPLIES)
+   ========================================================= */
+
+.wiki-comment {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wiki-comment--root {
+    position: relative;
+}
+
+.wiki-comment-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.wiki-comment-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    background-color: var(--surface-secondary);
+    flex-shrink: 0;
+}
+
+.wiki-comment-avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--surface-secondary);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.wiki-comment-author {
+    font-weight: 650;
+    font-size: 0.92rem;
+    color: var(--text-primary);
+}
+
+.wiki-comment-time {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.wiki-comment-edited {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    opacity: 0.9;
+}
+
+.wiki-comment-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.wiki-comment-body {
+    font-size: 0.95rem;
+    line-height: 1.65;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    padding-left: 44px;
+}
+
+/* =========================================================
+   FLAT REPLIES CONTAINER (LEVEL 1 ONLY)
+   ========================================================= */
+
+.wiki-thread-replies {
+    margin-top: 14px;
+    margin-left: 20px;
+    padding-left: 18px;
+    border-left: 2px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.wiki-comment--reply {
+    padding-top: 4px;
+}
+
+.wiki-comment--reply .wiki-comment-avatar {
+    width: 28px;
+    height: 28px;
+}
+
+.wiki-comment--reply .wiki-comment-avatar--fallback {
+    font-size: 0.75rem;
+}
+
+.wiki-comment--reply .wiki-comment-body {
+    padding-left: 38px;
+}
+
+.wiki-comment-reply-mention {
+    display: inline;
+    font-weight: 600;
+    color: var(--bs-primary, #0d6efd);
+    margin-right: 6px;
+    user-select: text;
+}
+
+.wiki-comment-reply-text {
+    display: inline;
+}
+
+/* =========================================================
+   TOMBSTONES
+   ========================================================= */
+
+.wiki-comment.is-tombstone {
+    opacity: 0.72;
+}
+
+.wiki-comment-body--tombstone {
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--surface-secondary);
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    font-style: italic;
+}
+
+/* =========================================================
+   INLINE COMPOSERS (REPLY & EDIT)
+   ========================================================= */
+
+.wiki-inline-composer {
+    margin-top: 10px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-secondary);
+}
+
+.wiki-inline-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+/* =========================================================
+   FOOTER / LOAD MORE
+   ========================================================= */
+
+.wiki-discussion-footer {
+    margin-top: 24px;
+    text-align: center;
+}
+
+.wiki-discussion-footer[hidden] {
+    display: none !important;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+    .wiki-discussion-section {
+        padding: 24px 20px;
+        margin-top: 24px;
+        border-radius: 14px;
+    }
+
+    .wiki-comment-body {
+        padding-left: 0;
+    }
+
+    .wiki-comment--reply .wiki-comment-body {
+        padding-left: 0;
+    }
+
+    .wiki-thread-replies {
+        margin-left: 10px;
+        padding-left: 12px;
+    }
+}
