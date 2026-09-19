@@ -45,11 +45,15 @@
     const EVENT_DISCUSSION_LOADED = 'kiemlai:block-discussion-loaded';
     const EVENT_DISCUSSION_CLOSED = 'kiemlai:block-discussion-closed';
     const EVENT_CHAPTER_CHANGED = 'kiemlai:chapter-changed';
+    const EVENT_FLUSH_DRAFTS = 'kiemlai:novel-comment-drafts-flush';
+
+    const DEBOUNCE_DELAY_MS = 400;
 
     // Module State
     let currentDoc = null;
     let boundDoc = null;
     let boundForm = null;
+    let boundInput = null;
     let isInitialized = false;
     let isSubmitting = false;
     let authoritativeContext = null;
@@ -59,12 +63,216 @@
     let injectedDrawer = null;
     let injectedIndicators = null;
     let injectedCommentsModule = null;
+    let injectedDraftAdapter = null;
+    let injectedDraftStore = null;
+
+    let draftDebounceTimer = null;
+
+    let globalEditGeneration = 0;
+    const keyEditGenerations = new Map();
+    const acceptedEditGenerations = new Map();
 
     let nodeCommentsModule = null;
     if (typeof require === 'function') {
         try {
             nodeCommentsModule = require('./reader-chapter-comments.js');
         } catch (_) {}
+    }
+
+    let nodeDraftAdapter = null;
+    if (typeof require === 'function') {
+        try {
+            nodeDraftAdapter = require('./reader-comment-drafts.js');
+        } catch (_) {}
+    }
+
+    /**
+     * Resolves the NovelReaderCommentDrafts adapter instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftAdapter() {
+        if (injectedDraftAdapter) return injectedDraftAdapter;
+        if (typeof window !== 'undefined') {
+            if (window.NovelReaderCommentDrafts) return window.NovelReaderCommentDrafts;
+            if (window.KiemLai && window.KiemLai.NovelReaderCommentDrafts) return window.KiemLai.NovelReaderCommentDrafts;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.NovelReaderCommentDrafts) return globalThis.NovelReaderCommentDrafts;
+            if (globalThis.KiemLai && globalThis.KiemLai.NovelReaderCommentDrafts) return globalThis.KiemLai.NovelReaderCommentDrafts;
+        }
+        return nodeDraftAdapter;
+    }
+
+    /**
+     * Resolves the EphemeralDraftStore instance across multiple runtime contexts.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftStore() {
+        if (injectedDraftStore) return injectedDraftStore;
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.resolveDraftStore === 'function') {
+            const resolved = adapter.resolveDraftStore();
+            if (resolved) return resolved;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.EphemeralDraftStore) return window.EphemeralDraftStore;
+            if (window.KiemLai && window.KiemLai.EphemeralDraftStore) return window.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.EphemeralDraftStore) return globalThis.EphemeralDraftStore;
+            if (globalThis.KiemLai && globalThis.KiemLai.EphemeralDraftStore) return globalThis.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/ephemeral-draft-store.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Canonical Block Drawer Root Draft Key.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     * @returns {string|null}
+     */
+    function getRootDraftKey(chapterId, blockKey) {
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.getBlockRootDraftKey === 'function') {
+            return adapter.getBlockRootDraftKey(chapterId, blockKey);
+        }
+        if (typeof chapterId !== 'string' || !chapterId.trim() ||
+            typeof blockKey !== 'string' || !blockKey.trim()) {
+            return null;
+        }
+        return 'kiemlai:draft:novel-comment:' + encodeURIComponent(chapterId.trim()) + ':block:' + encodeURIComponent(blockKey.trim()) + ':root';
+    }
+
+    /**
+     * Canonical Block Drawer Active Marker Key (chapter-scoped).
+     *
+     * @param {string} chapterId
+     * @returns {string|null}
+     */
+    function getActiveMarkerKey(chapterId) {
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.getBlockActiveMarkerKey === 'function') {
+            return adapter.getBlockActiveMarkerKey(chapterId);
+        }
+        if (typeof chapterId !== 'string' || !chapterId.trim()) {
+            return null;
+        }
+        return 'kiemlai:draft:novel-comment:' + encodeURIComponent(chapterId.trim()) + ':active-block';
+    }
+
+    /**
+     * Removes the chapter-scoped active-block marker only if it matches type 'root' and the given blockKey.
+     * Known future markers (type 'reply' or 'edit') are ignored without removal.
+     * Corrupted JSON markers are removed safely.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     */
+    function removeRootMarkerIfMatching(chapterId, blockKey) {
+        if (!chapterId || !blockKey) return;
+        const store = resolveDraftStore();
+        if (!store) return;
+        const markerKey = getActiveMarkerKey(chapterId);
+        if (!markerKey) return;
+        const raw = store.load(markerKey);
+        if (!raw || typeof raw !== 'string') return;
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                if (parsed.type === 'reply' || parsed.type === 'edit') {
+                    return; // Known future markers must not be touched
+                }
+                if (parsed.type === 'root' && typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim()) {
+                    store.remove(markerKey);
+                }
+            } else {
+                store.remove(markerKey);
+            }
+        } catch (_) {
+            store.remove(markerKey);
+        }
+    }
+
+    /**
+     * Cancels any pending debounced draft save timer.
+     */
+    function cancelDebounce() {
+        if (draftDebounceTimer) {
+            clearTimeout(draftDebounceTimer);
+            draftDebounceTimer = null;
+        }
+    }
+
+    /**
+     * Synchronously flushes draft for a given authoritative block context.
+     *
+     * @param {{chapterId: string, blockKey: string}} context
+     * @param {string} currentValue
+     * @param {boolean} [isLeaving=false]
+     */
+    function flushDraftForContext(context, currentValue, isLeaving) {
+        cancelDebounce();
+        if (!context || !context.chapterId || !context.blockKey) {
+            return;
+        }
+        const store = resolveDraftStore();
+        if (!store) return;
+
+        const draftKey = getRootDraftKey(context.chapterId, context.blockKey);
+        const markerKey = getActiveMarkerKey(context.chapterId);
+        if (!draftKey || !markerKey) return;
+
+        const text = currentValue || '';
+
+        if (text.trim().length === 0) {
+            if (typeof store.remove === 'function') {
+                store.remove(draftKey);
+            }
+            removeRootMarkerIfMatching(context.chapterId, context.blockKey);
+            return;
+        }
+
+        const currentGen = (draftKey && keyEditGenerations.get(draftKey)) || 0;
+        const acceptedGen = (draftKey && acceptedEditGenerations.get(draftKey)) || 0;
+        if (acceptedGen > 0 && currentGen <= acceptedGen) {
+            if (typeof store.remove === 'function') {
+                store.remove(draftKey);
+            }
+            if (isLeaving) {
+                removeRootMarkerIfMatching(context.chapterId, context.blockKey);
+            }
+            return;
+        }
+
+        if (typeof store.save === 'function') {
+            store.save(draftKey, text);
+            if (isLeaving) {
+                removeRootMarkerIfMatching(context.chapterId, context.blockKey);
+            } else {
+                store.save(markerKey, JSON.stringify({
+                    type: 'root',
+                    blockKey: context.blockKey
+                }));
+            }
+        }
+    }
+
+    /**
+     * Flushes currently active authoritative block draft to store.
+     */
+    function flushActiveDraft() {
+        if (!authoritativeContext) return;
+        const elements = getElements();
+        const val = elements.input ? elements.input.value : '';
+        flushDraftForContext(authoritativeContext, val, false);
     }
 
     /**
@@ -225,13 +433,25 @@
 
     /**
      * Handles block discussion requested event: disables composer, clears state, and invalidates previous mutation ownership.
+     * Synchronously flushes old block draft before invalidating context and clearing textarea.
+     *
+     * @param {*} [detail]
      */
-    function handleDiscussionRequested() {
-        authoritativeContext = null;
-        currentMutationToken++;
-        isSubmitting = false;
+    function handleDiscussionRequested(detail) {
+        const oldContext = authoritativeContext;
+        cancelDebounce();
 
         const elements = getElements();
+        const oldVal = elements.input ? elements.input.value : '';
+
+        if (oldContext) {
+            flushDraftForContext(oldContext, oldVal, true);
+        }
+
+        currentMutationToken++;
+        isSubmitting = false;
+        authoritativeContext = null;
+
         setComposerEnabled(elements, false);
         setStatus(elements.statusEl, '', '');
         if (elements.input) {
@@ -240,19 +460,29 @@
     }
 
     /**
-     * Handles block discussion closed event: invalidates context, mutation ownership, and disables composer.
+     * Handles block discussion closed event: preserves block draft, removes active marker, and disables composer.
      */
     function handleDiscussionClosed() {
-        authoritativeContext = null;
-        currentMutationToken++;
-        isSubmitting = false;
+        const oldContext = authoritativeContext;
+        cancelDebounce();
 
         const elements = getElements();
+        const oldVal = elements.input ? elements.input.value : '';
+
+        if (oldContext) {
+            flushDraftForContext(oldContext, oldVal, true);
+        }
+
+        currentMutationToken++;
+        isSubmitting = false;
+        authoritativeContext = null;
+
         setComposerEnabled(elements, false);
     }
 
     /**
-     * Handles block discussion loaded event: receives authoritative context and enables composer.
+     * Handles block discussion loaded event: receives authoritative context, enables composer,
+     * and restores any saved root comment draft.
      *
      * @param {*} detail
      */
@@ -289,22 +519,122 @@
         const elements = getElements();
         setComposerEnabled(elements, true);
         setStatus(elements.statusEl, '', '');
+
+        // Draft restoration
+        const store = resolveDraftStore();
+        const draftKey = getRootDraftKey(chapterId, blockKey);
+        const markerKey = getActiveMarkerKey(chapterId);
+
+        let savedDraft = null;
+        if (store && draftKey && typeof store.load === 'function') {
+            savedDraft = store.load(draftKey);
+        }
+
+        if (typeof savedDraft === 'string' && savedDraft.trim().length > 0) {
+            if (elements.input) {
+                elements.input.value = savedDraft;
+            }
+            if (store && markerKey && typeof store.save === 'function') {
+                store.save(markerKey, JSON.stringify({
+                    type: 'root',
+                    blockKey: blockKey
+                }));
+            }
+        } else {
+            if (elements.input) {
+                elements.input.value = '';
+            }
+            removeRootMarkerIfMatching(chapterId, blockKey);
+        }
     }
 
     /**
-     * Handles chapter-changed event: invalidates context and clears draft.
+     * Handles chapter-changed event: flushes old draft, clears context, and resets composer.
      */
     function handleChapterChanged() {
-        authoritativeContext = null;
-        currentMutationToken++;
-        isSubmitting = false;
+        const oldContext = authoritativeContext;
+        cancelDebounce();
 
         const elements = getElements();
+        const oldVal = elements.input ? elements.input.value : '';
+
+        if (oldContext) {
+            flushDraftForContext(oldContext, oldVal, true);
+        }
+
+        currentMutationToken++;
+        isSubmitting = false;
+        authoritativeContext = null;
+
         setComposerEnabled(elements, false);
         if (elements.input) {
             elements.input.value = '';
         }
         setStatus(elements.statusEl, '', '');
+    }
+
+    /**
+     * Handles textarea input event: validates text, updates marker, and debounces draft persistence ~400ms.
+     */
+    function handleInput() {
+        cancelDebounce();
+        if (!authoritativeContext || !authoritativeContext.chapterId || !authoritativeContext.blockKey) {
+            return;
+        }
+        const elements = getElements();
+        if (!elements.input) return;
+
+        const chapterId = authoritativeContext.chapterId;
+        const blockKey = authoritativeContext.blockKey;
+        const draftKey = getRootDraftKey(chapterId, blockKey);
+        const markerKey = getActiveMarkerKey(chapterId);
+        const store = resolveDraftStore();
+        if (!store || !draftKey || !markerKey) return;
+
+        const currentVal = elements.input.value;
+
+        if (currentVal.trim().length === 0) {
+            if (typeof store.remove === 'function') {
+                store.remove(draftKey);
+            }
+            removeRootMarkerIfMatching(chapterId, blockKey);
+        } else {
+            const nextGen = ++globalEditGeneration;
+            keyEditGenerations.set(draftKey, nextGen);
+            if (acceptedEditGenerations.has(draftKey)) {
+                acceptedEditGenerations.delete(draftKey);
+            }
+
+            if (typeof store.save === 'function') {
+                store.save(markerKey, JSON.stringify({ type: 'root', blockKey: blockKey }));
+            }
+
+            draftDebounceTimer = setTimeout(function () {
+                draftDebounceTimer = null;
+                if (authoritativeContext &&
+                    authoritativeContext.chapterId === chapterId &&
+                    authoritativeContext.blockKey === blockKey) {
+                    const latestVal = elements.input ? elements.input.value : currentVal;
+                    if (latestVal.trim().length > 0) {
+                        if (typeof store.save === 'function') {
+                            store.save(draftKey, latestVal);
+                        }
+                    } else {
+                        if (typeof store.remove === 'function') {
+                            store.remove(draftKey);
+                        }
+                        removeRootMarkerIfMatching(chapterId, blockKey);
+                    }
+                }
+            }, DEBOUNCE_DELAY_MS);
+        }
+    }
+
+    /**
+     * Handles global novel drafts flush event (pagehide bridge).
+     */
+    function handleFlushDrafts() {
+        flushActiveDraft();
     }
 
     /**
@@ -343,6 +673,32 @@
             return;
         }
 
+        cancelDebounce();
+
+        const chapterId = authoritativeContext.chapterId;
+        const blockKey = authoritativeContext.blockKey;
+        const contentVersion = authoritativeContext.contentVersion;
+        const draftKey = getRootDraftKey(chapterId, blockKey);
+        const markerKey = getActiveMarkerKey(chapterId);
+        const draftStore = resolveDraftStore();
+
+        const currentGeneration = (draftKey && keyEditGenerations.get(draftKey)) || 0;
+        const acceptedGeneration = (draftKey && acceptedEditGenerations.get(draftKey)) || 0;
+        let submittedGeneration = currentGeneration;
+
+        if (submittedGeneration <= acceptedGeneration || submittedGeneration === 0) {
+            submittedGeneration = ++globalEditGeneration;
+            keyEditGenerations.set(draftKey, submittedGeneration);
+            acceptedEditGenerations.delete(draftKey);
+        }
+
+        if (draftStore && draftKey && typeof draftStore.save === 'function') {
+            draftStore.save(draftKey, rawBody);
+        }
+        if (draftStore && markerKey && typeof draftStore.save === 'function') {
+            draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: blockKey }));
+        }
+
         // CSRF Check
         const csrf = getCsrf();
         if (!csrf) {
@@ -354,9 +710,13 @@
         isSubmitting = true;
         const mutationToken = ++currentMutationToken;
         const activeSnapshot = {
-            chapterId: authoritativeContext.chapterId,
-            blockKey: authoritativeContext.blockKey,
-            contentVersion: authoritativeContext.contentVersion
+            chapterId: chapterId,
+            blockKey: blockKey,
+            contentVersion: contentVersion,
+            draftKey: draftKey,
+            markerKey: markerKey,
+            draftStore: draftStore,
+            editGeneration: submittedGeneration
         };
 
         setComposerEnabled(elements, false);
@@ -407,6 +767,17 @@
 
                 // Dynamic re-check of mutation ownership after await res.json()
                 if (isMutationContextCurrent(mutationToken, activeSnapshot)) {
+                    const latestGeneration = (activeSnapshot.draftKey && keyEditGenerations.get(activeSnapshot.draftKey)) || 0;
+                    if (latestGeneration <= activeSnapshot.editGeneration) {
+                        if (activeSnapshot.draftKey) {
+                            acceptedEditGenerations.set(activeSnapshot.draftKey, activeSnapshot.editGeneration);
+                        }
+                        if (activeSnapshot.draftStore && activeSnapshot.draftKey && typeof activeSnapshot.draftStore.remove === 'function') {
+                            activeSnapshot.draftStore.remove(activeSnapshot.draftKey);
+                        }
+                    }
+                    removeRootMarkerIfMatching(activeSnapshot.chapterId, activeSnapshot.blockKey);
+
                     if (elements.input) {
                         elements.input.value = '';
                     }
@@ -433,6 +804,17 @@
 
                     // Secondary Bottom feed synchronization: Root create changes ordering and count -> refreshFromPageZero()
                     synchronizeBottomFeed();
+                } else {
+                    // Stale success handling
+                    const latestGeneration = (activeSnapshot.draftKey && keyEditGenerations.get(activeSnapshot.draftKey)) || 0;
+                    if (latestGeneration <= activeSnapshot.editGeneration) {
+                        if (activeSnapshot.draftKey) {
+                            acceptedEditGenerations.set(activeSnapshot.draftKey, activeSnapshot.editGeneration);
+                        }
+                        if (activeSnapshot.draftStore && activeSnapshot.draftKey && typeof activeSnapshot.draftStore.remove === 'function') {
+                            activeSnapshot.draftStore.remove(activeSnapshot.draftKey);
+                        }
+                    }
                 }
 
                 return;
@@ -489,6 +871,26 @@
         }
     }
 
+    function onDiscussionRequested(evt) {
+        handleDiscussionRequested(evt ? evt.detail : null);
+    }
+
+    function onDiscussionLoaded(evt) {
+        handleDiscussionLoaded(evt ? evt.detail : null);
+    }
+
+    function onDiscussionClosed() {
+        handleDiscussionClosed();
+    }
+
+    function onChapterChanged() {
+        handleChapterChanged();
+    }
+
+    function onFlushDrafts() {
+        handleFlushDrafts();
+    }
+
     /**
      * Initializes the root comment composer module.
      *
@@ -508,6 +910,8 @@
             if (options.commentsModule || options.bottomCommentsModule) {
                 injectedCommentsModule = options.commentsModule || options.bottomCommentsModule;
             }
+            if (options.draftAdapter) injectedDraftAdapter = options.draftAdapter;
+            if (options.draftStore) injectedDraftStore = options.draftStore;
         }
 
         if (!currentDoc) {
@@ -525,25 +929,27 @@
         setComposerEnabled(elements, false);
 
         elements.form.addEventListener('submit', handleSubmit);
+        if (elements.input) {
+            elements.input.addEventListener('input', handleInput);
+            boundInput = elements.input;
+        }
 
         boundDoc = currentDoc;
         boundForm = elements.form;
-        currentDoc.addEventListener(EVENT_DISCUSSION_REQUESTED, handleDiscussionRequested);
+        currentDoc.addEventListener(EVENT_DISCUSSION_REQUESTED, onDiscussionRequested);
         currentDoc.addEventListener(EVENT_DISCUSSION_LOADED, onDiscussionLoaded);
-        currentDoc.addEventListener(EVENT_DISCUSSION_CLOSED, handleDiscussionClosed);
-        currentDoc.addEventListener(EVENT_CHAPTER_CHANGED, handleChapterChanged);
+        currentDoc.addEventListener(EVENT_DISCUSSION_CLOSED, onDiscussionClosed);
+        currentDoc.addEventListener(EVENT_CHAPTER_CHANGED, onChapterChanged);
+        currentDoc.addEventListener(EVENT_FLUSH_DRAFTS, onFlushDrafts);
 
         isInitialized = true;
-    }
-
-    function onDiscussionLoaded(evt) {
-        handleDiscussionLoaded(evt ? evt.detail : null);
     }
 
     /**
      * Resets module state (intended for isolated test suites).
      */
     function resetComposerState() {
+        cancelDebounce();
         isInitialized = false;
         isSubmitting = false;
         authoritativeContext = null;
@@ -552,6 +958,15 @@
         injectedDrawer = null;
         injectedIndicators = null;
         injectedCommentsModule = null;
+        injectedDraftAdapter = null;
+        injectedDraftStore = null;
+
+        if (boundInput) {
+            try {
+                boundInput.removeEventListener('input', handleInput);
+            } catch (_) {}
+            boundInput = null;
+        }
 
         if (boundForm) {
             try {
@@ -562,10 +977,11 @@
 
         if (boundDoc) {
             try {
-                boundDoc.removeEventListener(EVENT_DISCUSSION_REQUESTED, handleDiscussionRequested);
+                boundDoc.removeEventListener(EVENT_DISCUSSION_REQUESTED, onDiscussionRequested);
                 boundDoc.removeEventListener(EVENT_DISCUSSION_LOADED, onDiscussionLoaded);
-                boundDoc.removeEventListener(EVENT_DISCUSSION_CLOSED, handleDiscussionClosed);
-                boundDoc.removeEventListener(EVENT_CHAPTER_CHANGED, handleChapterChanged);
+                boundDoc.removeEventListener(EVENT_DISCUSSION_CLOSED, onDiscussionClosed);
+                boundDoc.removeEventListener(EVENT_CHAPTER_CHANGED, onChapterChanged);
+                boundDoc.removeEventListener(EVENT_FLUSH_DRAFTS, onFlushDrafts);
             } catch (_) {}
             boundDoc = null;
         }
@@ -593,13 +1009,18 @@
         EVENT_DISCUSSION_LOADED,
         EVENT_DISCUSSION_CLOSED,
         EVENT_CHAPTER_CHANGED,
+        EVENT_FLUSH_DRAFTS,
+        init: initReaderBlockDiscussionComposer,
         initReaderBlockDiscussionComposer,
+        destroy: resetComposerState,
         resetComposerState,
         handleSubmit,
         handleDiscussionRequested,
         handleDiscussionLoaded,
         handleDiscussionClosed,
         handleChapterChanged,
+        handleFlushDrafts,
+        flushActiveDraft,
         isMutationContextCurrent,
         resolveDrawerModule,
         resolveCommentsModule,
@@ -609,6 +1030,13 @@
         setDrawerImplementation: function (d) { injectedDrawer = d; },
         setIndicatorsImplementation: function (ind) { injectedIndicators = ind; },
         setCommentsModule: function (mod) { injectedCommentsModule = mod; },
-        setCommentsModuleImplementation: function (mod) { injectedCommentsModule = mod; }
+        setCommentsModuleImplementation: function (mod) { injectedCommentsModule = mod; },
+        setDraftAdapter: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftAdapterImplementation: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftStore: function (store) { injectedDraftStore = store; },
+        setDraftStoreImplementation: function (store) { injectedDraftStore = store; },
+        getKeyEditGeneration: function (key) { return keyEditGenerations.get(key) || 0; },
+        getAcceptedEditGeneration: function (key) { return acceptedEditGenerations.get(key) || 0; },
+        removeRootMarkerIfMatching: removeRootMarkerIfMatching
     };
 });

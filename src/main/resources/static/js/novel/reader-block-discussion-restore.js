@@ -50,6 +50,144 @@
     let activeRestore = null;
     let highlightTimer = null;
     let highlightedElement = null;
+    let completedDraftRootContext = null;
+
+    let injectedDraftAdapter = null;
+    let injectedDraftStore = null;
+
+    let nodeDraftAdapter = null;
+    if (typeof require === 'function') {
+        try {
+            nodeDraftAdapter = require('./reader-comment-drafts.js');
+        } catch (_) {}
+    }
+
+    /**
+     * Resolves NovelReaderCommentDrafts adapter instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftAdapter() {
+        if (injectedDraftAdapter) return injectedDraftAdapter;
+        if (typeof window !== 'undefined') {
+            if (window.NovelReaderCommentDrafts) return window.NovelReaderCommentDrafts;
+            if (window.KiemLai && window.KiemLai.NovelReaderCommentDrafts) return window.KiemLai.NovelReaderCommentDrafts;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.NovelReaderCommentDrafts) return globalThis.NovelReaderCommentDrafts;
+            if (globalThis.KiemLai && globalThis.KiemLai.NovelReaderCommentDrafts) return globalThis.KiemLai.NovelReaderCommentDrafts;
+        }
+        return nodeDraftAdapter;
+    }
+
+    /**
+     * Resolves EphemeralDraftStore instance across multiple runtime contexts.
+     *
+     * @returns {Object|null}
+     */
+    function resolveDraftStore() {
+        if (injectedDraftStore) return injectedDraftStore;
+        const adapter = resolveDraftAdapter();
+        if (adapter && typeof adapter.resolveDraftStore === 'function') {
+            const resolved = adapter.resolveDraftStore();
+            if (resolved) return resolved;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.EphemeralDraftStore) return window.EphemeralDraftStore;
+            if (window.KiemLai && window.KiemLai.EphemeralDraftStore) return window.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.EphemeralDraftStore) return globalThis.EphemeralDraftStore;
+            if (globalThis.KiemLai && globalThis.KiemLai.EphemeralDraftStore) return globalThis.KiemLai.EphemeralDraftStore;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/ephemeral-draft-store.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Validates an active-block Root marker string.
+     * Removes corrupted JSON or malformed non-root markers safely from store.
+     * Known non-root markers (type 'reply' or 'edit') are ignored without removal.
+     *
+     * @param {string} rawMarker
+     * @param {string} markerKey
+     * @param {Object} [store]
+     * @returns {{type: 'root', blockKey: string}|null}
+     */
+    function validateRootMarker(rawMarker, markerKey, store) {
+        if (!rawMarker || typeof rawMarker !== 'string') return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(rawMarker);
+        } catch (_) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        // Known non-root markers (reply, edit) must be IGNORED WITHOUT REMOVAL
+        if (parsed.type === 'reply' || parsed.type === 'edit') {
+            return null;
+        }
+        if (parsed.type !== 'root') {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        if (typeof parsed.blockKey !== 'string' || !parsed.blockKey.trim()) {
+            if (store && markerKey && typeof store.remove === 'function') {
+                store.remove(markerKey);
+            }
+            return null;
+        }
+        return {
+            type: 'root',
+            blockKey: parsed.blockKey.trim()
+        };
+    }
+
+    /**
+     * Removes the chapter-scoped active-block marker only if it matches type 'root' and the given blockKey.
+     *
+     * @param {string} chapterId
+     * @param {string} blockKey
+     */
+    function removeRootMarkerIfMatching(chapterId, blockKey) {
+        if (!chapterId || !blockKey) return;
+        const adapter = resolveDraftAdapter();
+        const store = resolveDraftStore();
+        if (!adapter || !store) return;
+        const markerKey = adapter.getBlockActiveMarkerKey(chapterId);
+        if (!markerKey) return;
+        const raw = store.load(markerKey);
+        if (!raw || typeof raw !== 'string') return;
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                if (parsed.type === 'reply' || parsed.type === 'edit') {
+                    return; // Known future markers must not be touched
+                }
+                if (parsed.type === 'root' && typeof parsed.blockKey === 'string' && parsed.blockKey.trim() === String(blockKey).trim()) {
+                    store.remove(markerKey);
+                }
+            } else {
+                store.remove(markerKey);
+            }
+        } catch (_) {
+            store.remove(markerKey);
+        }
+    }
 
     /**
      * Parses and structurally validates transient restore parameters from search query or location.
@@ -454,6 +592,15 @@
 
         const restoreContext = activeRestore;
         activeRestore = null;
+        if (restoreContext.source === 'draft-root') {
+            completedDraftRootContext = {
+                doc: doc,
+                chapterId: restoreContext.chapterId,
+                blockKey: restoreContext.blockKey
+            };
+        } else {
+            completedDraftRootContext = null;
+        }
 
         const contentEl = doc.getElementById ? doc.getElementById('novelBlockDiscussionContent') : doc.querySelector('.novel-block-discussion-content');
         const resolved = resolveTargetElement(contentEl, restoreContext.threadId, restoreContext.replyTo);
@@ -486,8 +633,10 @@
             }
         }
 
-        // Terminal success: remove transient query parameters
-        cleanRestoreParameters(win);
+        // Terminal success: remove transient query parameters if URL restore
+        if (restoreContext.source !== 'draft-root') {
+            cleanRestoreParameters(win);
+        }
     }
 
     /**
@@ -504,9 +653,16 @@
         if (detail.chapterId !== activeRestore.chapterId || detail.blockKey !== activeRestore.blockKey) {
             return; // Mismatched context
         }
+        const failedContext = activeRestore;
         activeRestore = null;
         clearHighlight();
-        cleanRestoreParameters(win);
+
+        if (failedContext.source === 'draft-root') {
+            removeRootMarkerIfMatching(failedContext.chapterId, failedContext.blockKey);
+        } else {
+            cleanRestoreParameters(win);
+        }
+        completedDraftRootContext = null;
     }
 
     /**
@@ -516,10 +672,16 @@
      */
     function onDrawerClosed(win) {
         if (activeRestore) {
+            const closedContext = activeRestore;
             activeRestore = null;
-            cleanRestoreParameters(win);
+            if (closedContext.source === 'draft-root') {
+                removeRootMarkerIfMatching(closedContext.chapterId, closedContext.blockKey);
+            } else {
+                cleanRestoreParameters(win);
+            }
         }
         clearHighlight();
+        completedDraftRootContext = null;
     }
 
     /**
@@ -529,12 +691,17 @@
      */
     function onChapterChanged(win) {
         restoreToken++;
-        const hadActiveRestore = (activeRestore !== null);
+        const prevContext = activeRestore;
         activeRestore = null;
         clearHighlight();
-        if (hadActiveRestore) {
-            cleanRestoreParameters(win);
+        if (prevContext) {
+            if (prevContext.source === 'draft-root') {
+                removeRootMarkerIfMatching(prevContext.chapterId, prevContext.blockKey);
+            } else {
+                cleanRestoreParameters(win);
+            }
         }
+        completedDraftRootContext = null;
     }
 
     /**
@@ -570,7 +737,7 @@
      * Programmatically opens a block discussion drawer and targets a thread/comment.
      * Reusable by external UI triggers (e.g. Chapter Comments "Xem đoạn gốc").
      *
-     * @param {Object} target { blockKey, threadId, replyTo, intent, chapterId, contentVersion }
+     * @param {Object} target { blockKey, threadId, replyTo, intent, chapterId, contentVersion, source }
      * @param {Document} [documentRef]
      * @param {Window} [windowRef]
      * @returns {boolean} true if request was successfully dispatched, false otherwise
@@ -650,6 +817,10 @@
             return false;
         }
 
+        if (completedDraftRootContext && (target.source !== 'draft-root' || completedDraftRootContext.blockKey !== blockKey || completedDraftRootContext.chapterId !== chapterId)) {
+            completedDraftRootContext = null;
+        }
+
         const currentToken = ++restoreToken;
         activeRestore = {
             token: currentToken,
@@ -657,7 +828,8 @@
             blockKey: blockKey,
             threadId: threadId,
             replyTo: replyTo,
-            intent: intent
+            intent: intent,
+            source: target.source || 'url'
         };
 
         const threadCount = parseThreadCount(blockEl);
@@ -680,17 +852,96 @@
     }
 
     /**
-     * Initiates the post-auth discussion restoration flow.
+     * Attempts active-block draft marker restore when no URL restore parameters own the init turn.
+     *
+     * @param {Document} doc
+     * @param {Window} win
+     * @returns {boolean}
+     */
+    function attemptActiveBlockDraftRestore(doc, win) {
+        if (activeRestore !== null) {
+            return false;
+        }
+        const chapterBody = doc.querySelector ? doc.querySelector('.novel-reader-chapter-body') : null;
+        if (!chapterBody) {
+            return false;
+        }
+        const currentChapterId = (
+            (typeof chapterBody.getAttribute === 'function' ? chapterBody.getAttribute('data-chapter-id') : null) ||
+            (chapterBody.dataset && chapterBody.dataset.chapterId) ||
+            ''
+        ).trim();
+        if (!currentChapterId) {
+            return false;
+        }
+
+        const adapter = resolveDraftAdapter();
+        const store = resolveDraftStore();
+        if (!adapter || !store) {
+            return false;
+        }
+
+        const markerKey = adapter.getBlockActiveMarkerKey(currentChapterId);
+        if (!markerKey) {
+            return false;
+        }
+
+        const rawMarker = store.load(markerKey);
+        if (!rawMarker) {
+            return false;
+        }
+
+        const validMarker = validateRootMarker(rawMarker, markerKey, store);
+        if (!validMarker) {
+            return false;
+        }
+
+        if (completedDraftRootContext &&
+            completedDraftRootContext.doc === doc &&
+            completedDraftRootContext.chapterId === currentChapterId &&
+            completedDraftRootContext.blockKey === validMarker.blockKey) {
+            return false;
+        }
+
+        const blockEl = findReaderBlock(chapterBody, validMarker.blockKey);
+        if (!blockEl) {
+            // Missing or stale Reader block: do not fabricate drawer context, remove ONLY Root active marker, leave draft untouched
+            removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
+            return false;
+        }
+
+        const success = openDiscussionTarget({
+            chapterId: currentChapterId,
+            blockKey: validMarker.blockKey,
+            intent: 'open',
+            source: 'draft-root'
+        }, doc, win);
+
+        if (!success) {
+            removeRootMarkerIfMatching(currentChapterId, validMarker.blockKey);
+        }
+
+        return success;
+    }
+
+    /**
+     * Initiates the post-auth discussion restoration flow or active-block draft restoration.
      *
      * @param {Document} [documentRef]
      * @param {Window} [windowRef]
+     * @param {Object} [options]
      */
-    function init(documentRef, windowRef) {
+    function init(documentRef, windowRef, options) {
         const doc = documentRef || (typeof document !== 'undefined' ? document : null);
         const win = windowRef || (typeof window !== 'undefined' ? window : null);
 
         if (!doc || !win) {
             return;
+        }
+
+        if (options) {
+            if (options.draftAdapter) injectedDraftAdapter = options.draftAdapter;
+            if (options.draftStore) injectedDraftStore = options.draftStore;
         }
 
         bindDocumentListeners(doc, win);
@@ -703,6 +954,8 @@
         if (!restoreContext) {
             if (hasTransient) {
                 cleanRestoreParameters(win);
+            } else {
+                attemptActiveBlockDraftRestore(doc, win);
             }
             return;
         }
@@ -720,7 +973,10 @@
         boundDoc = null;
         restoreToken = 0;
         activeRestore = null;
+        completedDraftRootContext = null;
         clearHighlight();
+        injectedDraftAdapter = null;
+        injectedDraftStore = null;
     }
 
     function getActiveRestore() {
@@ -744,6 +1000,13 @@
         cleanRestoreParameters: cleanRestoreParameters,
         getActiveRestore: getActiveRestore,
         resetRestoreState: resetRestoreState,
+        validateRootMarker: validateRootMarker,
+        removeRootMarkerIfMatching: removeRootMarkerIfMatching,
+        attemptActiveBlockDraftRestore: attemptActiveBlockDraftRestore,
+        setDraftAdapter: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftAdapterImplementation: function (adapter) { injectedDraftAdapter = adapter; },
+        setDraftStore: function (store) { injectedDraftStore = store; },
+        setDraftStoreImplementation: function (store) { injectedDraftStore = store; },
         EVENT_DISCUSSION_REQUESTED: EVENT_DISCUSSION_REQUESTED,
         EVENT_DISCUSSION_LOADED: EVENT_DISCUSSION_LOADED,
         EVENT_DISCUSSION_LOAD_FAILED: EVENT_DISCUSSION_LOAD_FAILED,

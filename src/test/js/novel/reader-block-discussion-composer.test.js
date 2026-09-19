@@ -3,6 +3,8 @@ const assert = require('node:assert');
 const path = require('path');
 
 const ComposerModule = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-block-discussion-composer.js'));
+const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
+const draftsAdapter = require(path.join(__dirname, '../../../main/resources/static/js/novel/reader-comment-drafts.js'));
 
 const {
     COMPOSER_FORM_ID,
@@ -13,6 +15,7 @@ const {
     EVENT_DISCUSSION_LOADED,
     EVENT_DISCUSSION_CLOSED,
     EVENT_CHAPTER_CHANGED,
+    EVENT_FLUSH_DRAFTS,
     initReaderBlockDiscussionComposer,
     resetComposerState,
     handleSubmit,
@@ -1609,5 +1612,908 @@ describe('MS-05E5H2F4B2 — Drawer Root Create → Bottom Synchronization', () =
         assert.strictEqual(indicatorRefreshCalls, 0, 'Zero Indicator refresh must occur for stale completion');
         assert.strictEqual(bottomPageZeroCalls, 0, 'Zero Bottom sync must occur for stale completion');
     });
+});
 
+describe('UX-DRAFT-01D3A — Block Drawer Root Draft Persistence', () => {
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+        }
+        getItem(k) {
+            return this.store.has(k) ? this.store.get(k) : null;
+        }
+        setItem(k, v) {
+            this.store.set(k, String(v));
+        }
+        removeItem(k) {
+            this.store.delete(k);
+        }
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        resetComposerState();
+        ComposerModule.setDraftStore(draftStore);
+        ComposerModule.setDraftAdapter(draftsAdapter);
+    });
+
+    afterEach(() => {
+        resetComposerState();
+    });
+
+    // ------------------------------------------------------------------------
+    // Category A: Load & Restore (Tests 1–3)
+    // ------------------------------------------------------------------------
+
+    test('1. Load without draft: input empty, no draft written, no marker written', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        assert.strictEqual(input.value, '', 'Input must be empty');
+        assert.strictEqual(draftStore.load(draftKey), null, 'No draft written');
+        assert.strictEqual(draftStore.load(markerKey), null, 'No marker written');
+    });
+
+    test('2. Load with saved draft: exact Unicode/newlines/whitespace restored, active marker written', () => {
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        const unicodeDraft = '  Dòng 1: Thảo luận với Unicode: Tiếng Việt có dấu.\n\n  Dòng 2: Khoảng trắng đầu cuối.  \n';
+        draftStore.save(draftKey, unicodeDraft);
+
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        assert.strictEqual(input.value, unicodeDraft, 'Exact Unicode and whitespace restored');
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.deepStrictEqual(marker, { type: 'root', blockKey: 'blk-0123456789abcdef-1' });
+    });
+
+    test('3. Load with saved draft: restored without auto-submit, focus not stolen', () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => { fetchCalls++; return { status: 201 }; };
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        draftStore.save(draftKey, 'Draft content to restore');
+
+        const { doc, input } = createComposerFixture();
+        const otherBtn = new FakeElement('button', { id: 'otherBtn' });
+        doc.registerElement('otherBtn', otherBtn);
+        otherBtn.focus();
+        assert.strictEqual(doc.activeElement, otherBtn);
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        assert.strictEqual(input.value, 'Draft content to restore');
+        assert.strictEqual(fetchCalls, 0, 'No auto-submit on restore');
+        assert.strictEqual(doc.activeElement, otherBtn, 'Focus must not be stolen');
+    });
+
+    // ------------------------------------------------------------------------
+    // Category B: Input & Autosave (Tests 4–7)
+    // ------------------------------------------------------------------------
+
+    test('4. Meaningful input: immediately writes Root marker, persists draft after 400ms debounce', async () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        input.value = 'Nội dung đang soạn thảo';
+        input.dispatchEvent({ type: 'input' });
+
+        const markerImmediate = JSON.parse(draftStore.load(markerKey));
+        assert.deepStrictEqual(markerImmediate, { type: 'root', blockKey: 'blk-0123456789abcdef-1' });
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft not saved before debounce');
+
+        await new Promise(r => setTimeout(r, 450));
+        assert.strictEqual(draftStore.load(draftKey), 'Nội dung đang soạn thảo', 'Draft saved after 400ms debounce');
+    });
+
+    test('5. Whitespace-only input: removes draft and removes matching Root marker', () => {
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        draftStore.save(draftKey, 'Nội dung cũ');
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: 'blk-0123456789abcdef-1' }));
+
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+        assert.strictEqual(input.value, 'Nội dung cũ');
+
+        input.value = '   \n\t  ';
+        input.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft must be removed on whitespace-only input');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker must be removed on whitespace-only input');
+    });
+
+    test('6. EVENT_FLUSH_DRAFTS: synchronously saves dirty root text', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        input.value = 'Bản nháp cần flush trước khi ẩn trang';
+        input.dispatchEvent({ type: 'input' });
+        assert.strictEqual(draftStore.load(draftKey), null, 'Debounce not fired yet');
+
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Bản nháp cần flush trước khi ẩn trang', 'Synchronously flushed');
+    });
+
+    test('7. EVENT_FLUSH_DRAFTS while blank: store and marker remain empty', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-0123456789abcdef-1' }
+        });
+
+        input.value = '   \n';
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-0123456789abcdef-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        assert.strictEqual(draftStore.load(draftKey), null);
+        assert.strictEqual(draftStore.load(markerKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category C: Block Switch Ownership (Tests 8–10)
+    // ------------------------------------------------------------------------
+
+    test('8. Discussion-requested A -> B: A dirty draft flushed under A key before textarea clear; A marker removed; no B draft key receives A text', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-A' }
+        });
+
+        input.value = 'Draft for block A';
+        input.dispatchEvent({ type: 'input' });
+
+        const draftKeyA = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-A');
+        const draftKeyB = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-B');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-B' }
+        });
+
+        assert.strictEqual(draftStore.load(draftKeyA), 'Draft for block A', 'A dirty draft saved under A key');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Active marker removed on leaving block A');
+        assert.strictEqual(input.value, '', 'Textarea cleared on requested switch');
+        assert.strictEqual(draftStore.load(draftKeyB), null, 'Block B draft key must not receive A text');
+    });
+
+    test('9. Discussion-loaded B: B draft restores if present, B marker becomes active', () => {
+        const draftKeyB = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-B');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        draftStore.save(draftKeyB, 'Saved draft for block B');
+
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-B' }
+        });
+
+        assert.strictEqual(input.value, 'Saved draft for block B');
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.deepStrictEqual(marker, { type: 'root', blockKey: 'blk-B' });
+    });
+
+    test('10. Adversarial block ordering: live Reader DOM already reflects Block B, but composer oldContext is Block A -> draft saves strictly under Block A key', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-A' }
+        });
+
+        input.value = 'Strict draft for block A';
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-B' }
+        });
+
+        const draftKeyA = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-A');
+        const draftKeyB = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-B');
+
+        assert.strictEqual(draftStore.load(draftKeyA), 'Strict draft for block A');
+        assert.strictEqual(draftStore.load(draftKeyB), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category D: Close & Chapter Change (Tests 11–13)
+    // ------------------------------------------------------------------------
+
+    test('11. Discussion-closed: meaningful draft preserved in store; active marker removed; context cleared', () => {
+        const { doc, input, submitBtn } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-A' }
+        });
+
+        input.value = 'Preserve on drawer close';
+        input.dispatchEvent({ type: 'input' });
+
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-A');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        doc.dispatchEvent({ type: EVENT_DISCUSSION_CLOSED });
+
+        assert.strictEqual(draftStore.load(draftKey), 'Preserve on drawer close', 'Draft preserved');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker removed');
+        assert.strictEqual(ComposerModule.getAuthoritativeContext(), null, 'Authoritative context cleared');
+        assert.strictEqual(input.disabled, true, 'Composer disabled');
+        assert.strictEqual(submitBtn.disabled, true, 'Submit button disabled');
+    });
+
+    test('12. Chapter-changed: old draft saved under old chapter/block key; old marker removed; new chapter storage untouched', () => {
+        const { doc, input } = createComposerFixture();
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-old', contentVersion: 1, blockKey: 'blk-1' }
+        });
+
+        input.value = 'Old chapter draft content';
+        input.dispatchEvent({ type: 'input' });
+
+        const draftKeyOld = draftsAdapter.getBlockRootDraftKey('ch-old', 'blk-1');
+        const markerKeyOld = draftsAdapter.getBlockActiveMarkerKey('ch-old');
+        const draftKeyNew = draftsAdapter.getBlockRootDraftKey('ch-new', 'blk-1');
+        const markerKeyNew = draftsAdapter.getBlockActiveMarkerKey('ch-new');
+
+        doc.dispatchEvent({
+            type: EVENT_CHAPTER_CHANGED,
+            detail: { chapterId: 'ch-new' }
+        });
+
+        assert.strictEqual(draftStore.load(draftKeyOld), 'Old chapter draft content');
+        assert.strictEqual(draftStore.load(markerKeyOld), null);
+        assert.strictEqual(draftStore.load(draftKeyNew), null);
+        assert.strictEqual(draftStore.load(markerKeyNew), null);
+        assert.strictEqual(input.value, '');
+        assert.strictEqual(ComposerModule.getAuthoritativeContext(), null);
+    });
+
+    test('13. Adversarial chapter ordering: live DOM chapter already updated before composer listener runs -> old context determines draft key', () => {
+        const { doc, input } = createComposerFixture();
+        const fakeBody = new FakeElement('article', { 'data-chapter-id': 'ch-new-dom' });
+        doc.querySelector = (sel) => {
+            if (sel && sel.includes('novel-reader-chapter-body')) return fakeBody;
+            return null;
+        };
+
+        initReaderBlockDiscussionComposer(doc, { draftStore, draftAdapter: draftsAdapter });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-authoritative-old', contentVersion: 1, blockKey: 'blk-1' }
+        });
+
+        input.value = 'Authoritative old draft';
+
+        doc.dispatchEvent({ type: EVENT_CHAPTER_CHANGED });
+
+        const oldDraftKey = draftsAdapter.getBlockRootDraftKey('ch-authoritative-old', 'blk-1');
+        const domDraftKey = draftsAdapter.getBlockRootDraftKey('ch-new-dom', 'blk-1');
+
+        assert.strictEqual(draftStore.load(oldDraftKey), 'Authoritative old draft');
+        assert.strictEqual(draftStore.load(domDraftKey), null);
+    });
+
+    // ------------------------------------------------------------------------
+    // Category E: Submit Storage Ownership & Outcome (Tests 14–16)
+    // ------------------------------------------------------------------------
+
+    test('14. Submit storage: valid submit synchronously writes exact raw body to store before network dispatch', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let syncStoreValueDuringFetch = null;
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        const mockFetch = async () => {
+            syncStoreValueDuringFetch = draftStore.load(draftKey);
+            return { status: 201, json: async () => ({ commentId: 'comm-1' }) };
+        };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-1' }
+        });
+
+        input.value = '  Exact raw body with padding\n\n';
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        assert.strictEqual(syncStoreValueDuringFetch, '  Exact raw body with padding\n\n');
+    });
+
+    test('15. Current 201: draft removed, marker removed, textarea cleared, Drawer refresh + indicator refresh + bottom feed sync called once', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let drawerRefreshes = 0;
+        let indicatorRefreshes = 0;
+        let bottomSyncs = 0;
+
+        const mockFetch = async () => ({
+            status: 201,
+            json: async () => ({ commentId: 'comm-123' })
+        });
+        const mockDrawer = { refreshActiveDiscussion: async () => { drawerRefreshes++; } };
+        const mockIndicators = { refreshChapterIndicators: async () => { indicatorRefreshes++; } };
+        const mockBottom = { refreshFromPageZero: async () => { bottomSyncs++; } };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            drawerModule: mockDrawer,
+            indicatorsModule: mockIndicators,
+            commentsModule: mockBottom,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-1' }
+        });
+
+        input.value = 'Comment to submit successfully';
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-1');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft must be removed on 201');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Marker must be removed on 201');
+        assert.strictEqual(input.value, '', 'Textarea cleared on 201');
+        assert.strictEqual(drawerRefreshes, 1, 'Drawer refreshed once');
+        assert.strictEqual(indicatorRefreshes, 1, 'Indicators refreshed once');
+        assert.strictEqual(bottomSyncs, 1, 'Bottom sync called once');
+    });
+
+    test('16. Current failure (400, 401, 404, 409, 500, network error): draft preserved, marker preserved, textarea intact; 409 refreshes drawer', async () => {
+        const failureCases = [400, 401, 404, 409, 500, 'network-error'];
+
+        for (const failure of failureCases) {
+            resetComposerState();
+            const { doc, form, input, statusEl } = createComposerFixture();
+            let drawerRefreshes = 0;
+            const mockDrawer = { refreshActiveDiscussion: async () => { drawerRefreshes++; } };
+            const mockFetch = async () => {
+                if (failure === 'network-error') throw new Error('Fetch rejected');
+                return { status: failure, json: async () => ({}) };
+            };
+
+            initReaderBlockDiscussionComposer(doc, {
+                fetchFn: mockFetch,
+                drawerModule: mockDrawer,
+                draftStore,
+                draftAdapter: draftsAdapter
+            });
+
+            doc.dispatchEvent({
+                type: EVENT_DISCUSSION_LOADED,
+                detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-fail-' + failure }
+            });
+
+            const text = `Draft text for failure ${failure}`;
+            input.value = text;
+            const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-fail-' + failure);
+            const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+            await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+            await new Promise(r => setTimeout(r, 10));
+
+            assert.strictEqual(draftStore.load(draftKey), text, `Draft preserved for ${failure}`);
+            const marker = JSON.parse(draftStore.load(markerKey));
+            assert.strictEqual(marker.type, 'root');
+            assert.strictEqual(marker.blockKey, 'blk-fail-' + failure);
+            assert.strictEqual(input.value, text, `Textarea preserved for ${failure}`);
+            assert.strictEqual(statusEl.textContent.length > 0, true, `Status message displayed for ${failure}`);
+
+            if (failure === 409) {
+                assert.strictEqual(drawerRefreshes, 1, '409 triggers drawer refresh');
+            } else {
+                assert.strictEqual(drawerRefreshes, 0, `${failure} does not trigger drawer refresh`);
+            }
+        }
+    });
+
+    // ------------------------------------------------------------------------
+    // Category F: Stale, ABA, Resurrection & Direct-Submit (Tests 17–20)
+    // ------------------------------------------------------------------------
+
+    test('17. Stale A 201 after switch to B: captured A draft removed when generation matches; B textarea/status/marker unchanged; zero A refreshes', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA;
+        let drawerRefreshes = 0;
+        const mockFetch = async () => new Promise(r => { resolvePostA = r; });
+        const mockDrawer = { refreshActiveDiscussion: async () => { drawerRefreshes++; } };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            drawerModule: mockDrawer,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-A' }
+        });
+
+        input.value = 'Draft A text';
+        const draftKeyA = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-A');
+        const draftKeyB = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-B');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+
+        const submitPromiseA = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Switch to Block B before A completes
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-B' }
+        });
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-B' }
+        });
+
+        input.value = 'Draft B active text';
+        input.dispatchEvent({ type: 'input' });
+
+        // Resolve A with 201
+        resolvePostA({
+            status: 201,
+            json: async () => ({ commentId: 'c-A-201' })
+        });
+        await submitPromiseA;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKeyA), null, 'Captured A draft removed on generation match');
+        assert.strictEqual(input.value, 'Draft B active text', 'B textarea intact');
+        const marker = JSON.parse(draftStore.load(markerKey));
+        assert.deepStrictEqual(marker, { type: 'root', blockKey: 'blk-B' }, 'B marker intact');
+        assert.strictEqual(drawerRefreshes, 0, 'Zero refreshes for stale A completion');
+    });
+
+    test('18. Same-key ABA: Draft A1 pending -> leave and return -> genuine Draft A2 typed -> old A1 201 resolves -> Draft A2 survives', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA1;
+        const mockFetch = async () => new Promise(r => { resolvePostA1 = r; });
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-ABA' }
+        });
+
+        input.value = 'Draft A1 pending';
+        const draftKeyA = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-ABA');
+        const submitPromiseA1 = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // User leaves Block A to B
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-B' }
+        });
+        // User returns to Block A
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-ABA' }
+        });
+
+        // User types genuine new Draft A2
+        input.value = 'Draft A2 genuine newer text';
+        input.dispatchEvent({ type: 'input' });
+
+        // Old A1 resolves 201
+        resolvePostA1({
+            status: 201,
+            json: async () => ({ commentId: 'c-A1-201' })
+        });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        // Flush drafts to verify persistence
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKeyA), 'Draft A2 genuine newer text', 'Draft A2 survives stale A1 resolution');
+    });
+
+    test('19. Stale accepted remount resurrection: A1 pending -> destroy/re-init remounts with A1 -> old A1 201 resolves -> EVENT_FLUSH_DRAFTS and discussion-requested do NOT resurrect A1 and clean active marker', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA1;
+        const mockFetch = async () => new Promise(r => { resolvePostA1 = r; });
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-resurrect' }
+        });
+
+        input.value = 'Draft A1 pending';
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-resurrect');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        const submitPromiseA1 = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Remount: destroy and re-init while A1 is pending
+        ComposerModule.destroy();
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-resurrect' }
+        });
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: 'blk-resurrect' }));
+
+        // Old A1 201 resolves
+        resolvePostA1({
+            status: 201,
+            json: async () => ({ commentId: 'c-A1-res' })
+        });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        // Stored draft was removed by 201
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        // A. A flush with stale text in textarea must NOT resurrect A1
+        input.value = 'Draft A1 pending';
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 draft remains absent on flush');
+
+        // B. Real passive leave: dispatch kiemlai:block-discussion-requested for Block B
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-other' }
+        });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'A1 draft remains absent on requested leave');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Old Root active marker is removed on requested leave');
+        assert.strictEqual(input.value, '', 'Textarea is cleared on requested switch');
+
+        // Load block again to test genuine later A2 input
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-resurrect' }
+        });
+
+        input.value = 'Draft A2 genuine input';
+        input.dispatchEvent({ type: 'input' });
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft A2 genuine input', 'Genuine later A2 persists');
+    });
+
+    test('19b. Stale accepted remount: drawer closed cleans active Root marker and does NOT resurrect accepted draft', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA1;
+        const mockFetch = async () => new Promise(r => { resolvePostA1 = r; });
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-close-resurrect' }
+        });
+
+        input.value = 'Draft A1 pending';
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-close-resurrect');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        const submitPromiseA1 = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Remount: destroy and re-init while A1 is pending
+        ComposerModule.destroy();
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-close-resurrect' }
+        });
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: 'blk-close-resurrect' }));
+
+        // Old A1 201 resolves
+        resolvePostA1({
+            status: 201,
+            json: async () => ({ commentId: 'c-A1-res-close' })
+        });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKey), null);
+        input.value = 'Draft A1 pending';
+
+        // C. Passive leave via drawer closed
+        doc.dispatchEvent({ type: EVENT_DISCUSSION_CLOSED });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft remains absent on drawer closed');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Old Root marker is removed on drawer closed');
+        assert.strictEqual(ComposerModule.getAuthoritativeContext(), null, 'Authoritative context is cleared');
+    });
+
+    test('19c. Stale accepted remount: chapter changed cleans old chapter active Root marker and does NOT resurrect accepted draft', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA1;
+        const mockFetch = async () => new Promise(r => { resolvePostA1 = r; });
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-old', contentVersion: 1, blockKey: 'blk-chap-resurrect' }
+        });
+
+        input.value = 'Draft A1 pending';
+        const draftKeyOld = draftsAdapter.getBlockRootDraftKey('ch-old', 'blk-chap-resurrect');
+        const markerKeyOld = draftsAdapter.getBlockActiveMarkerKey('ch-old');
+        const submitPromiseA1 = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Remount: destroy and re-init while A1 is pending
+        ComposerModule.destroy();
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-old', contentVersion: 1, blockKey: 'blk-chap-resurrect' }
+        });
+        draftStore.save(markerKeyOld, JSON.stringify({ type: 'root', blockKey: 'blk-chap-resurrect' }));
+
+        // Old A1 201 resolves
+        resolvePostA1({
+            status: 201,
+            json: async () => ({ commentId: 'c-A1-res-chap' })
+        });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        assert.strictEqual(draftStore.load(draftKeyOld), null);
+        input.value = 'Draft A1 pending';
+
+        // D. Passive leave via chapter changed
+        doc.dispatchEvent({
+            type: EVENT_CHAPTER_CHANGED,
+            detail: { chapterId: 'ch-new' }
+        });
+
+        assert.strictEqual(draftStore.load(draftKeyOld), null, 'Draft remains absent on chapter changed');
+        assert.strictEqual(draftStore.load(markerKeyOld), null, 'Old chapter Root marker is removed on chapter changed');
+        assert.strictEqual(ComposerModule.getAuthoritativeContext(), null, 'Authoritative context is cleared');
+    });
+
+    test('19d. Stale accepted remount passive leave preserves non-root markers (reply, edit)', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let resolvePostA1;
+        const mockFetch = async () => new Promise(r => { resolvePostA1 = r; });
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-imm-test' }
+        });
+
+        input.value = 'Draft A1 pending';
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-imm-test');
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        const submitPromiseA1 = form.dispatchEvent({ type: 'submit', preventDefault() {} });
+
+        // Remount
+        ComposerModule.destroy();
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-imm-test' }
+        });
+
+        // Old A1 201 resolves
+        resolvePostA1({
+            status: 201,
+            json: async () => ({ commentId: 'c-A1-res-imm' })
+        });
+        await submitPromiseA1;
+        await new Promise(r => setTimeout(r, 10));
+
+        input.value = 'Draft A1 pending';
+
+        // 1. Reply marker immunity on requested leave
+        const replyMarkerPayload = JSON.stringify({ type: 'reply', blockKey: 'blk-imm-test', commentId: 'comm-999' });
+        draftStore.save(markerKey, replyMarkerPayload);
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_REQUESTED,
+            detail: { chapterId: 'ch-1', blockKey: 'blk-other' }
+        });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft remains absent');
+        assert.strictEqual(draftStore.load(markerKey), replyMarkerPayload, 'Reply marker must be preserved untouched');
+
+        // 2. Edit marker immunity on drawer closed
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-imm-test' }
+        });
+        input.value = 'Draft A1 pending';
+        const editMarkerPayload = JSON.stringify({ type: 'edit', blockKey: 'blk-imm-test', commentId: 'comm-888' });
+        draftStore.save(markerKey, editMarkerPayload);
+
+        doc.dispatchEvent({ type: EVENT_DISCUSSION_CLOSED });
+
+        assert.strictEqual(draftStore.load(draftKey), null, 'Draft remains absent');
+        assert.strictEqual(draftStore.load(markerKey), editMarkerPayload, 'Edit marker must be preserved untouched');
+    });
+
+    test('20. Post-accepted direct-submit failure: Draft 1 accepted (G1) -> reopen same block -> set textarea.value = "Draft 2" without input event -> submit fails (500) -> new generation G2 > G1 allocated -> Draft 2 persists across flush and passive close', async () => {
+        const { doc, form, input } = createComposerFixture();
+        let postCount = 0;
+        const mockFetch = async () => {
+            postCount++;
+            if (postCount === 1) {
+                return { status: 201, json: async () => ({ commentId: 'c-g1' }) };
+            }
+            return { status: 500, json: async () => ({}) };
+        };
+
+        initReaderBlockDiscussionComposer(doc, {
+            fetchFn: mockFetch,
+            draftStore,
+            draftAdapter: draftsAdapter
+        });
+
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-post-accept' }
+        });
+
+        input.value = 'Draft 1';
+        input.dispatchEvent({ type: 'input' });
+        const draftKey = draftsAdapter.getBlockRootDraftKey('ch-1', 'blk-post-accept');
+
+        // Submit 1 succeeds
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(draftStore.load(draftKey), null);
+
+        // Reopen same block
+        doc.dispatchEvent({
+            type: EVENT_DISCUSSION_LOADED,
+            detail: { chapterId: 'ch-1', contentVersion: 1, blockKey: 'blk-post-accept' }
+        });
+
+        // Directly set textarea.value = 'Draft 2' WITHOUT input event
+        input.value = 'Draft 2 direct';
+
+        // Submit 2 fails with 500
+        await form.dispatchEvent({ type: 'submit', preventDefault() {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Generation G2 > G1 allocated: Draft 2 persists across flush and passive close
+        doc.dispatchEvent({ type: EVENT_FLUSH_DRAFTS });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2 direct', 'Draft 2 persists on flush');
+
+        doc.dispatchEvent({ type: EVENT_DISCUSSION_CLOSED });
+        assert.strictEqual(draftStore.load(draftKey), 'Draft 2 direct', 'Draft 2 persists on passive close');
+    });
+
+    // ------------------------------------------------------------------------
+    // Category G: Marker Conditional Ownership (Tests 21–22)
+    // ------------------------------------------------------------------------
+
+    test('21. Root cleanup removes matching Root marker only', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        draftStore.save(markerKey, JSON.stringify({ type: 'root', blockKey: 'blk-A' }));
+
+        ComposerModule.removeRootMarkerIfMatching('ch-1', 'blk-B');
+        assert.notStrictEqual(draftStore.load(markerKey), null, 'Non-matching blockKey preserves marker');
+
+        ComposerModule.removeRootMarkerIfMatching('ch-1', 'blk-A');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Matching blockKey removes marker');
+    });
+
+    test('22. Root cleanup preserves non-root markers (reply, edit)', () => {
+        const markerKey = draftsAdapter.getBlockActiveMarkerKey('ch-1');
+        const replyMarker = JSON.stringify({ type: 'reply', blockKey: 'blk-A', commentId: 'comm-1' });
+        draftStore.save(markerKey, replyMarker);
+
+        ComposerModule.removeRootMarkerIfMatching('ch-1', 'blk-A');
+        assert.strictEqual(draftStore.load(markerKey), replyMarker, 'Reply marker preserved');
+
+        const editMarker = JSON.stringify({ type: 'edit', blockKey: 'blk-A', commentId: 'comm-2' });
+        draftStore.save(markerKey, editMarker);
+
+        ComposerModule.removeRootMarkerIfMatching('ch-1', 'blk-A');
+        assert.strictEqual(draftStore.load(markerKey), editMarker, 'Edit marker preserved');
+    });
 });
