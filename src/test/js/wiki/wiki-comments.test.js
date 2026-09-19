@@ -3391,3 +3391,2041 @@ describe('UX-DRAFT-01B Wiki Root Comment Draft Persistence Integration Tests', (
     });
 });
 
+// ============================================================================
+// UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests
+// ============================================================================
+
+describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', () => {
+    class MockStorage {
+        constructor() {
+            this.store = new Map();
+            this.shouldThrow = false;
+        }
+
+        getItem(key) {
+            if (this.shouldThrow) {
+                throw new Error('Storage access restricted');
+            }
+            return this.store.has(key) ? this.store.get(key) : null;
+        }
+
+        setItem(key, value) {
+            if (this.shouldThrow) {
+                throw new Error('Storage access restricted');
+            }
+            this.store.set(key, String(value));
+        }
+
+        removeItem(key) {
+            if (this.shouldThrow) {
+                throw new Error('Storage access restricted');
+            }
+            this.store.delete(key);
+        }
+
+        clear() {
+            this.store.clear();
+        }
+    }
+
+    let mockStorage;
+    let mockTime;
+    let draftStore;
+
+    beforeEach(() => {
+        mockStorage = new MockStorage();
+        mockTime = 1_000_000;
+        draftStore = EphemeralDraftStore.createStore({
+            storage: mockStorage,
+            clock: () => mockTime,
+            defaultTtlMs: 5 * 60 * 1000
+        });
+        wikiCommentsModule.resetState();
+        wikiCommentsModule.setDraftStore(draftStore);
+    });
+
+    function createPopulatedThread() {
+        return {
+            root: {
+                id: ROOT_ID,
+                body: 'Nội dung bình luận gốc',
+                canEdit: true,
+                canDelete: true,
+                tombstone: false,
+                author: { displayName: 'Tác Giả Gốc' },
+                createdAt: '2026-09-19T10:00:00Z',
+                updatedAt: '2026-09-19T10:00:00Z'
+            },
+            replies: [
+                {
+                    id: REPLY_ID,
+                    parentCommentId: ROOT_ID,
+                    body: 'Nội dung phản hồi 1',
+                    canEdit: true,
+                    canDelete: true,
+                    tombstone: false,
+                    author: { displayName: 'Người Trả Lời' },
+                    createdAt: '2026-09-19T10:05:00Z',
+                    updatedAt: '2026-09-19T10:05:00Z'
+                }
+            ]
+        };
+    }
+
+    test('1. Canonical key builders: reply, edit, and active-inline keys format and validation', () => {
+        const doc = createEnvironment({ articleIdVal: 'art-123' });
+        wikiCommentsModule.init(doc);
+
+        // Reply key checks
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(null), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(''), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey('   '), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey('target-1', ''), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey('target-1', null), null);
+        assert.strictEqual(
+            wikiCommentsModule.getReplyDraftKey('target-1'),
+            'kiemlai:draft:wiki-comment:art-123:reply:target-1'
+        );
+        assert.strictEqual(
+            wikiCommentsModule.getReplyDraftKey('target/1#special', 'art/custom'),
+            'kiemlai:draft:wiki-comment:art%2Fcustom:reply:target%2F1%23special'
+        );
+
+        // Edit key checks
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(null), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(''), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey('   '), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey('comm-1', ''), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey('comm-1', null), null);
+        assert.strictEqual(
+            wikiCommentsModule.getEditDraftKey('comm-1'),
+            'kiemlai:draft:wiki-comment:art-123:edit:comm-1'
+        );
+        assert.strictEqual(
+            wikiCommentsModule.getEditDraftKey('comm/1#special', 'art/custom'),
+            'kiemlai:draft:wiki-comment:art%2Fcustom:edit:comm%2F1%23special'
+        );
+
+        // Active-inline marker key checks
+        assert.strictEqual(wikiCommentsModule.getActiveInlineMarkerKey(''), null);
+        assert.strictEqual(wikiCommentsModule.getActiveInlineMarkerKey(null), null);
+        assert.strictEqual(
+            wikiCommentsModule.getActiveInlineMarkerKey(),
+            'kiemlai:draft:wiki-comment:art-123:active-inline'
+        );
+        assert.strictEqual(
+            wikiCommentsModule.getActiveInlineMarkerKey('art/custom'),
+            'kiemlai:draft:wiki-comment:art%2Fcustom:active-inline'
+        );
+    });
+
+    test('2. Reply draft is restored into reply textarea on openReplyComposer', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const replyDraftText = 'Bản nháp phản hồi đã lưu từ trước';
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        draftStore.save(key, replyDraftText);
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open reply composer
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        assert.ok(slot, 'Reply slot must exist');
+        const textarea = slot.querySelector('textarea');
+        assert.ok(textarea, 'Reply textarea must exist');
+        assert.strictEqual(textarea.value, replyDraftText, 'Saved reply draft must be restored into textarea');
+
+        // Verify active inline marker
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker, {
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('3. Existing reply draft not overwritten if textarea already has user input', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+
+        textarea.value = 'User typed reply text';
+
+        // Re-saving or restoring does not clobber user typed text
+        const restored = wikiCommentsModule.loadReplyDraft(ROOT_ID);
+        assert.strictEqual(restored, null, 'No draft was saved yet before debounce');
+        assert.strictEqual(textarea.value, 'User typed reply text');
+    });
+
+    test('4. Reply typing debounce (~400ms) saves draft to storage', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        textarea.value = 'Đang nhập phản hồi thử nghiệm...';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Immediate check: debounce not yet elapsed
+        assert.strictEqual(draftStore.load(key), null, 'Draft must not be saved immediately before 400ms');
+
+        // Wait 450ms
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), 'Đang nhập phản hồi thử nghiệm...', 'Draft must be saved after debounce');
+    });
+
+    test('5. Clearing reply input removes draft from storage', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        textarea.value = 'Nội dung ban đầu';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), 'Nội dung ban đầu');
+
+        // User clears textarea
+        textarea.value = '   ';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), null, 'Empty/blank text must purge draft from store');
+    });
+
+    test('6. Cancel reply removes draft from storage and removes active inline marker', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+
+        textarea.value = 'Phản hồi sắp bị hủy';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+
+        assert.strictEqual(draftStore.load(key), 'Phản hồi sắp bị hủy');
+        assert.ok(draftStore.load(markerKey));
+
+        // Click Cancel
+        const cancelBtn = slot.querySelector('.wiki-comment-btn--secondary');
+        cancelBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(draftStore.load(key), null, 'Cancel must remove draft from storage');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Cancel must remove active inline marker');
+        assert.strictEqual(slot.childNodes.length, 0, 'Cancel must clear reply slot DOM');
+        assert.strictEqual(wikiCommentsModule.getState().activeReplyTargetCommentId, null);
+    });
+
+    test('7. Successful reply submission (201) clears textarea, removes draft, and removes active marker', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    json: async () => ({
+                        id: 'new-reply-id',
+                        body: 'Phản hồi gửi thành công'
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        textarea.value = 'Phản hồi gửi thành công';
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(draftStore.load(key), null, '201 Created must remove reply draft');
+        assert.strictEqual(draftStore.load(markerKey), null, '201 Created must remove active inline marker');
+        assert.strictEqual(wikiCommentsModule.getState().activeReplyTargetCommentId, null);
+    });
+
+    test('8. Failed reply submission (400) keeps draft in storage and textarea content intact', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return { status: 400 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        const testText = 'Nội dung phản hồi bị lỗi 400';
+        textarea.value = testText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, testText, '400 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), testText, '400 must preserve draft in storage');
+    });
+
+    test('9. Failed reply submission (404) keeps draft in storage and textarea content intact', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return { status: 404 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        const testText = 'Nội dung phản hồi bị lỗi 404';
+        textarea.value = testText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, testText, '404 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), testText, '404 must preserve draft in storage');
+    });
+
+    test('10. Failed reply submission (500) keeps draft in storage and textarea content intact', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return { status: 500 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        const testText = 'Nội dung phản hồi bị lỗi 500';
+        textarea.value = testText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, testText, '500 must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), testText, '500 must preserve draft in storage');
+    });
+
+    test('11. Failed reply submission (network error) keeps draft in storage and textarea content intact', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                throw new Error('Network failure');
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        const testText = 'Nội dung phản hồi bị lỗi mạng';
+        textarea.value = testText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, testText, 'Network failure must preserve textarea content');
+        assert.strictEqual(draftStore.load(key), testText, 'Network failure must preserve draft in storage');
+    });
+
+    test('12. Unauthenticated reply submit attempt flushes draft and active marker before redirecting to login', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        const form = slot.querySelector('form');
+
+        const guestReplyText = 'Phản hồi của người dùng trước khi session hết hạn';
+        textarea.value = guestReplyText;
+
+        // Simulate session expiry by returning 401 on submit
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 401
+        }));
+
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.ok(doc.defaultView.location.href.includes('/login'), 'Must redirect to login on 401');
+
+        const key = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+        assert.strictEqual(draftStore.load(key), guestReplyText, 'Draft must be saved synchronously on auth redirect');
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker, {
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('13. Reply draft isolation across distinct target comments', async () => {
+        const keyRoot = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        const keyReply = wikiCommentsModule.getReplyDraftKey(REPLY_ID, ARTICLE_ID);
+
+        draftStore.save(keyRoot, 'Draft for root comment');
+        draftStore.save(keyReply, 'Draft for reply comment');
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open root reply composer
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slotRoot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        assert.strictEqual(slotRoot.querySelector('textarea').value, 'Draft for root comment');
+
+        // Open reply-to-reply composer
+        wikiCommentsModule.openReplyComposer(REPLY_ID, ROOT_ID, 'Người Trả Lời', doc);
+        const slotReply = doc.querySelector('[data-reply-slot="' + REPLY_ID + '"]');
+        assert.strictEqual(slotReply.querySelector('textarea').value, 'Draft for reply comment');
+
+        assert.strictEqual(draftStore.load(keyRoot), 'Draft for root comment');
+        assert.strictEqual(draftStore.load(keyReply), 'Draft for reply comment');
+    });
+
+    test('14. Opening edit composer populates authoritative server body by default and does NOT persist to draft store', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+
+        assert.strictEqual(textarea.value, 'Nội dung bình luận gốc', 'Must populate authoritative server body');
+
+        // Critical rule: Opening unchanged server body must NOT write to draft store
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(draftStore.load(key), null, 'Unchanged server body must not be saved as draft on open');
+        assert.strictEqual(wikiCommentsModule.getState().activeEditHasUserTyped, false);
+    });
+
+    test('15. Opening edit composer with existing draft restores draft in place of server body', async () => {
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        draftStore.save(key, 'Bản sửa nháp dở dang từ phiên trước');
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+
+        assert.strictEqual(
+            textarea.value,
+            'Bản sửa nháp dở dang từ phiên trước',
+            'Restored draft must take precedence over authoritative server body'
+        );
+        assert.strictEqual(wikiCommentsModule.getState().activeEditHasUserTyped, true);
+    });
+
+    test('16. Edit typing debounce (~400ms) saves draft to storage and marks activeEditHasUserTyped = true', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        textarea.value = 'Chỉnh sửa mới chưa debounce';
+        textarea.dispatchEvent({ type: 'input' });
+
+        assert.strictEqual(draftStore.load(key), null, 'Draft must not be saved immediately before 400ms');
+        assert.strictEqual(wikiCommentsModule.getState().activeEditHasUserTyped, true);
+
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), 'Chỉnh sửa mới chưa debounce');
+    });
+
+    test('17. Blank/cleared edit input removes draft from storage', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        textarea.value = 'Chỉnh sửa';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), 'Chỉnh sửa');
+
+        textarea.value = '   ';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+        assert.strictEqual(draftStore.load(key), null, 'Cleared edit textarea removes draft');
+    });
+
+    test('18. Cancel edit removes draft from storage, removes active marker, and restores original DOM', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+
+        textarea.value = 'Bản sửa sắp bị hủy';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+
+        assert.strictEqual(draftStore.load(key), 'Bản sửa sắp bị hủy');
+        assert.ok(draftStore.load(markerKey));
+
+        const cancelBtn = bodyContainer.querySelector('.wiki-comment-btn--secondary');
+        cancelBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(draftStore.load(key), null, 'Cancel must remove edit draft');
+        assert.strictEqual(draftStore.load(markerKey), null, 'Cancel must remove active inline marker');
+        assert.strictEqual(bodyContainer.querySelector('form'), null, 'Cancel must remove edit form');
+        assert.strictEqual(bodyContainer.textContent, 'Nội dung bình luận gốc', 'Cancel must restore original comment body');
+    });
+
+    test('19. Successful edit submission (204) removes draft, removes active marker, and refreshes thread', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 204 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        textarea.value = 'Nội dung sửa thành công';
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(draftStore.load(key), null, '204 must remove edit draft');
+        assert.strictEqual(draftStore.load(markerKey), null, '204 must remove active inline marker');
+        assert.strictEqual(wikiCommentsModule.getState().activeEditCommentId, null);
+    });
+
+    test('20. Failed edit submission (400) preserves draft in storage and textarea content', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 400 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const editBody = 'Sửa gặp lỗi 400';
+        textarea.value = editBody;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, editBody);
+        assert.strictEqual(draftStore.load(key), editBody);
+    });
+
+    test('21. Failed edit submission (403) preserves draft in storage, displays permission error', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 403 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const editBody = 'Sửa gặp lỗi 403 không có quyền';
+        textarea.value = editBody;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, editBody);
+        assert.strictEqual(draftStore.load(key), editBody);
+    });
+
+    test('22. Failed edit submission (404) preserves draft in storage and textarea content', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 404 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const editBody = 'Sửa gặp lỗi 404';
+        textarea.value = editBody;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, editBody);
+        assert.strictEqual(draftStore.load(key), editBody);
+    });
+
+    test('23. Failed edit submission (500) preserves draft in storage and textarea content', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 500 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const editBody = 'Sửa gặp lỗi 500';
+        textarea.value = editBody;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, editBody);
+        assert.strictEqual(draftStore.load(key), editBody);
+    });
+
+    test('24. Failed edit submission (network error) preserves draft in storage and textarea content', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                throw new Error('Network error');
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const editBody = 'Sửa gặp lỗi kết nối mạng';
+        textarea.value = editBody;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(textarea.value, editBody);
+        assert.strictEqual(draftStore.load(key), editBody);
+    });
+
+    test('25. Unauthenticated edit submit attempt flushes draft (if typed) and active marker before login redirect', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 401 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const typedEdit = 'Đã sửa nhưng hết hạn phiên đăng nhập';
+        textarea.value = typedEdit;
+        textarea.dispatchEvent({ type: 'input' });
+
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.ok(doc.defaultView.location.href.includes('/login'));
+
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(draftStore.load(key), typedEdit);
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker, {
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('26. Edit draft isolation across distinct comments', async () => {
+        const keyRoot = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        const keyReply = wikiCommentsModule.getEditDraftKey(REPLY_ID, ARTICLE_ID);
+
+        draftStore.save(keyRoot, 'Draft edit root');
+        draftStore.save(keyReply, 'Draft edit reply');
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const rootContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const rootTextarea = rootContainer.querySelector('textarea');
+        assert.strictEqual(rootTextarea.value, 'Draft edit root');
+
+        wikiCommentsModule.openEditComposer(REPLY_ID, ROOT_ID, doc);
+        const replyContainer = doc.querySelector('[data-body-container="' + REPLY_ID + '"]');
+        const replyTextarea = replyContainer.querySelector('textarea');
+        assert.strictEqual(replyTextarea.value, 'Draft edit reply');
+    });
+
+    test('27. Active inline marker key format and save/load/remove behavior', () => {
+        const markerData = { type: 'reply', targetCommentId: ROOT_ID, rootCommentId: ROOT_ID };
+        assert.strictEqual(wikiCommentsModule.saveActiveInlineMarker(markerData, ARTICLE_ID), true);
+
+        const loaded = wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID);
+        assert.deepStrictEqual(loaded, markerData);
+
+        wikiCommentsModule.removeActiveInlineMarker(ARTICLE_ID);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // TTL test (>5 min)
+        wikiCommentsModule.saveActiveInlineMarker(markerData, ARTICLE_ID);
+        mockTime += 301_000;
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+    });
+
+    test('28. Switching composers auto-flushes first composer draft before opening second composer', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open Reply on ROOT_ID
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const rootSlot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const rootTextarea = rootSlot.querySelector('textarea');
+        rootTextarea.value = 'Chưa kịp chờ debounce cho root reply';
+        rootTextarea.dispatchEvent({ type: 'input' });
+
+        // User directly clicks reply on REPLY_ID before debounce fires
+        wikiCommentsModule.openReplyComposer(REPLY_ID, ROOT_ID, 'Người Trả Lời', doc);
+
+        // Verify root reply was synchronously flushed on switch
+        const keyRootReply = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(
+            draftStore.load(keyRootReply),
+            'Chưa kịp chờ debounce cho root reply',
+            'First composer text must be auto-flushed on composer switch'
+        );
+
+        // Verify active marker updated to REPLY_ID
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker, {
+            type: 'reply',
+            targetCommentId: REPLY_ID,
+            rootCommentId: ROOT_ID
+        });
+
+        // Type in reply composer and switch to edit on ROOT_ID
+        const replySlot = doc.querySelector('[data-reply-slot="' + REPLY_ID + '"]');
+        const replyTextarea = replySlot.querySelector('textarea');
+        replyTextarea.value = 'Chưa kịp chờ debounce cho reply 1';
+        replyTextarea.dispatchEvent({ type: 'input' });
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+
+        const keyReplyReply = wikiCommentsModule.getReplyDraftKey(REPLY_ID, ARTICLE_ID);
+        assert.strictEqual(
+            draftStore.load(keyReplyReply),
+            'Chưa kịp chờ debounce cho reply 1',
+            'Reply text must be auto-flushed before opening edit composer'
+        );
+
+        const marker2 = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker2, {
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('29. Reload / re-init reopens active reply composer and restores draft when marker is present', async () => {
+        const key = wikiCommentsModule.getReplyDraftKey(REPLY_ID, ARTICLE_ID);
+        const replyDraft = 'Phản hồi lưu trước khi reload trang';
+        draftStore.save(key, replyDraft);
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'reply',
+            targetCommentId: REPLY_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const slot = doc.querySelector('[data-reply-slot="' + REPLY_ID + '"]');
+        assert.ok(slot, 'Reply slot must exist');
+        const composerBox = slot.querySelector('.wiki-inline-composer');
+        assert.ok(composerBox, 'Reply composer must be automatically reopened upon re-init');
+        const textarea = slot.querySelector('textarea');
+        assert.strictEqual(textarea.value, replyDraft, 'Draft must be restored in reopened reply composer');
+    });
+
+    test('30. Reload / re-init reopens active edit composer and restores draft when marker is present and permitted', async () => {
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        const editDraft = 'Bản sửa lưu trước khi reload trang';
+        draftStore.save(key, editDraft);
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const form = bodyContainer.querySelector('form');
+        assert.ok(form, 'Edit composer must be automatically reopened upon re-init');
+        const textarea = bodyContainer.querySelector('textarea');
+        assert.strictEqual(textarea.value, editDraft, 'Draft must be restored in reopened edit composer');
+    });
+
+    test('31. Reload does NOT reopen edit composer if comment was tombstoned or canEdit === false', async () => {
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        draftStore.save(key, 'Sửa bình luận nhưng sau đó mất quyền');
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        const threadWithoutPermission = createPopulatedThread();
+        threadWithoutPermission.root.canEdit = false; // Permission revoked
+
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [threadWithoutPermission],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        assert.strictEqual(bodyContainer.querySelector('form'), null, 'Must not reopen edit composer without permission');
+        assert.strictEqual(draftStore.load(key), null, 'Draft must be purged when permission is absent');
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(), null, 'Marker must be purged when permission is absent');
+    });
+
+    test('32. Immediate page-exit flush on pagehide synchronously flushes active reply and edit drafts before debounce expires', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open reply composer and type
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const replyTextarea = slot.querySelector('textarea');
+        const fastReplyText = 'Phản hồi gõ siêu nhanh trước khi reload';
+        replyTextarea.value = fastReplyText;
+        replyTextarea.dispatchEvent({ type: 'input' });
+
+        const replyKey = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(draftStore.load(replyKey), null, 'Before 400ms, reply draft is not in store');
+
+        // Trigger pagehide
+        doc.defaultView.dispatchEvent({ type: 'pagehide' });
+
+        assert.strictEqual(
+            draftStore.load(replyKey),
+            fastReplyText,
+            'pagehide must synchronously flush pending reply draft to storage'
+        );
+
+        // Re-open as edit composer and verify edit pagehide flush
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const editTextarea = bodyContainer.querySelector('textarea');
+        const fastEditText = 'Sửa bình luận rất nhanh';
+        editTextarea.value = fastEditText;
+        editTextarea.dispatchEvent({ type: 'input' });
+
+        const editKey = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(draftStore.load(editKey), null, 'Before 400ms, edit draft is not in store');
+
+        doc.defaultView.dispatchEvent({ type: 'pagehide' });
+
+        assert.strictEqual(
+            draftStore.load(editKey),
+            fastEditText,
+            'pagehide must synchronously flush pending edit draft to storage'
+        );
+    });
+
+    test('33. Unauthenticated guest feed load does NOT reopen inline composer', async () => {
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        const guestDoc = createEnvironment({ authenticated: 'false' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(guestDoc);
+        await new Promise(process.nextTick);
+
+        const slot = guestDoc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        assert.strictEqual(slot.childNodes.length, 0, 'Guest must not have inline composer opened');
+        assert.strictEqual(guestDoc.defaultView.location.href, 'http://localhost/wiki/character/tran-binh-an', 'Guest must not be redirected during feed render');
+    });
+
+    test('34. destroy/resetState cancels active reply/edit debounce timers and cleans up state cleanly', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const replyTextarea = slot.querySelector('textarea');
+        replyTextarea.value = 'Reply text before reset';
+        replyTextarea.dispatchEvent({ type: 'input' });
+
+        wikiCommentsModule.resetState();
+
+        const state = wikiCommentsModule.getState();
+        assert.strictEqual(state.activeReplyTargetCommentId, null);
+        assert.strictEqual(state.activeReplyRootCommentId, null);
+        assert.strictEqual(state.activeEditCommentId, null);
+        assert.strictEqual(state.activeEditRootCommentId, null);
+        assert.strictEqual(state.activeEditHasUserTyped, false);
+    });
+
+    test('35. getReplyDraftKey rejects number/object/boolean/array', () => {
+        const doc = createEnvironment({ articleIdVal: 'art-123' });
+        wikiCommentsModule.init(doc);
+
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(12345), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(0), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(true), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(false), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey({}), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey({ id: 'target-1' }), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey([]), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(['target-1']), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(null), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(undefined), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey(''), null);
+        assert.strictEqual(wikiCommentsModule.getReplyDraftKey('   '), null);
+    });
+
+    test('36. getEditDraftKey rejects number/object/boolean/array', () => {
+        const doc = createEnvironment({ articleIdVal: 'art-123' });
+        wikiCommentsModule.init(doc);
+
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(12345), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(0), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(true), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(false), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey({}), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey({ id: 'comm-1' }), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey([]), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(['comm-1']), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(null), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(undefined), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey(''), null);
+        assert.strictEqual(wikiCommentsModule.getEditDraftKey('   '), null);
+    });
+
+    test('37. Edit failure preserves EXACT raw whitespace in draft while PATCH body is trimmed', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+        let patchBodyReceived = null;
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                patchBodyReceived = JSON.parse(opts.body);
+                return { status: 500 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const rawText = "  Nội dung sửa\n\n";
+        textarea.value = rawText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        // Assert PATCH body is trimmed
+        assert.strictEqual(patchBodyReceived.body, "Nội dung sửa");
+
+        // Assert stored draft preserves EXACT raw whitespace
+        assert.strictEqual(draftStore.load(key), "  Nội dung sửa\n\n");
+
+        // Assert textarea preserves EXACT raw text
+        assert.strictEqual(textarea.value, "  Nội dung sửa\n\n");
+
+        // Simulate reload: exact same raw draft restored
+        const reloadedDoc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.init(reloadedDoc);
+        await new Promise(process.nextTick);
+
+        const reloadedContainer = reloadedDoc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const reloadedTextarea = reloadedContainer.querySelector('textarea');
+        assert.ok(reloadedTextarea, 'Edit composer should reopen on reload');
+        assert.strictEqual(reloadedTextarea.value, "  Nội dung sửa\n\n");
+    });
+
+    test('38. Edit 401/302 auth redirect also preserves exact raw text', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        const key = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                return { status: 401 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+        const form = bodyContainer.querySelector('form');
+
+        const rawText = "  Sửa dở trước khi session hết hạn\n\n";
+        textarea.value = rawText;
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        assert.ok(doc.defaultView.location.href.includes('/login'), 'Redirected to login');
+        assert.strictEqual(draftStore.load(key), rawText, 'Exact raw text preserved in storage on 401 redirect');
+
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.deepStrictEqual(marker, {
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('39. Reply active marker TTL is refreshed by continued typing', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open composer at T0 = 1,000,000
+        mockTime = 1_000_000;
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+
+        // Advance clock to T0 + 280s (near original 5-minute expiry of 300s)
+        mockTime += 280_000;
+
+        // Perform new draft activity
+        textarea.value = 'Đang tiếp tục nhập phản hồi sau 4.6 phút...';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+
+        // Advance clock past original 5-minute expiry (T0 + 310s)
+        mockTime += 30_000;
+
+        // Marker must remain loadable because its savedAt was refreshed at T0 + 280s
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.ok(marker, 'Marker must not be expired after refreshed savedAt');
+        assert.deepStrictEqual(marker, {
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('40. Edit active marker TTL is refreshed by continued typing', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open edit composer at T0 = 1,000,000
+        mockTime = 1_000_000;
+        wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        const textarea = bodyContainer.querySelector('textarea');
+
+        // Advance clock to T0 + 280s
+        mockTime += 280_000;
+
+        // Perform new draft activity
+        textarea.value = 'Đang tiếp tục sửa sau 4.6 phút...';
+        textarea.dispatchEvent({ type: 'input' });
+        await new Promise(resolve => setTimeout(resolve, 450));
+
+        // Advance clock past original 5-minute expiry (T0 + 310s)
+        mockTime += 30_000;
+
+        // Marker must remain loadable
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.ok(marker, 'Marker must remain loadable after refreshed savedAt');
+        assert.deepStrictEqual(marker, {
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('41. pagehide refreshes active marker synchronously as well as body draft', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Open reply composer at T0 = 1,000,000
+        mockTime = 1_000_000;
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+
+        // Advance clock to T0 + 250s
+        mockTime += 250_000;
+
+        // Fast typing immediately followed by pagehide (no debounce wait)
+        const fastReply = 'Nội dung gõ ngay trước pagehide';
+        textarea.value = fastReply;
+        textarea.dispatchEvent({ type: 'input' });
+
+        doc.defaultView.dispatchEvent({ type: 'pagehide' });
+
+        // Advance clock past original 5-minute expiry (T0 + 310s)
+        mockTime += 60_000;
+
+        const replyKey = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        assert.strictEqual(draftStore.load(replyKey), fastReply, 'Draft must be loadable');
+
+        const marker = wikiCommentsModule.loadActiveInlineMarker();
+        assert.ok(marker, 'Marker must be loadable because pagehide refreshed its TTL');
+        assert.deepStrictEqual(marker, {
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        });
+    });
+
+    test('42. malformed active marker JSON/schema fails safely and does not reopen', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const markerKey = wikiCommentsModule.getActiveInlineMarkerKey(ARTICLE_ID);
+
+        // Test 42a: Corrupted raw JSON
+        draftStore.save(markerKey, '{bad-json-here');
+        assert.doesNotThrow(() => {
+            wikiCommentsModule.restoreActiveInlineComposer(doc);
+        });
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // Test 42b: Number comment ID (not nonblank string)
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', targetCommentId: 12345, rootCommentId: ROOT_ID }));
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // Test 42c: Missing or empty targetCommentId
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', targetCommentId: '   ', rootCommentId: ROOT_ID }));
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // Test 42d: Missing or non-string rootCommentId
+        draftStore.save(markerKey, JSON.stringify({ type: 'reply', targetCommentId: ROOT_ID, rootCommentId: null }));
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // Test 42e: Unknown type
+        draftStore.save(markerKey, JSON.stringify({ type: 'something_else', targetCommentId: ROOT_ID, rootCommentId: ROOT_ID }));
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+
+        // Test 42f: Edit malformed (number commentId)
+        draftStore.save(markerKey, JSON.stringify({ type: 'edit', commentId: 99999, rootCommentId: ROOT_ID }));
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        assert.strictEqual(bodyContainer.querySelector('form'), null);
+        assert.strictEqual(wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID), null);
+    });
+
+    test('43. marker for target not currently rendered: no crash, no fake composer, no API mutation, marker may remain', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let fetchCalls = 0;
+        wikiCommentsModule.setFetchImplementation(async () => {
+            fetchCalls++;
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        const unrenderedId = '99999999-9999-9999-9999-999999999999';
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'reply',
+            targetCommentId: unrenderedId,
+            rootCommentId: unrenderedId
+        }, ARTICLE_ID);
+
+        // Initialize (1 GET for comments)
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const fetchCallsAfterInit = fetchCalls;
+
+        // Call restoreActiveInlineComposer
+        assert.doesNotThrow(() => {
+            wikiCommentsModule.restoreActiveInlineComposer(doc);
+        });
+
+        // No fake composer created
+        assert.strictEqual(doc.querySelector('.wiki-inline-composer'), null);
+
+        // No API mutations triggered
+        assert.strictEqual(fetchCalls, fetchCallsAfterInit);
+        assert.strictEqual(wikiCommentsModule.getState().isMutating, false);
+
+        // Short-lived valid marker remains until later render or expiry
+        const marker = wikiCommentsModule.loadActiveInlineMarker(ARTICLE_ID);
+        assert.ok(marker, 'Marker should remain in storage for unrendered target');
+        assert.strictEqual(marker.targetCommentId, unrenderedId);
+    });
+
+    test('44. repeated restoreActiveInlineComposer / feed refresh does NOT create duplicate reply/edit composers', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'reply',
+            targetCommentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        assert.strictEqual(slot.querySelectorAll('.wiki-inline-composer').length, 1);
+
+        // Repeated restore calls
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(slot.querySelectorAll('.wiki-inline-composer').length, 1);
+
+        // Feed refresh
+        await wikiCommentsModule.refreshFeed(doc);
+        const slotAfterRefresh = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        assert.strictEqual(slotAfterRefresh.querySelectorAll('.wiki-inline-composer').length, 1);
+    });
+
+    test('45. resetState/destroy cancels pending timers/state and does NOT delete an already persisted valid reply/edit draft', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const replyKey = wikiCommentsModule.getReplyDraftKey(ROOT_ID, ARTICLE_ID);
+        const editKey = wikiCommentsModule.getEditDraftKey(ROOT_ID, ARTICLE_ID);
+
+        draftStore.save(replyKey, 'Valid persisted reply draft');
+        draftStore.save(editKey, 'Valid persisted edit draft');
+
+        wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Tác Giả Gốc', doc);
+        const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+        const textarea = slot.querySelector('textarea');
+        textarea.value = 'Typing something...';
+        textarea.dispatchEvent({ type: 'input' });
+
+        // Call resetState
+        wikiCommentsModule.resetState();
+
+        // State is reset
+        const state = wikiCommentsModule.getState();
+        assert.strictEqual(state.activeReplyTargetCommentId, null);
+        assert.strictEqual(state.activeEditCommentId, null);
+
+        // Valid persisted drafts are NOT deleted
+        assert.strictEqual(draftStore.load(replyKey), 'Valid persisted reply draft');
+        assert.strictEqual(draftStore.load(editKey), 'Valid persisted edit draft');
+    });
+
+    test('46. Restored reply marker with wrong rootCommentId reopens correctly and refreshes authoritative thread root on 201', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let postCalledUrl = null;
+        let refreshedRootId = null;
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                postCalledUrl = url;
+                return {
+                    status: 201,
+                    json: async () => ({ id: 'new-sub-reply-id' })
+                };
+            }
+            if (url.includes('/thread')) {
+                const match = url.match(/\/comments\/([^/]+)\/thread/);
+                if (match) {
+                    refreshedRootId = match[1];
+                }
+                return {
+                    status: 200,
+                    json: async () => createPopulatedThread()
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        const WRONG_ROOT_ID = '99999999-9999-9999-9999-wrongroot001';
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'reply',
+            targetCommentId: REPLY_ID,
+            rootCommentId: WRONG_ROOT_ID
+        }, ARTICLE_ID);
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Verify composer reopened for correct target comment (REPLY_ID)
+        const slot = doc.querySelector('[data-reply-slot="' + REPLY_ID + '"]');
+        assert.ok(slot, 'Reply slot must exist for REPLY_ID');
+        const textarea = slot.querySelector('textarea');
+        assert.ok(textarea, 'Reply composer must be reopened');
+
+        textarea.value = 'Phản hồi khi marker có root sai';
+        const form = slot.querySelector('form');
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        // Assert POST still targeted correct comment
+        assert.ok(postCalledUrl.includes('/comments/' + REPLY_ID + '/replies'), 'POST must target REPLY_ID');
+
+        // Assert authoritative refresh used actual loaded root, NOT WRONG_ROOT_ID
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh actual authoritative thread root');
+        assert.notStrictEqual(refreshedRootId, WRONG_ROOT_ID, 'Must NOT use marker.rootCommentId');
+    });
+
+    test('47. Restored edit marker with wrong rootCommentId reopens correctly and refreshes authoritative thread root on 204', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let patchCalledUrl = null;
+        let refreshedRootId = null;
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'PATCH') {
+                patchCalledUrl = url;
+                return { status: 204 };
+            }
+            if (url.includes('/thread')) {
+                const match = url.match(/\/comments\/([^/]+)\/thread/);
+                if (match) {
+                    refreshedRootId = match[1];
+                }
+                return {
+                    status: 200,
+                    json: async () => createPopulatedThread()
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [createPopulatedThread()],
+                    threadCount: 1,
+                    commentCount: 2,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        const WRONG_ROOT_ID = '99999999-9999-9999-9999-wrongroot002';
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'edit',
+            commentId: REPLY_ID,
+            rootCommentId: WRONG_ROOT_ID
+        }, ARTICLE_ID);
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Verify edit composer reopened for REPLY_ID
+        const bodyContainer = doc.querySelector('[data-body-container="' + REPLY_ID + '"]');
+        assert.ok(bodyContainer, 'Body container must exist for REPLY_ID');
+        const form = bodyContainer.querySelector('form');
+        assert.ok(form, 'Edit form must be reopened');
+
+        const textarea = bodyContainer.querySelector('textarea');
+        textarea.value = 'Sửa phản hồi khi marker có root sai';
+        form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+        await new Promise(process.nextTick);
+        await new Promise(process.nextTick);
+
+        // Assert PATCH targeted correct comment
+        assert.ok(patchCalledUrl.includes('/comments/' + REPLY_ID), 'PATCH must target REPLY_ID');
+
+        // Assert authoritative refresh used actual loaded root, NOT WRONG_ROOT_ID
+        assert.strictEqual(refreshedRootId, ROOT_ID, 'Must refresh actual authoritative thread root');
+        assert.notStrictEqual(refreshedRootId, WRONG_ROOT_ID, 'Must NOT use marker.rootCommentId');
+    });
+
+    test('48. Root comment target authoritative root resolves to its own ID and reply resolves to thread root', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // Root comment context check: resolves to its own ID
+        const rootCtx = wikiCommentsModule.findCommentContext(ROOT_ID);
+        assert.ok(rootCtx, 'Root context must be found');
+        assert.strictEqual(rootCtx.comment.id, ROOT_ID);
+        assert.strictEqual(rootCtx.rootCommentId, ROOT_ID, 'Root comment authoritative root is its own ID');
+
+        // Reply comment context check: resolves to parent thread root ID
+        const replyCtx = wikiCommentsModule.findCommentContext(REPLY_ID);
+        assert.ok(replyCtx, 'Reply context must be found');
+        assert.strictEqual(replyCtx.comment.id, REPLY_ID);
+        assert.strictEqual(replyCtx.rootCommentId, ROOT_ID, 'Reply comment authoritative root is thread root ID');
+
+        // Non-existent comment check: resolves to null
+        assert.strictEqual(wikiCommentsModule.findCommentContext('non-existent-comment-id'), null);
+        assert.strictEqual(wikiCommentsModule.findCommentContext(null), null);
+        assert.strictEqual(wikiCommentsModule.findCommentContext(''), null);
+    });
+
+    test('49. Repeated restoreActiveInlineComposer and feed refresh do NOT create duplicate edit composers', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [createPopulatedThread()],
+                threadCount: 1,
+                commentCount: 2,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.saveActiveInlineMarker({
+            type: 'edit',
+            commentId: ROOT_ID,
+            rootCommentId: ROOT_ID
+        }, ARTICLE_ID);
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const bodyContainer = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        assert.strictEqual(bodyContainer.querySelectorAll('form').length, 1);
+
+        // Repeated restore calls
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        wikiCommentsModule.restoreActiveInlineComposer(doc);
+        assert.strictEqual(bodyContainer.querySelectorAll('form').length, 1);
+
+        // Feed refresh
+        await wikiCommentsModule.refreshFeed(doc);
+        const bodyContainerAfter = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
+        assert.strictEqual(bodyContainerAfter.querySelectorAll('form').length, 1);
+    });
+});
+
+

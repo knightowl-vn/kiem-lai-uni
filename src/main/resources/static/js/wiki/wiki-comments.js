@@ -81,6 +81,21 @@
     let rootDraftPageExitListener = null;
     let injectedDraftStore = null;
 
+    // Inline Ephemeral Draft State (UX-DRAFT-01C)
+    let activeReplyTargetCommentId = null;
+    let activeReplyRootCommentId = null;
+    let activeReplyDebounceTimer = null;
+    let activeReplyTextareaEl = null;
+
+    let activeEditCommentId = null;
+    let activeEditRootCommentId = null;
+    let activeEditDebounceTimer = null;
+    let activeEditTextareaEl = null;
+    let activeEditHasUserTyped = false;
+    let activeEditSavedChildNodes = null;
+    let activeEditSavedTextContent = '';
+    let activeEditContainerEl = null;
+
     /**
      * Resets all module internal state.
      */
@@ -102,6 +117,25 @@
             clearTimeout(rootDraftDebounceTimer);
             rootDraftDebounceTimer = null;
         }
+        if (activeReplyDebounceTimer) {
+            clearTimeout(activeReplyDebounceTimer);
+            activeReplyDebounceTimer = null;
+        }
+        if (activeEditDebounceTimer) {
+            clearTimeout(activeEditDebounceTimer);
+            activeEditDebounceTimer = null;
+        }
+        activeReplyTargetCommentId = null;
+        activeReplyRootCommentId = null;
+        activeReplyTextareaEl = null;
+        activeEditCommentId = null;
+        activeEditRootCommentId = null;
+        activeEditTextareaEl = null;
+        activeEditHasUserTyped = false;
+        activeEditSavedChildNodes = null;
+        activeEditSavedTextContent = '';
+        activeEditContainerEl = null;
+
         if (currentDoc) {
             const els = getElements(currentDoc);
             if (els.composerInputEl && rootDraftInputListener && typeof els.composerInputEl.removeEventListener === 'function') {
@@ -461,6 +495,352 @@
     }
 
     /**
+     * Builds canonical storage key for a reply draft.
+     * Schema: kiemlai:draft:wiki-comment:{encodedArticleId}:reply:{encodedTargetCommentId}
+     *
+     * @param {string} targetCommentId - Target comment ID being replied to.
+     * @param {string} [artId] - Optional explicit article ID override.
+     * @returns {string|null} Canonical storage key or null if invalid.
+     */
+    function getReplyDraftKey(targetCommentId, artId) {
+        if (typeof targetCommentId !== 'string') return null;
+        const rawTargetId = targetCommentId.trim();
+        if (!rawTargetId) return null;
+
+        let rawArtId;
+        if (arguments.length > 1) {
+            if (artId == null || typeof artId !== 'string') return null;
+            rawArtId = artId.trim();
+        } else {
+            rawArtId = (typeof articleId === 'string') ? articleId.trim() : '';
+        }
+        if (!rawArtId) return null;
+
+        return 'kiemlai:draft:wiki-comment:' + encodeURIComponent(rawArtId) + ':reply:' + encodeURIComponent(rawTargetId);
+    }
+
+    /**
+     * Builds canonical storage key for an edit draft.
+     * Schema: kiemlai:draft:wiki-comment:{encodedArticleId}:edit:{encodedCommentId}
+     *
+     * @param {string} commentId - Comment ID being edited.
+     * @param {string} [artId] - Optional explicit article ID override.
+     * @returns {string|null} Canonical storage key or null if invalid.
+     */
+    function getEditDraftKey(commentId, artId) {
+        if (typeof commentId !== 'string') return null;
+        const rawCommentId = commentId.trim();
+        if (!rawCommentId) return null;
+
+        let rawArtId;
+        if (arguments.length > 1) {
+            if (artId == null || typeof artId !== 'string') return null;
+            rawArtId = artId.trim();
+        } else {
+            rawArtId = (typeof articleId === 'string') ? articleId.trim() : '';
+        }
+        if (!rawArtId) return null;
+
+        return 'kiemlai:draft:wiki-comment:' + encodeURIComponent(rawArtId) + ':edit:' + encodeURIComponent(rawCommentId);
+    }
+
+    /**
+     * Builds canonical storage key for the active inline composer marker.
+     * Schema: kiemlai:draft:wiki-comment:{encodedArticleId}:active-inline
+     *
+     * @param {string} [artId] - Optional explicit article ID override.
+     * @returns {string|null} Canonical storage key or null if invalid.
+     */
+    function getActiveInlineMarkerKey(artId) {
+        let rawArtId;
+        if (arguments.length > 0) {
+            if (artId == null || typeof artId !== 'string') return null;
+            rawArtId = artId.trim();
+        } else {
+            rawArtId = (typeof articleId === 'string') ? articleId.trim() : '';
+        }
+        if (!rawArtId) return null;
+
+        return 'kiemlai:draft:wiki-comment:' + encodeURIComponent(rawArtId) + ':active-inline';
+    }
+
+    /**
+     * Saves active inline composer marker to ephemeral storage.
+     */
+    function saveActiveInlineMarker(markerData, artId) {
+        const key = arguments.length > 1 ? getActiveInlineMarkerKey(artId) : getActiveInlineMarkerKey();
+        if (!key || !markerData || typeof markerData !== 'object') return false;
+        const store = getDraftStore();
+        if (!store || typeof store.save !== 'function') return false;
+        try {
+            return store.save(key, JSON.stringify(markerData));
+        } catch (_) {
+            return false;
+        }
+    }
+
+    /**
+     * Loads active inline composer marker from ephemeral storage.
+     */
+    function loadActiveInlineMarker(artId) {
+        const key = arguments.length > 0 ? getActiveInlineMarkerKey(artId) : getActiveInlineMarkerKey();
+        if (!key) return null;
+        const store = getDraftStore();
+        if (!store || typeof store.load !== 'function') return null;
+        try {
+            const raw = store.load(key);
+            if (!raw || typeof raw !== 'string') return null;
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                return parsed;
+            }
+            if (store && typeof store.remove === 'function') {
+                store.remove(key);
+            }
+            return null;
+        } catch (_) {
+            if (store && typeof store.remove === 'function') {
+                store.remove(key);
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Removes active inline composer marker from ephemeral storage.
+     */
+    function removeActiveInlineMarker(artId) {
+        const key = arguments.length > 0 ? getActiveInlineMarkerKey(artId) : getActiveInlineMarkerKey();
+        if (!key) return;
+        const store = getDraftStore();
+        if (store && typeof store.remove === 'function') {
+            store.remove(key);
+        }
+    }
+
+    /**
+     * Saves reply draft into ephemeral storage.
+     */
+    function saveReplyDraft(targetCommentId, text, artId) {
+        const key = arguments.length > 2 ? getReplyDraftKey(targetCommentId, artId) : getReplyDraftKey(targetCommentId);
+        if (!key) return false;
+        const store = getDraftStore();
+        if (!store || typeof store.save !== 'function') return false;
+        return store.save(key, text);
+    }
+
+    /**
+     * Loads reply draft from ephemeral storage.
+     */
+    function loadReplyDraft(targetCommentId, artId) {
+        const key = arguments.length > 1 ? getReplyDraftKey(targetCommentId, artId) : getReplyDraftKey(targetCommentId);
+        if (!key) return null;
+        const store = getDraftStore();
+        if (!store || typeof store.load !== 'function') return null;
+        const draft = store.load(key);
+        return (typeof draft === 'string') ? draft : null;
+    }
+
+    /**
+     * Removes reply draft from ephemeral storage.
+     */
+    function removeReplyDraft(targetCommentId, artId) {
+        const key = arguments.length > 1 ? getReplyDraftKey(targetCommentId, artId) : getReplyDraftKey(targetCommentId);
+        if (!key) return;
+        const store = getDraftStore();
+        if (store && typeof store.remove === 'function') {
+            store.remove(key);
+        }
+    }
+
+    /**
+     * Saves edit draft into ephemeral storage.
+     */
+    function saveEditDraft(commentId, text, artId) {
+        const key = arguments.length > 2 ? getEditDraftKey(commentId, artId) : getEditDraftKey(commentId);
+        if (!key) return false;
+        const store = getDraftStore();
+        if (!store || typeof store.save !== 'function') return false;
+        return store.save(key, text);
+    }
+
+    /**
+     * Loads edit draft from ephemeral storage.
+     */
+    function loadEditDraft(commentId, artId) {
+        const key = arguments.length > 1 ? getEditDraftKey(commentId, artId) : getEditDraftKey(commentId);
+        if (!key) return null;
+        const store = getDraftStore();
+        if (!store || typeof store.load !== 'function') return null;
+        const draft = store.load(key);
+        return (typeof draft === 'string') ? draft : null;
+    }
+
+    /**
+     * Removes edit draft from ephemeral storage.
+     */
+    function removeEditDraft(commentId, artId) {
+        const key = arguments.length > 1 ? getEditDraftKey(commentId, artId) : getEditDraftKey(commentId);
+        if (!key) return;
+        const store = getDraftStore();
+        if (store && typeof store.remove === 'function') {
+            store.remove(key);
+        }
+    }
+
+    /**
+     * Finds comment context (comment item and authoritative thread root ID) by comment ID.
+     *
+     * @param {string} commentId - Comment ID to search for across loaded threads.
+     * @returns {{comment: object, rootCommentId: string}|null}
+     */
+    function findCommentContext(commentId) {
+        if (commentId == null) return null;
+        const strId = String(commentId).trim();
+        for (let i = 0; i < currentThreads.length; i++) {
+            const t = currentThreads[i];
+            if (!t || !t.root) continue;
+            const rootId = String(t.root.id);
+            if (rootId === strId) {
+                return {
+                    comment: t.root,
+                    rootCommentId: rootId
+                };
+            }
+            if (Array.isArray(t.replies)) {
+                for (let j = 0; j < t.replies.length; j++) {
+                    const rep = t.replies[j];
+                    if (rep && String(rep.id) === strId) {
+                        return {
+                            comment: rep,
+                            rootCommentId: rootId
+                        };
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds comment data across current threads in memory by comment ID.
+     */
+    function findCommentData(commentId) {
+        const ctx = findCommentContext(commentId);
+        return ctx ? ctx.comment : null;
+    }
+
+    /**
+     * Flushes currently active reply draft to ephemeral storage.
+     */
+    function flushActiveReplyDraft(doc) {
+        if (!activeReplyTargetCommentId || !activeReplyTextareaEl) return false;
+        const text = activeReplyTextareaEl.value;
+        const saved = saveReplyDraft(activeReplyTargetCommentId, text);
+        if (saved) {
+            saveActiveInlineMarker({
+                type: 'reply',
+                targetCommentId: activeReplyTargetCommentId,
+                rootCommentId: activeReplyRootCommentId || activeReplyTargetCommentId
+            });
+        }
+        return saved;
+    }
+
+    /**
+     * Flushes currently active edit draft to ephemeral storage if user has typed.
+     */
+    function flushActiveEditDraft(doc) {
+        if (!activeEditCommentId || !activeEditTextareaEl) return false;
+        const text = activeEditTextareaEl.value;
+        if (!activeEditHasUserTyped) {
+            const commentData = findCommentData(activeEditCommentId);
+            const initialBody = (commentData && commentData.body) ? commentData.body : '';
+            if (text === initialBody) {
+                return false; // Still unchanged server body
+            }
+            activeEditHasUserTyped = true;
+        }
+        const saved = saveEditDraft(activeEditCommentId, text);
+        if (saved) {
+            saveActiveInlineMarker({
+                type: 'edit',
+                commentId: activeEditCommentId,
+                rootCommentId: activeEditRootCommentId || activeEditCommentId
+            });
+        }
+        return saved;
+    }
+
+    /**
+     * Reopens active inline composer and restores draft after page reload or feed render.
+     */
+    function restoreActiveInlineComposer(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !articleId || !isAuthenticated) return;
+
+        const marker = loadActiveInlineMarker();
+        if (!marker || typeof marker !== 'object') return;
+
+        if (marker.type === 'reply') {
+            if (typeof marker.targetCommentId !== 'string' || !marker.targetCommentId.trim() ||
+                typeof marker.rootCommentId !== 'string' || !marker.rootCommentId.trim()) {
+                removeActiveInlineMarker();
+                return;
+            }
+            const targetCommentId = marker.targetCommentId.trim();
+
+            const ctx = findCommentContext(targetCommentId);
+            if (!ctx) {
+                return; // Target comment not loaded yet
+            }
+            const commentData = ctx.comment;
+            const actualRootId = ctx.rootCommentId;
+
+            if (commentData.tombstone === true) {
+                removeReplyDraft(targetCommentId);
+                removeActiveInlineMarker();
+                return;
+            }
+
+            const slot = d.querySelector('[data-reply-slot="' + targetCommentId + '"]');
+            if (!slot || slot.querySelector('.wiki-inline-composer')) return;
+
+            const authorName = (commentData.author && commentData.author.displayName) ? commentData.author.displayName : '';
+            openReplyComposer(targetCommentId, actualRootId, authorName, d);
+
+        } else if (marker.type === 'edit') {
+            if (typeof marker.commentId !== 'string' || !marker.commentId.trim() ||
+                typeof marker.rootCommentId !== 'string' || !marker.rootCommentId.trim()) {
+                removeActiveInlineMarker();
+                return;
+            }
+            const commentId = marker.commentId.trim();
+
+            const ctx = findCommentContext(commentId);
+            if (!ctx) {
+                return; // Comment not loaded yet
+            }
+            const commentData = ctx.comment;
+            const actualRootId = ctx.rootCommentId;
+
+            if (commentData.tombstone === true || commentData.canEdit !== true) {
+                removeEditDraft(commentId);
+                removeActiveInlineMarker();
+                return;
+            }
+
+            const bodyContainer = d.querySelector('[data-body-container="' + commentId + '"]');
+            if (!bodyContainer || bodyContainer.querySelector('form')) return;
+
+            openEditComposer(commentId, actualRootId, d);
+
+        } else {
+            removeActiveInlineMarker();
+        }
+    }
+
+    /**
      * Redirects unauthenticated guest to login URL safely.
      */
     function redirectToLogin(doc) {
@@ -603,6 +983,8 @@
             if (els.footerEl) {
                 els.footerEl.hidden = !hasNext;
             }
+
+            restoreActiveInlineComposer(d);
         } catch (err) {
             if (currentToken !== loadToken) return;
             if (els.statusEl) {
@@ -654,6 +1036,7 @@
                         threadEl.parentNode.replaceChild(newThreadEl, threadEl);
                     }
                 }
+                restoreActiveInlineComposer(d);
             } else if (res && res.status === 404) {
                 // Thread is deleted / pruned
                 if (threadEl && threadEl.parentNode) {
@@ -907,11 +1290,14 @@
             return;
         }
 
-        // Close any existing open inline composers first
+        // Close any existing open inline composers first (auto-flushes dirty draft)
         closeAllInlineComposers(d);
 
         const slot = d.querySelector('[data-reply-slot="' + targetCommentId + '"]');
         if (!slot) return;
+
+        const strTargetId = String(targetCommentId);
+        const strRootId = String(rootCommentId);
 
         const composerBox = d.createElement('div');
         composerBox.className = 'wiki-inline-composer';
@@ -922,7 +1308,7 @@
         const label = d.createElement('label');
         label.className = 'visually-hidden';
         label.textContent = 'Nội dung phản hồi';
-        const textareaId = 'wikiReplyInput_' + targetCommentId;
+        const textareaId = 'wikiReplyInput_' + strTargetId;
         label.setAttribute('for', textareaId);
         form.appendChild(label);
 
@@ -932,7 +1318,34 @@
         textarea.rows = 2;
         textarea.placeholder = authorName ? ('Trả lời @' + authorName + '...') : 'Viết phản hồi...';
         textarea.maxLength = 2000;
+
+        // Restore existing draft if present
+        const existingDraft = loadReplyDraft(strTargetId);
+        if (existingDraft && typeof existingDraft === 'string') {
+            textarea.value = existingDraft;
+        }
+
         form.appendChild(textarea);
+
+        // Update active marker & module state
+        saveActiveInlineMarker({ type: 'reply', targetCommentId: strTargetId, rootCommentId: strRootId });
+        activeReplyTargetCommentId = strTargetId;
+        activeReplyRootCommentId = strRootId;
+        activeReplyTextareaEl = textarea;
+
+        // Attach input listener with ~400ms debounce
+        textarea.addEventListener('input', function () {
+            if (activeReplyDebounceTimer) {
+                clearTimeout(activeReplyDebounceTimer);
+            }
+            activeReplyDebounceTimer = setTimeout(function () {
+                const saved = saveReplyDraft(strTargetId, textarea.value);
+                if (saved) {
+                    saveActiveInlineMarker({ type: 'reply', targetCommentId: strTargetId, rootCommentId: strRootId });
+                }
+                activeReplyDebounceTimer = null;
+            }, 400);
+        });
 
         const footer = d.createElement('div');
         footer.className = 'wiki-comment-composer-footer';
@@ -951,6 +1364,20 @@
         cancelBtn.className = 'wiki-comment-btn wiki-comment-btn--secondary';
         cancelBtn.textContent = 'Hủy';
         cancelBtn.addEventListener('click', function () {
+            if (activeReplyDebounceTimer) {
+                clearTimeout(activeReplyDebounceTimer);
+                activeReplyDebounceTimer = null;
+            }
+            removeReplyDraft(strTargetId);
+            const marker = loadActiveInlineMarker();
+            if (marker && marker.type === 'reply' && String(marker.targetCommentId) === strTargetId) {
+                removeActiveInlineMarker();
+            }
+            if (String(activeReplyTargetCommentId) === strTargetId) {
+                activeReplyTargetCommentId = null;
+                activeReplyRootCommentId = null;
+                activeReplyTextareaEl = null;
+            }
             clearElement(slot);
         });
         actionsDiv.appendChild(cancelBtn);
@@ -976,15 +1403,34 @@
                 return;
             }
 
+            if (!isAuthenticated) {
+                if (activeReplyDebounceTimer) {
+                    clearTimeout(activeReplyDebounceTimer);
+                    activeReplyDebounceTimer = null;
+                }
+                saveReplyDraft(strTargetId, textarea.value);
+                saveActiveInlineMarker({ type: 'reply', targetCommentId: strTargetId, rootCommentId: strRootId });
+                redirectToLogin(d);
+                return;
+            }
+
             if (isMutating) return;
             isMutating = true;
+
+            if (activeReplyDebounceTimer) {
+                clearTimeout(activeReplyDebounceTimer);
+                activeReplyDebounceTimer = null;
+            }
+            saveReplyDraft(strTargetId, textarea.value);
+            saveActiveInlineMarker({ type: 'reply', targetCommentId: strTargetId, rootCommentId: strRootId });
+
             submitBtn.disabled = true;
             cancelBtn.disabled = true;
             textarea.disabled = true;
             errorSpan.hidden = true;
 
             try {
-                const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments/' + encodeURIComponent(targetCommentId) + '/replies';
+                const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments/' + encodeURIComponent(strTargetId) + '/replies';
                 const res = await doFetch(url, {
                     method: 'POST',
                     headers: buildHeaders(true),
@@ -992,10 +1438,22 @@
                 });
 
                 if (res && res.status === 201) {
+                    removeReplyDraft(strTargetId);
+                    const marker = loadActiveInlineMarker();
+                    if (marker && marker.type === 'reply' && String(marker.targetCommentId) === strTargetId) {
+                        removeActiveInlineMarker();
+                    }
+                    if (String(activeReplyTargetCommentId) === strTargetId) {
+                        activeReplyTargetCommentId = null;
+                        activeReplyRootCommentId = null;
+                        activeReplyTextareaEl = null;
+                    }
                     clearElement(slot);
-                    await refreshThread(rootCommentId, d);
+                    await refreshThread(strRootId, d);
                     await refreshMetrics(d);
                 } else if (res && (res.status === 401 || res.status === 302 || res.redirected)) {
+                    saveReplyDraft(strTargetId, textarea.value);
+                    saveActiveInlineMarker({ type: 'reply', targetCommentId: strTargetId, rootCommentId: strRootId });
                     redirectToLogin(d);
                 } else if (res && res.status === 400) {
                     errorSpan.textContent = 'Nội dung phản hồi không hợp lệ.';
@@ -1034,33 +1492,35 @@
             return;
         }
 
-        const bodyContainer = d.querySelector('[data-body-container="' + commentId + '"]');
+        // Close any existing open inline composers first (auto-flushes dirty draft)
+        closeAllInlineComposers(d);
+
+        const strCommentId = String(commentId);
+        const strRootId = String(rootCommentId);
+
+        const bodyContainer = d.querySelector('[data-body-container="' + strCommentId + '"]');
         if (!bodyContainer) return;
 
         // Find current comment data
-        let commentData = null;
-        for (let i = 0; i < currentThreads.length; i++) {
-            const t = currentThreads[i];
-            if (!t) continue;
-            if (t.root && String(t.root.id) === String(commentId)) {
-                commentData = t.root;
-                break;
-            }
-            if (Array.isArray(t.replies)) {
-                for (let j = 0; j < t.replies.length; j++) {
-                    if (t.replies[j] && String(t.replies[j].id) === String(commentId)) {
-                        commentData = t.replies[j];
-                        break;
-                    }
-                }
-            }
-            if (commentData) break;
+        const commentData = findCommentData(strCommentId);
+        if (!commentData || commentData.tombstone === true || commentData.canEdit !== true) {
+            return;
         }
 
         const initialBody = (commentData && commentData.body) ? commentData.body : '';
 
+        // Check for existing draft in storage
+        const existingDraft = loadEditDraft(strCommentId);
+        let initialTextareaValue = initialBody;
+        let userHasTyped = false;
+        if (existingDraft && typeof existingDraft === 'string') {
+            initialTextareaValue = existingDraft;
+            userHasTyped = true;
+        }
+
         // Save previous DOM state for cancel
         const savedChildNodes = Array.from(bodyContainer.childNodes);
+        const savedTextContent = bodyContainer.textContent;
 
         clearElement(bodyContainer);
 
@@ -1070,7 +1530,7 @@
         const label = d.createElement('label');
         label.className = 'visually-hidden';
         label.textContent = 'Chỉnh sửa bình luận';
-        const textareaId = 'wikiEditInput_' + commentId;
+        const textareaId = 'wikiEditInput_' + strCommentId;
         label.setAttribute('for', textareaId);
         form.appendChild(label);
 
@@ -1078,9 +1538,34 @@
         textarea.id = textareaId;
         textarea.className = 'wiki-comment-textarea';
         textarea.rows = 3;
-        textarea.value = initialBody;
+        textarea.value = initialTextareaValue;
         textarea.maxLength = 2000;
         form.appendChild(textarea);
+
+        // Update active marker & module state
+        saveActiveInlineMarker({ type: 'edit', commentId: strCommentId, rootCommentId: strRootId });
+        activeEditCommentId = strCommentId;
+        activeEditRootCommentId = strRootId;
+        activeEditTextareaEl = textarea;
+        activeEditHasUserTyped = userHasTyped;
+        activeEditSavedChildNodes = savedChildNodes;
+        activeEditSavedTextContent = savedTextContent;
+        activeEditContainerEl = bodyContainer;
+
+        // Attach input listener with ~400ms debounce
+        textarea.addEventListener('input', function () {
+            activeEditHasUserTyped = true;
+            if (activeEditDebounceTimer) {
+                clearTimeout(activeEditDebounceTimer);
+            }
+            activeEditDebounceTimer = setTimeout(function () {
+                const saved = saveEditDraft(strCommentId, textarea.value);
+                if (saved) {
+                    saveActiveInlineMarker({ type: 'edit', commentId: strCommentId, rootCommentId: strRootId });
+                }
+                activeEditDebounceTimer = null;
+            }, 400);
+        });
 
         const footer = d.createElement('div');
         footer.className = 'wiki-comment-composer-footer';
@@ -1099,9 +1584,31 @@
         cancelBtn.className = 'wiki-comment-btn wiki-comment-btn--secondary';
         cancelBtn.textContent = 'Hủy';
         cancelBtn.addEventListener('click', function () {
+            if (activeEditDebounceTimer) {
+                clearTimeout(activeEditDebounceTimer);
+                activeEditDebounceTimer = null;
+            }
+            removeEditDraft(strCommentId);
+            const marker = loadActiveInlineMarker();
+            if (marker && marker.type === 'edit' && String(marker.commentId) === strCommentId) {
+                removeActiveInlineMarker();
+            }
+            if (String(activeEditCommentId) === strCommentId) {
+                activeEditCommentId = null;
+                activeEditRootCommentId = null;
+                activeEditTextareaEl = null;
+                activeEditHasUserTyped = false;
+                activeEditSavedChildNodes = null;
+                activeEditSavedTextContent = '';
+                activeEditContainerEl = null;
+            }
             clearElement(bodyContainer);
-            for (let i = 0; i < savedChildNodes.length; i++) {
-                bodyContainer.appendChild(savedChildNodes[i]);
+            if (savedChildNodes.length > 0) {
+                for (let i = 0; i < savedChildNodes.length; i++) {
+                    bodyContainer.appendChild(savedChildNodes[i]);
+                }
+            } else {
+                bodyContainer.textContent = savedTextContent;
             }
         });
         actionsDiv.appendChild(cancelBtn);
@@ -1119,37 +1626,81 @@
             if (e && typeof e.preventDefault === 'function') {
                 e.preventDefault();
             }
-            const newBody = textarea.value ? textarea.value.trim() : '';
-            if (!newBody) {
+            const rawBody = textarea.value || '';
+            const submittedBody = rawBody.trim();
+            if (!submittedBody) {
                 errorSpan.textContent = 'Vui lòng nhập nội dung bình luận.';
                 errorSpan.hidden = false;
                 textarea.focus();
                 return;
             }
 
+            if (!isAuthenticated) {
+                if (activeEditDebounceTimer) {
+                    clearTimeout(activeEditDebounceTimer);
+                    activeEditDebounceTimer = null;
+                }
+                if (activeEditHasUserTyped || rawBody !== initialBody) {
+                    activeEditHasUserTyped = true;
+                    saveEditDraft(strCommentId, rawBody);
+                }
+                saveActiveInlineMarker({ type: 'edit', commentId: strCommentId, rootCommentId: strRootId });
+                redirectToLogin(d);
+                return;
+            }
+
             if (isMutating) return;
             isMutating = true;
+
+            if (activeEditDebounceTimer) {
+                clearTimeout(activeEditDebounceTimer);
+                activeEditDebounceTimer = null;
+            }
+            if (activeEditHasUserTyped || rawBody !== initialBody) {
+                activeEditHasUserTyped = true;
+                saveEditDraft(strCommentId, rawBody);
+                saveActiveInlineMarker({ type: 'edit', commentId: strCommentId, rootCommentId: strRootId });
+            }
+
             submitBtn.disabled = true;
             cancelBtn.disabled = true;
             textarea.disabled = true;
             errorSpan.hidden = true;
 
             try {
-                const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments/' + encodeURIComponent(commentId);
+                const url = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments/' + encodeURIComponent(strCommentId);
                 const res = await doFetch(url, {
                     method: 'PATCH',
                     headers: buildHeaders(true),
-                    body: JSON.stringify({ body: newBody })
+                    body: JSON.stringify({ body: submittedBody })
                 });
 
                 if (res && res.status === 204) {
-                    await refreshThread(rootCommentId, d);
+                    removeEditDraft(strCommentId);
+                    const marker = loadActiveInlineMarker();
+                    if (marker && marker.type === 'edit' && String(marker.commentId) === strCommentId) {
+                        removeActiveInlineMarker();
+                    }
+                    if (String(activeEditCommentId) === strCommentId) {
+                        activeEditCommentId = null;
+                        activeEditRootCommentId = null;
+                        activeEditTextareaEl = null;
+                        activeEditHasUserTyped = false;
+                        activeEditSavedChildNodes = null;
+                        activeEditSavedTextContent = '';
+                        activeEditContainerEl = null;
+                    }
+                    await refreshThread(strRootId, d);
                 } else if (res && (res.status === 401 || res.status === 302 || res.redirected)) {
+                    if (activeEditHasUserTyped || rawBody !== initialBody) {
+                        saveEditDraft(strCommentId, rawBody);
+                    }
+                    saveActiveInlineMarker({ type: 'edit', commentId: strCommentId, rootCommentId: strRootId });
                     redirectToLogin(d);
                 } else if (res && res.status === 403) {
                     errorSpan.textContent = 'Bạn không có quyền chỉnh sửa bình luận này.';
                     errorSpan.hidden = false;
-                    await refreshThread(rootCommentId, d);
+                    await refreshThread(strRootId, d);
                 } else if (res && res.status === 400) {
                     errorSpan.textContent = 'Nội dung bình luận không hợp lệ.';
                     errorSpan.hidden = false;
@@ -1237,14 +1788,55 @@
     }
 
     /**
-     * Closes any open inline reply composers in the document.
+     * Closes any open inline composers (reply or edit) in the document.
+     * Auto-flushes dirty drafts to storage before clearing/restoring DOM.
      */
     function closeAllInlineComposers(doc) {
         const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
-        if (!d) return;
-        const slots = d.querySelectorAll('.wiki-reply-composer-slot');
-        for (let i = 0; i < slots.length; i++) {
-            clearElement(slots[i]);
+
+        // Auto-flush and clean up active reply composer
+        if (activeReplyTargetCommentId && activeReplyTextareaEl) {
+            if (activeReplyDebounceTimer) {
+                clearTimeout(activeReplyDebounceTimer);
+                activeReplyDebounceTimer = null;
+            }
+            flushActiveReplyDraft(d);
+        }
+        activeReplyTargetCommentId = null;
+        activeReplyRootCommentId = null;
+        activeReplyTextareaEl = null;
+
+        // Auto-flush and clean up active edit composer
+        if (activeEditCommentId && activeEditTextareaEl) {
+            if (activeEditDebounceTimer) {
+                clearTimeout(activeEditDebounceTimer);
+                activeEditDebounceTimer = null;
+            }
+            flushActiveEditDraft(d);
+            if (activeEditContainerEl) {
+                clearElement(activeEditContainerEl);
+                if (activeEditSavedChildNodes && activeEditSavedChildNodes.length > 0) {
+                    for (let i = 0; i < activeEditSavedChildNodes.length; i++) {
+                        activeEditContainerEl.appendChild(activeEditSavedChildNodes[i]);
+                    }
+                } else if (activeEditSavedTextContent) {
+                    activeEditContainerEl.textContent = activeEditSavedTextContent;
+                }
+            }
+        }
+        activeEditCommentId = null;
+        activeEditRootCommentId = null;
+        activeEditTextareaEl = null;
+        activeEditHasUserTyped = false;
+        activeEditSavedChildNodes = null;
+        activeEditSavedTextContent = '';
+        activeEditContainerEl = null;
+
+        if (d) {
+            const slots = d.querySelectorAll('.wiki-reply-composer-slot');
+            for (let i = 0; i < slots.length; i++) {
+                clearElement(slots[i]);
+            }
         }
     }
 
@@ -1936,7 +2528,30 @@
                     clearTimeout(rootDraftDebounceTimer);
                     rootDraftDebounceTimer = null;
                 }
+                if (activeReplyDebounceTimer) {
+                    clearTimeout(activeReplyDebounceTimer);
+                    activeReplyDebounceTimer = null;
+                }
+                if (activeEditDebounceTimer) {
+                    clearTimeout(activeEditDebounceTimer);
+                    activeEditDebounceTimer = null;
+                }
                 saveRootDraft(currentDoc);
+                flushActiveReplyDraft(currentDoc);
+                flushActiveEditDraft(currentDoc);
+                if (activeReplyTargetCommentId) {
+                    saveActiveInlineMarker({
+                        type: 'reply',
+                        targetCommentId: activeReplyTargetCommentId,
+                        rootCommentId: activeReplyRootCommentId || activeReplyTargetCommentId
+                    });
+                } else if (activeEditCommentId) {
+                    saveActiveInlineMarker({
+                        type: 'edit',
+                        commentId: activeEditCommentId,
+                        rootCommentId: activeEditRootCommentId || activeEditCommentId
+                    });
+                }
             };
             win.addEventListener('pagehide', rootDraftPageExitListener);
         }
@@ -2061,6 +2676,9 @@
         ensureHistoryModal: ensureHistoryModal,
         getHistoryElements: getHistoryElements,
         getExistingHistoryElements: getExistingHistoryElements,
+        closeAllInlineComposers: closeAllInlineComposers,
+        findCommentData: findCommentData,
+        findCommentContext: findCommentContext,
         getState: function () {
             return {
                 articleId: articleId,
@@ -2078,7 +2696,12 @@
                 historyCurrentPage: historyCurrentPage,
                 historyHasNext: historyHasNext,
                 historyIsLoading: historyIsLoading,
-                historyIsLoadingMore: historyIsLoadingMore
+                historyIsLoadingMore: historyIsLoadingMore,
+                activeReplyTargetCommentId: activeReplyTargetCommentId,
+                activeReplyRootCommentId: activeReplyRootCommentId,
+                activeEditCommentId: activeEditCommentId,
+                activeEditRootCommentId: activeEditRootCommentId,
+                activeEditHasUserTyped: activeEditHasUserTyped
             };
         },
         setFetchImplementation: function (fn) {
@@ -2095,6 +2718,21 @@
         restoreRootDraft: restoreRootDraft,
         removeRootDraft: removeRootDraft,
         getRootDraftKey: getRootDraftKey,
-        buildWikiRootDraftKey: getRootDraftKey
+        buildWikiRootDraftKey: getRootDraftKey,
+        getReplyDraftKey: getReplyDraftKey,
+        getEditDraftKey: getEditDraftKey,
+        getActiveInlineMarkerKey: getActiveInlineMarkerKey,
+        saveReplyDraft: saveReplyDraft,
+        loadReplyDraft: loadReplyDraft,
+        removeReplyDraft: removeReplyDraft,
+        saveEditDraft: saveEditDraft,
+        loadEditDraft: loadEditDraft,
+        removeEditDraft: removeEditDraft,
+        saveActiveInlineMarker: saveActiveInlineMarker,
+        loadActiveInlineMarker: loadActiveInlineMarker,
+        removeActiveInlineMarker: removeActiveInlineMarker,
+        flushActiveReplyDraft: flushActiveReplyDraft,
+        flushActiveEditDraft: flushActiveEditDraft,
+        restoreActiveInlineComposer: restoreActiveInlineComposer
     };
 }));
