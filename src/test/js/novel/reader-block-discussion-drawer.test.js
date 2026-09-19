@@ -817,6 +817,8 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const loadedPromise = new Promise(r => doc.addEventListener('kiemlai:block-discussion-loaded', r));
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -828,7 +830,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await loadedPromise;
 
         const scriptEl = content.querySelector('script');
         const imgEl = content.querySelector('img');
@@ -868,6 +870,8 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const loadedPromise = new Promise(r => doc.addEventListener('kiemlai:block-discussion-loaded', r));
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -879,7 +883,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await loadedPromise;
 
         const replyEls = content.querySelectorAll('.novel-comment--reply');
         assert.strictEqual(replyEls.length, 3);
