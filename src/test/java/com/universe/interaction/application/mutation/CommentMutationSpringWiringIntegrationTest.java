@@ -37,6 +37,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -85,6 +87,9 @@ class CommentMutationSpringWiringIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @org.springframework.boot.test.mock.mockito.MockBean
+    private com.universe.wiki.application.ports.WikiArticleQueryPort wikiArticleQueryPort;
 
     @Autowired
     private CommentRepositoryPort commentRepositoryPort;
@@ -264,13 +269,26 @@ class CommentMutationSpringWiringIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should reject root comment on WIKI_ARTICLE target (deferred to MS-05E6)")
-    void shouldRejectRootCommentOnWikiArticle() {
-        CommentTarget target = CommentTarget.wikiArticle(UUID.randomUUID());
-        CreateRootCommentCommand command = new CreateRootCommentCommand(USER_1_ID, target, "Wiki comment");
+    @DisplayName("Should reject root comment on unpublished Wiki article")
+    void shouldRejectRootCommentOnUnpublishedWikiArticle() {
+        UUID wikiArticleId = UUID.randomUUID();
+        when(wikiArticleQueryPort.isPublished(wikiArticleId)).thenReturn(false);
+
+        CommentTarget target = CommentTarget.wikiArticle(wikiArticleId);
+        CreateRootCommentCommand command = new CreateRootCommentCommand(USER_1_ID, target, "Wiki comment on unpublished");
 
         assertThatThrownBy(() -> createRootCommentUseCase.execute(command))
-                .isInstanceOf(CommentTargetNotEligibleException.class);
+                .isInstanceOf(CommentTargetNotEligibleException.class)
+                .hasMessageContaining("Comment target is not eligible for comments");
+
+        verify(wikiArticleQueryPort).isPublished(wikiArticleId);
+
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM interaction_comments WHERE target_id = ?",
+                Integer.class,
+                wikiArticleId.toString()
+        );
+        assertThat(count).isZero();
     }
 
     @Test
