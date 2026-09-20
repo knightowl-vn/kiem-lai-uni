@@ -217,6 +217,15 @@
     font-weight: 500;
 }
 
+.wiki-discussion-status--success {
+    padding: 16px 20px;
+    border: 1px solid rgba(25, 135, 84, 0.3);
+    border-radius: 10px;
+    background: rgba(25, 135, 84, 0.08);
+    color: #198754;
+    font-weight: 500;
+}
+
 /* =========================================================
    THREAD LIST & THREADS
    ========================================================= */

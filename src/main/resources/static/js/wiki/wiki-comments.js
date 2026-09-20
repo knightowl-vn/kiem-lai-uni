@@ -74,6 +74,7 @@
     // Injected implementations for testing
     let injectedFetch = null;
     let injectedConfirm = null;
+    let injectedReportModal = null;
 
     // Ephemeral Draft State (UX-DRAFT-01B)
     let rootDraftDebounceTimer = null;
@@ -171,6 +172,7 @@
         commentCount = 0;
         injectedFetch = null;
         injectedConfirm = null;
+        injectedReportModal = null;
     }
 
     /**
@@ -397,6 +399,19 @@
     }
 
     /**
+     * Displays a positive user-facing success feedback message in the discussion status region.
+     */
+    function showDiscussionSuccess(message, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const els = getElements(d);
+        if (els.statusEl) {
+            clearElement(els.statusEl);
+            els.statusEl.className = 'wiki-discussion-status wiki-discussion-status--success';
+            els.statusEl.textContent = message;
+        }
+    }
+
+    /**
      * Resolves the EphemeralDraftStore implementation.
      */
     function getDraftStore() {
@@ -414,6 +429,29 @@
         if (typeof require === 'function') {
             try {
                 return require('../shared/ephemeral-draft-store.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the CommentReportModal implementation.
+     */
+    function getReportModal() {
+        if (injectedReportModal) {
+            return injectedReportModal;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.CommentReportModal) return window.CommentReportModal;
+            if (window.KiemLai && window.KiemLai.CommentReportModal) return window.KiemLai.CommentReportModal;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.CommentReportModal) return globalThis.CommentReportModal;
+            if (globalThis.KiemLai && globalThis.KiemLai.CommentReportModal) return globalThis.KiemLai.CommentReportModal;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-report-modal.js');
             } catch (_) {}
         }
         return null;
@@ -1209,6 +1247,17 @@
             actionsContainer.appendChild(deleteBtn);
         }
 
+        if (!comment.canEdit && !comment.canDelete) {
+            const reportBtn = doc.createElement('button');
+            reportBtn.type = 'button';
+            reportBtn.className = 'wiki-comment-action-btn';
+            reportBtn.setAttribute('data-action', 'report');
+            reportBtn.setAttribute('data-comment-id', strCommentId);
+            reportBtn.setAttribute('data-root-id', String(rootCommentId));
+            reportBtn.textContent = 'Báo cáo';
+            actionsContainer.appendChild(reportBtn);
+        }
+
         headerEl.appendChild(actionsContainer);
         commentEl.appendChild(headerEl);
 
@@ -1218,7 +1267,9 @@
         bodyEl.setAttribute('data-body-container', strCommentId);
 
         if (isReply) {
-            const immediateParentName = resolveImmediateParentDisplayName(comment, thread.root, thread.replies);
+            const immediateParentName = thread
+                ? resolveImmediateParentDisplayName(comment, thread.root, thread.replies)
+                : null;
             if (immediateParentName) {
                 const mentionSpan = doc.createElement('span');
                 mentionSpan.className = 'wiki-comment-reply-mention';
@@ -1838,6 +1889,52 @@
                 clearElement(slots[i]);
             }
         }
+    }
+
+    /**
+     * Opens the shared CommentReportModal for a specific interaction comment on the current Wiki article.
+     *
+     * @param {string} commentId - Target comment ID
+     * @param {Element} [triggerEl] - Element that triggered open (for focus return)
+     * @param {Document} [doc] - Document context
+     * @returns {boolean} true if modal opened, false otherwise
+     */
+    function openReportModal(commentId, triggerEl, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+
+        if (!isAuthenticated) {
+            redirectToLogin(d);
+            return false;
+        }
+
+        if (!articleId || !commentId) {
+            return false;
+        }
+
+        const modal = getReportModal();
+        if (!modal || typeof modal.open !== 'function') {
+            return false;
+        }
+
+        const cleanCommentId = String(commentId).trim();
+        const submitUrl = '/api/wiki/articles/' + encodeURIComponent(articleId) + '/comments/' + encodeURIComponent(cleanCommentId) + '/reports';
+
+        return modal.open({
+            commentId: cleanCommentId,
+            submitUrl: submitUrl,
+            contextLabel: 'wiki',
+            triggerEl: triggerEl || null,
+            onSuccess: function (result) {
+                showDiscussionSuccess('Báo cáo của bạn đã được gửi thành công.', d);
+                if (triggerEl) {
+                    triggerEl.textContent = 'Đã báo cáo';
+                    triggerEl.disabled = true;
+                    if (typeof triggerEl.setAttribute === 'function') {
+                        triggerEl.setAttribute('title', 'Bạn đã gửi báo cáo cho bình luận này');
+                    }
+                }
+            }
+        });
     }
 
     /**
@@ -2600,6 +2697,13 @@
                     openEditComposer(commentId, rootCommentId, currentDoc);
                 } else if (action === 'delete' && commentId && rootCommentId) {
                     handleDeleteComment(commentId, rootCommentId, currentDoc);
+                } else if (action === 'report' && commentId) {
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    if (!isAuthenticated) {
+                        redirectToLogin(currentDoc);
+                        return;
+                    }
+                    openReportModal(commentId, actionBtn, currentDoc);
                 }
             });
         }
@@ -2733,6 +2837,12 @@
         removeActiveInlineMarker: removeActiveInlineMarker,
         flushActiveReplyDraft: flushActiveReplyDraft,
         flushActiveEditDraft: flushActiveEditDraft,
-        restoreActiveInlineComposer: restoreActiveInlineComposer
+        restoreActiveInlineComposer: restoreActiveInlineComposer,
+        openReportModal: openReportModal,
+        setReportModalImplementation: function (modal) {
+            injectedReportModal = modal;
+        },
+        getReportModal: getReportModal,
+        showDiscussionSuccess: showDiscussionSuccess
     };
 }));

@@ -56,6 +56,7 @@ class FakeElement {
         this._checked = false;
         this._textContent = '';
         this.isFocused = false;
+        this.style = {};
 
         for (const [k, v] of Object.entries(attributes)) {
             this.setAttribute(k, v);
@@ -1543,6 +1544,95 @@ describe('MS-05E / E8C2 — CommentReportModal Shared Component Tests', () => {
             assert.ok(mockStorage.getItem(keyA));
             const saved = JSON.parse(mockStorage.getItem(keyA)).value;
             assert.strictEqual(JSON.parse(saved).description, 'Brand new draft 2 in post-response race');
+        });
+    });
+
+    describe('11. Manual DOM Display Lifecycle', () => {
+        test('open, passive close, reopen, and submit success correctly manage hidden, class show, and style.display', async () => {
+            const doc = new FakeDocument();
+            const modal = CommentReportModal.createCommentReportModal({
+                doc: doc,
+                draftStore: draftStore,
+                fetch: async () => ({
+                    status: 201,
+                    json: async () => ({ id: 'rep-1', status: 'PENDING' })
+                })
+            });
+
+            // 1. Initial open
+            const opened = modal.open({
+                commentId: COMMENT_A,
+                submitUrl: SUBMIT_URL_A
+            });
+            assert.strictEqual(opened, true);
+            assert.strictEqual(modal.isOpen(), true);
+
+            const els = modal.getElements();
+            assert.strictEqual(els.modal.hidden, false);
+            assert.strictEqual(els.modal.hasAttribute('hidden'), false);
+            assert.strictEqual(els.modal.classList.contains('show'), true);
+            assert.strictEqual(els.modal.style.display, 'block');
+
+            assert.ok(els.backdrop, 'Backdrop element should exist');
+            assert.strictEqual(els.backdrop.hidden, false);
+            assert.strictEqual(els.backdrop.hasAttribute('hidden'), false);
+            assert.strictEqual(els.backdrop.classList.contains('show'), true);
+            assert.strictEqual(els.backdrop.style.display, 'block');
+            assert.strictEqual(els.backdrop.style.zIndex, '0', 'Backdrop must have local zIndex 0');
+
+            const dialogEl = els.dialog || els.modal.querySelector('.modal-dialog');
+            assert.ok(dialogEl, 'Modal dialog element must exist');
+            assert.strictEqual(dialogEl.style.position, 'relative', 'Dialog must have position relative');
+            assert.strictEqual(dialogEl.style.zIndex, '1', 'Dialog must have local zIndex 1');
+
+            // 2. Passive close
+            modal.close(false);
+            assert.strictEqual(modal.isOpen(), false);
+            assert.strictEqual(els.modal.hidden, true);
+            assert.strictEqual(els.modal.hasAttribute('hidden'), true);
+            assert.strictEqual(els.modal.classList.contains('show'), false);
+            assert.strictEqual(els.modal.style.display, 'none');
+
+            assert.strictEqual(els.backdrop.hidden, true);
+            assert.strictEqual(els.backdrop.hasAttribute('hidden'), true);
+            assert.strictEqual(els.backdrop.classList.contains('show'), false);
+            assert.strictEqual(els.backdrop.style.display, 'none');
+
+            // 3. Reopen must become visible again
+            const reopened = modal.open({
+                commentId: COMMENT_A,
+                submitUrl: SUBMIT_URL_A
+            });
+            assert.strictEqual(reopened, true);
+            assert.strictEqual(modal.isOpen(), true);
+            assert.strictEqual(els.modal.hidden, false);
+            assert.strictEqual(els.modal.hasAttribute('hidden'), false);
+            assert.strictEqual(els.modal.classList.contains('show'), true);
+            assert.strictEqual(els.modal.style.display, 'block');
+
+            assert.strictEqual(els.backdrop.hidden, false);
+            assert.strictEqual(els.backdrop.hasAttribute('hidden'), false);
+            assert.strictEqual(els.backdrop.classList.contains('show'), true);
+            assert.strictEqual(els.backdrop.style.display, 'block');
+            assert.strictEqual(els.backdrop.style.zIndex, '0', 'Backdrop must retain zIndex 0 on reopen');
+            assert.strictEqual(dialogEl.style.position, 'relative');
+            assert.strictEqual(dialogEl.style.zIndex, '1');
+
+            // 4. Successful submit leaves it hidden / display none
+            els.modal.querySelector('input[value="SPAM"]').checked = true;
+            els.form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(modal.isOpen(), false);
+            assert.strictEqual(els.modal.hidden, true);
+            assert.strictEqual(els.modal.hasAttribute('hidden'), true);
+            assert.strictEqual(els.modal.classList.contains('show'), false);
+            assert.strictEqual(els.modal.style.display, 'none');
+
+            assert.strictEqual(els.backdrop.hidden, true);
+            assert.strictEqual(els.backdrop.hasAttribute('hidden'), true);
+            assert.strictEqual(els.backdrop.classList.contains('show'), false);
+            assert.strictEqual(els.backdrop.style.display, 'none');
         });
     });
 });

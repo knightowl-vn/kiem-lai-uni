@@ -156,6 +156,7 @@
         let cancelBtnEl = null;
         let closeBtnEl = null;
         let backdropEl = null;
+        let dialogEl = null;
         let radioInputs = [];
 
         function resolveDraftStore() {
@@ -532,16 +533,29 @@
             modalEl.setAttribute('tabindex', '-1');
             modalEl.hidden = true;
             modalEl.setAttribute('hidden', '');
+            if (modalEl.style) {
+                modalEl.style.display = 'none';
+            }
 
             // Backdrop
             backdropEl = d.createElement('div');
             backdropEl.className = 'modal-backdrop fade comment-report-backdrop';
             backdropEl.setAttribute('data-action', 'passive-close');
+            backdropEl.hidden = true;
+            backdropEl.setAttribute('hidden', '');
+            if (backdropEl.style) {
+                backdropEl.style.display = 'none';
+                backdropEl.style.zIndex = '0';
+            }
 
             // Dialog & Content
-            const dialog = d.createElement('div');
-            dialog.className = 'modal-dialog modal-dialog-centered';
-            dialog.setAttribute('role', 'document');
+            dialogEl = d.createElement('div');
+            dialogEl.className = 'modal-dialog modal-dialog-centered';
+            dialogEl.setAttribute('role', 'document');
+            if (dialogEl.style) {
+                dialogEl.style.position = 'relative';
+                dialogEl.style.zIndex = '1';
+            }
 
             const content = d.createElement('div');
             content.className = 'modal-content';
@@ -714,10 +728,10 @@
 
             content.appendChild(header);
             content.appendChild(formEl);
-            dialog.appendChild(content);
+            dialogEl.appendChild(content);
 
             modalEl.appendChild(backdropEl);
-            modalEl.appendChild(dialog);
+            modalEl.appendChild(dialogEl);
 
             attachInternalListeners();
 
@@ -745,6 +759,14 @@
             cancelBtnEl = modalEl.querySelector('.comment-report-btn-cancel') || modalEl.querySelector('[data-action="explicit-cancel"]');
             closeBtnEl = modalEl.querySelector('.comment-report-btn-close') || modalEl.querySelector('[data-action="passive-close"]');
             backdropEl = modalEl.querySelector('.comment-report-backdrop') || modalEl.querySelector('.modal-backdrop');
+            dialogEl = modalEl.querySelector('.modal-dialog');
+            if (dialogEl && dialogEl.style) {
+                dialogEl.style.position = 'relative';
+                dialogEl.style.zIndex = '1';
+            }
+            if (backdropEl && backdropEl.style) {
+                backdropEl.style.zIndex = '0';
+            }
 
             const queriedRadios = modalEl.querySelectorAll ? modalEl.querySelectorAll('input[name="commentReportReason"]') : [];
             radioInputs = Array.from(queriedRadios);
@@ -1029,12 +1051,23 @@
             if (modalEl.classList) {
                 modalEl.classList.add('show');
             }
+            if (modalEl.style) {
+                modalEl.style.display = 'block';
+            }
             if (backdropEl) {
                 backdropEl.hidden = false;
                 backdropEl.removeAttribute('hidden');
                 if (backdropEl.classList) {
                     backdropEl.classList.add('show');
                 }
+                if (backdropEl.style) {
+                    backdropEl.style.display = 'block';
+                    backdropEl.style.zIndex = '0';
+                }
+            }
+            if (dialogEl && dialogEl.style) {
+                dialogEl.style.position = 'relative';
+                dialogEl.style.zIndex = '1';
             }
         }
 
@@ -1045,11 +1078,17 @@
             if (modalEl.classList) {
                 modalEl.classList.remove('show');
             }
+            if (modalEl.style) {
+                modalEl.style.display = 'none';
+            }
             if (backdropEl) {
                 backdropEl.hidden = true;
                 backdropEl.setAttribute('hidden', '');
                 if (backdropEl.classList) {
                     backdropEl.classList.remove('show');
+                }
+                if (backdropEl.style) {
+                    backdropEl.style.display = 'none';
                 }
             }
         }
@@ -1247,6 +1286,7 @@
             cancelBtnEl = null;
             closeBtnEl = null;
             backdropEl = null;
+            dialogEl = null;
             radioInputs = [];
             activeCommentId = null;
             activeSubmitUrl = null;
@@ -1288,6 +1328,7 @@
                     cancelBtn: cancelBtnEl,
                     closeBtn: closeBtnEl,
                     backdrop: backdropEl,
+                    dialog: dialogEl,
                     radios: radioInputs
                 };
             }

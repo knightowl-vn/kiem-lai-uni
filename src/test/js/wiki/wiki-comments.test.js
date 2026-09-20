@@ -4,6 +4,7 @@ const path = require('path');
 
 const wikiCommentsModule = require(path.join(__dirname, '../../../main/resources/static/js/wiki/wiki-comments.js'));
 const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
+const CommentReportModal = require(path.join(__dirname, '../../../main/resources/static/js/shared/comment-report-modal.js'));
 
 // ============================================================================
 // Lightweight DOM Test Fixtures
@@ -5425,6 +5426,397 @@ describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', (
         await wikiCommentsModule.refreshFeed(doc);
         const bodyContainerAfter = doc.querySelector('[data-body-container="' + ROOT_ID + '"]');
         assert.strictEqual(bodyContainerAfter.querySelectorAll('form').length, 1);
+    });
+
+    test('50. Report button renders on non-owner active root comments and replies, but omitted on self comments and tombstones', async () => {
+        const doc = createEnvironment();
+
+        // 1. Non-owner root comment (canEdit: false, canDelete: false, tombstone: false)
+        const nonOwnerRoot = {
+            id: 'root-other-1',
+            authorUserId: 'other-user-1',
+            body: 'Comment by someone else',
+            tombstone: false,
+            createdAt: '2026-09-19T10:00:00Z',
+            updatedAt: '2026-09-19T10:00:00Z',
+            canEdit: false,
+            canDelete: false
+        };
+        const renderedNonOwnerRoot = wikiCommentsModule.renderComment(nonOwnerRoot, 'root-other-1', null, false, doc);
+        const reportBtnRoot = renderedNonOwnerRoot.querySelector('[data-action="report"]');
+        assert.ok(reportBtnRoot, 'Report button must be rendered on non-owner active root');
+        assert.strictEqual(reportBtnRoot.getAttribute('data-comment-id'), 'root-other-1');
+        assert.strictEqual(reportBtnRoot.getAttribute('data-root-id'), 'root-other-1');
+        assert.strictEqual(reportBtnRoot.textContent, 'Báo cáo');
+        assert.ok(reportBtnRoot.className.includes('wiki-comment-action-btn'));
+
+        // 2. Non-owner reply comment (canEdit: false, canDelete: false, tombstone: false)
+        const nonOwnerReply = {
+            id: 'reply-other-1',
+            parentCommentId: 'root-other-1',
+            authorUserId: 'other-user-2',
+            body: 'Reply by someone else',
+            tombstone: false,
+            createdAt: '2026-09-19T10:05:00Z',
+            updatedAt: '2026-09-19T10:05:00Z',
+            canEdit: false,
+            canDelete: false
+        };
+        const renderedNonOwnerReply = wikiCommentsModule.renderComment(nonOwnerReply, 'root-other-1', null, true, doc);
+        const reportBtnReply = renderedNonOwnerReply.querySelector('[data-action="report"]');
+        assert.ok(reportBtnReply, 'Report button must be rendered on non-owner active reply');
+        assert.strictEqual(reportBtnReply.getAttribute('data-comment-id'), 'reply-other-1');
+        assert.strictEqual(reportBtnReply.getAttribute('data-root-id'), 'root-other-1');
+        assert.strictEqual(reportBtnReply.textContent, 'Báo cáo');
+
+        // 3. Self root comment (canEdit: true, canDelete: true)
+        const selfRoot = {
+            id: 'root-self-1',
+            authorUserId: 'current-user-1',
+            body: 'My own comment',
+            tombstone: false,
+            createdAt: '2026-09-19T10:00:00Z',
+            updatedAt: '2026-09-19T10:00:00Z',
+            canEdit: true,
+            canDelete: true
+        };
+        const renderedSelfRoot = wikiCommentsModule.renderComment(selfRoot, 'root-self-1', null, false, doc);
+        assert.strictEqual(renderedSelfRoot.querySelector('[data-action="report"]'), null, 'Report button must NOT be rendered on self root comment');
+
+        // 4. Self reply comment (canEdit: true, canDelete: true)
+        const selfReply = {
+            id: 'reply-self-1',
+            parentCommentId: 'root-self-1',
+            authorUserId: 'current-user-1',
+            body: 'My own reply',
+            tombstone: false,
+            createdAt: '2026-09-19T10:05:00Z',
+            updatedAt: '2026-09-19T10:05:00Z',
+            canEdit: true,
+            canDelete: true
+        };
+        const renderedSelfReply = wikiCommentsModule.renderComment(selfReply, 'root-self-1', null, true, doc);
+        assert.strictEqual(renderedSelfReply.querySelector('[data-action="report"]'), null, 'Report button must NOT be rendered on self reply comment');
+
+        // 5. Tombstone comment (tombstone: true)
+        const tombstoneComment = {
+            id: 'root-tombstone-1',
+            body: '',
+            tombstone: true,
+            canEdit: false,
+            canDelete: false
+        };
+        const renderedTombstone = wikiCommentsModule.renderComment(tombstoneComment, 'root-tombstone-1', null, false, doc);
+        assert.strictEqual(renderedTombstone.querySelector('[data-action="report"]'), null, 'Report button must NOT be rendered on tombstone comment');
+    });
+
+    test('51. Active descendant under tombstoned intermediate reply remains reportable', async () => {
+        const doc = createEnvironment();
+
+        const activeRootId = 'root-active-1';
+        const intermediateReplyId = 'reply-tombstone-A';
+        const descendantReplyId = 'reply-active-B';
+
+        const threadFixture = {
+            root: {
+                id: activeRootId,
+                authorUserId: 'user-root-1',
+                body: 'Active root comment',
+                tombstone: false,
+                createdAt: '2026-09-19T10:00:00Z',
+                updatedAt: '2026-09-19T10:00:00Z',
+                author: { displayName: 'Root Author' },
+                canEdit: false,
+                canDelete: false
+            },
+            replies: [
+                {
+                    id: intermediateReplyId,
+                    parentCommentId: activeRootId,
+                    authorUserId: 'user-reply-A',
+                    body: '',
+                    tombstone: true,
+                    createdAt: '2026-09-19T10:05:00Z',
+                    updatedAt: '2026-09-19T10:05:00Z',
+                    author: null,
+                    canEdit: false,
+                    canDelete: false
+                },
+                {
+                    id: descendantReplyId,
+                    parentCommentId: intermediateReplyId, // B parentCommentId references tombstoned A
+                    authorUserId: 'user-reply-B',
+                    body: 'Active reply under tombstoned reply A',
+                    tombstone: false,
+                    createdAt: '2026-09-19T10:10:00Z',
+                    updatedAt: '2026-09-19T10:10:00Z',
+                    author: { displayName: 'Descendant Author' },
+                    canEdit: false,
+                    canDelete: false
+                }
+            ]
+        };
+
+        const renderedThread = wikiCommentsModule.renderThread(threadFixture, doc);
+
+        // 1. Root is active and has Report action (as non-owner)
+        const rootCommentEl = renderedThread.querySelector('[data-comment-id="' + activeRootId + '"]');
+        assert.ok(rootCommentEl, 'Root comment element must exist');
+        assert.strictEqual(rootCommentEl.classList.contains('is-tombstone'), false, 'Root must be active');
+        const rootReportBtn = rootCommentEl.querySelector('[data-action="report"]');
+        assert.ok(rootReportBtn, 'Non-owner active root has report action');
+        assert.strictEqual(rootReportBtn.getAttribute('data-comment-id'), activeRootId);
+
+        // 2. Intermediate reply A renders tombstone and has NO Report action
+        const intermediateEl = renderedThread.querySelector('[data-comment-id="' + intermediateReplyId + '"]');
+        assert.ok(intermediateEl, 'Intermediate reply element must exist');
+        assert.strictEqual(intermediateEl.classList.contains('is-tombstone'), true, 'Intermediate reply A must render tombstone');
+        assert.strictEqual(
+            intermediateEl.querySelector('[data-action="report"]'),
+            null,
+            'Tombstoned intermediate reply A must have NO Report action'
+        );
+
+        // 3. Descendant reply B remains active and HAS Report action
+        const descendantEl = renderedThread.querySelector('[data-comment-id="' + descendantReplyId + '"]');
+        assert.ok(descendantEl, 'Descendant reply B element must exist');
+        assert.strictEqual(descendantEl.classList.contains('is-tombstone'), false, 'Descendant reply B must be active');
+        const descendantReportBtn = descendantEl.querySelector('[data-action="report"]');
+        assert.ok(descendantReportBtn, 'Active descendant reply B must have Report action');
+
+        // 4. Assert B report target is B own commentId and root-id references thread root
+        assert.strictEqual(
+            descendantReportBtn.getAttribute('data-comment-id'),
+            descendantReplyId,
+            'B report target must be B own commentId'
+        );
+        assert.strictEqual(
+            descendantReportBtn.getAttribute('data-root-id'),
+            activeRootId,
+            'B report root-id must reference thread root'
+        );
+
+        // 5. Assert B parentCommentId references tombstoned A in fixture
+        assert.strictEqual(threadFixture.replies[1].parentCommentId, intermediateReplyId);
+    });
+
+    test('52. Unauthenticated guest clicking Báo cáo triggers login redirection with returnTo and does NOT open modal', async () => {
+        const doc = createEnvironment({ authenticated: 'false' });
+        let modalOpenCalled = false;
+
+        wikiCommentsModule.setReportModalImplementation({
+            open: () => {
+                modalOpenCalled = true;
+                return true;
+            }
+        });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: ROOT_ID,
+                        authorUserId: 'other-user-1',
+                        body: 'Public comment',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        assert.ok(reportBtn, 'Report button should exist for unauthenticated guest on public comment');
+
+        // Click report button as guest
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        // Assert redirect to login occurred
+        assert.strictEqual(modalOpenCalled, false, 'Modal open must NOT be called for unauthenticated guest');
+        assert.ok(doc.defaultView.location.href.includes('/login'), 'Guest must be redirected to login URL');
+        assert.ok(doc.defaultView.location.href.includes('returnTo'), 'Login URL must contain returnTo parameter');
+    });
+
+    test('53. Authenticated user clicking Báo cáo delegates to CommentReportModal with correct arguments', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let capturedOpenParams = null;
+
+        wikiCommentsModule.setReportModalImplementation({
+            open: (params) => {
+                capturedOpenParams = params;
+                return true;
+            }
+        });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: ROOT_ID,
+                        authorUserId: 'other-user-1',
+                        body: 'Reportable comment',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        assert.ok(reportBtn);
+
+        // Click report button as authenticated user
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        assert.ok(capturedOpenParams, 'CommentReportModal.open must have been called');
+        assert.strictEqual(capturedOpenParams.commentId, ROOT_ID);
+        assert.strictEqual(
+            capturedOpenParams.submitUrl,
+            '/api/wiki/articles/' + encodeURIComponent(ARTICLE_ID) + '/comments/' + encodeURIComponent(ROOT_ID) + '/reports'
+        );
+        assert.strictEqual(capturedOpenParams.contextLabel, 'wiki');
+        assert.strictEqual(capturedOpenParams.triggerEl, reportBtn);
+        assert.strictEqual(typeof capturedOpenParams.onSuccess, 'function');
+    });
+
+    test('54. Report submit success callback provides user feedback without leaking internal reportId and disables trigger button', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let capturedOnSuccess = null;
+
+        wikiCommentsModule.setReportModalImplementation({
+            open: (params) => {
+                capturedOnSuccess = params.onSuccess;
+                return true;
+            }
+        });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: ROOT_ID,
+                        authorUserId: 'other-user-1',
+                        body: 'Reportable comment',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(typeof capturedOnSuccess, 'function');
+
+        // Trigger the onSuccess callback with server response data
+        const serverResponse = {
+            id: 'secret-report-uuid-8888-9999',
+            status: 'PENDING',
+            createdAt: '2026-09-20T08:00:00Z'
+        };
+        capturedOnSuccess(serverResponse);
+
+        // Assert polite user feedback in status region
+        const statusEl = doc.getElementById(wikiCommentsModule.STATUS_ID);
+        assert.ok(statusEl, 'Status element must exist');
+        assert.ok(statusEl.textContent.includes('thành công'), 'Status message must indicate success');
+        assert.ok(statusEl.className.includes('wiki-discussion-status--success'), 'Status element must have success class');
+
+        // Assert internal reportId is NOT leaked
+        assert.strictEqual(
+            statusEl.textContent.includes('secret-report-uuid-8888-9999'),
+            false,
+            'Internal reportId must NEVER be leaked to user-facing feedback'
+        );
+
+        // Assert trigger button feedback
+        assert.strictEqual(reportBtn.textContent, 'Đã báo cáo');
+        assert.strictEqual(reportBtn.disabled, true);
+    });
+
+    test('55. Route isolation: Wiki submit URL strictly adheres to /api/wiki/articles/{articleId}/comments/{commentId}/reports', async () => {
+        const doc = createEnvironment({ authenticated: 'true', articleIdVal: 'art-special-uuid' });
+        let capturedSubmitUrl = null;
+
+        wikiCommentsModule.setReportModalImplementation({
+            open: (params) => {
+                capturedSubmitUrl = params.submitUrl;
+                return true;
+            }
+        });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: 'comment-special-1',
+                        authorUserId: 'other-user-1',
+                        body: 'Route isolation test',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(capturedSubmitUrl, '/api/wiki/articles/art-special-uuid/comments/comment-special-1/reports');
+        assert.ok(!capturedSubmitUrl.includes('/novel/'), 'Must NOT target novel routes');
+        assert.ok(!capturedSubmitUrl.includes('/chapter/'), 'Must NOT target chapter routes');
+    });
+
+    test('56. Module integration defaults to CommentReportModal singleton', () => {
+        wikiCommentsModule.resetState();
+        const resolvedModal = wikiCommentsModule.getReportModal();
+        assert.strictEqual(resolvedModal, CommentReportModal, 'Production code must resolve to CommentReportModal singleton');
+        assert.strictEqual(typeof resolvedModal.open, 'function', 'CommentReportModal.open must be a callable singleton function');
     });
 });
 
