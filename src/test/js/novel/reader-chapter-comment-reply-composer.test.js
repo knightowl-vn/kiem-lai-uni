@@ -348,13 +348,18 @@ class FakeDocument {
 function createReplyFixture(options = {}) {
     const doc = new FakeDocument();
     const chapterId = options.chapterId || 'chap-reply-1';
+    const chapterSlug = options.chapterSlug || 'chuong-1';
     const authenticated = options.authenticated !== undefined ? options.authenticated : true;
+
+    if (options.location) {
+        doc.defaultView = { location: options.location };
+    }
 
     const section = doc.createElement('section');
     section.setAttribute('id', 'novelChapterComments');
     section.className = 'novel-chapter-comments';
     section.setAttribute('data-chapter-id', chapterId);
-    section.setAttribute('data-chapter-slug', 'chuong-1');
+    section.setAttribute('data-chapter-slug', chapterSlug);
     section.setAttribute('data-authenticated', authenticated ? 'true' : 'false');
 
     const statusEl = doc.createElement('div');
@@ -478,7 +483,7 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         assert.strictEqual(replyComposerModule.getActiveComposer(), null);
     });
 
-    test('2. Unauthenticated user clicking "Phản hồi" on root renders guest prompt with login link', () => {
+    test('2. Unauthenticated user clicking "Phản hồi" on root renders guest prompt with login link targeting #novelChapterComments', () => {
         const fixture = createReplyFixture({ authenticated: false });
         replyComposerModule.init(fixture.doc);
 
@@ -489,9 +494,115 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         assert.ok(prompt.textContent.includes('Đăng nhập để phản hồi.'));
         const link = prompt.querySelector('.novel-chapter-comment-login-link');
         assert.ok(link);
-        assert.ok(link.getAttribute('href').includes('/login?returnTo='));
+
+        const expectedReturn = '/novel/chapters/chuong-1#novelChapterComments';
+        const expectedHref = '/login?returnTo=' + encodeURIComponent(expectedReturn);
+        assert.strictEqual(link.getAttribute('href'), expectedHref, 'Login link href must contain encoded canonical return target with #novelChapterComments');
+
+        const returnParam = new URL(link.getAttribute('href'), 'https://example.com').searchParams.get('returnTo');
+        assert.strictEqual(returnParam, expectedReturn, 'Decoded returnTo must exactly target fallback slug with #novelChapterComments');
+
         assert.strictEqual(replyComposerModule.getActiveComposer(), null);
         assert.strictEqual(replyComposerModule.getActiveGuestPrompt(), prompt);
+    });
+
+    test('2a. Guest clicking "Phản hồi" with browser location preserving query string targets exact path, query, and #novelChapterComments', () => {
+        const fixture = createReplyFixture({
+            authenticated: false,
+            location: {
+                pathname: '/novel/chapters/test-chapter',
+                search: '?ref=reader'
+            }
+        });
+        replyComposerModule.init(fixture.doc);
+
+        fixture.root1ReplyBtn.click();
+
+        const prompt = fixture.root1.querySelector('.novel-chapter-comment-reply-guest-prompt');
+        assert.ok(prompt, 'Guest prompt must be rendered under root comment');
+        const link = prompt.querySelector('.novel-chapter-comment-login-link');
+        assert.ok(link, 'Login link must exist');
+
+        const expectedReturn = '/novel/chapters/test-chapter?ref=reader#novelChapterComments';
+        const expectedHref = '/login?returnTo=' + encodeURIComponent(expectedReturn);
+        assert.strictEqual(link.getAttribute('href'), expectedHref, 'Login link href must match encoded path, query, and #novelChapterComments');
+
+        const returnParam = new URL(link.getAttribute('href'), 'https://example.com').searchParams.get('returnTo');
+        assert.strictEqual(returnParam, expectedReturn, 'Decoded returnTo must exactly preserve query string and append #novelChapterComments');
+    });
+
+    test('2b. Guest clicking "Phản hồi" with browser location without query targets exact path and #novelChapterComments', () => {
+        const fixture = createReplyFixture({
+            authenticated: false,
+            location: {
+                pathname: '/novel/chapters/quyen-1-chuong-1',
+                search: ''
+            }
+        });
+        replyComposerModule.init(fixture.doc);
+
+        fixture.root1ReplyBtn.click();
+
+        const prompt = fixture.root1.querySelector('.novel-chapter-comment-reply-guest-prompt');
+        assert.ok(prompt);
+        const link = prompt.querySelector('.novel-chapter-comment-login-link');
+        assert.ok(link);
+
+        const expectedReturn = '/novel/chapters/quyen-1-chuong-1#novelChapterComments';
+        const expectedHref = '/login?returnTo=' + encodeURIComponent(expectedReturn);
+        assert.strictEqual(link.getAttribute('href'), expectedHref);
+
+        const returnParam = new URL(link.getAttribute('href'), 'https://example.com').searchParams.get('returnTo');
+        assert.strictEqual(returnParam, expectedReturn, 'Decoded returnTo without query must target exact path and #novelChapterComments');
+    });
+
+    test('2c. Guest clicking "Phản hồi" discards unrelated existing hash in location and strictly targets #novelChapterComments', () => {
+        const fixture = createReplyFixture({
+            authenticated: false,
+            location: {
+                pathname: '/novel/chapters/quyen-1-chuong-1',
+                search: '?ref=test',
+                hash: '#unrelatedExistingAnchor'
+            }
+        });
+        replyComposerModule.init(fixture.doc);
+
+        fixture.root1ReplyBtn.click();
+
+        const prompt = fixture.root1.querySelector('.novel-chapter-comment-reply-guest-prompt');
+        assert.ok(prompt);
+        const link = prompt.querySelector('.novel-chapter-comment-login-link');
+        assert.ok(link);
+
+        const expectedReturn = '/novel/chapters/quyen-1-chuong-1?ref=test#novelChapterComments';
+        const expectedHref = '/login?returnTo=' + encodeURIComponent(expectedReturn);
+        assert.strictEqual(link.getAttribute('href'), expectedHref);
+
+        const returnParam = new URL(link.getAttribute('href'), 'https://example.com').searchParams.get('returnTo');
+        assert.strictEqual(returnParam, expectedReturn);
+        assert.strictEqual(returnParam.includes('unrelatedExistingAnchor'), false, 'Unrelated hash must not be preserved');
+    });
+
+    test('2d. Guest clicking "Phản hồi" with fallback slug and special characters properly encodes slug and targets #novelChapterComments', () => {
+        const fixture = createReplyFixture({
+            authenticated: false,
+            chapterSlug: 'tap-1/chuong-1'
+        });
+        replyComposerModule.init(fixture.doc);
+
+        fixture.root1ReplyBtn.click();
+
+        const prompt = fixture.root1.querySelector('.novel-chapter-comment-reply-guest-prompt');
+        assert.ok(prompt, 'Guest prompt must be rendered under root comment');
+        const link = prompt.querySelector('.novel-chapter-comment-login-link');
+        assert.ok(link, 'Login link must exist');
+
+        const expectedReturn = '/novel/chapters/' + encodeURIComponent('tap-1/chuong-1') + '#novelChapterComments';
+        const expectedHref = '/login?returnTo=' + encodeURIComponent(expectedReturn);
+        assert.strictEqual(link.getAttribute('href'), expectedHref, 'Login link href must contain encoded return target');
+
+        const returnParam = new URL(link.getAttribute('href'), 'https://example.com').searchParams.get('returnTo');
+        assert.strictEqual(returnParam, expectedReturn, 'Decoded returnTo must exactly match expected target');
     });
 
     test('3. Unauthenticated user clicking "Phản hồi" on reply renders guest prompt under that reply', () => {
@@ -503,6 +614,12 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         const prompt = fixture.reply1.querySelector('.novel-chapter-comment-reply-guest-prompt');
         assert.ok(prompt, 'Guest prompt must be rendered under reply comment');
         assert.ok(prompt.textContent.includes('Đăng nhập để phản hồi.'));
+        const link = prompt.querySelector('.novel-chapter-comment-login-link');
+        assert.ok(link);
+        assert.strictEqual(
+            link.getAttribute('href'),
+            '/login?returnTo=' + encodeURIComponent('/novel/chapters/chuong-1#novelChapterComments')
+        );
     });
 
     test('4. Guest prompt toggle: clicking "Phản hồi" again on same comment closes the guest prompt', () => {

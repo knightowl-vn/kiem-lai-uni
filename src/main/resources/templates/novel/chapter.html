@@ -384,7 +384,7 @@
         <!-- Anonymous Participation Prompt (MS-05E5H2F1) -->
         <div class="novel-chapter-comment-anonymous-prompt" sec:authorize="isAnonymous()">
             <span>
-                <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug})}" class="novel-chapter-comment-login-link">Đăng nhập</a> để bình luận.
+                <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug + '#novelChapterComments'})}" class="novel-chapter-comment-login-link">Đăng nhập</a> để bình luận.
             </span>
         </div>
 

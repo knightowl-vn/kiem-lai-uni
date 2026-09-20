@@ -561,21 +561,31 @@
 
     /**
      * Resolves returnTo parameter for guest login link.
+     * Always targets the canonical #novelChapterComments anchor.
      *
      * @param {Document} [doc]
      * @param {Element} [sectionEl]
      * @returns {string}
      */
     function resolveLoginReturnUrl(doc, sectionEl) {
-        if (typeof window !== 'undefined' && window.location && window.location.pathname) {
-            return window.location.pathname + (window.location.search || '');
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        let loc = null;
+        if (d && d.defaultView && d.defaultView.location && d.defaultView.location.pathname) {
+            loc = d.defaultView.location;
+        } else if (typeof window !== 'undefined' && window.location && window.location.pathname) {
+            loc = window.location;
         }
+
+        if (loc && loc.pathname) {
+            return loc.pathname + (loc.search || '') + '#' + SECTION_ID;
+        }
+
         const sec = sectionEl || resolveSection(doc);
         if (sec) {
             const slug = (typeof sec.getAttribute === 'function' ? sec.getAttribute('data-chapter-slug') : null) ||
                 (sec.dataset && sec.dataset.chapterSlug);
             if (slug) {
-                return '/novel/chapters/' + encodeURIComponent(slug);
+                return '/novel/chapters/' + encodeURIComponent(slug) + '#' + SECTION_ID;
             }
         }
         return '';
