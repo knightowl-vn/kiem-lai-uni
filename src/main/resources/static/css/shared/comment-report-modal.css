@@ -1,0 +1,382 @@
+/**
+ * KiemLai Universe — Shared Comment Report Modal Styles (MS-05E/E8C4)
+ *
+ * Scoped strictly to .comment-report-modal and its descendants.
+ * Reuses KiemLai Reader & Theme design tokens with graceful light/dark fallbacks.
+ */
+
+:root {
+    --comment-report-max-width: 32rem;
+}
+
+/* Modal Root Container & Layout */
+.comment-report-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1055;
+    overflow-x: hidden;
+    overflow-y: auto;
+    outline: 0;
+}
+
+.comment-report-modal.show {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+
+.comment-report-modal[hidden] {
+    display: none !important;
+}
+
+/* Backdrop */
+.comment-report-modal .comment-report-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 0;
+    transition: opacity 0.15s linear;
+}
+
+.comment-report-modal .comment-report-backdrop[hidden] {
+    display: none !important;
+}
+
+/* Dialog Container */
+.comment-report-modal .modal-dialog {
+    position: relative;
+    z-index: 1;
+    width: calc(100% - 2rem);
+    max-width: var(--comment-report-max-width, 32rem);
+    margin: 1.75rem auto;
+    pointer-events: auto;
+}
+
+/* Modal Content Card */
+.comment-report-modal .modal-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    pointer-events: auto;
+    background-color: var(--reader-surface, var(--surface-bg, #ffffff));
+    color: var(--reader-text, var(--text-primary, #24221f));
+    border: 1px solid var(--reader-border, var(--border-color, #e7e3dd));
+    border-radius: 0.5rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+    outline: 0;
+    overflow: hidden;
+    animation: commentReportModalFadeIn 0.15s ease-out;
+}
+
+@keyframes commentReportModalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Header */
+.comment-report-modal .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--reader-border, var(--border-color, #e7e3dd));
+    background: transparent;
+}
+
+.comment-report-modal .modal-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin: 0;
+    color: var(--reader-text, var(--text-primary, #24221f));
+}
+
+/* Close Button — matches reader-comment-history close style */
+.comment-report-modal .comment-report-btn-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font-size: 1.125rem;
+    line-height: 1;
+    color: var(--reader-text-muted, var(--text-secondary, #969089));
+    cursor: pointer;
+    border-radius: 0.25rem;
+    opacity: 1;
+    width: auto;
+    height: auto;
+    box-sizing: content-box;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.comment-report-modal .comment-report-btn-close:hover {
+    color: var(--reader-text, var(--text-primary, #24221f));
+    background-color: var(--reader-surface-soft, var(--surface-secondary, #faf9f6));
+}
+
+.comment-report-modal .comment-report-btn-close:focus-visible {
+    color: var(--reader-text, var(--text-primary, #24221f));
+    background-color: var(--reader-surface-soft, var(--surface-secondary, #faf9f6));
+    outline: 2px solid var(--reader-primary, var(--bs-primary, #6c584c));
+    outline-offset: 2px;
+}
+
+/* Modal Body */
+.comment-report-modal .modal-body {
+    position: relative;
+    flex: 1 1 auto;
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    overflow-y: auto;
+    max-height: calc(85vh - 120px);
+}
+
+/* Status / Alert */
+.comment-report-modal .comment-report-status {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    border-radius: 0.375rem;
+    border: 1px solid var(--color-danger-border, rgba(220, 38, 38, 0.3));
+    background-color: var(--color-danger-surface, rgba(220, 38, 38, 0.08));
+    color: var(--color-danger, #dc2626);
+    margin-bottom: 0;
+}
+
+.comment-report-modal .comment-report-status.d-none,
+.comment-report-modal .comment-report-status[hidden],
+.comment-report-modal .comment-report-status:empty {
+    display: none !important;
+}
+
+/* Reasons Fieldset */
+.comment-report-modal .comment-report-reasons-group {
+    border: none;
+    padding: 0;
+    margin: 0;
+}
+
+.comment-report-modal .comment-report-legend {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--reader-text, var(--text-primary, #24221f));
+    margin-bottom: 0.5rem;
+    padding: 0;
+    display: block;
+    float: none;
+    width: 100%;
+}
+
+.comment-report-modal .comment-report-reasons-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Reason Item Row */
+.comment-report-modal .comment-report-reason-item {
+    display: flex;
+    align-items: center;
+    padding: 0.4rem 0.625rem;
+    margin: 0;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    min-height: auto;
+    transition: background-color 0.12s ease;
+}
+
+.comment-report-modal .comment-report-reason-item:hover {
+    background-color: var(--reader-surface-soft, var(--surface-secondary, #faf9f6));
+}
+
+.comment-report-modal .comment-report-reason-item:has(.comment-report-reason-input:checked) {
+    background-color: var(--reader-primary-light, rgba(108, 88, 76, 0.08));
+}
+
+.comment-report-modal .comment-report-reason-input {
+    margin: 0 0.625rem 0 0;
+    cursor: pointer;
+    accent-color: var(--reader-primary, var(--bs-primary, #6c584c));
+    flex-shrink: 0;
+    float: none;
+    border-color: var(--reader-border, var(--border-color, #e7e3dd));
+    background-color: var(--reader-input-bg, var(--input-bg, var(--reader-surface, var(--surface-bg, #ffffff))));
+}
+
+.comment-report-modal .comment-report-reason-input:checked {
+    background-color: var(--reader-primary, var(--bs-primary, #6c584c));
+    border-color: var(--reader-primary, var(--bs-primary, #6c584c));
+}
+
+.comment-report-modal .comment-report-reason-input:focus-visible {
+    outline: 2px solid var(--reader-primary, var(--bs-primary, #6c584c));
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+.comment-report-modal .comment-report-reason-item .form-check-label {
+    font-size: 0.875rem;
+    color: var(--reader-text, var(--text-primary, #24221f));
+    cursor: pointer;
+    margin: 0;
+    user-select: none;
+    flex-grow: 1;
+}
+
+/* Description Group */
+.comment-report-modal .comment-report-description-group {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.comment-report-modal .comment-report-description-group .form-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--reader-text, var(--text-primary, #24221f));
+    margin-bottom: 0.375rem;
+}
+
+.comment-report-modal .comment-report-description-input {
+    background-color: var(--reader-input-bg, var(--input-bg, var(--reader-surface, var(--surface-bg, #ffffff))));
+    color: var(--reader-text, var(--input-text, var(--text-primary, #24221f)));
+    border: 1px solid var(--reader-border, var(--border-color, #e7e3dd));
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 5rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.comment-report-modal .comment-report-description-input::placeholder {
+    color: var(--reader-text-muted, var(--text-secondary, #969089));
+    opacity: 0.8;
+}
+
+.comment-report-modal .comment-report-description-input:focus,
+.comment-report-modal .comment-report-description-input:focus-visible {
+    outline: none;
+    border-color: var(--reader-primary, var(--bs-primary, #6c584c));
+    box-shadow: 0 0 0 2px var(--reader-primary-light, rgba(108, 88, 76, 0.2));
+}
+
+.comment-report-modal .comment-report-desc-help,
+.comment-report-modal .comment-report-char-counter {
+    font-size: 0.75rem;
+    color: var(--reader-text-muted, var(--text-secondary, #969089));
+}
+
+/* Footer & Action Buttons */
+.comment-report-modal .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-top: 1px solid var(--reader-border, var(--border-color, #e7e3dd));
+    background: transparent;
+}
+
+/* Cancel Button — secondary/ghost style */
+.comment-report-modal .comment-report-btn-cancel {
+    background: transparent;
+    border: 1px solid var(--reader-border, var(--border-color, #e7e3dd));
+    border-radius: 0.375rem;
+    padding: 0.45rem 1rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--reader-text, var(--text-primary, #24221f));
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.comment-report-modal .comment-report-btn-cancel:hover:not(:disabled) {
+    background-color: var(--reader-surface-soft, var(--surface-secondary, #faf9f6));
+    border-color: var(--reader-border, var(--border-color, #d1d5db));
+    color: var(--reader-text, var(--text-primary, #24221f));
+}
+
+.comment-report-modal .comment-report-btn-cancel:focus-visible {
+    outline: 2px solid var(--reader-primary, var(--bs-primary, #6c584c));
+    outline-offset: 2px;
+}
+
+/* Submit Button — primary Reader/theme accent (NOT permanent red) */
+.comment-report-modal .comment-report-btn-submit {
+    background-color: var(--reader-primary, var(--bs-primary, #6c584c));
+    color: #ffffff;
+    border: 1px solid transparent;
+    border-radius: 0.375rem;
+    padding: 0.45rem 1.125rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease, filter 0.15s ease;
+}
+
+.comment-report-modal .comment-report-btn-submit:hover:not(:disabled) {
+    background-color: var(--reader-primary-hover, var(--color-primary-hover, #57463c));
+    filter: brightness(0.95);
+}
+
+.comment-report-modal .comment-report-btn-submit:focus-visible {
+    outline: 2px solid var(--reader-primary, var(--bs-primary, #6c584c));
+    outline-offset: 2px;
+}
+
+.comment-report-modal .comment-report-btn-submit:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background-color: var(--reader-primary, var(--bs-primary, #6c584c));
+    color: #ffffff;
+    border-color: transparent;
+}
+
+/* Dark Mode Overrides */
+html[data-theme="dark"] .comment-report-modal .comment-report-btn-submit,
+html[data-bs-theme="dark"] .comment-report-modal .comment-report-btn-submit {
+    color: var(--reader-bg, #ffffff);
+}
+
+html[data-theme="dark"] .comment-report-modal .comment-report-btn-submit:disabled,
+html[data-bs-theme="dark"] .comment-report-modal .comment-report-btn-submit:disabled {
+    color: var(--reader-bg, #ffffff);
+}
+
+/* Responsive / Mobile */
+@media (max-width: 576px) {
+    .comment-report-modal .modal-dialog {
+        width: calc(100% - 1rem);
+        margin: 0.5rem auto;
+    }
+
+    .comment-report-modal .modal-header,
+    .comment-report-modal .modal-body,
+    .comment-report-modal .modal-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .comment-report-modal .modal-body {
+        max-height: calc(90vh - 110px);
+    }
+}
