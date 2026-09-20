@@ -10,7 +10,7 @@ const commentsModule = require(path.join(__dirname, '../../../main/resources/sta
 
 class FakeClassList {
     constructor(element) {
-        this.element = element;
+        Object.defineProperty(this, 'element', { value: element, writable: true, configurable: true, enumerable: false });
         this.classes = new Set();
     }
 
@@ -46,19 +46,25 @@ class FakeElement {
         this.tagName = tagName.toUpperCase();
         this.attributes = {};
         this.childNodes = [];
-        this.parentNode = null;
-        this.parentElement = null;
+        Object.defineProperty(this, 'parentNode', { value: null, writable: true, configurable: true, enumerable: false });
+        Object.defineProperty(this, 'parentElement', { value: null, writable: true, configurable: true, enumerable: false });
+        Object.defineProperty(this, 'ownerDocument', { value: null, writable: true, configurable: true, enumerable: false });
         this.classList = new FakeClassList(this);
         this.listeners = {};
         this.style = {};
         this.hidden = false;
         this._textContent = '';
         this.isFocused = false;
-        this.ownerDocument = null;
 
         for (const [k, v] of Object.entries(attributes)) {
             this.setAttribute(k, v);
         }
+    }
+
+    [Symbol.for('nodejs.util.inspect.custom')]() {
+        const idStr = this.getAttribute('id') ? '#' + this.getAttribute('id') : '';
+        const classStr = this.className ? '.' + this.className.split(/\s+/).filter(Boolean).join('.') : '';
+        return `<${this.tagName.toLowerCase()}${idStr}${classStr}>`;
     }
 
     get className() {
@@ -238,6 +244,17 @@ class FakeElement {
 
     querySelectorAll(selector) {
         return querySelectorAllDeep(this, selector);
+    }
+
+    closest(selector) {
+        let cur = this;
+        while (cur) {
+            if (matchesSingleSelector(cur, selector)) {
+                return cur;
+            }
+            cur = cur.parentElement;
+        }
+        return null;
     }
 }
 
@@ -1195,7 +1212,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(list.childNodes.length, 0);
     });
 
-    test('20. CURRENT root renders ⋯ with "Xem đoạn gốc" action', async () => {
+    test('20. CURRENT root renders ⋯ with "Xem bình luận gốc" action', async () => {
         const { doc, list } = createStandardFixture('c2000');
         const items = [
             {
@@ -1237,7 +1254,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
 
         const menuItem = popover.querySelector('.novel-comment-menu-item');
         assert.ok(menuItem, 'Menu item must exist');
-        assert.strictEqual(menuItem.textContent, 'Xem đoạn gốc');
+        assert.strictEqual(menuItem.textContent, 'Xem bình luận gốc');
         assert.strictEqual(menuItem.getAttribute('data-block-key'), 'blk-test-1');
     });
 
@@ -1274,7 +1291,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(menuItem.getAttribute('data-block-key'), 'blk-test-2');
     });
 
-    test('22. STALE root has no active origin action or menu trigger', async () => {
+    test('22. STALE non-owner root has no View Original action but retains overflow Report', async () => {
         const { doc, list } = createStandardFixture('c2200');
         const items = [
             {
@@ -1299,11 +1316,17 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         commentsModule.init(doc, { fetch: fakeFetch });
         await new Promise(r => setTimeout(r, 10));
 
-        assert.strictEqual(list.querySelector('.novel-comment-menu-trigger'), null, 'STALE root must not render ⋯ trigger');
-        assert.strictEqual(list.querySelector('.novel-comment-actions-menu'), null, 'STALE root must not render actions menu');
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger, 'STALE non-owner root must render ⋯ trigger for report action');
+        const menu = list.querySelector('.novel-comment-actions-menu');
+        assert.ok(menu, 'STALE non-owner root must render actions menu');
+        assert.strictEqual(menu.querySelector('[data-action="view-origin"]'), null, 'STALE root must not render view-origin action');
+        const reportItem = menu.querySelector('[data-action="report"]');
+        assert.ok(reportItem, 'STALE non-owner root must render report action');
+        assert.strictEqual(reportItem.textContent, 'Báo cáo');
     });
 
-    test('23. UNANCHORED root has no active origin action or menu trigger', async () => {
+    test('23. UNANCHORED non-owner root has no View Original action but retains overflow Report', async () => {
         const { doc, list } = createStandardFixture('c2300');
         const items = [
             {
@@ -1328,8 +1351,14 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         commentsModule.init(doc, { fetch: fakeFetch });
         await new Promise(r => setTimeout(r, 10));
 
-        assert.strictEqual(list.querySelector('.novel-comment-menu-trigger'), null, 'UNANCHORED root must not render ⋯ trigger');
-        assert.strictEqual(list.querySelector('.novel-comment-actions-menu'), null, 'UNANCHORED root must not render actions menu');
+        const trigger = list.querySelector('.novel-comment-menu-trigger');
+        assert.ok(trigger, 'UNANCHORED non-owner root must render ⋯ trigger for report action');
+        const menu = list.querySelector('.novel-comment-actions-menu');
+        assert.ok(menu, 'UNANCHORED non-owner root must render actions menu');
+        assert.strictEqual(menu.querySelector('[data-action="view-origin"]'), null, 'UNANCHORED root must not render view-origin action');
+        const reportItem = menu.querySelector('[data-action="report"]');
+        assert.ok(reportItem, 'UNANCHORED non-owner root must render report action');
+        assert.strictEqual(reportItem.textContent, 'Báo cáo');
     });
 
     test('24. Active reply inherits root CURRENT blockKey and renders origin menu', async () => {
@@ -1477,7 +1506,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(tombstoneEl.querySelector('.novel-comment-menu-trigger'), null, 'Tombstone must not have menu trigger');
     });
 
-    test('27. Click "Xem đoạn gốc" on root comment invokes openDiscussionTarget with { chapterId, blockKey, threadId: rootCommentId } without scrolling reader document', async () => {
+    test('27. Click "Xem bình luận gốc" on root comment invokes openDiscussionTarget with { chapterId, blockKey, threadId: rootCommentId } without scrolling reader document', async () => {
         const { doc, list, block1 } = createStandardFixture('c2700');
         let bridgePayload = null;
 
@@ -1529,7 +1558,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(bridgePayload.threadId, 'r-nav');
     });
 
-    test('28. Active reply "Xem đoạn gốc" targets ROOT discussion ID, never reply ID', async () => {
+    test('28. Active reply "Xem bình luận gốc" targets ROOT discussion ID, never reply ID', async () => {
         const { doc, list, block1 } = createStandardFixture('c2800');
         let bridgePayload = null;
 
@@ -1666,7 +1695,7 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
         assert.strictEqual(bridgePayload.blockKey, 'blk-test-1');
     });
 
-    test('30. When restore bridge is unavailable, clicking "Xem đoạn gốc" safely no-ops without throwing or scrolling', async () => {
+    test('30. When restore bridge is unavailable, clicking "Xem bình luận gốc" safely no-ops without throwing or scrolling', async () => {
         const { doc, list, block1, block2 } = createStandardFixture('c3000');
 
         const items = [
@@ -2311,8 +2340,15 @@ describe('MS-05E5H2E Root Comment Pagination', () => {
         assert.strictEqual(bridgeTarget.threadId, 'r-curr');
         assert.strictEqual(bridgeTarget.blockKey, 'blk-test-1');
 
-        // ROOT-22: appended STALE root has no menu
-        assert.strictEqual(staleThread.querySelector('.novel-comment-menu-trigger'), null);
+        // ROOT-22: appended STALE non-owner root renders ⋯ with Report, NO origin
+        const staleTrigger = staleThread.querySelector('.novel-comment-menu-trigger');
+        assert.ok(staleTrigger, 'STALE appended root must have menu trigger');
+        const staleMenu = staleThread.querySelector('.novel-comment-actions-menu');
+        assert.ok(staleMenu, 'STALE appended root must have actions menu');
+        assert.strictEqual(staleMenu.querySelector('[data-action="view-origin"]'), null, 'view-origin must be absent');
+        const staleReport = staleMenu.querySelector('[data-action="report"]');
+        assert.ok(staleReport, 'report must be present');
+        assert.strictEqual(staleReport.textContent, 'Báo cáo');
 
         // ROOT-23: appended tombstone reply has no menu
         const tombEl = currThread.querySelector('.is-tombstone');
@@ -3294,7 +3330,7 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
 
             const originBtn = popover.querySelector('button[data-action="view-origin"]');
             assert.ok(originBtn, 'Origin action must exist');
-            assert.strictEqual(originBtn.textContent, 'Xem đoạn gốc');
+            assert.strictEqual(originBtn.textContent, 'Xem bình luận gốc');
 
             const editBtn = popover.querySelector('.novel-comment-edit-btn');
             assert.ok(editBtn, 'Edit action must exist');
@@ -3353,7 +3389,7 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.ok(replyBtn, 'Primary Phản hồi button must exist');
         });
 
-        test('Case C: Anchored root non-owner renders ⋯ with origin only', async () => {
+        test('Case C: Anchored root non-owner renders ⋯ with origin + Report, NO Edit/Delete', async () => {
             const { doc, list } = createStandardFixture('c-case-c');
             const items = [{
                 rootCommentId: 'r-case-c',
@@ -3377,11 +3413,14 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
 
             const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
             assert.ok(popover.querySelector('button[data-action="view-origin"]'));
+            const reportBtn = popover.querySelector('button[data-action="report"]');
+            assert.ok(reportBtn, 'Report action must exist for non-owner');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
             assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null);
             assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null);
         });
 
-        test('Case D: UNANCHORED root non-owner has NO ⋯ menu', async () => {
+        test('Case D: UNANCHORED root non-owner renders ⋯ with Report, NO origin', async () => {
             const { doc, list } = createStandardFixture('c-case-d');
             const items = [{
                 rootCommentId: 'r-case-d',
@@ -3400,9 +3439,19 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             commentsModule.init(doc, { fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) }) });
             await new Promise(r => setTimeout(r, 10));
 
-            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-menu-trigger'), null);
-            assert.strictEqual(list.querySelector('.novel-comment--root .novel-comment-actions-menu'), null);
-            assert.ok(list.querySelector('.novel-comment--root .novel-comment-reply-btn'), 'Phản hồi button remains');
+            const trigger = list.querySelector('.novel-comment--root .novel-comment-menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist for unanchored root non-owner');
+            const menu = list.querySelector('.novel-comment--root .novel-comment-actions-menu');
+            assert.ok(menu, 'Actions menu must exist for unanchored root non-owner');
+            const popover = list.querySelector('.novel-comment--root .novel-comment-menu-popover');
+            assert.ok(popover, 'Menu popover must exist');
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null, 'view-origin must be absent');
+            const reportBtn = popover.querySelector('button[data-action="report"]');
+            assert.ok(reportBtn, 'Report action must be present');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null, 'Edit must be absent');
+            assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null, 'Delete must be absent');
+            assert.ok(list.querySelector('.novel-comment--root .novel-comment-reply-btn'), 'Phản hồi button remains outside menu');
         });
 
         test('Case E: Root tombstone has NO ⋯ menu, NO Reply', async () => {
@@ -3512,7 +3561,7 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.ok(popover.querySelector('button[data-action="delete"]'));
         });
 
-        test('Case H: Anchored reply non-owner renders ⋯ with origin only', async () => {
+        test('Case H: Anchored reply non-owner renders ⋯ with origin + Report, NO Edit/Delete', async () => {
             const { doc, list } = createStandardFixture('c-case-h');
             const items = [{
                 rootCommentId: 'r-h',
@@ -3541,11 +3590,14 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             const replyEl = list.querySelector('.novel-comment--reply');
             const popover = replyEl.querySelector('.novel-comment-menu-popover');
             assert.ok(popover.querySelector('button[data-action="view-origin"]'));
+            const reportBtn = popover.querySelector('button[data-action="report"]');
+            assert.ok(reportBtn, 'Report action must exist for reply non-owner');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
             assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null);
             assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null);
         });
 
-        test('Case I: UNANCHORED reply non-owner has NO ⋯ menu', async () => {
+        test('Case I: UNANCHORED reply non-owner renders ⋯ with Report, NO origin', async () => {
             const { doc, list } = createStandardFixture('c-case-i');
             const items = [{
                 rootCommentId: 'r-i',
@@ -3572,8 +3624,19 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             await new Promise(r => setTimeout(r, 10));
 
             const replyEl = list.querySelector('.novel-comment--reply');
-            assert.strictEqual(replyEl.querySelector('.novel-comment-menu-trigger'), null);
-            assert.ok(replyEl.querySelector('.novel-comment-reply-btn'));
+            const trigger = replyEl.querySelector('.novel-comment-menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist for unanchored reply non-owner');
+            const menu = replyEl.querySelector('.novel-comment-actions-menu');
+            assert.ok(menu, 'Actions menu must exist for unanchored reply non-owner');
+            const popover = replyEl.querySelector('.novel-comment-menu-popover');
+            assert.ok(popover, 'Menu popover must exist');
+            assert.strictEqual(popover.querySelector('button[data-action="view-origin"]'), null, 'view-origin must be absent');
+            const reportBtn = popover.querySelector('button[data-action="report"]');
+            assert.ok(reportBtn, 'Report action must be present');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(popover.querySelector('button[data-action="edit"]'), null, 'Edit must be absent');
+            assert.strictEqual(popover.querySelector('button[data-action="delete"]'), null, 'Delete must be absent');
+            assert.ok(replyEl.querySelector('.novel-comment-reply-btn'), 'Reply button remains outside menu');
         });
 
         test('Case J: Reply tombstone has NO ⋯ menu, NO Reply', async () => {
@@ -3861,6 +3924,545 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
 
             // Must NOT emit any event for ch-orig
             assert.strictEqual(events.length, 1, 'Stale completion must not emit rendered event');
+        });
+    });
+
+    describe('MS-05E/E8C4 Novel Chapter Comments Report Integration', () => {
+        let originalReportModal;
+        let mockModal;
+        let openCalls;
+
+        beforeEach(() => {
+            openCalls = [];
+            mockModal = {
+                open: (params) => {
+                    openCalls.push(params);
+                    return true;
+                }
+            };
+            originalReportModal = commentsModule.setReportModal;
+            commentsModule.setReportModal(mockModal);
+        });
+
+        afterEach(() => {
+            commentsModule.setReportModal(null);
+            commentsModule.setAuthenticatedImplementation(null);
+            commentsModule.destroy();
+        });
+
+        test('REPORT-1. Active non-owner root comment renders "Báo cáo" button with data-action="report" and data-comment-id', async () => {
+            const { doc, list } = createStandardFixture('c-report-1');
+            const items = [
+                {
+                    rootCommentId: 'root-non-owner',
+                    author: { userId: 'other-user', displayName: 'Other User' },
+                    body: 'Active non-owner root comment',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const rootCard = list.querySelector('.novel-block-discussion-thread');
+            assert.ok(rootCard, 'Thread card must exist');
+            const reportBtn = rootCard.querySelector('.novel-comment-report-btn[data-action="report"]');
+            assert.ok(reportBtn, 'Report button must be rendered for active non-owner root');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(reportBtn.getAttribute('data-comment-id'), 'root-non-owner');
+            assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on root reportBtn');
+        });
+
+        test('REPORT-2. Active owner root comment (canEdit: true or canDelete: true) does NOT render "Báo cáo" button', async () => {
+            const { doc, list } = createStandardFixture('c-report-2');
+            const items = [
+                {
+                    rootCommentId: 'root-owner-edit',
+                    author: { userId: 'me', displayName: 'Me' },
+                    body: 'Owner edit root',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: true,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                },
+                {
+                    rootCommentId: 'root-owner-del',
+                    author: { userId: 'me', displayName: 'Me' },
+                    body: 'Owner delete root',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: true,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtns = list.querySelectorAll('.novel-comment-report-btn');
+            assert.strictEqual(reportBtns.length, 0, 'No report button should be rendered for owned root comments');
+        });
+
+        test('REPORT-3. Root tombstone does NOT render "Báo cáo" button', async () => {
+            const { doc, list } = createStandardFixture('c-report-3');
+            const items = [
+                {
+                    rootCommentId: 'root-tombstone',
+                    author: null,
+                    body: null,
+                    tombstone: true,
+                    status: 'DELETED',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtns = list.querySelectorAll('.novel-comment-report-btn');
+            assert.strictEqual(reportBtns.length, 0, 'No report button should be rendered for root tombstone');
+        });
+
+        test('REPORT-4. Active non-owner reply renders "Báo cáo" button', async () => {
+            const { doc, list } = createStandardFixture('c-report-4');
+            const items = [
+                {
+                    rootCommentId: 'root-1',
+                    author: { userId: 'me', displayName: 'Me' },
+                    body: 'Root',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: true,
+                    canDelete: true,
+                    anchorStatus: 'NONE',
+                    replyCount: 1,
+                    replies: [
+                        {
+                            id: 'rep-non-owner',
+                            parentCommentId: 'root-1',
+                            author: { userId: 'other-user', displayName: 'Other User' },
+                            body: 'Active non-owner reply',
+                            createdAt: '2026-09-18T10:05:00Z',
+                            updatedAt: '2026-09-18T10:05:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            tombstone: false
+                        }
+                    ]
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            assert.ok(replyEl, 'Reply element must exist');
+            const reportBtn = replyEl.querySelector('.novel-comment-report-btn[data-action="report"]');
+            assert.ok(reportBtn, 'Report button must be rendered for active non-owner reply');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(reportBtn.getAttribute('data-comment-id'), 'rep-non-owner');
+            assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on reply reportBtn');
+        });
+
+        test('REPORT-5. Active owner reply does NOT render "Báo cáo" button', async () => {
+            const { doc, list } = createStandardFixture('c-report-5');
+            const items = [
+                {
+                    rootCommentId: 'root-1',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Root',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 2,
+                    replies: [
+                        {
+                            id: 'rep-owner-edit',
+                            parentCommentId: 'root-1',
+                            author: { userId: 'me', displayName: 'Me' },
+                            body: 'Owner edit reply',
+                            createdAt: '2026-09-18T10:05:00Z',
+                            updatedAt: '2026-09-18T10:05:00Z',
+                            canEdit: true,
+                            canDelete: false,
+                            tombstone: false
+                        },
+                        {
+                            id: 'rep-owner-del',
+                            parentCommentId: 'root-1',
+                            author: { userId: 'me', displayName: 'Me' },
+                            body: 'Owner delete reply',
+                            createdAt: '2026-09-18T10:06:00Z',
+                            updatedAt: '2026-09-18T10:06:00Z',
+                            canEdit: false,
+                            canDelete: true,
+                            tombstone: false
+                        }
+                    ]
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEls = list.querySelectorAll('.novel-comment--reply');
+            for (const rep of replyEls) {
+                assert.strictEqual(rep.querySelector('.novel-comment-report-btn'), null, 'Owned replies must not have report button');
+            }
+        });
+
+        test('REPORT-6. Reply tombstone does NOT render "Báo cáo" button', async () => {
+            const { doc, list } = createStandardFixture('c-report-6');
+            const items = [
+                {
+                    rootCommentId: 'root-1',
+                    author: { userId: 'u1', displayName: 'User 1' },
+                    body: 'Root',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 1,
+                    replies: [
+                        {
+                            id: 'rep-tomb',
+                            parentCommentId: 'root-1',
+                            body: null,
+                            tombstone: true,
+                            status: 'DELETED',
+                            createdAt: '2026-09-18T10:05:00Z',
+                            updatedAt: '2026-09-18T10:05:00Z',
+                            canEdit: false,
+                            canDelete: false
+                        }
+                    ]
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const replyEl = list.querySelector('.novel-comment--reply');
+            assert.ok(replyEl);
+            assert.strictEqual(replyEl.querySelector('.novel-comment-report-btn'), null);
+        });
+
+        test('REPORT-7. Active descendant reply under a tombstoned intermediate reply DOES render "Báo cáo" button for non-owner', async () => {
+            const { doc, list } = createStandardFixture('c-report-7');
+            const items = [
+                {
+                    rootCommentId: 'root-1',
+                    author: { userId: 'u1', displayName: 'User 1' },
+                    body: 'Active root comment',
+                    tombstone: false,
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 2,
+                    replies: [
+                        {
+                            id: 'rep-tomb-a',
+                            parentCommentId: 'root-1',
+                            author: null,
+                            body: null,
+                            tombstone: true,
+                            status: 'DELETED',
+                            canEdit: false,
+                            canDelete: false,
+                            createdAt: '2026-09-18T10:05:00Z',
+                            updatedAt: '2026-09-18T10:05:00Z'
+                        },
+                        {
+                            id: 'rep-active-child',
+                            parentCommentId: 'rep-tomb-a',
+                            author: { userId: 'u2', displayName: 'User 2' },
+                            body: 'Active descendant under deleted intermediate reply',
+                            tombstone: false,
+                            canEdit: false,
+                            canDelete: false,
+                            createdAt: '2026-09-18T10:10:00Z',
+                            updatedAt: '2026-09-18T10:10:00Z'
+                        }
+                    ]
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const rootCard = list.querySelector('.novel-block-discussion-thread');
+            assert.ok(rootCard, 'Thread card must exist');
+
+            const replies = rootCard.querySelectorAll('.novel-comment--reply');
+            assert.strictEqual(replies.length, 2, 'Two replies must be rendered');
+
+            // Tombstone intermediate reply A must NOT have report button
+            const repA = replies[0];
+            assert.strictEqual(repA.querySelector('.novel-comment-report-btn'), null, 'Tombstone reply A must not have report button');
+
+            // Active descendant reply B MUST have report button
+            const repB = replies[1];
+            const reportBtnB = repB.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtnB, 'Active descendant under tombstone parent must have report button');
+            assert.strictEqual(reportBtnB.getAttribute('data-comment-id'), 'rep-active-child');
+        });
+
+        test('REPORT-8. Unauthenticated guest clicking "Báo cáo" redirects to /login?returnTo=... without opening modal', async () => {
+            const { doc, section, list } = createStandardFixture('c-report-8');
+            section.setAttribute('data-authenticated', 'false');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-8-slug',
+                    search: '?ref=test',
+                    href: '/novel/chapters/chap-8-slug?ref=test'
+                }
+            };
+
+            const items = [
+                {
+                    rootCommentId: 'root-guest-target',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Target for guest',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 0, 'Modal must NOT be opened for unauthenticated guest');
+            assert.strictEqual(
+                doc.defaultView.location.href,
+                '/login?returnTo=' + encodeURIComponent('/novel/chapters/chap-8-slug?ref=test#novelChapterComments'),
+                'Guest must be redirected to /login with returnTo pointing to #novelChapterComments'
+            );
+        });
+
+        test('REPORT-8b. Unauthenticated guest redirect with no query string preserves pathname and appends #novelChapterComments', async () => {
+            const { doc, section, list } = createStandardFixture('c-report-8b');
+            section.setAttribute('data-authenticated', 'false');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/simple-chapter',
+                    search: '',
+                    href: '/novel/chapters/simple-chapter'
+                }
+            };
+
+            const items = [
+                {
+                    rootCommentId: 'root-guest-simple',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Target for guest simple',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 0, 'Modal must NOT be opened for unauthenticated guest');
+            assert.strictEqual(
+                doc.defaultView.location.href,
+                '/login?returnTo=' + encodeURIComponent('/novel/chapters/simple-chapter#novelChapterComments'),
+                'Guest must be redirected to /login with returnTo without search query'
+            );
+        });
+
+        test('REPORT-9. Authenticated user clicking "Báo cáo" opens CommentReportModal with correct parameters', async () => {
+            const { doc, section, list } = createStandardFixture('chap-123-uuid');
+            section.setAttribute('data-authenticated', 'true');
+
+            const items = [
+                {
+                    rootCommentId: 'cmt-456-uuid',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Target for reporting',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1, 'Modal open must be called once');
+            const call = openCalls[0];
+            assert.strictEqual(call.commentId, 'cmt-456-uuid');
+            assert.strictEqual(call.submitUrl, '/api/novel/chapters/chap-123-uuid/comments/cmt-456-uuid/reports');
+            assert.strictEqual(call.contextLabel, 'novel-chapter');
+            assert.strictEqual(call.triggerEl, reportBtn);
+            assert.strictEqual(typeof call.onSuccess, 'function');
+        });
+
+        test('REPORT-10. onSuccess callback disables button, updates text to "Đã báo cáo", and sets title tooltip', async () => {
+            const { doc, section, list } = createStandardFixture('chap-123');
+            section.setAttribute('data-authenticated', 'true');
+
+            const items = [
+                {
+                    rootCommentId: 'cmt-succ',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Target',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1);
+            const { onSuccess } = openCalls[0];
+
+            // Invoke success callback
+            onSuccess({ reportId: 'rep-001', status: 'PENDING' });
+
+            assert.strictEqual(reportBtn.textContent, 'Đã báo cáo');
+            assert.strictEqual(reportBtn.disabled, true);
+            assert.strictEqual(reportBtn.getAttribute('title'), 'Bạn đã gửi báo cáo cho bình luận này');
+
+            const statusEl = doc.getElementById('novelChapterCommentsStatus');
+            assert.ok(statusEl, 'Status element must exist');
+            assert.ok(statusEl.textContent.includes('Đã gửi báo cáo. Cảm ơn bạn đã phản hồi.'), 'Status must show user feedback');
+            assert.strictEqual(statusEl.textContent.includes('rep-001'), false, 'Status must not leak reportId');
+        });
+
+        test('REPORT-11. ChapterId and CommentId with special characters are properly URL-encoded in submitUrl', async () => {
+            const { doc, section, list } = createStandardFixture('chap/special#1?x=y');
+            section.setAttribute('data-authenticated', 'true');
+
+            const items = [
+                {
+                    rootCommentId: 'cmt/special#2?a=b',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Special characters ID',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1);
+            const expectedUrl = '/api/novel/chapters/' + encodeURIComponent('chap/special#1?x=y') + '/comments/' + encodeURIComponent('cmt/special#2?a=b') + '/reports';
+            assert.strictEqual(openCalls[0].submitUrl, expectedUrl);
         });
     });
 });

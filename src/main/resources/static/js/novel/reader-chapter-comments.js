@@ -57,6 +57,8 @@
     let isLoadingMore = false;
     let isRefreshing = false;
     let rootPageMap = Object.create(null);
+    let injectedAuthenticated = null;
+    let injectedReportModal = null;
     let chapterChangedHandler = null;
     let documentClickHandler = null;
     let documentKeydownHandler = null;
@@ -402,6 +404,137 @@
     }
 
     /**
+     * Resolves the CommentReportModal module or singleton instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveReportModal() {
+        if (injectedReportModal) {
+            return injectedReportModal;
+        }
+        if (typeof window !== 'undefined') {
+            const modal = window.CommentReportModal || (window.KiemLai && window.KiemLai.CommentReportModal);
+            if (modal) return modal;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const modal = globalThis.CommentReportModal || (globalThis.KiemLai && globalThis.KiemLai.CommentReportModal);
+            if (modal) return modal;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-report-modal.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Checks whether the current user session is authenticated.
+     *
+     * @param {Document} [doc]
+     * @param {Element} [sectionEl]
+     * @returns {boolean}
+     */
+    function isUserAuthenticated(doc, sectionEl) {
+        if (typeof injectedAuthenticated === 'boolean') {
+            return injectedAuthenticated;
+        }
+        const sec = sectionEl || (getElements().sectionEl);
+        if (sec) {
+            const authAttr = (typeof sec.getAttribute === 'function' ? sec.getAttribute('data-authenticated') : null) ||
+                (sec.dataset && sec.dataset.authenticated);
+            if (authAttr === 'true' || authAttr === true) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Redirects unauthenticated guest to login URL safely.
+     *
+     * @param {Document} [doc]
+     * @param {Element} [sectionEl]
+     */
+    function redirectToLogin(doc, sectionEl) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const sec = sectionEl || (getElements().sectionEl);
+        let destination = '/login';
+        if (sec && typeof sec.getAttribute === 'function') {
+            const customUrl = sec.getAttribute('data-login-url');
+            if (customUrl && customUrl.trim()) {
+                destination = customUrl.trim();
+            }
+        }
+        const win = (d && d.defaultView) ? d.defaultView : (typeof window !== 'undefined' ? window : null);
+        const currentHref = (win && win.location) ? (win.location.pathname + (win.location.search || '') + '#' + SECTION_ID) : '';
+        if (destination === '/login' && currentHref) {
+            destination = '/login?returnTo=' + encodeURIComponent(currentHref);
+        }
+        if (win && win.location) {
+            win.location.href = destination;
+        }
+    }
+
+    /**
+     * Opens the shared CommentReportModal for a target comment.
+     *
+     * @param {string} commentId
+     * @param {Element} [triggerEl]
+     * @param {Document} [doc]
+     * @returns {boolean} true if modal opened, false otherwise
+     */
+    function openReportModal(commentId, triggerEl, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const { sectionEl } = getElements();
+        const chapterId = currentChapterId || resolveChapterId(d, sectionEl);
+        if (!chapterId || !commentId) {
+            return false;
+        }
+
+        if (!isUserAuthenticated(d, sectionEl)) {
+            redirectToLogin(d, sectionEl);
+            return false;
+        }
+
+        const modal = resolveReportModal();
+        if (!modal || typeof modal.open !== 'function') {
+            return false;
+        }
+
+        const cleanCommentId = String(commentId).trim();
+        const cleanChapterId = String(chapterId).trim();
+        const submitUrl = '/api/novel/chapters/' + encodeURIComponent(cleanChapterId) + '/comments/' + encodeURIComponent(cleanCommentId) + '/reports';
+
+        return modal.open({
+            commentId: cleanCommentId,
+            submitUrl: submitUrl,
+            contextLabel: 'novel-chapter',
+            triggerEl: triggerEl || null,
+            onSuccess: function (result) {
+                if (triggerEl) {
+                    triggerEl.textContent = 'Đã báo cáo';
+                    triggerEl.disabled = true;
+                    if (typeof triggerEl.setAttribute === 'function') {
+                        triggerEl.setAttribute('title', 'Bạn đã gửi báo cáo cho bình luận này');
+                    }
+                }
+                const { statusEl: curStatusEl } = getElements();
+                if (curStatusEl) {
+                    clearElement(curStatusEl);
+                    const msgDiv = d.createElement('div');
+                    msgDiv.className = 'novel-chapter-comments-status-success';
+                    const msgP = d.createElement('p');
+                    msgP.className = 'novel-chapter-comments-status-text';
+                    msgP.textContent = 'Đã gửi báo cáo. Cảm ơn bạn đã phản hồi.';
+                    msgDiv.appendChild(msgP);
+                    curStatusEl.appendChild(msgDiv);
+                }
+            }
+        });
+    }
+
+    /**
      * Determines whether origin navigation is available for given anchor status and block key.
      * Available for CURRENT and RELOCATED when blockKey is non-null and non-empty.
      *
@@ -475,11 +608,36 @@
      * @param {Event} e
      */
     function onDocumentClick(e) {
+        const target = (e && e.target) ? e.target : null;
+        if (target) {
+            let reportBtn = null;
+            if (typeof target.closest === 'function') {
+                reportBtn = target.closest('.novel-comment-report-btn') || target.closest('[data-action="report"]');
+            } else if (target.getAttribute && target.getAttribute('data-action') === 'report') {
+                reportBtn = target;
+            }
+            if (reportBtn) {
+                closeActiveMenu(false);
+                const { sectionEl } = getElements();
+                if (!sectionEl || (typeof sectionEl.contains === 'function' && sectionEl.contains(reportBtn))) {
+                    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                    const cid = reportBtn.getAttribute('data-comment-id');
+                    if (cid) {
+                        if (!isUserAuthenticated(currentDoc, sectionEl)) {
+                            redirectToLogin(currentDoc, sectionEl);
+                        } else {
+                            openReportModal(cid, reportBtn, currentDoc);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
         if (!activeOpenMenu) {
             return;
         }
         const container = activeOpenMenu.containerEl;
-        const target = (e && e.target) ? e.target : null;
         if (container && target) {
             if (typeof container.contains === 'function' && container.contains(target)) {
                 return;
@@ -574,6 +732,16 @@
             documentRef = currentDoc || (typeof document !== 'undefined' ? document : null);
         }
 
+        const hasOrigin = Boolean(options && options.originNavigable && options.blockKey);
+        const hasHistory = Boolean(options && options.isEdited);
+        const hasEdit = Boolean(options && options.canEdit);
+        const hasDelete = Boolean(options && options.canDelete);
+        const hasReport = Boolean(options && options.canReport);
+
+        if (!hasOrigin && !hasHistory && !hasEdit && !hasDelete && !hasReport) {
+            return null;
+        }
+
         const menuContainer = documentRef.createElement('div');
         menuContainer.className = 'novel-comment-actions-menu';
 
@@ -596,7 +764,8 @@
         popoverDiv.hidden = true;
         popoverDiv.setAttribute('hidden', '');
 
-        if (options && options.originNavigable && options.blockKey) {
+        // 1. View Origin
+        if (hasOrigin) {
             const originBtn = documentRef.createElement('button');
             originBtn.type = 'button';
             originBtn.className = 'novel-comment-menu-item';
@@ -606,7 +775,7 @@
             if (options.rootCommentId) {
                 originBtn.setAttribute('data-root-id', String(options.rootCommentId));
             }
-            originBtn.textContent = 'Xem đoạn gốc';
+            originBtn.textContent = 'Xem bình luận gốc';
 
             originBtn.addEventListener('click', function (e) {
                 if (e && typeof e.preventDefault === 'function') {
@@ -618,7 +787,29 @@
             popoverDiv.appendChild(originBtn);
         }
 
-        if (options && options.canEdit) {
+        // 2. View Edit History
+        if (hasHistory) {
+            const historyBtn = documentRef.createElement('button');
+            historyBtn.type = 'button';
+            historyBtn.className = 'novel-comment-menu-item';
+            historyBtn.setAttribute('role', 'menuitem');
+            historyBtn.setAttribute('data-action', 'view-revisions');
+            if (options.commentId) {
+                historyBtn.setAttribute('data-comment-id', String(options.commentId));
+            }
+            if (options.rootCommentId) {
+                historyBtn.setAttribute('data-root-id', String(options.rootCommentId));
+            }
+            historyBtn.textContent = 'Xem lịch sử chỉnh sửa';
+
+            historyBtn.addEventListener('click', function () {
+                closeActiveMenu(false);
+            });
+            popoverDiv.appendChild(historyBtn);
+        }
+
+        // 3. Edit
+        if (hasEdit) {
             const editBtn = documentRef.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'novel-comment-menu-item novel-comment-edit-btn';
@@ -638,7 +829,8 @@
             popoverDiv.appendChild(editBtn);
         }
 
-        if (options && options.canDelete) {
+        // 4. Delete
+        if (hasDelete) {
             const deleteBtn = documentRef.createElement('button');
             deleteBtn.type = 'button';
             deleteBtn.className = 'novel-comment-menu-item novel-comment-delete-btn';
@@ -656,6 +848,31 @@
                 closeActiveMenu(false);
             });
             popoverDiv.appendChild(deleteBtn);
+        }
+
+        // 5. Separator (when appropriate)
+        if (hasReport && (hasOrigin || hasHistory || hasEdit || hasDelete)) {
+            const sep = documentRef.createElement('div');
+            sep.className = 'novel-comment-menu-separator';
+            sep.setAttribute('role', 'separator');
+            popoverDiv.appendChild(sep);
+        }
+
+        // 6. Report
+        if (hasReport) {
+            const reportBtn = documentRef.createElement('button');
+            reportBtn.type = 'button';
+            reportBtn.className = 'novel-comment-menu-item novel-comment-report-btn';
+            reportBtn.setAttribute('role', 'menuitem');
+            reportBtn.setAttribute('data-action', 'report');
+            if (options.commentId) {
+                reportBtn.setAttribute('data-comment-id', String(options.commentId));
+            }
+            if (options.rootCommentId) {
+                reportBtn.setAttribute('data-root-id', String(options.rootCommentId));
+            }
+            reportBtn.textContent = 'Báo cáo';
+            popoverDiv.appendChild(reportBtn);
         }
 
         triggerBtn.addEventListener('click', function (e) {
@@ -757,15 +974,10 @@
                 replyHeader.appendChild(replyTime);
             }
 
-            if (isCommentEdited(reply)) {
-                const replyEdited = doc.createElement('button');
-                replyEdited.type = 'button';
+            const isReplyEdited = isCommentEdited(reply);
+            if (isReplyEdited) {
+                const replyEdited = doc.createElement('span');
                 replyEdited.className = 'novel-comment-edited';
-                replyEdited.setAttribute('data-action', 'view-revisions');
-                if (reply.id) {
-                    replyEdited.setAttribute('data-comment-id', String(reply.id));
-                }
-                replyEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
                 replyEdited.textContent = 'đã chỉnh sửa';
                 replyHeader.appendChild(replyEdited);
             }
@@ -774,16 +986,19 @@
             const replyOriginNavigable = isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey);
             const canEditReply = Boolean(reply.canEdit);
             const canDeleteReply = Boolean(reply.canDelete);
+            const canReportReply = !canEditReply && !canDeleteReply;
 
-            if (replyOriginNavigable || canEditReply || canDeleteReply) {
-                const replyMenu = createActionsMenu({
-                    originNavigable: replyOriginNavigable,
-                    blockKey: rootItem.blockKey,
-                    rootCommentId: strRootId,
-                    commentId: String(reply.id),
-                    canEdit: canEditReply,
-                    canDelete: canDeleteReply
-                }, doc);
+            const replyMenu = createActionsMenu({
+                originNavigable: replyOriginNavigable,
+                blockKey: rootItem.blockKey,
+                rootCommentId: strRootId,
+                commentId: String(reply.id),
+                isEdited: isReplyEdited,
+                canEdit: canEditReply,
+                canDelete: canDeleteReply,
+                canReport: canReportReply
+            }, doc);
+            if (replyMenu) {
                 replyHeader.appendChild(replyMenu);
             }
 
@@ -898,32 +1113,30 @@
         }
 
         const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
+        const isRootEdited = !isRootTombstone && isCommentEdited(item);
 
-        if (!isRootTombstone && isCommentEdited(item)) {
-            const rootEdited = doc.createElement('button');
-            rootEdited.type = 'button';
+        if (isRootEdited) {
+            const rootEdited = doc.createElement('span');
             rootEdited.className = 'novel-comment-edited';
-            rootEdited.setAttribute('data-action', 'view-revisions');
-            if (rootId) {
-                rootEdited.setAttribute('data-comment-id', String(rootId));
-            }
-            rootEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
             rootEdited.textContent = 'đã chỉnh sửa';
             rootHeader.appendChild(rootEdited);
         }
         const originNavigable = !isRootTombstone && isOriginNavigable(item.anchorStatus, item.blockKey);
         const canEditRoot = !isRootTombstone && Boolean(item.canEdit);
         const canDeleteRoot = !isRootTombstone && Boolean(item.canDelete);
+        const canReportRoot = !isRootTombstone && !canEditRoot && !canDeleteRoot;
 
-        if (originNavigable || canEditRoot || canDeleteRoot) {
-            const rootMenu = createActionsMenu({
-                originNavigable: originNavigable,
-                blockKey: item.blockKey,
-                rootCommentId: rootId,
-                commentId: rootId,
-                canEdit: canEditRoot,
-                canDelete: canDeleteRoot
-            }, doc);
+        const rootMenu = createActionsMenu({
+            originNavigable: originNavigable,
+            blockKey: item.blockKey,
+            rootCommentId: rootId,
+            commentId: rootId,
+            isEdited: isRootEdited,
+            canEdit: canEditRoot,
+            canDelete: canDeleteRoot,
+            canReport: canReportRoot
+        }, doc);
+        if (rootMenu) {
             rootHeader.appendChild(rootMenu);
         }
 
@@ -1842,6 +2055,13 @@
             injectedOpenDiscussionTarget = null;
         }
 
+        if (typeof opts.authenticated === 'boolean') {
+            injectedAuthenticated = opts.authenticated;
+        }
+        if (opts.reportModal) {
+            injectedReportModal = opts.reportModal;
+        }
+
         const { sectionEl, listEl } = getElements();
         if (!sectionEl || !listEl) {
             // Missing DOM requirements - exit gracefully without error
@@ -1988,6 +2208,10 @@
         getActiveOpenMenu: function () { return activeOpenMenu; },
         getHighlightedElement: function () { return null; },
         deduplicateRoots: deduplicateRoots,
-        getActiveCommentCount: getActiveCommentCount
+        getActiveCommentCount: getActiveCommentCount,
+        openReportModal: openReportModal,
+        setReportModal: function (fn) { injectedReportModal = fn; },
+        setAuthenticatedImplementation: function (val) { injectedAuthenticated = val; },
+        isUserAuthenticated: isUserAuthenticated
     };
 });
