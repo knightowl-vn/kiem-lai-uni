@@ -1,0 +1,265 @@
+/**
+ * KiemLai Universe — Shared Comment Presentation Styles (MS-05E / E8C4-UX1)
+ *
+ * Scoped strictly to .kl-comment and .kl-comment__* namespace.
+ * Utilizes KiemLai Reader & Theme tokens with resilient neutral fallbacks.
+ * Pure shared presentation: contains no surface-specific or module-specific selectors.
+ */
+
+/* =========================================================
+   1. COMMENT CARD BASE LAYOUT
+   ========================================================= */
+
+.kl-comment {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    font-family: var(--font-ui, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    color: var(--reader-text, var(--theme-text, inherit));
+    box-sizing: border-box;
+}
+
+.kl-comment--root {
+    width: 100%;
+}
+
+.kl-comment--reply {
+    width: 100%;
+}
+
+/* =========================================================
+   2. COMMENT HEADER (AVATAR + AUTHOR + TIME + EDITED + MENU)
+   ========================================================= */
+
+.kl-comment__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    line-height: 1.4;
+}
+
+/* Avatar Image */
+.kl-comment__avatar {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    background-color: var(--reader-surface-soft, var(--theme-surface-soft, rgba(128, 128, 128, 0.15)));
+}
+
+/* Avatar Initials Fallback */
+.kl-comment__avatar--fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background-color: var(--reader-surface-soft, var(--theme-surface-soft, rgba(128, 128, 128, 0.15)));
+    color: var(--reader-text-muted, var(--theme-text-muted, inherit));
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+/* Author Display Name */
+.kl-comment__author {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--reader-text, var(--theme-text, inherit));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Created Timestamp */
+.kl-comment__time {
+    font-size: 0.75rem;
+    color: var(--reader-text-muted, var(--theme-text-muted, currentColor));
+    opacity: 0.75;
+    white-space: nowrap;
+}
+
+/* Edited Badge */
+.kl-comment__edited {
+    font-size: 0.75rem;
+    color: var(--reader-text-muted, var(--theme-text-muted, currentColor));
+    opacity: 0.65;
+    font-style: italic;
+    cursor: default;
+    pointer-events: none;
+    user-select: none;
+    white-space: nowrap;
+}
+
+/* =========================================================
+   3. OVERFLOW ACTIONS MENU (THREE-DOTS & POPOVER)
+   ========================================================= */
+
+.kl-comment__overflow {
+    margin-left: auto;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Trigger Button */
+.kl-comment__menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--reader-text-muted, var(--theme-text-muted, inherit));
+    cursor: pointer;
+    font-size: 1.15rem;
+    line-height: 1;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.kl-comment__menu-trigger:hover,
+.kl-comment__overflow.is-open .kl-comment__menu-trigger {
+    background: var(--reader-surface-soft, var(--theme-surface-soft, rgba(128, 128, 128, 0.15)));
+    color: var(--reader-text, var(--theme-text, inherit));
+}
+
+.kl-comment__menu-trigger:focus-visible {
+    outline: 2px solid var(--reader-primary, var(--theme-primary, Highlight));
+    outline-offset: 1px;
+}
+
+.kl-comment__menu-dots {
+    display: inline-block;
+    line-height: 1;
+    transform: translateY(-2px);
+    letter-spacing: -1px;
+}
+
+/* Popover Dropdown */
+.kl-comment__menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 30;
+    min-width: 140px;
+    padding: 0.35rem 0;
+    background: var(--reader-surface, var(--theme-surface, ButtonFace));
+    border: 1px solid var(--reader-border, var(--theme-border, rgba(128, 128, 128, 0.3)));
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-sizing: border-box;
+}
+
+.kl-comment__menu[hidden] {
+    display: none !important;
+}
+
+/* Menu Items */
+.kl-comment__menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.5rem 0.85rem;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--reader-text, var(--theme-text, inherit));
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 400;
+    line-height: 1.4;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    box-sizing: border-box;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.kl-comment__menu-item:hover,
+.kl-comment__menu-item:focus-visible {
+    background: var(--reader-surface-soft, var(--theme-surface-soft, rgba(128, 128, 128, 0.15)));
+    color: var(--reader-primary, var(--theme-primary, Highlight));
+    outline: none;
+}
+
+/* Danger Menu Items (Delete, Report) */
+.kl-comment__menu-item--danger {
+    color: var(--reader-text, var(--theme-text, inherit));
+}
+
+.kl-comment__menu-item--danger:hover,
+.kl-comment__menu-item--danger:focus-visible {
+    color: var(--color-danger, var(--theme-danger, #dc2626));
+    background: var(--color-danger-surface, var(--theme-danger-surface, rgba(220, 38, 38, 0.08)));
+    outline: none;
+}
+
+.kl-comment__menu-separator {
+    height: 1px;
+    margin: 0.25rem 0;
+    background: var(--reader-border, var(--theme-border, rgba(128, 128, 128, 0.3)));
+}
+
+/* =========================================================
+   4. COMMENT BODY & TOMBSTONES
+   ========================================================= */
+
+.kl-comment__body {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--reader-text, var(--theme-text, inherit));
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+/* Tombstone states */
+.kl-comment--tombstone .kl-comment__body,
+.kl-comment__body--tombstone {
+    font-style: italic;
+    color: var(--reader-text-muted, var(--theme-text-muted, inherit));
+    opacity: 0.7;
+    font-size: 0.8125rem;
+}
+
+/* =========================================================
+   5. PRIMARY ACTIONS (INLINE REPLY AFFORDANCE)
+   ========================================================= */
+
+.kl-comment__primary-actions {
+    margin-top: 0.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.kl-comment__primary-action {
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, var(--theme-text-muted, inherit));
+    opacity: 0.85;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.kl-comment__primary-action:hover {
+    color: var(--reader-primary, var(--theme-primary, Highlight));
+    background-color: var(--reader-surface-soft, var(--theme-surface-soft, rgba(128, 128, 128, 0.15)));
+}
+
+.kl-comment__primary-action:focus-visible {
+    outline: 2px solid var(--reader-primary, var(--theme-primary, Highlight));
+    outline-offset: 1px;
+}

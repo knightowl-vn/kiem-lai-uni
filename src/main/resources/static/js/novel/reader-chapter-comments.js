@@ -59,10 +59,9 @@
     let rootPageMap = Object.create(null);
     let injectedAuthenticated = null;
     let injectedReportModal = null;
+    let injectedCommentPresentation = undefined;
     let chapterChangedHandler = null;
     let documentClickHandler = null;
-    let documentKeydownHandler = null;
-    let activeOpenMenu = null; // { triggerEl, popoverEl, containerEl }
 
     /**
      * Formats comment count label (e.g. '3 bình luận').
@@ -404,6 +403,31 @@
     }
 
     /**
+     * Resolves the CommentPresentation module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentPresentation() {
+        if (injectedCommentPresentation !== undefined) {
+            return injectedCommentPresentation;
+        }
+        if (typeof window !== 'undefined') {
+            const pres = window.CommentPresentation || (window.KiemLai && window.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const pres = globalThis.CommentPresentation || (globalThis.KiemLai && globalThis.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-presentation.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
      * Resolves the CommentReportModal module or singleton instance.
      *
      * @returns {Object|null}
@@ -552,64 +576,59 @@
 
     /**
      * Closes the active overflow menu and optionally restores focus to its trigger button.
+     * Delegates entirely to the shared CommentPresentation primitive.
      *
      * @param {boolean} [restoreFocus=false]
      */
     function closeActiveMenu(restoreFocus) {
-        if (!activeOpenMenu) {
-            return;
-        }
-        const { triggerEl, popoverEl, containerEl } = activeOpenMenu;
-        activeOpenMenu = null;
-
-        if (triggerEl) {
-            triggerEl.setAttribute('aria-expanded', 'false');
-            if (restoreFocus && typeof triggerEl.focus === 'function') {
-                try {
-                    triggerEl.focus();
-                } catch (_) {}
-            }
-        }
-        if (popoverEl) {
-            popoverEl.hidden = true;
-            popoverEl.setAttribute('hidden', '');
-        }
-        if (containerEl && containerEl.classList && typeof containerEl.classList.remove === 'function') {
-            containerEl.classList.remove('is-open');
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.closeActiveMenu === 'function') {
+            presentation.closeActiveMenu(restoreFocus);
         }
     }
 
     /**
-     * Opens a specific overflow menu, closing any previously open menu first.
+     * Returns the currently active open menu state descriptor.
+     * Delegates entirely to the shared CommentPresentation primitive.
      *
-     * @param {Element} triggerEl
-     * @param {Element} popoverEl
-     * @param {Element} containerEl
+     * @returns {Object|null}
      */
-    function openMenu(triggerEl, popoverEl, containerEl) {
-        if (activeOpenMenu && activeOpenMenu.triggerEl === triggerEl) {
-            closeActiveMenu(false);
-            return;
+    function getActiveOpenMenu() {
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.getActiveOpenMenu === 'function') {
+            return presentation.getActiveOpenMenu();
         }
-        closeActiveMenu(false);
-
-        activeOpenMenu = { triggerEl: triggerEl, popoverEl: popoverEl, containerEl: containerEl };
-        triggerEl.setAttribute('aria-expanded', 'true');
-        popoverEl.hidden = false;
-        popoverEl.removeAttribute('hidden');
-        if (containerEl && containerEl.classList && typeof containerEl.classList.add === 'function') {
-            containerEl.classList.add('is-open');
-        }
+        return null;
     }
 
     /**
-     * Handles document click events to close the active menu if clicked outside.
+     * Handles document click events for novel business actions (view-origin and report).
+     * Generic outside-click menu dismissal is handled exclusively by CommentPresentation.
      *
      * @param {Event} e
      */
     function onDocumentClick(e) {
         const target = (e && e.target) ? e.target : null;
         if (target) {
+            let originBtn = null;
+            if (typeof target.closest === 'function') {
+                originBtn = target.closest('[data-action="view-origin"]');
+            } else if (target.getAttribute && target.getAttribute('data-action') === 'view-origin') {
+                originBtn = target;
+            }
+            if (originBtn) {
+                if (e && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                closeActiveMenu(false);
+                const blockKey = originBtn.getAttribute('data-block-key');
+                const rootId = originBtn.getAttribute('data-root-id');
+                if (blockKey) {
+                    openOriginDiscussion(blockKey, rootId, currentDoc);
+                }
+                return;
+            }
+
             let reportBtn = null;
             if (typeof target.closest === 'function') {
                 reportBtn = target.closest('.novel-comment-report-btn') || target.closest('[data-action="report"]');
@@ -632,34 +651,6 @@
                     }
                 }
             }
-        }
-
-        if (!activeOpenMenu) {
-            return;
-        }
-        const container = activeOpenMenu.containerEl;
-        if (container && target) {
-            if (typeof container.contains === 'function' && container.contains(target)) {
-                return;
-            }
-        }
-        closeActiveMenu(false);
-    }
-
-    /**
-     * Handles Escape key to close the active menu and restore focus.
-     *
-     * @param {KeyboardEvent} e
-     */
-    function onDocumentKeydown(e) {
-        if (!activeOpenMenu) {
-            return;
-        }
-        if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
-            if (typeof e.preventDefault === 'function') {
-                e.preventDefault();
-            }
-            closeActiveMenu(true);
         }
     }
 
@@ -706,11 +697,111 @@
     }
 
     /**
-     * Constructs the three-dot overflow actions menu element.
+     * Constructs normalized overflow action descriptors for a novel comment.
+     * Consumer owns domain capabilities (originNavigable, canEdit, canDelete, canReport, isEdited).
      *
-     * @param {Object|string} opts
+     * @param {Object} options
+     * @returns {Array}
+     */
+    function buildOverflowActionDescriptors(options) {
+        if (!options || typeof options !== 'object') {
+            return [];
+        }
+        const hasOrigin = Boolean(options.originNavigable && options.blockKey);
+        const hasHistory = Boolean(options.isEdited);
+        const hasEdit = Boolean(options.canEdit);
+        const hasDelete = Boolean(options.canDelete);
+        const hasReport = Boolean(options.canReport);
+
+        if (!hasOrigin && !hasHistory && !hasEdit && !hasDelete && !hasReport) {
+            return [];
+        }
+
+        const descriptors = [];
+
+        // 1. View Origin
+        if (hasOrigin) {
+            descriptors.push({
+                key: 'view-origin',
+                label: 'Xem bình luận gốc',
+                className: 'novel-comment-menu-item',
+                attributes: {
+                    'data-action': 'view-origin',
+                    'data-block-key': String(options.blockKey),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 2. View Revisions
+        if (hasHistory) {
+            descriptors.push({
+                key: 'view-revisions',
+                label: 'Xem lịch sử chỉnh sửa',
+                className: 'novel-comment-menu-item',
+                attributes: {
+                    'data-action': 'view-revisions',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 3. Edit
+        if (hasEdit) {
+            descriptors.push({
+                key: 'edit',
+                label: 'Chỉnh sửa',
+                className: 'novel-comment-menu-item novel-comment-edit-btn',
+                attributes: {
+                    'data-action': 'edit',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 4. Delete
+        if (hasDelete) {
+            descriptors.push({
+                key: 'delete',
+                label: 'Xóa',
+                danger: true,
+                className: 'novel-comment-menu-item novel-comment-delete-btn',
+                attributes: {
+                    'data-action': 'delete',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 5. Report (with separator if preceded by other items)
+        if (hasReport) {
+            const hasPreceding = hasOrigin || hasHistory || hasEdit || hasDelete;
+            descriptors.push({
+                key: 'report',
+                label: 'Báo cáo',
+                danger: true,
+                separatorBefore: hasPreceding,
+                className: 'novel-comment-menu-item novel-comment-report-btn',
+                attributes: {
+                    'data-action': 'report',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        return descriptors;
+    }
+
+    /**
+     * Constructs the three-dot overflow actions menu element by delegating to CommentPresentation.
+     *
+     * @param {Object|Array|string} opts
      * @param {Document} [doc]
-     * @returns {Element}
+     * @returns {Element|null}
      */
     function createActionsMenu(opts, doc) {
         let options = opts;
@@ -725,174 +816,31 @@
                 rootCommentId: legacyRootId,
                 commentId: legacyRootId,
                 canEdit: false,
-                canDelete: false
+                canDelete: false,
+                canReport: false
             };
         }
         if (!documentRef) {
             documentRef = currentDoc || (typeof document !== 'undefined' ? document : null);
         }
 
-        const hasOrigin = Boolean(options && options.originNavigable && options.blockKey);
-        const hasHistory = Boolean(options && options.isEdited);
-        const hasEdit = Boolean(options && options.canEdit);
-        const hasDelete = Boolean(options && options.canDelete);
-        const hasReport = Boolean(options && options.canReport);
+        const descriptors = Array.isArray(options)
+            ? options
+            : buildOverflowActionDescriptors(options);
 
-        if (!hasOrigin && !hasHistory && !hasEdit && !hasDelete && !hasReport) {
+        if (!descriptors || descriptors.length === 0) {
             return null;
         }
 
-        const menuContainer = documentRef.createElement('div');
-        menuContainer.className = 'novel-comment-actions-menu';
-
-        const triggerBtn = documentRef.createElement('button');
-        triggerBtn.type = 'button';
-        triggerBtn.className = 'novel-comment-menu-trigger';
-        triggerBtn.setAttribute('aria-label', 'Mở menu bình luận');
-        triggerBtn.setAttribute('aria-haspopup', 'menu');
-        triggerBtn.setAttribute('aria-expanded', 'false');
-
-        const dotsSpan = documentRef.createElement('span');
-        dotsSpan.className = 'novel-comment-menu-dots';
-        dotsSpan.setAttribute('aria-hidden', 'true');
-        dotsSpan.textContent = '⋯';
-        triggerBtn.appendChild(dotsSpan);
-
-        const popoverDiv = documentRef.createElement('div');
-        popoverDiv.className = 'novel-comment-menu-popover';
-        popoverDiv.setAttribute('role', 'menu');
-        popoverDiv.hidden = true;
-        popoverDiv.setAttribute('hidden', '');
-
-        // 1. View Origin
-        if (hasOrigin) {
-            const originBtn = documentRef.createElement('button');
-            originBtn.type = 'button';
-            originBtn.className = 'novel-comment-menu-item';
-            originBtn.setAttribute('role', 'menuitem');
-            originBtn.setAttribute('data-action', 'view-origin');
-            originBtn.setAttribute('data-block-key', String(options.blockKey));
-            if (options.rootCommentId) {
-                originBtn.setAttribute('data-root-id', String(options.rootCommentId));
-            }
-            originBtn.textContent = 'Xem bình luận gốc';
-
-            originBtn.addEventListener('click', function (e) {
-                if (e && typeof e.preventDefault === 'function') {
-                    e.preventDefault();
-                }
-                closeActiveMenu(false);
-                openOriginDiscussion(options.blockKey, options.rootCommentId, documentRef);
-            });
-            popoverDiv.appendChild(originBtn);
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.renderActionsMenu === 'function') {
+            return presentation.renderActionsMenu({
+                items: descriptors,
+                legacyPrefix: 'novel-comment'
+            }, documentRef);
         }
 
-        // 2. View Edit History
-        if (hasHistory) {
-            const historyBtn = documentRef.createElement('button');
-            historyBtn.type = 'button';
-            historyBtn.className = 'novel-comment-menu-item';
-            historyBtn.setAttribute('role', 'menuitem');
-            historyBtn.setAttribute('data-action', 'view-revisions');
-            if (options.commentId) {
-                historyBtn.setAttribute('data-comment-id', String(options.commentId));
-            }
-            if (options.rootCommentId) {
-                historyBtn.setAttribute('data-root-id', String(options.rootCommentId));
-            }
-            historyBtn.textContent = 'Xem lịch sử chỉnh sửa';
-
-            historyBtn.addEventListener('click', function () {
-                closeActiveMenu(false);
-            });
-            popoverDiv.appendChild(historyBtn);
-        }
-
-        // 3. Edit
-        if (hasEdit) {
-            const editBtn = documentRef.createElement('button');
-            editBtn.type = 'button';
-            editBtn.className = 'novel-comment-menu-item novel-comment-edit-btn';
-            editBtn.setAttribute('role', 'menuitem');
-            editBtn.setAttribute('data-action', 'edit');
-            if (options.commentId) {
-                editBtn.setAttribute('data-comment-id', String(options.commentId));
-            }
-            if (options.rootCommentId) {
-                editBtn.setAttribute('data-root-id', String(options.rootCommentId));
-            }
-            editBtn.textContent = 'Chỉnh sửa';
-
-            editBtn.addEventListener('click', function () {
-                closeActiveMenu(false);
-            });
-            popoverDiv.appendChild(editBtn);
-        }
-
-        // 4. Delete
-        if (hasDelete) {
-            const deleteBtn = documentRef.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'novel-comment-menu-item novel-comment-delete-btn';
-            deleteBtn.setAttribute('role', 'menuitem');
-            deleteBtn.setAttribute('data-action', 'delete');
-            if (options.commentId) {
-                deleteBtn.setAttribute('data-comment-id', String(options.commentId));
-            }
-            if (options.rootCommentId) {
-                deleteBtn.setAttribute('data-root-id', String(options.rootCommentId));
-            }
-            deleteBtn.textContent = 'Xóa';
-
-            deleteBtn.addEventListener('click', function () {
-                closeActiveMenu(false);
-            });
-            popoverDiv.appendChild(deleteBtn);
-        }
-
-        // 5. Separator (when appropriate)
-        if (hasReport && (hasOrigin || hasHistory || hasEdit || hasDelete)) {
-            const sep = documentRef.createElement('div');
-            sep.className = 'novel-comment-menu-separator';
-            sep.setAttribute('role', 'separator');
-            popoverDiv.appendChild(sep);
-        }
-
-        // 6. Report
-        if (hasReport) {
-            const reportBtn = documentRef.createElement('button');
-            reportBtn.type = 'button';
-            reportBtn.className = 'novel-comment-menu-item novel-comment-report-btn';
-            reportBtn.setAttribute('role', 'menuitem');
-            reportBtn.setAttribute('data-action', 'report');
-            if (options.commentId) {
-                reportBtn.setAttribute('data-comment-id', String(options.commentId));
-            }
-            if (options.rootCommentId) {
-                reportBtn.setAttribute('data-root-id', String(options.rootCommentId));
-            }
-            reportBtn.textContent = 'Báo cáo';
-            popoverDiv.appendChild(reportBtn);
-        }
-
-        triggerBtn.addEventListener('click', function (e) {
-            if (e && typeof e.preventDefault === 'function') {
-                e.preventDefault();
-            }
-            if (e && typeof e.stopPropagation === 'function') {
-                e.stopPropagation();
-            }
-            if (activeOpenMenu && activeOpenMenu.triggerEl === triggerBtn) {
-                closeActiveMenu(false);
-            } else {
-                openMenu(triggerBtn, popoverDiv, menuContainer);
-            }
-        });
-
-        menuContainer.appendChild(triggerBtn);
-        menuContainer.appendChild(popoverDiv);
-
-        return menuContainer;
+        return null;
     }
 
     /**
@@ -913,24 +861,18 @@
      * @returns {Element}
      */
     function renderReply(reply, rootItem, allReplies, commentLookup, doc) {
-        const rootId = rootItem.rootCommentId || rootItem.id;
-        const strRootId = rootId ? String(rootId) : '';
-
-        const replyEl = doc.createElement('article');
-        replyEl.className = 'novel-comment novel-comment--reply';
-        if (reply.id) {
-            replyEl.setAttribute('data-reply-id', String(reply.id));
-            replyEl.setAttribute('data-comment-id', String(reply.id));
+        const presentation = resolveCommentPresentation();
+        if (!presentation || typeof presentation.renderComment !== 'function') {
+            return null;
         }
 
+        const rootId = rootItem.rootCommentId || rootItem.id;
+        const strRootId = rootId ? String(rootId) : '';
         const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
-        if (isTombstone) {
-            if (replyEl.classList && typeof replyEl.classList.add === 'function') {
-                replyEl.classList.add('is-tombstone');
-            }
-            const tombstoneBody = doc.createElement('div');
-            tombstoneBody.className = 'novel-comment-body novel-comment-body--tombstone';
+        const repAuthorUserId = (reply.author && reply.author.userId) || reply.authorUserId;
 
+        let tombstoneContentNodes = null;
+        if (isTombstone) {
             const contextChildDisplayName = (reply.id)
                 ? resolveTombstoneContextChildDisplayName(allReplies, reply.id)
                 : null;
@@ -946,67 +888,15 @@
                 const suffixSpan = doc.createElement('span');
                 suffixSpan.textContent = ' phản hồi đã bị xóa.';
 
-                tombstoneBody.appendChild(prefixSpan);
-                tombstoneBody.appendChild(mentionSpan);
-                tombstoneBody.appendChild(suffixSpan);
+                tombstoneContentNodes = [prefixSpan, mentionSpan, suffixSpan];
             } else {
-                tombstoneBody.textContent = 'Bình luận đã bị xóa.';
+                tombstoneContentNodes = 'Bình luận đã bị xóa.';
             }
+        }
 
-            replyEl.appendChild(tombstoneBody);
-        } else {
-            const repAuthorUserId = (reply.author && reply.author.userId) || reply.authorUserId;
-            if (repAuthorUserId) {
-                replyEl.setAttribute('data-author-user-id', String(repAuthorUserId));
-            }
-
-            const replyHeader = doc.createElement('header');
-            replyHeader.className = 'novel-comment-header';
-
-            renderAuthorPresentation(replyHeader, reply.author, doc);
-
-            const replyTimeStr = formatTimestamp(reply.createdAt);
-            if (replyTimeStr) {
-                const replyTime = doc.createElement('time');
-                replyTime.className = 'novel-comment-time';
-                replyTime.setAttribute('datetime', String(reply.createdAt));
-                replyTime.textContent = replyTimeStr;
-                replyHeader.appendChild(replyTime);
-            }
-
-            const isReplyEdited = isCommentEdited(reply);
-            if (isReplyEdited) {
-                const replyEdited = doc.createElement('span');
-                replyEdited.className = 'novel-comment-edited';
-                replyEdited.textContent = 'đã chỉnh sửa';
-                replyHeader.appendChild(replyEdited);
-            }
-
-            // Active reply inherits root anchorStatus and root blockKey for origin navigation
-            const replyOriginNavigable = isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey);
-            const canEditReply = Boolean(reply.canEdit);
-            const canDeleteReply = Boolean(reply.canDelete);
-            const canReportReply = !canEditReply && !canDeleteReply;
-
-            const replyMenu = createActionsMenu({
-                originNavigable: replyOriginNavigable,
-                blockKey: rootItem.blockKey,
-                rootCommentId: strRootId,
-                commentId: String(reply.id),
-                isEdited: isReplyEdited,
-                canEdit: canEditReply,
-                canDelete: canDeleteReply,
-                canReport: canReportReply
-            }, doc);
-            if (replyMenu) {
-                replyHeader.appendChild(replyMenu);
-            }
-
-            const replyBody = doc.createElement('div');
-            replyBody.className = 'novel-comment-body';
-
-            // Resolve immediate parent for Wattpad-style nested reply mention
-            let parentDisplayName = null;
+        // Resolve immediate parent for Wattpad-style nested reply mention
+        let parentDisplayName = null;
+        if (!isTombstone) {
             const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
             if (parentId && parentId !== strRootId) {
                 const immediateParent = commentLookup ? commentLookup[parentId] : null;
@@ -1025,49 +915,84 @@
                     }
                 }
             }
-
-            if (parentDisplayName) {
-                const mentionSpan = doc.createElement('span');
-                mentionSpan.className = 'novel-comment-reply-mention';
-                mentionSpan.textContent = '@' + parentDisplayName;
-
-                const bodyTextSpan = doc.createElement('span');
-                bodyTextSpan.className = 'novel-comment-reply-body-text';
-                bodyTextSpan.textContent = reply.body || '';
-
-                replyBody.appendChild(mentionSpan);
-                replyBody.appendChild(bodyTextSpan);
-            } else {
-                replyBody.textContent = reply.body || '';
-            }
-
-            replyEl.appendChild(replyHeader);
-            replyEl.appendChild(replyBody);
-
-            if (reply.id) {
-                const replyActions = doc.createElement('div');
-                replyActions.className = 'novel-comment-actions';
-
-                const replyBtn = doc.createElement('button');
-                replyBtn.type = 'button';
-                replyBtn.className = 'novel-comment-reply-btn';
-                replyBtn.setAttribute('data-action', 'reply');
-                replyBtn.setAttribute('data-comment-id', String(reply.id));
-                replyBtn.setAttribute('data-root-id', String(strRootId));
-                const repAuthorName = (reply.author && typeof reply.author.displayName === 'string')
-                    ? reply.author.displayName.trim()
-                    : '';
-                if (repAuthorName) {
-                    replyBtn.setAttribute('data-author-name', repAuthorName);
-                }
-                replyBtn.textContent = 'Phản hồi';
-
-                replyActions.appendChild(replyBtn);
-                replyEl.appendChild(replyActions);
-            }
         }
 
-        return replyEl;
+        const isReplyEdited = !isTombstone && isCommentEdited(reply);
+        const replyOriginNavigable = !isTombstone && isOriginNavigable(rootItem.anchorStatus, rootItem.blockKey);
+        const canEditReply = !isTombstone && Boolean(reply.canEdit);
+        const canDeleteReply = !isTombstone && Boolean(reply.canDelete);
+        const canReportReply = !isTombstone && !canEditReply && !canDeleteReply;
+
+        const repAuthorName = (reply.author && typeof reply.author.displayName === 'string')
+            ? reply.author.displayName.trim()
+            : '';
+
+        const replyAttrs = {};
+        if (reply.id) {
+            replyAttrs['data-reply-id'] = String(reply.id);
+            replyAttrs['data-comment-id'] = String(reply.id);
+        }
+        if (repAuthorUserId) {
+            replyAttrs['data-author-user-id'] = String(repAuthorUserId);
+        }
+
+        const overflowDescriptors = !isTombstone ? buildOverflowActionDescriptors({
+            originNavigable: replyOriginNavigable,
+            blockKey: rootItem.blockKey,
+            rootCommentId: strRootId,
+            commentId: String(reply.id),
+            isEdited: isReplyEdited,
+            canEdit: canEditReply,
+            canDelete: canDeleteReply,
+            canReport: canReportReply
+        }) : [];
+
+        const descriptor = {
+            id: reply.id,
+            tag: 'article',
+            legacyPrefix: 'novel-comment',
+            className: 'novel-comment--reply',
+            attributes: replyAttrs,
+            tombstone: isTombstone,
+            tombstoneContent: tombstoneContentNodes,
+            author: reply.author,
+            createdAt: reply.createdAt,
+            formattedTime: formatTimestamp(reply.createdAt),
+            edited: isReplyEdited,
+            body: function (bodyEl, d) {
+                if (parentDisplayName) {
+                    const mentionSpan = d.createElement('span');
+                    mentionSpan.className = 'novel-comment-reply-mention';
+                    mentionSpan.textContent = '@' + parentDisplayName;
+
+                    const bodyTextSpan = d.createElement('span');
+                    bodyTextSpan.className = 'novel-comment-reply-body-text';
+                    bodyTextSpan.textContent = reply.body || '';
+
+                    bodyEl.appendChild(mentionSpan);
+                    bodyEl.appendChild(bodyTextSpan);
+                } else {
+                    bodyEl.textContent = reply.body || '';
+                }
+            },
+            overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
+            primaryActions: (!isTombstone && reply.id) ? [
+                {
+                    key: 'reply',
+                    label: 'Phản hồi',
+                    className: 'novel-comment-reply-btn',
+                    attributes: {
+                        'data-action': 'reply',
+                        'data-comment-id': String(reply.id),
+                        'data-root-id': String(strRootId),
+                        ...(repAuthorName ? { 'data-author-name': repAuthorName } : {})
+                    }
+                }
+            ] : []
+        };
+
+        const replyEl = presentation.renderComment(descriptor, doc);
+        return replyEl || null;
     }
 
     /**
@@ -1079,6 +1004,11 @@
      * @returns {Element}
      */
     function renderThread(item, doc, initialRevealedCount) {
+        const presentation = resolveCommentPresentation();
+        if (!presentation || typeof presentation.renderComment !== 'function') {
+            return null;
+        }
+
         const rootId = item.rootCommentId || item.id;
         const threadCard = doc.createElement('article');
         threadCard.className = 'novel-block-discussion-thread';
@@ -1086,47 +1016,27 @@
             threadCard.setAttribute('data-root-id', String(rootId));
         }
 
-        // Root comment element
-        const rootEl = doc.createElement('div');
-        rootEl.className = 'novel-comment novel-comment--root';
-        if (rootId) {
-            rootEl.setAttribute('data-comment-id', String(rootId));
-        }
-        const authorUserId = (item.author && item.author.userId) || item.authorUserId;
-        if (authorUserId) {
-            rootEl.setAttribute('data-author-user-id', String(authorUserId));
-        }
-
-        // Root Header (Author + Timestamp + Edited indicator)
-        const rootHeader = doc.createElement('header');
-        rootHeader.className = 'novel-comment-header';
-
-        renderAuthorPresentation(rootHeader, item.author, doc);
-
-        const rootTimeStr = formatTimestamp(item.createdAt);
-        if (rootTimeStr) {
-            const rootTime = doc.createElement('time');
-            rootTime.className = 'novel-comment-time';
-            rootTime.setAttribute('datetime', String(item.createdAt));
-            rootTime.textContent = rootTimeStr;
-            rootHeader.appendChild(rootTime);
-        }
-
         const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
         const isRootEdited = !isRootTombstone && isCommentEdited(item);
-
-        if (isRootEdited) {
-            const rootEdited = doc.createElement('span');
-            rootEdited.className = 'novel-comment-edited';
-            rootEdited.textContent = 'đã chỉnh sửa';
-            rootHeader.appendChild(rootEdited);
-        }
         const originNavigable = !isRootTombstone && isOriginNavigable(item.anchorStatus, item.blockKey);
         const canEditRoot = !isRootTombstone && Boolean(item.canEdit);
         const canDeleteRoot = !isRootTombstone && Boolean(item.canDelete);
         const canReportRoot = !isRootTombstone && !canEditRoot && !canDeleteRoot;
+        const authorUserId = (item.author && item.author.userId) || item.authorUserId;
+        const authorDisplayName = (item.author && typeof item.author.displayName === 'string')
+            ? item.author.displayName.trim()
+            : '';
+        const rootTimeStr = formatTimestamp(item.createdAt);
 
-        const rootMenu = createActionsMenu({
+        const rootAttrs = {};
+        if (rootId) {
+            rootAttrs['data-comment-id'] = String(rootId);
+        }
+        if (authorUserId) {
+            rootAttrs['data-author-user-id'] = String(authorUserId);
+        }
+
+        const overflowDescriptors = !isRootTombstone ? buildOverflowActionDescriptors({
             originNavigable: originNavigable,
             blockKey: item.blockKey,
             rootCommentId: rootId,
@@ -1135,39 +1045,40 @@
             canEdit: canEditRoot,
             canDelete: canDeleteRoot,
             canReport: canReportRoot
-        }, doc);
-        if (rootMenu) {
-            rootHeader.appendChild(rootMenu);
-        }
+        }) : [];
 
-        // Root Body (rendered safely as textContent)
-        const rootBody = doc.createElement('div');
-        rootBody.className = 'novel-comment-body';
-        rootBody.textContent = item.body || '';
+        const rootDescriptor = {
+            id: rootId,
+            tag: 'div',
+            legacyPrefix: 'novel-comment',
+            className: 'novel-comment--root' + (isRootTombstone ? ' is-tombstone' : ''),
+            attributes: rootAttrs,
+            tombstone: isRootTombstone,
+            tombstoneContent: 'Bình luận đã bị xóa.',
+            author: item.author,
+            createdAt: item.createdAt,
+            formattedTime: rootTimeStr,
+            edited: isRootEdited,
+            body: item.body || '',
+            overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
+            primaryActions: (!isRootTombstone && rootId) ? [
+                {
+                    key: 'reply',
+                    label: 'Phản hồi',
+                    className: 'novel-comment-reply-btn',
+                    attributes: {
+                        'data-action': 'reply',
+                        'data-comment-id': String(rootId),
+                        'data-root-id': String(rootId),
+                        ...(authorDisplayName ? { 'data-author-name': authorDisplayName } : {})
+                    }
+                }
+            ] : []
+        };
 
-        rootEl.appendChild(rootHeader);
-        rootEl.appendChild(rootBody);
-
-        if (!isRootTombstone && rootId) {
-            const rootActions = doc.createElement('div');
-            rootActions.className = 'novel-comment-actions';
-
-            const replyBtn = doc.createElement('button');
-            replyBtn.type = 'button';
-            replyBtn.className = 'novel-comment-reply-btn';
-            replyBtn.setAttribute('data-action', 'reply');
-            replyBtn.setAttribute('data-comment-id', String(rootId));
-            replyBtn.setAttribute('data-root-id', String(rootId));
-            const authorDisplayName = (item.author && typeof item.author.displayName === 'string')
-                ? item.author.displayName.trim()
-                : '';
-            if (authorDisplayName) {
-                replyBtn.setAttribute('data-author-name', authorDisplayName);
-            }
-            replyBtn.textContent = 'Phản hồi';
-
-            rootActions.appendChild(replyBtn);
-            rootEl.appendChild(rootActions);
+        const rootEl = presentation.renderComment(rootDescriptor, doc);
+        if (!rootEl) {
+            return null;
         }
 
         threadCard.appendChild(rootEl);
@@ -1204,7 +1115,9 @@
                 const reply = replies[j];
                 if (!reply) continue;
                 const replyEl = renderReply(reply, item, replies, commentLookup, doc);
-                repliesContainer.appendChild(replyEl);
+                if (replyEl) {
+                    repliesContainer.appendChild(replyEl);
+                }
             }
 
             if (replies.length > revealedCount) {
@@ -1230,10 +1143,12 @@
                         const rep = replies[r];
                         if (!rep) continue;
                         const repEl = renderReply(rep, item, replies, commentLookup, doc);
-                        if (typeof repliesContainer.insertBefore === 'function') {
-                            repliesContainer.insertBefore(repEl, moreContainer);
-                        } else {
-                            repliesContainer.appendChild(repEl);
+                        if (repEl) {
+                            if (typeof repliesContainer.insertBefore === 'function') {
+                                repliesContainer.insertBefore(repEl, moreContainer);
+                            } else {
+                                repliesContainer.appendChild(repEl);
+                            }
                         }
                     }
                     revealedCount = nextCount;
@@ -1517,7 +1432,9 @@
                 const item = items[i];
                 if (!item) continue;
                 const threadCard = renderThread(item, doc);
-                listEl.appendChild(threadCard);
+                if (threadCard) {
+                    listEl.appendChild(threadCard);
+                }
             }
         }
         if (countEl) {
@@ -1710,7 +1627,9 @@
                     const item = acceptedNewRoots[i];
                     currentItems.push(item);
                     const threadCard = renderThread(item, doc);
-                    listEl.appendChild(threadCard);
+                    if (threadCard) {
+                        listEl.appendChild(threadCard);
+                    }
                     const id = item ? (item.rootCommentId || item.id) : null;
                     if (id) {
                         rootPageMap[String(id)] = requestedPage;
@@ -1997,7 +1916,7 @@
 
             // Re-render target root card and swap in DOM
             const newThreadCard = renderThread(foundItem, doc, targetRevealCount);
-            if (oldThreadCard && oldThreadCard.parentNode) {
+            if (newThreadCard && oldThreadCard && oldThreadCard.parentNode) {
                 oldThreadCard.parentNode.replaceChild(newThreadCard, oldThreadCard);
             }
 
@@ -2035,9 +1954,6 @@
             }
             if (documentClickHandler && typeof currentDoc.removeEventListener === 'function') {
                 currentDoc.removeEventListener('click', documentClickHandler);
-            }
-            if (documentKeydownHandler && typeof currentDoc.removeEventListener === 'function') {
-                currentDoc.removeEventListener('keydown', documentKeydownHandler);
             }
         }
         closeActiveMenu(false);
@@ -2082,14 +1998,10 @@
         documentClickHandler = function (e) {
             onDocumentClick(e);
         };
-        documentKeydownHandler = function (e) {
-            onDocumentKeydown(e);
-        };
 
         if (typeof currentDoc.addEventListener === 'function') {
             currentDoc.addEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
             currentDoc.addEventListener('click', documentClickHandler);
-            currentDoc.addEventListener('keydown', documentKeydownHandler);
         }
 
         fetchFeed();
@@ -2101,6 +2013,10 @@
     function destroyReaderChapterComments() {
         loadToken++; // Invalidate any in-flight request
         closeActiveMenu(false);
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.unbindDocument === 'function') {
+            presentation.unbindDocument(currentDoc);
+        }
 
         if (currentDoc) {
             if (chapterChangedHandler && typeof currentDoc.removeEventListener === 'function') {
@@ -2108,9 +2024,6 @@
             }
             if (documentClickHandler && typeof currentDoc.removeEventListener === 'function') {
                 currentDoc.removeEventListener('click', documentClickHandler);
-            }
-            if (documentKeydownHandler && typeof currentDoc.removeEventListener === 'function') {
-                currentDoc.removeEventListener('keydown', documentKeydownHandler);
             }
         }
 
@@ -2133,9 +2046,9 @@
         currentChapterId = null;
         injectedFetch = null;
         injectedOpenDiscussionTarget = null;
+        injectedCommentPresentation = undefined;
         chapterChangedHandler = null;
         documentClickHandler = null;
-        documentKeydownHandler = null;
         currentStatus = 'idle';
         currentItems = [];
         currentPage = 0;
@@ -2205,13 +2118,17 @@
         isOriginNavigable: isOriginNavigable,
         openOriginDiscussion: openOriginDiscussion,
         closeActiveMenu: closeActiveMenu,
-        getActiveOpenMenu: function () { return activeOpenMenu; },
+        getActiveOpenMenu: getActiveOpenMenu,
         getHighlightedElement: function () { return null; },
         deduplicateRoots: deduplicateRoots,
         getActiveCommentCount: getActiveCommentCount,
         openReportModal: openReportModal,
         setReportModal: function (fn) { injectedReportModal = fn; },
+        setCommentPresentationImplementation: function (fn) { injectedCommentPresentation = fn; },
+        getCommentPresentation: resolveCommentPresentation,
         setAuthenticatedImplementation: function (val) { injectedAuthenticated = val; },
-        isUserAuthenticated: isUserAuthenticated
+        isUserAuthenticated: isUserAuthenticated,
+        buildOverflowActionDescriptors: buildOverflowActionDescriptors,
+        createActionsMenu: createActionsMenu
     };
 });

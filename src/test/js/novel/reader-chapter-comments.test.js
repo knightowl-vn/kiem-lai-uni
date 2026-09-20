@@ -87,6 +87,14 @@ class FakeElement {
         this.childNodes = [];
     }
 
+    get nodeType() {
+        return 1;
+    }
+
+    get children() {
+        return this.childNodes.filter(n => n.nodeType === 1);
+    }
+
     appendChild(child) {
         child.parentNode = this;
         child.parentElement = this;
@@ -212,13 +220,60 @@ class FakeElement {
         try {
             evt.target = evt.target || this;
         } catch (_) {}
+        if (evt.defaultPrevented === undefined) {
+            evt.defaultPrevented = false;
+        }
+        const origPrevent = evt.preventDefault;
+        evt.preventDefault = function () {
+            evt.defaultPrevented = true;
+            if (typeof origPrevent === 'function') {
+                origPrevent.call(this);
+            }
+        };
+
+        let stopped = false;
+        const origStop = evt.stopPropagation;
+        evt.stopPropagation = function () {
+            stopped = true;
+            if (typeof origStop === 'function') {
+                origStop.call(this);
+            }
+        };
+
         try {
             evt.currentTarget = this;
         } catch (_) {}
         const handlers = this.listeners[evt.type] || [];
         for (const fn of [...handlers]) {
             fn.call(this, evt);
+            if (stopped) break;
         }
+
+        if (!stopped) {
+            let cur = this.parentElement || this.parentNode;
+            while (cur && !stopped) {
+                try {
+                    evt.currentTarget = cur;
+                } catch (_) {}
+                const curHandlers = cur.listeners[evt.type] || [];
+                for (const fn of [...curHandlers]) {
+                    fn.call(cur, evt);
+                    if (stopped) break;
+                }
+                cur = cur.parentElement || cur.parentNode;
+            }
+            if (!stopped && this.ownerDocument) {
+                try {
+                    evt.currentTarget = this.ownerDocument;
+                } catch (_) {}
+                const docHandlers = this.ownerDocument.listeners[evt.type] || [];
+                for (const fn of [...docHandlers]) {
+                    fn.call(this.ownerDocument, evt);
+                    if (stopped) break;
+                }
+            }
+        }
+
         return !evt.defaultPrevented;
     }
 
@@ -228,7 +283,14 @@ class FakeElement {
     }
 
     click() {
-        this.dispatchEvent({ type: 'click', target: this, currentTarget: this, preventDefault() {}, stopPropagation() {} });
+        this.dispatchEvent({
+            type: 'click',
+            target: this,
+            currentTarget: this,
+            defaultPrevented: false,
+            preventDefault() { this.defaultPrevented = true; },
+            stopPropagation() {}
+        });
     }
 
     focus() {
@@ -1937,6 +1999,58 @@ describe('Reader Chapter Comments Read UI (MS-05E5H2C)', () => {
 
         const fullText = list.textContent;
         assert.strictEqual(fullText.includes('Đoạn trích này tuyệt đối không được render'), false);
+    });
+
+    test('36. Safe missing presentation fail-safe: returns null and handles missing cards gracefully without crash', async () => {
+        const { doc, list } = createStandardFixture('c3600');
+        const items = [
+            {
+                rootCommentId: 'r-missing-pres',
+                author: { userId: 'u1', displayName: 'User', avatarUrl: null },
+                body: 'Comment with missing presentation',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                edited: false,
+                anchorStatus: 'CURRENT',
+                blockKey: 'blk-test-1',
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-missing-pres',
+                        parentCommentId: 'r-missing-pres',
+                        body: 'Reply with missing presentation',
+                        tombstone: false,
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        author: { userId: 'u2', displayName: 'Replier', avatarUrl: null }
+                    }
+                ]
+            }
+        ];
+
+        const fakeFetch = () => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(makeFeedResponse(items))
+        });
+
+        // Set presentation implementation to null
+        commentsModule.setCommentPresentationImplementation(null);
+
+        try {
+            assert.doesNotThrow(() => {
+                commentsModule.init(doc, { fetch: fakeFetch });
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // List should not crash and should have 0 child nodes because cards returned null
+            assert.strictEqual(list.childNodes.length, 0);
+
+            // Directly invoking createActionsMenu with null presentation returns null
+            assert.strictEqual(commentsModule.createActionsMenu({ originNavigable: true, blockKey: 'b1' }, doc), null);
+        } finally {
+            // Restore default presentation
+            commentsModule.setCommentPresentationImplementation(undefined);
+        }
     });
 });
 
