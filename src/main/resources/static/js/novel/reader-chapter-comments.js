@@ -318,6 +318,9 @@
         }
         return items.reduce(function (sum, it) {
             if (!it) return sum;
+            if (it.tombstone === true || it.status === 'DELETED') {
+                return sum;
+            }
             let repliesActive = 0;
             if (Number.isSafeInteger(Number(it.replyCount)) && it.replyCount !== null && it.replyCount !== undefined) {
                 repliesActive = Number(it.replyCount);
@@ -1004,6 +1007,10 @@
      * @returns {Element}
      */
     function renderThread(item, doc, initialRevealedCount) {
+        if (!item || item.tombstone === true || item.status === 'DELETED') {
+            return null;
+        }
+
         const presentation = resolveCommentPresentation();
         if (!presentation || typeof presentation.renderComment !== 'function') {
             return null;
@@ -1016,12 +1023,11 @@
             threadCard.setAttribute('data-root-id', String(rootId));
         }
 
-        const isRootTombstone = item.tombstone === true || item.status === 'DELETED';
-        const isRootEdited = !isRootTombstone && isCommentEdited(item);
-        const originNavigable = !isRootTombstone && isOriginNavigable(item.anchorStatus, item.blockKey);
-        const canEditRoot = !isRootTombstone && Boolean(item.canEdit);
-        const canDeleteRoot = !isRootTombstone && Boolean(item.canDelete);
-        const canReportRoot = !isRootTombstone && !canEditRoot && !canDeleteRoot;
+        const isRootEdited = isCommentEdited(item);
+        const originNavigable = isOriginNavigable(item.anchorStatus, item.blockKey);
+        const canEditRoot = Boolean(item.canEdit);
+        const canDeleteRoot = Boolean(item.canDelete);
+        const canReportRoot = !canEditRoot && !canDeleteRoot;
         const authorUserId = (item.author && item.author.userId) || item.authorUserId;
         const authorDisplayName = (item.author && typeof item.author.displayName === 'string')
             ? item.author.displayName.trim()
@@ -1036,7 +1042,7 @@
             rootAttrs['data-author-user-id'] = String(authorUserId);
         }
 
-        const overflowDescriptors = !isRootTombstone ? buildOverflowActionDescriptors({
+        const overflowDescriptors = buildOverflowActionDescriptors({
             originNavigable: originNavigable,
             blockKey: item.blockKey,
             rootCommentId: rootId,
@@ -1045,15 +1051,15 @@
             canEdit: canEditRoot,
             canDelete: canDeleteRoot,
             canReport: canReportRoot
-        }) : [];
+        });
 
         const rootDescriptor = {
             id: rootId,
             tag: 'div',
             legacyPrefix: 'novel-comment',
-            className: 'novel-comment--root' + (isRootTombstone ? ' is-tombstone' : ''),
+            className: 'novel-comment--root',
             attributes: rootAttrs,
-            tombstone: isRootTombstone,
+            tombstone: false,
             tombstoneContent: 'Bình luận đã bị xóa.',
             author: item.author,
             createdAt: item.createdAt,
@@ -1061,7 +1067,7 @@
             edited: isRootEdited,
             body: item.body || '',
             overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
-            primaryActions: (!isRootTombstone && rootId) ? [
+            primaryActions: rootId ? [
                 {
                     key: 'reply',
                     label: 'Phản hồi',
@@ -1914,10 +1920,17 @@
             }
             targetRevealCount = Math.min(targetRevealCount, replies.length);
 
-            // Re-render target root card and swap in DOM
+            // Re-render target root card and swap in DOM (or remove if authoritative root is deleted)
+            const isHiddenRoot = Boolean(foundItem && (foundItem.tombstone === true || foundItem.status === 'DELETED'));
             const newThreadCard = renderThread(foundItem, doc, targetRevealCount);
             if (newThreadCard && oldThreadCard && oldThreadCard.parentNode) {
                 oldThreadCard.parentNode.replaceChild(newThreadCard, oldThreadCard);
+            } else if (!newThreadCard && isHiddenRoot && oldThreadCard) {
+                if (oldThreadCard.parentNode && typeof oldThreadCard.parentNode.removeChild === 'function') {
+                    oldThreadCard.parentNode.removeChild(oldThreadCard);
+                } else if (typeof oldThreadCard.remove === 'function') {
+                    oldThreadCard.remove();
+                }
             }
 
             // Recalculate loaded active-comment header count

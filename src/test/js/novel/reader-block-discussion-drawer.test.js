@@ -5175,6 +5175,64 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             const expectedUrl = '/api/novel/chapters/' + encodeURIComponent('chap/drawer#1?x=y') + '/comments/' + encodeURIComponent('cmt/drawer#2?a=b') + '/reports';
             assert.strictEqual(openCalls[0].submitUrl, expectedUrl);
         });
+
+        test('REPORT-DRAWER-12. Unavailable or non-callable CommentReportModal fails safely without throw', async () => {
+            const { doc, drawer, content } = setupChapterDOM();
+            drawer.setAttribute('data-authenticated', 'true');
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                reportModal: {},
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap-drawer-f17',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'cmt-drawer-f17',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'F17 comment',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-drawer-f17',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtn = content.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            assert.doesNotThrow(() => {
+                doc.dispatchEvent({
+                    type: 'click',
+                    target: reportBtn,
+                    preventDefault() {}
+                });
+            });
+
+            assert.strictEqual(drawerModule.openReportModal('cmt-drawer-f17', reportBtn, doc), false, 'openReportModal returns false when modal is non-callable');
+        });
     });
 
     describe('MS-05E / E8C4-UX2: Drawer Shared CommentPresentation Migration', () => {

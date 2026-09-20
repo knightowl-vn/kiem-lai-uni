@@ -169,6 +169,61 @@ class SubmitCommentReportUseCaseTest {
             assertThat(result.getReportedBodySnapshot()).isEqualTo("Authoritative reply comment text");
             assertThat(result.getStatus()).isEqualTo(ReportStatus.PENDING);
         }
+
+        @Test
+        @DisplayName("Active descendant reply under tombstoned intermediate reply can be reported successfully")
+        void shouldSuccessfullyReportActiveDescendantUnderTombstonedIntermediateReply() {
+            Comment root = createActiveRootComment();
+            UUID replyAId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+            UUID replyBId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+
+            Comment replyA = Comment.createReply(replyAId, root, COMMENT_AUTHOR_ID, "Intermediate reply text", T1);
+            Comment replyB = Comment.createReply(replyBId, replyA, COMMENT_AUTHOR_ID, "Active descendant text", T1.plusSeconds(5));
+            replyA.delete(T1.plusSeconds(10));
+
+            assertThat(replyA.isDeleted()).isTrue();
+            assertThat(replyB.isDeleted()).isFalse();
+            assertThat(replyB.getParentCommentId()).isEqualTo(replyAId);
+            assertThat(replyB.getThreadRootCommentId()).isEqualTo(ROOT_COMMENT_ID);
+
+            when(reportRepositoryPort.existsPendingByCommentIdAndReporterUserId(replyBId, REPORTER_USER_ID))
+                    .thenReturn(false);
+            when(commentRepositoryPort.findByIdForUpdate(replyBId))
+                    .thenReturn(Optional.of(replyB));
+            when(commentRepositoryPort.findByIdForUpdate(ROOT_COMMENT_ID))
+                    .thenReturn(Optional.of(root));
+            when(eligibilityPort.isEligible(TARGET))
+                    .thenReturn(true);
+            when(idGeneratorPort.generate())
+                    .thenReturn(GENERATED_REPORT_ID);
+            when(clockPort.now())
+                    .thenReturn(NOW);
+            when(reportRepositoryPort.save(any(InteractionReport.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            SubmitCommentReportCommand command = new SubmitCommentReportCommand(
+                    replyBId,
+                    REPORTER_USER_ID,
+                    ReportReason.HARASSMENT,
+                    "Harassing descendant reply under deleted parent"
+            );
+
+            InteractionReport result = useCase.execute(command);
+
+            assertThat(result).isNotNull();
+            assertThat(result.getId()).isEqualTo(GENERATED_REPORT_ID);
+            assertThat(result.getCommentId()).isEqualTo(replyBId);
+            assertThat(result.getReporterUserId()).isEqualTo(REPORTER_USER_ID);
+            assertThat(result.getReportedBodySnapshot()).isEqualTo("Active descendant text");
+            assertThat(result.getStatus()).isEqualTo(ReportStatus.PENDING);
+
+            ArgumentCaptor<InteractionReport> captor = ArgumentCaptor.forClass(InteractionReport.class);
+            verify(reportRepositoryPort).save(captor.capture());
+            InteractionReport saved = captor.getValue();
+            assertThat(saved.getId()).isEqualTo(GENERATED_REPORT_ID);
+            assertThat(saved.getCommentId()).isEqualTo(replyBId);
+            assertThat(saved.getReportedBodySnapshot()).isEqualTo("Active descendant text");
+        }
     }
 
     @Nested

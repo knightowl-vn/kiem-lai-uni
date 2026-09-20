@@ -3414,6 +3414,125 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.strictEqual(commentsModule.getState().items.length, 2);
             assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 2);
         });
+
+        test('W. refreshRootThread receiving DELETED root removes old thread card, clears descendant actions, and updates count to "0 bình luận"', async () => {
+            const { doc, list, count } = createStandardFixture('c-refresh-deleted-root');
+            const activeRoot = {
+                rootCommentId: 'r-del-target',
+                author: { userId: 'u-other', displayName: 'Other' },
+                body: 'Active Root Body Before Delete',
+                tombstone: false,
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-child-1',
+                        parentCommentId: 'r-del-target',
+                        author: { userId: 'u-child', displayName: 'Child User' },
+                        body: 'Child Reply Body',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    }
+                ]
+            };
+
+            let currentFeedItems = [activeRoot];
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse(currentFeedItems, false, 0))
+                })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Initial verification: thread card is rendered, descendant report button exists, count = '2 bình luận'
+            const initialCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-del-target"]');
+            assert.ok(initialCard, 'Initial thread card must be rendered in DOM');
+            const initialReportBtn = list.querySelector('.novel-comment-report-btn[data-comment-id="rep-child-1"]');
+            assert.ok(initialReportBtn, 'Descendant report button must exist before delete');
+            assert.strictEqual(count.textContent, '2 bình luận');
+
+            // Server now returns the root as DELETED / tombstone with its replies
+            const deletedRoot = {
+                rootCommentId: 'r-del-target',
+                author: null,
+                body: null,
+                tombstone: true,
+                status: 'DELETED',
+                canEdit: false,
+                canDelete: false,
+                replyCount: 1,
+                replies: [
+                    {
+                        id: 'rep-child-1',
+                        parentCommentId: 'r-del-target',
+                        author: { userId: 'u-child', displayName: 'Child User' },
+                        body: 'Child Reply Body',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    }
+                ]
+            };
+            currentFeedItems = [deletedRoot];
+
+            // Perform targeted refresh
+            await commentsModule.refreshRootThread('r-del-target');
+
+            // 1. Old thread card is removed from DOM
+            const cardAfter = list.querySelector('.novel-block-discussion-thread[data-root-id="r-del-target"]');
+            assert.strictEqual(cardAfter, null, 'Old thread card must be removed from DOM when root becomes DELETED');
+            assert.strictEqual(list.querySelectorAll('.novel-block-discussion-thread').length, 0, 'No thread cards should remain in list');
+
+            // 2. No descendant report actions remain
+            assert.strictEqual(list.querySelector('.novel-comment-report-btn'), null, 'No descendant report button should remain');
+
+            // 3. Visible count becomes "0 bình luận"
+            assert.strictEqual(count.textContent, '0 bình luận', 'Count must update to "0 bình luận"');
+        });
+
+        test('X. refreshRootThread on ACTIVE root when CommentPresentation is unavailable preserves existing thread card in DOM', async () => {
+            const { doc, list } = createStandardFixture('c-refresh-pres-unavail');
+            const activeRoot = {
+                rootCommentId: 'r-active-target',
+                author: { userId: 'u-user', displayName: 'Active User' },
+                body: 'Active Root Body Remains',
+                tombstone: false,
+                canEdit: false,
+                canDelete: false,
+                replyCount: 0,
+                replies: []
+            };
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([activeRoot], false, 0))
+                })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Initial verification: thread card is rendered in DOM
+            const initialCard = list.querySelector('.novel-block-discussion-thread[data-root-id="r-active-target"]');
+            assert.ok(initialCard, 'Initial thread card must be rendered in DOM');
+
+            // Inject CommentPresentation as unavailable
+            commentsModule.setCommentPresentationImplementation(null);
+
+            try {
+                // Authoritative refresh returns the ACTIVE root
+                await commentsModule.refreshRootThread('r-active-target');
+
+                // Existing old thread card remains in DOM; thread is NOT removed merely because presentation rendering is unavailable
+                const cardAfter = list.querySelector('.novel-block-discussion-thread[data-root-id="r-active-target"]');
+                assert.ok(cardAfter, 'Thread card must remain in DOM when root is active but presentation is unavailable');
+                assert.strictEqual(cardAfter, initialCard, 'Original DOM element must be preserved');
+            } finally {
+                commentsModule.setCommentPresentationImplementation(undefined);
+            }
+        });
     });
 
     describe('MS-05E5H2F3B Bottom Comment Owner Menu Capabilities (Cases A-J)', () => {
@@ -4577,6 +4696,99 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.strictEqual(openCalls.length, 1);
             const expectedUrl = '/api/novel/chapters/' + encodeURIComponent('chap/special#1?x=y') + '/comments/' + encodeURIComponent('cmt/special#2?a=b') + '/reports';
             assert.strictEqual(openCalls[0].submitUrl, expectedUrl);
+        });
+
+        test('REPORT-12. Deleted root with active replies hides entire thread and excludes descendant report actions and comment count', async () => {
+            const { doc, list, count } = createStandardFixture('c-report-12');
+            const deletedRootItem = {
+                rootCommentId: 'root-deleted',
+                author: null,
+                body: null,
+                tombstone: true,
+                status: 'DELETED',
+                createdAt: '2026-09-18T10:00:00Z',
+                updatedAt: '2026-09-18T10:00:00Z',
+                canEdit: false,
+                canDelete: false,
+                anchorStatus: 'NONE',
+                replyCount: 2,
+                replies: [
+                    {
+                        id: 'rep-1',
+                        parentCommentId: 'root-deleted',
+                        author: { userId: 'u1', displayName: 'User 1' },
+                        body: 'Reply to deleted root',
+                        createdAt: '2026-09-18T10:05:00Z',
+                        updatedAt: '2026-09-18T10:05:00Z',
+                        canEdit: false,
+                        canDelete: false,
+                        tombstone: false
+                    }
+                ]
+            };
+
+            assert.strictEqual(commentsModule.getActiveCommentCount([deletedRootItem]), 0, 'Deleted root must contribute 0 to active comment count');
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse([deletedRootItem])) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const threads = list.querySelectorAll('.novel-block-discussion-thread');
+            assert.strictEqual(threads.length, 0, 'Entire thread must be hidden when root is deleted');
+            const reportBtns = list.querySelectorAll('.novel-comment-report-btn');
+            assert.strictEqual(reportBtns.length, 0, 'No report buttons rendered for hidden thread');
+            assert.strictEqual(count.textContent, '0 bình luận', 'Count should reflect 0 active comments');
+        });
+
+        test('REPORT-13. Unavailable or non-callable CommentReportModal fails safely without throw or navigation', async () => {
+            const { doc, section, list } = createStandardFixture('c-report-13');
+            section.setAttribute('data-authenticated', 'true');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-13',
+                    search: '',
+                    href: '/novel/chapters/chap-13'
+                }
+            };
+
+            commentsModule.setReportModal({});
+
+            const items = [
+                {
+                    rootCommentId: 'root-13',
+                    author: { userId: 'other', displayName: 'Other' },
+                    body: 'Comment to report',
+                    createdAt: '2026-09-18T10:00:00Z',
+                    updatedAt: '2026-09-18T10:00:00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    anchorStatus: 'NONE',
+                    replyCount: 0,
+                    replies: []
+                }
+            ];
+
+            commentsModule.init(doc, {
+                fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(makeFeedResponse(items)) })
+            });
+            await new Promise(r => setTimeout(r, 10));
+
+            const reportBtn = list.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn, 'Report button must exist');
+
+            assert.doesNotThrow(() => {
+                doc.dispatchEvent({
+                    type: 'click',
+                    target: reportBtn,
+                    preventDefault() {}
+                });
+            });
+
+            assert.strictEqual(doc.defaultView.location.href, '/novel/chapters/chap-13', 'Must not trigger navigation');
+
+            const result = commentsModule.openReportModal('root-13', reportBtn, doc);
+            assert.strictEqual(result, false, 'openReportModal must return false when modal is non-callable');
         });
     });
 });

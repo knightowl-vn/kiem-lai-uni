@@ -5727,11 +5727,11 @@ describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', (
 
     test('53. Authenticated user clicking Báo cáo delegates to CommentReportModal with correct arguments', async () => {
         const doc = createEnvironment({ authenticated: 'true' });
-        let capturedOpenParams = null;
+        const openCalls = [];
 
         wikiCommentsModule.setReportModalImplementation({
             open: (params) => {
-                capturedOpenParams = params;
+                openCalls.push(params);
                 return true;
             }
         });
@@ -5763,11 +5763,13 @@ describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', (
 
         const reportBtn = doc.querySelector('[data-action="report"]');
         assert.ok(reportBtn);
+        assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on report button (delegated)');
 
         // Click report button as authenticated user
         reportBtn.dispatchEvent({ type: 'click' });
 
-        assert.ok(capturedOpenParams, 'CommentReportModal.open must have been called');
+        assert.strictEqual(openCalls.length, 1, 'CommentReportModal.open must be called once');
+        const capturedOpenParams = openCalls[0];
         assert.strictEqual(capturedOpenParams.commentId, ROOT_ID);
         assert.strictEqual(
             capturedOpenParams.submitUrl,
@@ -5894,6 +5896,47 @@ describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', (
         const resolvedModal = wikiCommentsModule.getReportModal();
         assert.strictEqual(resolvedModal, CommentReportModal, 'Production code must resolve to CommentReportModal singleton');
         assert.strictEqual(typeof resolvedModal.open, 'function', 'CommentReportModal.open must be a callable singleton function');
+    });
+
+    test('57. Unavailable or non-callable CommentReportModal fails safely without throw or navigation', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        wikiCommentsModule.setReportModalImplementation({});
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: ROOT_ID,
+                        authorUserId: 'other-user-1',
+                        body: 'Reportable comment',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        assert.ok(reportBtn);
+
+        const initialHref = doc.defaultView.location.href;
+        assert.doesNotThrow(() => {
+            reportBtn.dispatchEvent({ type: 'click', target: reportBtn });
+        });
+
+        assert.strictEqual(doc.defaultView.location.href, initialHref, 'Must not navigate when modal is non-callable');
+        assert.strictEqual(wikiCommentsModule.openReportModal(ROOT_ID, reportBtn, doc), false, 'openReportModal must return false when modal is non-callable');
     });
 });
 
@@ -6361,11 +6404,11 @@ describe('MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Mi
 
     test('Q. Delegated click on report menu item opens CommentReportModal with correct parameters (commentId, submitUrl, contextLabel: "wiki", triggerEl)', async () => {
         const doc = createEnvironment({ authenticated: 'true', articleIdVal: 'art-report-delegate' });
-        let capturedParams = null;
+        const openCalls = [];
 
         wikiCommentsModule.setReportModalImplementation({
             open: (params) => {
-                capturedParams = params;
+                openCalls.push(params);
                 return true;
             }
         });
@@ -6397,11 +6440,13 @@ describe('MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Mi
 
         const reportBtn = doc.querySelector('[data-action="report"]');
         assert.ok(reportBtn, 'Report button must exist');
+        assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on report button (delegated)');
 
         reportBtn.dispatchEvent({ type: 'click', target: reportBtn });
         await new Promise(process.nextTick);
 
-        assert.ok(capturedParams, 'CommentReportModal.open must be invoked');
+        assert.strictEqual(openCalls.length, 1, 'CommentReportModal.open must be invoked once');
+        const capturedParams = openCalls[0];
         assert.strictEqual(capturedParams.commentId, 'comment-rep-del-1');
         assert.strictEqual(capturedParams.submitUrl, '/api/wiki/articles/art-report-delegate/comments/comment-rep-del-1/reports');
         assert.strictEqual(capturedParams.contextLabel, 'wiki');
