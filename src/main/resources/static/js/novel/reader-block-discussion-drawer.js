@@ -48,11 +48,345 @@
     let currentDoc = null;
     let boundDoc = null;
     let injectedFetch = null;
+    let injectedAuthenticated = null;
+    let injectedReportModal = null;
+    let injectedCommentPresentation = undefined;
     let activeContext = null;
     let isDrawerOpen = false;
     let priorFocusedElement = null;
     let currentRequestId = 0;
     let currentAbortController = null;
+
+    /**
+     * Resolves the CommentPresentation module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentPresentation() {
+        if (injectedCommentPresentation !== undefined) {
+            return injectedCommentPresentation;
+        }
+        if (typeof window !== 'undefined') {
+            const pres = window.CommentPresentation || (window.KiemLai && window.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const pres = globalThis.CommentPresentation || (globalThis.KiemLai && globalThis.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-presentation.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Sets the injected CommentPresentation module (for testing or explicit dependency injection).
+     *
+     * @param {Object|null} pres
+     */
+    function setCommentPresentation(pres) {
+        injectedCommentPresentation = pres;
+    }
+
+    /**
+     * Resolves the CommentReportModal module or singleton instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveReportModal() {
+        if (injectedReportModal) {
+            return injectedReportModal;
+        }
+        if (typeof window !== 'undefined') {
+            const modal = window.CommentReportModal || (window.KiemLai && window.KiemLai.CommentReportModal);
+            if (modal) return modal;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const modal = globalThis.CommentReportModal || (globalThis.KiemLai && globalThis.KiemLai.CommentReportModal);
+            if (modal) return modal;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-report-modal.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Closes the active overflow menu and optionally restores focus to its trigger button.
+     * Delegates entirely to the shared CommentPresentation primitive.
+     *
+     * @param {boolean} [restoreFocus=false]
+     */
+    function closeActiveMenu(restoreFocus) {
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.closeActiveMenu === 'function') {
+            presentation.closeActiveMenu(restoreFocus);
+        }
+    }
+
+    /**
+     * Returns the currently active open menu state descriptor.
+     * Delegates entirely to the shared CommentPresentation primitive.
+     *
+     * @returns {Object|null}
+     */
+    function getActiveOpenMenu() {
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.getActiveOpenMenu === 'function') {
+            return presentation.getActiveOpenMenu();
+        }
+        return null;
+    }
+
+    /**
+     * Constructs normalized overflow action descriptors for a drawer comment.
+     * Drawer consumer owns domain capabilities (canEdit, canDelete, canReport, isEdited).
+     * Strictly ordered: view-revisions -> edit -> delete -> report.
+     *
+     * @param {Object} options
+     * @returns {Array}
+     */
+    function buildOverflowActionDescriptors(options) {
+        if (!options || typeof options !== 'object') {
+            return [];
+        }
+        const hasHistory = Boolean(options.isEdited);
+        const hasEdit = Boolean(options.canEdit);
+        const hasDelete = Boolean(options.canDelete);
+        const hasReport = Boolean(options.canReport);
+
+        if (!hasHistory && !hasEdit && !hasDelete && !hasReport) {
+            return [];
+        }
+
+        const descriptors = [];
+
+        // 1. View Revisions
+        if (hasHistory) {
+            descriptors.push({
+                key: 'view-revisions',
+                label: 'Xem lịch sử chỉnh sửa',
+                className: 'novel-comment-menu-item',
+                attributes: {
+                    'data-action': 'view-revisions',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 2. Edit
+        if (hasEdit) {
+            descriptors.push({
+                key: 'edit',
+                label: 'Chỉnh sửa',
+                className: 'novel-comment-menu-item novel-comment-edit-btn',
+                attributes: {
+                    'data-action': 'edit',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 3. Delete
+        if (hasDelete) {
+            descriptors.push({
+                key: 'delete',
+                label: 'Xóa',
+                danger: true,
+                className: 'novel-comment-menu-item novel-comment-delete-btn',
+                attributes: {
+                    'data-action': 'delete',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 4. Report (with separator if preceded by other items)
+        if (hasReport) {
+            const hasPreceding = hasHistory || hasEdit || hasDelete;
+            descriptors.push({
+                key: 'report',
+                label: 'Báo cáo',
+                danger: true,
+                separatorBefore: hasPreceding,
+                className: 'novel-comment-menu-item novel-comment-report-btn',
+                attributes: {
+                    'data-action': 'report',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        return descriptors;
+    }
+
+    /**
+     * Constructs the three-dot overflow actions menu element by delegating to CommentPresentation.
+     *
+     * @param {Object|Array} opts
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function createActionsMenu(opts, doc) {
+        if (!opts) return null;
+        const documentRef = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const descriptors = Array.isArray(opts)
+            ? opts
+            : buildOverflowActionDescriptors(opts);
+
+        if (!descriptors || descriptors.length === 0) {
+            return null;
+        }
+
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.renderActionsMenu === 'function') {
+            return presentation.renderActionsMenu({
+                items: descriptors,
+                legacyPrefix: 'novel-comment'
+            }, documentRef);
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks whether the current user session is authenticated.
+     *
+     * @param {Document} [doc]
+     * @returns {boolean}
+     */
+    function isUserAuthenticated(doc) {
+        if (typeof injectedAuthenticated === 'boolean') {
+            return injectedAuthenticated;
+        }
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (d) {
+            const drawerEl = d.getElementById ? d.getElementById(DRAWER_ID) : null;
+            if (drawerEl) {
+                const authAttr = (typeof drawerEl.getAttribute === 'function' ? drawerEl.getAttribute('data-authenticated') : null) ||
+                    (drawerEl.dataset && drawerEl.dataset.authenticated);
+                if (authAttr === 'true' || authAttr === true) {
+                    return true;
+                }
+            }
+            const sec = d.getElementById ? d.getElementById('novelChapterComments') : null;
+            if (sec) {
+                const authAttr = (typeof sec.getAttribute === 'function' ? sec.getAttribute('data-authenticated') : null) ||
+                    (sec.dataset && sec.dataset.authenticated);
+                if (authAttr === 'true' || authAttr === true) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Redirects unauthenticated guest to login URL safely.
+     *
+     * @param {Document} [doc]
+     */
+    function redirectToLogin(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        let destination = '/login';
+        if (d) {
+            const drawerEl = d.getElementById ? d.getElementById(DRAWER_ID) : null;
+            if (drawerEl && typeof drawerEl.getAttribute === 'function') {
+                const customUrl = drawerEl.getAttribute('data-login-url');
+                if (customUrl && customUrl.trim()) {
+                    destination = customUrl.trim();
+                }
+            }
+            if (destination === '/login') {
+                const sec = d.getElementById ? d.getElementById('novelChapterComments') : null;
+                if (sec && typeof sec.getAttribute === 'function') {
+                    const customUrl = sec.getAttribute('data-login-url');
+                    if (customUrl && customUrl.trim()) {
+                        destination = customUrl.trim();
+                    }
+                }
+            }
+        }
+        const win = (d && d.defaultView) ? d.defaultView : (typeof window !== 'undefined' ? window : null);
+        const currentHref = (win && win.location) ? (win.location.pathname + (win.location.search || '')) : '';
+        if (destination === '/login' && currentHref) {
+            destination = '/login?returnTo=' + encodeURIComponent(currentHref);
+        }
+        if (win && win.location) {
+            win.location.href = destination;
+        }
+    }
+
+    /**
+     * Opens the shared CommentReportModal for a target comment in the discussion drawer.
+     *
+     * @param {string} commentId
+     * @param {Element} [triggerEl]
+     * @param {Document} [doc]
+     * @returns {boolean} true if modal opened, false otherwise
+     */
+    function openReportModal(commentId, triggerEl, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        let chapterId = activeContext && activeContext.chapterId;
+        if (!chapterId && d) {
+            const drawerEl = d.getElementById ? d.getElementById(DRAWER_ID) : null;
+            if (drawerEl && typeof drawerEl.getAttribute === 'function') {
+                chapterId = drawerEl.getAttribute('data-chapter-id');
+            }
+            if (!chapterId) {
+                const sec = d.getElementById ? d.getElementById('novelChapterComments') : null;
+                if (sec && typeof sec.getAttribute === 'function') {
+                    chapterId = sec.getAttribute('data-chapter-id');
+                }
+            }
+        }
+        if (!chapterId || !commentId) {
+            return false;
+        }
+
+        if (!isUserAuthenticated(d)) {
+            redirectToLogin(d);
+            return false;
+        }
+
+        const modal = resolveReportModal();
+        if (!modal || typeof modal.open !== 'function') {
+            return false;
+        }
+
+        const cleanCommentId = String(commentId).trim();
+        const cleanChapterId = String(chapterId).trim();
+        const submitUrl = '/api/novel/chapters/' + encodeURIComponent(cleanChapterId) + '/comments/' + encodeURIComponent(cleanCommentId) + '/reports';
+
+        return modal.open({
+            commentId: cleanCommentId,
+            submitUrl: submitUrl,
+            contextLabel: 'novel-block-discussion',
+            triggerEl: triggerEl || null,
+            onSuccess: function (result) {
+                if (triggerEl) {
+                    triggerEl.textContent = 'Đã báo cáo';
+                    triggerEl.disabled = true;
+                    if (typeof triggerEl.setAttribute === 'function') {
+                        triggerEl.setAttribute('title', 'Bạn đã gửi báo cáo cho bình luận này');
+                    }
+                }
+            }
+        });
+    }
 
     /**
      * DOM element lookup helper.
@@ -352,6 +686,7 @@
      * Closes the drawer UI, clears content, and restores keyboard focus.
      */
     function closeDrawer() {
+        closeActiveMenu(false);
         const wasOpen = isDrawerOpen;
         const closingContext = activeContext ? {
             chapterId: activeContext.chapterId,
@@ -581,94 +916,6 @@
     }
 
     /**
-     * Sanitizes an avatar URL ensuring safe protocols (http, https, or same-origin path).
-     * Disallows dangerous protocols (javascript:, data:, vbscript:, blob:, etc.)
-     * and disallows protocol-relative URLs (//evil.com).
-     *
-     * @param {string} url
-     * @returns {string|null}
-     */
-    function sanitizeAvatarUrl(url) {
-        if (typeof url !== 'string') {
-            return null;
-        }
-        const trimmed = url.trim();
-        if (!trimmed) {
-            return null;
-        }
-        const lower = trimmed.toLowerCase();
-        if (lower.startsWith('https://') || lower.startsWith('http://')) {
-            return trimmed;
-        }
-        if (lower.startsWith('/') && !lower.startsWith('//')) {
-            return trimmed;
-        }
-        return null;
-    }
-
-    /**
-     * Creates an avatar fallback element with the first initial of the display name.
-     *
-     * @param {string} displayName
-     * @param {Document} doc
-     * @returns {Element}
-     */
-    function createAvatarFallback(displayName, doc) {
-        const fallback = doc.createElement('span');
-        fallback.className = 'novel-comment-avatar novel-comment-avatar--fallback';
-        fallback.setAttribute('aria-hidden', 'true');
-        const trimmed = (typeof displayName === 'string') ? displayName.trim() : '';
-        const firstChar = trimmed ? trimmed.charAt(0).toUpperCase() : 'U';
-        fallback.textContent = firstChar;
-        return fallback;
-    }
-
-    /**
-     * Renders author presentation (avatar and displayName) into comment header.
-     *
-     * @param {Element} headerEl
-     * @param {Object|null} author
-     * @param {Document} doc
-     */
-    function renderAuthorPresentation(headerEl, author, doc) {
-        const authorObj = (author && typeof author === 'object') ? author : null;
-        const rawName = (authorObj && typeof authorObj.displayName === 'string') ? authorObj.displayName.trim() : '';
-        const displayName = rawName || 'Người dùng';
-        const rawAvatar = (authorObj && typeof authorObj.avatarUrl === 'string') ? authorObj.avatarUrl.trim() : '';
-        const sanitizedAvatar = sanitizeAvatarUrl(rawAvatar);
-
-        if (sanitizedAvatar) {
-            const avatarImg = doc.createElement('img');
-            avatarImg.className = 'novel-comment-avatar';
-            avatarImg.src = sanitizedAvatar;
-            avatarImg.setAttribute('src', sanitizedAvatar);
-            avatarImg.alt = displayName;
-            avatarImg.setAttribute('alt', displayName);
-            avatarImg.setAttribute('referrerpolicy', 'no-referrer');
-            avatarImg.onerror = function () {
-                const parent = avatarImg.parentNode;
-                if (parent) {
-                    const fallback = createAvatarFallback(displayName, doc);
-                    if (typeof parent.replaceChild === 'function') {
-                        parent.replaceChild(fallback, avatarImg);
-                    } else if (typeof parent.removeChild === 'function') {
-                        parent.removeChild(avatarImg);
-                        parent.appendChild(fallback);
-                    }
-                }
-            };
-            headerEl.appendChild(avatarImg);
-        } else {
-            headerEl.appendChild(createAvatarFallback(displayName, doc));
-        }
-
-        const authorSpan = doc.createElement('span');
-        authorSpan.className = 'novel-comment-author';
-        authorSpan.textContent = displayName;
-        headerEl.appendChild(authorSpan);
-    }
-
-    /**
      * Resolves the single active direct child display name for contextual tombstone rendering.
      * Returns the non-blank displayName of the unique direct active child, or null if 0, >1,
      * or missing/blank child author display name.
@@ -720,6 +967,260 @@
     }
 
     /**
+     * Renders a root comment card using CommentPresentation.
+     * Consumer owns domain capabilities; Shared presentation renders them.
+     * Returns null if CommentPresentation is unavailable.
+     *
+     * @param {Object} rootItem Root comment or thread object
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function renderRoot(rootItem, doc) {
+        const presentation = resolveCommentPresentation();
+        if (!presentation || typeof presentation.renderComment !== 'function') {
+            return null;
+        }
+
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        const root = (rootItem && rootItem.root) ? rootItem.root : rootItem;
+        if (!root || typeof root !== 'object') {
+            return null;
+        }
+
+        const isTombstone = root.tombstone === true || root.status === 'DELETED';
+        if (isTombstone) {
+            return null;
+        }
+
+        const rootId = root.id != null ? String(root.id) : '';
+        const isRootEdited = isCommentEdited(root);
+        const canEditRoot = root.canEdit === true;
+        const canDeleteRoot = root.canDelete === true;
+        const canReportRoot = root.status !== 'DELETED' && !canEditRoot && !canDeleteRoot;
+        const authorUserId = (root.author && root.author.userId) || root.authorUserId;
+        const authorDisplayName = (root.author && typeof root.author.displayName === 'string')
+            ? root.author.displayName.trim()
+            : '';
+        const rootTimeStr = formatTimestamp(root.createdAt);
+
+        const rootAttrs = {};
+        if (rootId) {
+            rootAttrs['data-comment-id'] = rootId;
+        }
+        if (authorUserId) {
+            rootAttrs['data-author-user-id'] = String(authorUserId);
+        }
+
+        const overflowDescriptors = buildOverflowActionDescriptors({
+            commentId: rootId,
+            rootCommentId: rootId,
+            isEdited: isRootEdited,
+            canEdit: canEditRoot,
+            canDelete: canDeleteRoot,
+            canReport: canReportRoot
+        });
+
+        const rootDescriptor = {
+            id: rootId,
+            tag: 'div',
+            legacyPrefix: 'novel-comment',
+            className: 'novel-comment--root',
+            attributes: rootAttrs,
+            tombstone: false,
+            author: root.author,
+            createdAt: root.createdAt,
+            formattedTime: rootTimeStr,
+            edited: isRootEdited,
+            body: root.body || '',
+            overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
+            primaryActions: rootId ? [
+                {
+                    key: 'reply',
+                    label: 'Phản hồi',
+                    className: 'novel-comment-reply-btn',
+                    attributes: {
+                        'data-action': 'reply',
+                        'data-comment-id': rootId,
+                        'data-root-id': rootId,
+                        ...(authorDisplayName ? { 'data-author-name': authorDisplayName } : {})
+                    }
+                }
+            ] : []
+        };
+
+        return presentation.renderComment(rootDescriptor, d);
+    }
+
+    /**
+     * Renders an individual reply card (active or tombstone) using CommentPresentation.
+     * Returns null if CommentPresentation is unavailable.
+     *
+     * @param {Object} reply Reply DTO
+     * @param {Object|string|number} rootItem Root comment or root ID
+     * @param {Array} [allReplies] Array of all replies in the thread
+     * @param {Object} [commentLookup] In-memory map of commentId -> comment
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function renderReply(reply, rootItem, allReplies, commentLookup, doc) {
+        const presentation = resolveCommentPresentation();
+        if (!presentation || typeof presentation.renderComment !== 'function') {
+            return null;
+        }
+
+        let d = doc;
+        let lookup = commentLookup;
+        if (lookup && typeof lookup.createElement === 'function' && !d) {
+            d = lookup;
+            lookup = null;
+        }
+        d = d || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        if (!reply || typeof reply !== 'object') {
+            return null;
+        }
+
+        let rootId = '';
+        if (rootItem) {
+            if (typeof rootItem === 'object') {
+                const r = rootItem.root ? rootItem.root : rootItem;
+                rootId = (r.id != null) ? String(r.id) : (r.rootCommentId != null ? String(r.rootCommentId) : '');
+            } else {
+                rootId = String(rootItem);
+            }
+        }
+
+        const replyId = reply.id != null ? String(reply.id) : '';
+        const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
+        const repAuthorUserId = (reply.author && reply.author.userId) || reply.authorUserId;
+
+        let tombstoneContentNodes = null;
+        if (isTombstone) {
+            const contextChildDisplayName = replyId
+                ? resolveTombstoneContextChildDisplayName(allReplies || [], replyId)
+                : null;
+
+            if (contextChildDisplayName) {
+                const prefixSpan = d.createElement('span');
+                prefixSpan.textContent = 'Bình luận mà ';
+
+                const mentionSpan = d.createElement('span');
+                mentionSpan.className = 'novel-comment-reply-mention';
+                mentionSpan.textContent = '@' + contextChildDisplayName;
+
+                const suffixSpan = d.createElement('span');
+                suffixSpan.textContent = ' phản hồi đã bị xóa.';
+
+                tombstoneContentNodes = [prefixSpan, mentionSpan, suffixSpan];
+            } else {
+                tombstoneContentNodes = 'Bình luận đã bị xóa.';
+            }
+        }
+
+        // Resolve immediate parent for Wattpad-style nested reply mention
+        let parentDisplayName = null;
+        if (!isTombstone) {
+            const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
+            if (parentId && parentId !== rootId) {
+                const immediateParent = lookup ? lookup[parentId] : null;
+                if (immediateParent) {
+                    const isParentTombstone = immediateParent.tombstone === true || immediateParent.status === 'DELETED';
+                    if (!isParentTombstone) {
+                        const parentAuthor = (immediateParent.author && typeof immediateParent.author === 'object')
+                            ? immediateParent.author
+                            : null;
+                        const rawParentName = (parentAuthor && typeof parentAuthor.displayName === 'string')
+                            ? parentAuthor.displayName.trim()
+                            : '';
+                        if (rawParentName) {
+                            parentDisplayName = rawParentName;
+                        }
+                    }
+                }
+            }
+        }
+
+        const isReplyEdited = !isTombstone && isCommentEdited(reply);
+        const canEditReply = !isTombstone && reply.canEdit === true;
+        const canDeleteReply = !isTombstone && reply.canDelete === true;
+        const canReportReply = !isTombstone && reply.status !== 'DELETED' && !canEditReply && !canDeleteReply;
+
+        const repAuthorName = (reply.author && typeof reply.author.displayName === 'string')
+            ? reply.author.displayName.trim()
+            : '';
+
+        const replyAttrs = {};
+        if (replyId) {
+            replyAttrs['data-reply-id'] = replyId;
+            replyAttrs['data-comment-id'] = replyId;
+        }
+        if (repAuthorUserId) {
+            replyAttrs['data-author-user-id'] = String(repAuthorUserId);
+        }
+
+        const overflowDescriptors = !isTombstone ? buildOverflowActionDescriptors({
+            commentId: replyId,
+            replyId: replyId,
+            rootCommentId: rootId,
+            isEdited: isReplyEdited,
+            canEdit: canEditReply,
+            canDelete: canDeleteReply,
+            canReport: canReportReply
+        }) : [];
+
+        const replyDescriptor = {
+            id: replyId,
+            tag: 'article',
+            legacyPrefix: 'novel-comment',
+            className: 'novel-comment--reply' + (isTombstone ? ' is-tombstone' : ''),
+            attributes: replyAttrs,
+            tombstone: isTombstone,
+            tombstoneContent: tombstoneContentNodes,
+            author: reply.author,
+            createdAt: reply.createdAt,
+            formattedTime: formatTimestamp(reply.createdAt),
+            edited: isReplyEdited,
+            body: function (bodyEl, bodyDoc) {
+                const targetDoc = bodyDoc || d;
+                if (parentDisplayName) {
+                    const mentionSpan = targetDoc.createElement('span');
+                    mentionSpan.className = 'novel-comment-reply-mention';
+                    mentionSpan.textContent = '@' + parentDisplayName;
+
+                    const bodyTextSpan = targetDoc.createElement('span');
+                    bodyTextSpan.className = 'novel-comment-reply-body-text';
+                    bodyTextSpan.textContent = reply.body || '';
+
+                    bodyEl.appendChild(mentionSpan);
+                    bodyEl.appendChild(bodyTextSpan);
+                } else {
+                    bodyEl.textContent = reply.body || '';
+                }
+            },
+            overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
+            primaryActions: (!isTombstone && replyId) ? [
+                {
+                    key: 'reply',
+                    label: 'Phản hồi',
+                    className: 'novel-comment-reply-btn',
+                    attributes: {
+                        'data-action': 'reply',
+                        'data-comment-id': replyId,
+                        'data-reply-id': replyId,
+                        ...(rootId ? { 'data-root-id': rootId } : {}),
+                        ...(repAuthorName ? { 'data-author-name': repAuthorName } : {})
+                    }
+                }
+            ] : []
+        };
+
+        return presentation.renderComment(replyDescriptor, d);
+    }
+
+    /**
      * Renders visible discussion threads and flat replies in response order.
      *
      * @param {Element} container
@@ -742,9 +1243,13 @@
         listContainer.setAttribute('role', 'feed');
         listContainer.setAttribute('aria-label', 'Danh sách thảo luận');
 
+        let renderedCount = 0;
         for (let i = 0; i < threads.length; i++) {
             const thread = threads[i];
             if (!thread || !thread.root) {
+                continue;
+            }
+            if (thread.root.tombstone === true || thread.root.status === 'DELETED') {
                 continue;
             }
 
@@ -754,97 +1259,10 @@
                 threadCard.setAttribute('data-root-id', String(thread.root.id));
             }
 
-            // Root comment element
-            const rootEl = doc.createElement('div');
-            rootEl.className = 'novel-comment novel-comment--root';
-            if (thread.root.id) {
-                rootEl.setAttribute('data-comment-id', String(thread.root.id));
+            const rootEl = renderRoot(thread.root, doc);
+            if (rootEl) {
+                threadCard.appendChild(rootEl);
             }
-            if (thread.root.authorUserId) {
-                rootEl.setAttribute('data-author-user-id', String(thread.root.authorUserId));
-            }
-
-            // Root Header (Author + Timestamp)
-            const rootHeader = doc.createElement('header');
-            rootHeader.className = 'novel-comment-header';
-
-            renderAuthorPresentation(rootHeader, thread.root.author, doc);
-
-            const rootTimeStr = formatTimestamp(thread.root.createdAt);
-            if (rootTimeStr) {
-                const rootTime = doc.createElement('time');
-                rootTime.className = 'novel-comment-time';
-                rootTime.setAttribute('datetime', String(thread.root.createdAt));
-                rootTime.textContent = rootTimeStr;
-                rootHeader.appendChild(rootTime);
-            }
-
-            if (!thread.root.tombstone && isCommentEdited(thread.root)) {
-                const rootEdited = doc.createElement('button');
-                rootEdited.type = 'button';
-                rootEdited.className = 'novel-comment-edited';
-                rootEdited.setAttribute('data-action', 'view-revisions');
-                if (thread.root.id) {
-                    rootEdited.setAttribute('data-comment-id', String(thread.root.id));
-                }
-                rootEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
-                rootEdited.textContent = 'đã chỉnh sửa';
-                rootHeader.appendChild(rootEdited);
-            }
-
-            // Root Body (rendered safely as textContent)
-            const rootBody = doc.createElement('div');
-            rootBody.className = 'novel-comment-body';
-            rootBody.textContent = thread.root.body || '';
-
-            rootEl.appendChild(rootHeader);
-            rootEl.appendChild(rootBody);
-
-            const rootActions = doc.createElement('div');
-            rootActions.className = 'novel-comment-actions';
-
-            const rootReplyBtn = doc.createElement('button');
-            rootReplyBtn.type = 'button';
-            rootReplyBtn.className = 'novel-comment-reply-btn';
-            rootReplyBtn.setAttribute('data-action', 'reply');
-            if (thread.root.id) {
-                rootReplyBtn.setAttribute('data-comment-id', String(thread.root.id));
-                rootReplyBtn.setAttribute('data-root-id', String(thread.root.id));
-            }
-            if (thread.root.author && typeof thread.root.author.displayName === 'string' && thread.root.author.displayName.trim()) {
-                rootReplyBtn.setAttribute('data-author-name', thread.root.author.displayName.trim());
-            }
-            rootReplyBtn.textContent = 'Trả lời';
-            rootActions.appendChild(rootReplyBtn);
-
-            if (thread.root.canEdit === true) {
-                const rootEditBtn = doc.createElement('button');
-                rootEditBtn.type = 'button';
-                rootEditBtn.className = 'novel-comment-edit-btn';
-                rootEditBtn.setAttribute('data-action', 'edit');
-                if (thread.root.id) {
-                    rootEditBtn.setAttribute('data-comment-id', String(thread.root.id));
-                    rootEditBtn.setAttribute('data-root-id', String(thread.root.id));
-                }
-                rootEditBtn.textContent = 'Chỉnh sửa';
-                rootActions.appendChild(rootEditBtn);
-            }
-
-            if (!thread.root.tombstone && thread.root.canDelete === true) {
-                const rootDeleteBtn = doc.createElement('button');
-                rootDeleteBtn.type = 'button';
-                rootDeleteBtn.className = 'novel-comment-delete-btn';
-                rootDeleteBtn.setAttribute('data-action', 'delete');
-                if (thread.root.id) {
-                    rootDeleteBtn.setAttribute('data-comment-id', String(thread.root.id));
-                    rootDeleteBtn.setAttribute('data-root-id', String(thread.root.id));
-                }
-                rootDeleteBtn.textContent = 'Xóa';
-                rootActions.appendChild(rootDeleteBtn);
-            }
-
-            rootEl.appendChild(rootActions);
-            threadCard.appendChild(rootEl);
 
             // Replies container (flat visual level)
             const replies = Array.isArray(thread.replies) ? thread.replies : [];
@@ -860,7 +1278,6 @@
                         commentLookup[String(rep.id)] = rep;
                     }
                 }
-                const rootId = (thread.root && thread.root.id) ? String(thread.root.id) : '';
 
                 const repliesContainer = doc.createElement('div');
                 repliesContainer.className = 'novel-comment-replies';
@@ -873,181 +1290,22 @@
                         continue;
                     }
 
-                    const replyEl = doc.createElement('article');
-                    replyEl.className = 'novel-comment novel-comment--reply';
-                    if (reply.id) {
-                        replyEl.setAttribute('data-reply-id', String(reply.id));
-                        replyEl.setAttribute('data-comment-id', String(reply.id));
+                    const replyEl = renderReply(reply, thread.root, replies, commentLookup, doc);
+                    if (replyEl) {
+                        repliesContainer.appendChild(replyEl);
                     }
-
-                    const isTombstone = reply.tombstone === true || reply.status === 'DELETED';
-                    if (isTombstone) {
-                        if (replyEl.classList && typeof replyEl.classList.add === 'function') {
-                            replyEl.classList.add('is-tombstone');
-                        }
-                        const tombstoneBody = doc.createElement('div');
-                        tombstoneBody.className = 'novel-comment-body novel-comment-body--tombstone';
-
-                        const contextChildDisplayName = (reply.id)
-                            ? resolveTombstoneContextChildDisplayName(replies, reply.id)
-                            : null;
-
-                        if (contextChildDisplayName) {
-                            const prefixSpan = doc.createElement('span');
-                            prefixSpan.textContent = 'Bình luận mà ';
-
-                            const mentionSpan = doc.createElement('span');
-                            mentionSpan.className = 'novel-comment-reply-mention';
-                            mentionSpan.textContent = '@' + contextChildDisplayName;
-
-                            const suffixSpan = doc.createElement('span');
-                            suffixSpan.textContent = ' phản hồi đã bị xóa.';
-
-                            tombstoneBody.appendChild(prefixSpan);
-                            tombstoneBody.appendChild(mentionSpan);
-                            tombstoneBody.appendChild(suffixSpan);
-                        } else {
-                            tombstoneBody.textContent = 'Bình luận đã bị xóa.';
-                        }
-
-                        replyEl.appendChild(tombstoneBody);
-                    } else {
-                        if (reply.authorUserId) {
-                            replyEl.setAttribute('data-author-user-id', String(reply.authorUserId));
-                        }
-
-                        const replyHeader = doc.createElement('header');
-                        replyHeader.className = 'novel-comment-header';
-
-                        renderAuthorPresentation(replyHeader, reply.author, doc);
-
-                        const replyTimeStr = formatTimestamp(reply.createdAt);
-                        if (replyTimeStr) {
-                            const replyTime = doc.createElement('time');
-                            replyTime.className = 'novel-comment-time';
-                            replyTime.setAttribute('datetime', String(reply.createdAt));
-                            replyTime.textContent = replyTimeStr;
-                            replyHeader.appendChild(replyTime);
-                        }
-
-                        if (!isTombstone && isCommentEdited(reply)) {
-                            const replyEdited = doc.createElement('button');
-                            replyEdited.type = 'button';
-                            replyEdited.className = 'novel-comment-edited';
-                            replyEdited.setAttribute('data-action', 'view-revisions');
-                            if (reply.id) {
-                                replyEdited.setAttribute('data-comment-id', String(reply.id));
-                            }
-                            replyEdited.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
-                            replyEdited.textContent = 'đã chỉnh sửa';
-                            replyHeader.appendChild(replyEdited);
-                        }
-
-                        const replyBody = doc.createElement('div');
-                        replyBody.className = 'novel-comment-body';
-
-                        // Resolve immediate parent for Wattpad-style nested reply mention
-                        let parentDisplayName = null;
-                        const parentId = (reply.parentCommentId != null) ? String(reply.parentCommentId).trim() : '';
-                        if (parentId && parentId !== rootId) {
-                            const immediateParent = commentLookup[parentId];
-                            if (immediateParent) {
-                                const isParentTombstone = immediateParent.tombstone === true || immediateParent.status === 'DELETED';
-                                if (!isParentTombstone) {
-                                    const parentAuthor = (immediateParent.author && typeof immediateParent.author === 'object')
-                                        ? immediateParent.author
-                                        : null;
-                                    const rawParentName = (parentAuthor && typeof parentAuthor.displayName === 'string')
-                                        ? parentAuthor.displayName.trim()
-                                        : '';
-                                    if (rawParentName) {
-                                        parentDisplayName = rawParentName;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (parentDisplayName) {
-                            const mentionSpan = doc.createElement('span');
-                            mentionSpan.className = 'novel-comment-reply-mention';
-                            mentionSpan.textContent = '@' + parentDisplayName;
-
-                            const bodyTextSpan = doc.createElement('span');
-                            bodyTextSpan.className = 'novel-comment-reply-body-text';
-                            bodyTextSpan.textContent = reply.body || '';
-
-                            replyBody.appendChild(mentionSpan);
-                            replyBody.appendChild(bodyTextSpan);
-                        } else {
-                            replyBody.textContent = reply.body || '';
-                        }
-
-                        replyEl.appendChild(replyHeader);
-                        replyEl.appendChild(replyBody);
-
-                        const replyActions = doc.createElement('div');
-                        replyActions.className = 'novel-comment-actions';
-
-                        const replyBtn = doc.createElement('button');
-                        replyBtn.type = 'button';
-                        replyBtn.className = 'novel-comment-reply-btn';
-                        replyBtn.setAttribute('data-action', 'reply');
-                        if (reply.id) {
-                            replyBtn.setAttribute('data-comment-id', String(reply.id));
-                            replyBtn.setAttribute('data-reply-id', String(reply.id));
-                        }
-                        if (thread.root.id) {
-                            replyBtn.setAttribute('data-root-id', String(thread.root.id));
-                        }
-                        if (reply.author && typeof reply.author.displayName === 'string' && reply.author.displayName.trim()) {
-                            replyBtn.setAttribute('data-author-name', reply.author.displayName.trim());
-                        }
-                        replyBtn.textContent = 'Trả lời';
-
-                        replyActions.appendChild(replyBtn);
-
-                        if (!isTombstone && reply.canEdit === true) {
-                            const replyEditBtn = doc.createElement('button');
-                            replyEditBtn.type = 'button';
-                            replyEditBtn.className = 'novel-comment-edit-btn';
-                            replyEditBtn.setAttribute('data-action', 'edit');
-                            if (reply.id) {
-                                replyEditBtn.setAttribute('data-comment-id', String(reply.id));
-                                replyEditBtn.setAttribute('data-reply-id', String(reply.id));
-                            }
-                            if (thread.root.id) {
-                                replyEditBtn.setAttribute('data-root-id', String(thread.root.id));
-                            }
-                            replyEditBtn.textContent = 'Chỉnh sửa';
-                            replyActions.appendChild(replyEditBtn);
-                        }
-
-                        if (!isTombstone && reply.canDelete === true) {
-                            const replyDeleteBtn = doc.createElement('button');
-                            replyDeleteBtn.type = 'button';
-                            replyDeleteBtn.className = 'novel-comment-delete-btn';
-                            replyDeleteBtn.setAttribute('data-action', 'delete');
-                            if (reply.id) {
-                                replyDeleteBtn.setAttribute('data-comment-id', String(reply.id));
-                                replyDeleteBtn.setAttribute('data-reply-id', String(reply.id));
-                            }
-                            if (thread.root.id) {
-                                replyDeleteBtn.setAttribute('data-root-id', String(thread.root.id));
-                            }
-                            replyDeleteBtn.textContent = 'Xóa';
-                            replyActions.appendChild(replyDeleteBtn);
-                        }
-
-                        replyEl.appendChild(replyActions);
-                    }
-
-                    repliesContainer.appendChild(replyEl);
                 }
 
                 threadCard.appendChild(repliesContainer);
             }
 
             listContainer.appendChild(threadCard);
+            renderedCount++;
+        }
+
+        if (renderedCount === 0) {
+            renderEmptyState(container);
+            return;
         }
 
         container.appendChild(listContainer);
@@ -1136,7 +1394,7 @@
         // 2. Authoritative thread count and comment count
         const threadCount = (typeof data.threadCount === 'number' && Number.isSafeInteger(data.threadCount) && data.threadCount >= 0)
             ? data.threadCount
-            : data.threads.length;
+            : data.threads.filter(t => t && t.root && !t.root.tombstone && t.root.status !== 'DELETED').length;
 
         let commentCount = (typeof data.commentCount === 'number' && Number.isSafeInteger(data.commentCount) && data.commentCount >= 0)
             ? data.commentCount
@@ -1146,12 +1404,18 @@
             commentCount = 0;
             for (let i = 0; i < data.threads.length; i++) {
                 const t = data.threads[i];
-                if (t && t.root) {
-                    commentCount += 1;
+                if (!t || !t.root) {
+                    continue;
                 }
-                if (t && Array.isArray(t.replies)) {
+                const isRootDeleted = t.root.tombstone === true || t.root.status === 'DELETED';
+                if (isRootDeleted) {
+                    continue;
+                }
+                commentCount += 1;
+                if (Array.isArray(t.replies)) {
                     for (let j = 0; j < t.replies.length; j++) {
-                        if (t.replies[j] && !t.replies[j].tombstone) {
+                        const rep = t.replies[j];
+                        if (rep && !rep.tombstone && rep.status !== 'DELETED') {
                             commentCount += 1;
                         }
                     }
@@ -1391,10 +1655,11 @@
 
         // 3. Click handler for close button, backdrop, and drawer isolation
         doc.addEventListener('click', function (e) {
+            const target = e.target;
+
             if (!isDrawerOpen) {
                 return;
             }
-            const target = e.target;
             if (!target || typeof target.closest !== 'function') {
                 return;
             }
@@ -1413,18 +1678,46 @@
                 return;
             }
 
+            // Report button clicked
+            const reportBtn = (typeof target.closest === 'function')
+                ? (target.closest('.novel-comment-report-btn') || target.closest('[data-action="report"]'))
+                : null;
+            if (reportBtn) {
+                if (e.preventDefault) e.preventDefault();
+                closeActiveMenu(false);
+                const commentId = reportBtn.getAttribute('data-comment-id');
+                if (commentId) {
+                    if (!isUserAuthenticated(doc)) {
+                        redirectToLogin(doc);
+                        return;
+                    }
+                    openReportModal(commentId, reportBtn, doc);
+                }
+                return;
+            }
+
             // Clicking inside drawer does NOT close
             if (target.closest('#' + DRAWER_ID)) {
                 return;
             }
         });
 
-        // 4. Keyboard Escape key closes drawer
+        // 4. Keyboard Escape key closes drawer or active popover
         doc.addEventListener('keydown', function (e) {
-            if (!isDrawerOpen) {
-                return;
-            }
-            if (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27) {
+            if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
+                if (e.defaultPrevented) {
+                    return;
+                }
+                if (getActiveOpenMenu()) {
+                    closeActiveMenu(true);
+                    if (typeof e.preventDefault === 'function') {
+                        e.preventDefault();
+                    }
+                    return;
+                }
+                if (!isDrawerOpen) {
+                    return;
+                }
                 if (typeof e.preventDefault === 'function') {
                     e.preventDefault();
                 }
@@ -1450,6 +1743,15 @@
         if (options && options.fetchFn) {
             injectedFetch = options.fetchFn;
         }
+        if (options && typeof options.authenticated === 'boolean') {
+            injectedAuthenticated = options.authenticated;
+        }
+        if (options && options.reportModal) {
+            injectedReportModal = options.reportModal;
+        }
+        if (options && options.commentPresentation !== undefined) {
+            injectedCommentPresentation = options.commentPresentation;
+        }
 
         bindDrawerEvents(doc);
         return {
@@ -1463,10 +1765,18 @@
      * Resets module state. Useful for test teardown and isolation.
      */
     function resetDrawerState() {
+        closeActiveMenu(false);
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.unbindDocument === 'function') {
+            presentation.unbindDocument(currentDoc);
+        }
         closeDrawer();
         currentDoc = null;
         boundDoc = null;
         injectedFetch = null;
+        injectedAuthenticated = null;
+        injectedReportModal = null;
+        injectedCommentPresentation = undefined;
         activeContext = null;
         isDrawerOpen = false;
         priorFocusedElement = null;
@@ -1516,6 +1826,18 @@
         getActiveContext: function () { return activeContext; },
         isDrawerOpen: function () { return isDrawerOpen; },
         getPriorFocusedElement: function () { return priorFocusedElement; },
-        setFetchImplementation: function (fn) { injectedFetch = fn; }
+        setFetchImplementation: function (fn) { injectedFetch = fn; },
+        openReportModal,
+        setReportModal: function (fn) { injectedReportModal = fn; },
+        setAuthenticatedImplementation: function (val) { injectedAuthenticated = val; },
+        isUserAuthenticated,
+        closeActiveMenu: closeActiveMenu,
+        getActiveOpenMenu: getActiveOpenMenu,
+        resolveCommentPresentation: resolveCommentPresentation,
+        setCommentPresentation: setCommentPresentation,
+        buildOverflowActionDescriptors: buildOverflowActionDescriptors,
+        createActionsMenu: createActionsMenu,
+        renderRoot: renderRoot,
+        renderReply: renderReply
     };
 });

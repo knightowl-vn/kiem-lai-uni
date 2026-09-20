@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -60,6 +60,10 @@ class FakeElement {
         }
     }
 
+    get nodeType() {
+        return 1;
+    }
+
     get className() {
         return this.getAttribute('class') || '';
     }
@@ -107,6 +111,33 @@ class FakeElement {
         for (const child of newChildren) {
             this.appendChild(child);
         }
+    }
+
+    insertBefore(newChild, referenceChild) {
+        if (!referenceChild) {
+            return this.appendChild(newChild);
+        }
+        const idx = this.childNodes.indexOf(referenceChild);
+        if (idx !== -1) {
+            newChild.parentNode = this;
+            newChild.parentElement = this;
+            this.childNodes.splice(idx, 0, newChild);
+            return newChild;
+        }
+        return this.appendChild(newChild);
+    }
+
+    replaceChild(newChild, oldChild) {
+        const idx = this.childNodes.indexOf(oldChild);
+        if (idx !== -1) {
+            oldChild.parentNode = null;
+            oldChild.parentElement = null;
+            newChild.parentNode = this;
+            newChild.parentElement = this;
+            this.childNodes[idx] = newChild;
+            return oldChild;
+        }
+        return null;
     }
 
     get isConnected() {
@@ -289,6 +320,15 @@ class FakeDocument {
         const el = new FakeElement(tagName);
         el.ownerDocument = this;
         return el;
+    }
+
+    createTextNode(text) {
+        return {
+            nodeType: 3,
+            textContent: String(text != null ? text : ''),
+            parentNode: null,
+            parentElement: null
+        };
     }
 
     getElementById(id) {
@@ -561,27 +601,27 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(drawer.getAttribute('aria-labelledby'), drawerModule.TITLE_ID);
     });
 
-    test('5. provisional canonicalText appears immediately before fetch resolves', () => {
+    test('5. provisional canonicalText appears immediately before fetch resolves', async () => {
         const { doc, passage } = setupChapterDOM();
+        let resolveFetch;
         let fetchResolved = false;
+
+        const fetchGate = new Promise(resolve => {
+            resolveFetch = resolve;
+        });
 
         drawerModule.initReaderBlockDiscussionDrawer(doc, {
             fetchFn: async () => {
-                await new Promise(r => setTimeout(r, 100));
+                const response = await fetchGate;
                 fetchResolved = true;
-                return {
-                    ok: true,
-                    status: 200,
-                    json: async () => ({
-                        chapterId: '11111111-1111-1111-1111-111111111111',
-                        contentVersion: 1,
-                        blockKey: 'blk-0123456789abcdef-1',
-                        canonicalText: 'Authoritative server text.',
-                        threadCount: 0,
-                        threads: []
-                    })
-                };
+                return response;
             }
+        });
+
+        const loadedPromise = new Promise(resolve => {
+            doc.addEventListener(drawerModule.EVENT_DISCUSSION_LOADED, function (event) {
+                resolve(event);
+            });
         });
 
         doc.dispatchEvent({
@@ -595,8 +635,30 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
+        // 1. Immediately assert provisional state before fetch resolution
         assert.strictEqual(fetchResolved, false);
         assert.strictEqual(passage.textContent, 'Provisional client text.');
+
+        // 2. Resolve the controlled fetch
+        resolveFetch({
+            ok: true,
+            status: 200,
+            json: async () => ({
+                chapterId: '11111111-1111-1111-1111-111111111111',
+                contentVersion: 1,
+                blockKey: 'blk-0123456789abcdef-1',
+                canonicalText: 'Authoritative server text.',
+                threadCount: 0,
+                threads: []
+            })
+        });
+
+        // 3. Await authoritative completion
+        await loadedPromise;
+
+        // 4. Assert authoritative resolved state
+        assert.strictEqual(fetchResolved, true);
+        assert.strictEqual(passage.textContent, 'Authoritative server text.');
     });
 
     test('6. canonical passage uses textContent, not HTML interpretation', () => {
@@ -1108,6 +1170,17 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const failedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOAD_FAILED,
+                function (event) {
+                    if (event && event.detail && event.detail.reason === 'unavailable') {
+                        resolve(event);
+                    }
+                }
+            );
+        });
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -1119,7 +1192,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await failedPromise;
 
         const errorEl = content.querySelector('.novel-block-discussion-status--unavailable');
         assert.notStrictEqual(errorEl, null);
@@ -1155,6 +1228,17 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
+        const failedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOAD_FAILED,
+                function (event) {
+                    if (event && event.detail && event.detail.reason === 'error') {
+                        resolve(event);
+                    }
+                }
+            );
+        });
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -1166,7 +1250,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await failedPromise;
 
         const errorEl = content.querySelector('.novel-block-discussion-status--error');
         assert.notStrictEqual(errorEl, null);
@@ -1174,10 +1258,20 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
 
         const retryBtn = content.querySelector('.novel-block-discussion-retry-btn');
         assert.notStrictEqual(retryBtn, null);
+        assert.strictEqual(callCount, 1);
+
+        const loadedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOADED,
+                function (event) {
+                    resolve(event);
+                }
+            );
+        });
 
         // Click retry
         retryBtn.dispatchEvent({ type: 'click' });
-        await new Promise(r => setTimeout(r, 10));
+        await loadedPromise;
 
         assert.strictEqual(callCount, 2);
         assert.notStrictEqual(content.querySelector('.novel-block-discussion-empty'), null);
@@ -1472,6 +1566,17 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const failedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOAD_FAILED,
+                function (event) {
+                    if (event && event.detail && event.detail.reason === 'invalid_response') {
+                        resolve(event);
+                    }
+                }
+            );
+        });
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -1483,7 +1588,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await failedPromise;
 
         const errorEl = content.querySelector('.novel-block-discussion-status--error');
         assert.notStrictEqual(errorEl, null);
@@ -1508,6 +1613,17 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const failedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOAD_FAILED,
+                function (event) {
+                    if (event && event.detail && event.detail.reason === 'invalid_response') {
+                        resolve(event);
+                    }
+                }
+            );
+        });
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -1522,7 +1638,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         // 1. Immediately after open, provisional passage is rendered
         assert.strictEqual(passage.textContent, 'Provisional text');
 
-        await new Promise(r => setTimeout(r, 10));
+        await failedPromise;
 
         // 2. Malformed authoritative content is NOT rendered
         // 3. Active server contentVersion (5) is NOT accepted as successful state
@@ -1553,6 +1669,17 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             })
         });
 
+        const failedPromise = new Promise(resolve => {
+            doc.addEventListener(
+                drawerModule.EVENT_DISCUSSION_LOAD_FAILED,
+                function (event) {
+                    if (event && event.detail && event.detail.reason === 'invalid_response') {
+                        resolve(event);
+                    }
+                }
+            );
+        });
+
         doc.dispatchEvent({
             type: 'kiemlai:block-discussion-requested',
             detail: {
@@ -1564,7 +1691,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             }
         });
 
-        await new Promise(r => setTimeout(r, 10));
+        await failedPromise;
 
         const activeCtx = drawerModule.getActiveContext();
         assert.strictEqual(activeCtx.contentVersion, 1);
@@ -2624,7 +2751,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(replyBtn.getAttribute('data-comment-id'), ROOT_ID);
         assert.strictEqual(replyBtn.getAttribute('data-root-id'), ROOT_ID);
         assert.strictEqual(replyBtn.getAttribute('data-author-name'), 'Hàn Lập');
-        assert.strictEqual(replyBtn.textContent, 'Trả lời');
+        assert.strictEqual(replyBtn.textContent, 'Phản hồi');
     });
 
     test('52. active reply comment renders Reply button carrying semantic IDs', async () => {
@@ -2691,7 +2818,7 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(replyBtn.getAttribute('data-reply-id'), REPLY_ID);
         assert.strictEqual(replyBtn.getAttribute('data-root-id'), ROOT_ID);
         assert.strictEqual(replyBtn.getAttribute('data-author-name'), 'Nam Cung Uyển');
-        assert.strictEqual(replyBtn.textContent, 'Trả lời');
+        assert.strictEqual(replyBtn.textContent, 'Phản hồi');
     });
 
     test('53. tombstone reply does NOT render Reply button', async () => {
@@ -4032,20 +4159,28 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         await new Promise(r => setTimeout(r, 25));
 
         const rootEl = content.querySelector('.novel-comment--root');
-        const rootActions = rootEl.querySelector('.novel-comment-actions');
-        const rootButtons = rootActions.childNodes.filter(c => c.tagName === 'BUTTON');
-        assert.strictEqual(rootButtons.length, 3);
-        assert.strictEqual(rootButtons[0].textContent, 'Trả lời');
-        assert.strictEqual(rootButtons[1].textContent, 'Chỉnh sửa');
-        assert.strictEqual(rootButtons[2].textContent, 'Xóa');
+        const rootReplyBtn = rootEl.querySelector('.novel-comment-reply-btn');
+        assert.notStrictEqual(rootReplyBtn, null);
+        assert.strictEqual(rootReplyBtn.textContent, 'Phản hồi');
+
+        const rootMenu = rootEl.querySelector('.kl-comment__menu') || rootEl.querySelector('.novel-comment-menu-popover');
+        assert.notStrictEqual(rootMenu, null);
+        const rootButtons = rootMenu.childNodes.filter(c => c.tagName === 'BUTTON');
+        assert.strictEqual(rootButtons.length, 2);
+        assert.strictEqual(rootButtons[0].textContent, 'Chỉnh sửa');
+        assert.strictEqual(rootButtons[1].textContent, 'Xóa');
 
         const replyEl = content.querySelector('.novel-comment--reply');
-        const replyActions = replyEl.querySelector('.novel-comment-actions');
-        const replyButtons = replyActions.childNodes.filter(c => c.tagName === 'BUTTON');
-        assert.strictEqual(replyButtons.length, 3);
-        assert.strictEqual(replyButtons[0].textContent, 'Trả lời');
-        assert.strictEqual(replyButtons[1].textContent, 'Chỉnh sửa');
-        assert.strictEqual(replyButtons[2].textContent, 'Xóa');
+        const replyReplyBtn = replyEl.querySelector('.novel-comment-reply-btn');
+        assert.notStrictEqual(replyReplyBtn, null);
+        assert.strictEqual(replyReplyBtn.textContent, 'Phản hồi');
+
+        const replyMenu = replyEl.querySelector('.kl-comment__menu') || replyEl.querySelector('.novel-comment-menu-popover');
+        assert.notStrictEqual(replyMenu, null);
+        const replyButtons = replyMenu.childNodes.filter(c => c.tagName === 'BUTTON');
+        assert.strictEqual(replyButtons.length, 2);
+        assert.strictEqual(replyButtons[0].textContent, 'Chỉnh sửa');
+        assert.strictEqual(replyButtons[1].textContent, 'Xóa');
     });
 
     test('75. tombstone with exactly one active direct child renders contextual message with child displayName', async () => {
@@ -4365,4 +4500,1639 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         assert.strictEqual(tombstoneEl.querySelector('.novel-comment-actions'), null);
     });
 
+    describe('MS-05E/E8C4 Novel Block Discussion Drawer Report Integration', () => {
+        let originalReportModal;
+        let mockModal;
+        let openCalls;
+
+        beforeEach(() => {
+            openCalls = [];
+            mockModal = {
+                open: (params) => {
+                    openCalls.push(params);
+                    return true;
+                }
+            };
+            originalReportModal = drawerModule.setReportModal;
+            drawerModule.setReportModal(mockModal);
+        });
+
+        afterEach(() => {
+            drawerModule.setReportModal(null);
+            drawerModule.setAuthenticatedImplementation(null);
+            drawerModule.resetDrawerState();
+        });
+
+        test('REPORT-DRAWER-1. Active non-owner root comment renders "Báo cáo" button with data-action="report" and data-comment-id', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Discussion passage text',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'drawer-root-1',
+                                    authorUserId: 'other-user',
+                                    author: { displayName: 'Other User' },
+                                    body: 'Active non-owner root in drawer',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    createdAt: '2026-09-18T10:00:00Z',
+                                    updatedAt: '2026-09-18T10:00:00Z',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Discussion passage text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootEl = content.querySelector('.novel-comment--root');
+            assert.ok(rootEl, 'Root comment element must exist');
+            const reportBtn = rootEl.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn, 'Report button must be rendered for active non-owner root');
+            assert.strictEqual(reportBtn.getAttribute('data-action'), 'report');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(reportBtn.getAttribute('data-comment-id'), 'drawer-root-1');
+            assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on root reportBtn');
+        });
+
+        test('REPORT-DRAWER-2. Active owner root comment (canEdit: true or canDelete: true) does NOT render "Báo cáo" button', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 2,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-edit',
+                                    canEdit: true,
+                                    canDelete: false,
+                                    body: 'Owner edit',
+                                    tombstone: false
+                                },
+                                replies: []
+                            },
+                            {
+                                root: {
+                                    id: 'root-del',
+                                    canEdit: false,
+                                    canDelete: true,
+                                    body: 'Owner del',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 2
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtns = content.querySelectorAll('.novel-comment-report-btn');
+            assert.strictEqual(reportBtns.length, 0, 'Owned root comments must not have report button');
+        });
+
+        test('REPORT-DRAWER-3. Deleted root thread is hidden and does NOT render thread or "Báo cáo" button', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-tomb',
+                                    tombstone: true,
+                                    status: 'DELETED',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: null
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-tomb-child',
+                                        parentCommentId: 'root-tomb',
+                                        body: 'Child of deleted root',
+                                        canEdit: false,
+                                        canDelete: false,
+                                        tombstone: false
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(content.querySelector('.novel-block-discussion-thread'), null, 'Deleted root thread must be completely hidden');
+            const reportBtns = content.querySelectorAll('.novel-comment-report-btn');
+            assert.strictEqual(reportBtns.length, 0, 'Hidden deleted root thread must not have report button');
+        });
+
+        test('REPORT-DRAWER-4. Active non-owner reply renders "Báo cáo" button', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-1',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Root'
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-non-owner',
+                                        parentCommentId: 'root-1',
+                                        author: { displayName: 'Other User' },
+                                        body: 'Active non-owner reply',
+                                        canEdit: false,
+                                        canDelete: false,
+                                        tombstone: false
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replyEl = content.querySelector('.novel-comment--reply');
+            assert.ok(replyEl);
+            const reportBtn = replyEl.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn, 'Report button must be rendered for active non-owner reply');
+            assert.strictEqual(reportBtn.getAttribute('data-action'), 'report');
+            assert.strictEqual(reportBtn.textContent, 'Báo cáo');
+            assert.strictEqual(reportBtn.getAttribute('data-comment-id'), 'rep-non-owner');
+            assert.strictEqual((reportBtn.listeners.click || []).length, 0, 'No direct click listeners on reply reportBtn');
+        });
+
+        test('REPORT-DRAWER-5. Active owner reply does NOT render "Báo cáo" button', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: { id: 'root-1', canEdit: false, canDelete: false, body: 'Root' },
+                                replies: [
+                                    {
+                                        id: 'rep-owner-edit',
+                                        canEdit: true,
+                                        canDelete: false,
+                                        body: 'Edit reply',
+                                        tombstone: false
+                                    },
+                                    {
+                                        id: 'rep-owner-del',
+                                        canEdit: false,
+                                        canDelete: true,
+                                        body: 'Del reply',
+                                        tombstone: false
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replyEls = content.querySelectorAll('.novel-comment--reply');
+            for (const rep of replyEls) {
+                assert.strictEqual(rep.querySelector('.novel-comment-report-btn'), null);
+            }
+        });
+
+        test('REPORT-DRAWER-6. Reply tombstone does NOT render "Báo cáo" button', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: { id: 'root-1', canEdit: false, canDelete: false, body: 'Root' },
+                                replies: [
+                                    {
+                                        id: 'rep-tomb',
+                                        tombstone: true,
+                                        status: 'DELETED',
+                                        canEdit: false,
+                                        canDelete: false,
+                                        body: null
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replyEl = content.querySelector('.novel-comment--reply');
+            assert.ok(replyEl);
+            assert.strictEqual(replyEl.querySelector('.novel-comment-report-btn'), null);
+        });
+
+        test('REPORT-DRAWER-7. Active descendant reply under a tombstoned intermediate reply DOES render "Báo cáo" button for non-owner', async () => {
+            const { doc, content } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-1',
+                                    tombstone: false,
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Active root'
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-tomb-a',
+                                        parentCommentId: 'root-1',
+                                        tombstone: true,
+                                        status: 'DELETED',
+                                        canEdit: false,
+                                        canDelete: false,
+                                        body: null
+                                    },
+                                    {
+                                        id: 'rep-active-descendant',
+                                        parentCommentId: 'rep-tomb-a',
+                                        author: { displayName: 'Active User' },
+                                        body: 'Active child under deleted intermediate reply',
+                                        tombstone: false,
+                                        canEdit: false,
+                                        canDelete: false
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replyEls = content.querySelectorAll('.novel-comment--reply');
+            assert.strictEqual(replyEls.length, 2, 'Two replies must be rendered');
+
+            const repA = replyEls[0];
+            assert.strictEqual(repA.querySelector('.novel-comment-report-btn'), null, 'Tombstone reply A must not have report button');
+
+            const repB = replyEls[1];
+            const reportBtn = repB.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn, 'Active descendant under tombstone parent must have report button');
+            assert.strictEqual(reportBtn.getAttribute('data-comment-id'), 'rep-active-descendant');
+        });
+
+        test('REPORT-DRAWER-8. Unauthenticated guest clicking "Báo cáo" in drawer redirects to /login?returnTo=... without opening modal', async () => {
+            const { doc, drawer, content } = setupChapterDOM();
+            drawer.setAttribute('data-authenticated', 'false');
+            doc.defaultView.location = {
+                pathname: '/novel/chapters/chap-8-slug',
+                search: '?ref=block',
+                href: '/novel/chapters/chap-8-slug?ref=block'
+            };
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: '11111111-1111-1111-1111-111111111111',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-guest-target',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Target',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: '11111111-1111-1111-1111-111111111111',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtn = content.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 0, 'Modal must NOT be opened for unauthenticated guest');
+            assert.strictEqual(
+                doc.defaultView.location.href,
+                '/login?returnTo=' + encodeURIComponent('/novel/chapters/chap-8-slug?ref=block'),
+                'Guest must be redirected to /login with returnTo'
+            );
+        });
+
+        test('REPORT-DRAWER-9. Authenticated user clicking "Báo cáo" opens CommentReportModal with correct parameters', async () => {
+            const { doc, drawer, content } = setupChapterDOM();
+            drawer.setAttribute('data-authenticated', 'true');
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap-drawer-123',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'cmt-drawer-456',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Drawer comment to report',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-drawer-123',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtn = content.querySelector('.novel-comment-report-btn');
+            assert.ok(reportBtn);
+
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1, 'Modal open must be called once');
+            const call = openCalls[0];
+            assert.strictEqual(call.commentId, 'cmt-drawer-456');
+            assert.strictEqual(call.submitUrl, '/api/novel/chapters/chap-drawer-123/comments/cmt-drawer-456/reports');
+            assert.strictEqual(call.contextLabel, 'novel-block-discussion');
+            assert.strictEqual(call.triggerEl, reportBtn);
+            assert.strictEqual(typeof call.onSuccess, 'function');
+        });
+
+        test('REPORT-DRAWER-10. onSuccess callback disables button, updates text to "Đã báo cáo", and sets title tooltip', async () => {
+            const { doc, drawer, content } = setupChapterDOM();
+            drawer.setAttribute('data-authenticated', 'true');
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap-drawer-123',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'cmt-succ-drawer',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Drawer comment',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-drawer-123',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtn = content.querySelector('.novel-comment-report-btn');
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1);
+            const { onSuccess } = openCalls[0];
+
+            onSuccess({ reportId: 'rep-drawer-001', status: 'PENDING' });
+
+            assert.strictEqual(reportBtn.textContent, 'Đã báo cáo');
+            assert.strictEqual(reportBtn.disabled, true);
+            assert.strictEqual(reportBtn.getAttribute('title'), 'Bạn đã gửi báo cáo cho bình luận này');
+            assert.strictEqual(drawerModule.isDrawerOpen(), true, 'Drawer must remain open after reporting');
+            assert.ok(content.querySelector('.novel-block-discussion-thread'), 'Discussion thread content must remain intact');
+        });
+
+        test('REPORT-DRAWER-11. ChapterId and CommentId with special characters are properly URL-encoded in submitUrl', async () => {
+            const { doc, drawer, content } = setupChapterDOM();
+            drawer.setAttribute('data-authenticated', 'true');
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap/drawer#1?x=y',
+                        blockKey: 'blk-0123456789abcdef-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'cmt/drawer#2?a=b',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Special drawer comment',
+                                    tombstone: false
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap/drawer#1?x=y',
+                    contentVersion: 1,
+                    blockKey: 'blk-0123456789abcdef-1',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const reportBtn = content.querySelector('.novel-comment-report-btn');
+            doc.dispatchEvent({
+                type: 'click',
+                target: reportBtn,
+                preventDefault() {}
+            });
+
+            assert.strictEqual(openCalls.length, 1);
+            const expectedUrl = '/api/novel/chapters/' + encodeURIComponent('chap/drawer#1?x=y') + '/comments/' + encodeURIComponent('cmt/drawer#2?a=b') + '/reports';
+            assert.strictEqual(openCalls[0].submitUrl, expectedUrl);
+        });
+    });
+
+    describe('MS-05E / E8C4-UX2: Drawer Shared CommentPresentation Migration', () => {
+        const sharedPresentation = require(path.join(__dirname, '../../../main/resources/static/js/shared/comment-presentation.js'));
+
+        beforeEach(() => {
+            drawerModule.resetDrawerState();
+        });
+
+        afterEach(() => {
+            drawerModule.resetDrawerState();
+        });
+
+        test('A. Shared presentation classes: root and reply elements contain .kl-comment and BEM child classes', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Đoạn văn mẫu',
+                        contentVersion: 1,
+                        chapterId: 'chap-101',
+                        blockKey: 'blk-abc-1',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-101',
+                                    authorUserId: 'u-1',
+                                    body: 'Bình luận gốc',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { userId: 'u-1', displayName: 'Hàn Lập', avatarUrl: 'https://cdn.example.com/avatar.jpg' }
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-101',
+                                        parentCommentId: 'root-101',
+                                        authorUserId: 'u-2',
+                                        body: 'Phản hồi cấp 1',
+                                        tombstone: false,
+                                        createdAt: '2026-09-20T10:05:00Z',
+                                        author: { userId: 'u-2', displayName: 'Nam Cung Uyển', avatarUrl: null }
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-101',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-1',
+                    canonicalText: 'Đoạn văn mẫu',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootEl = content.querySelector('.novel-comment--root');
+            assert.ok(rootEl, 'Root comment element must exist');
+            assert.ok(rootEl.classList.contains('kl-comment'), 'Root must have kl-comment base class');
+            assert.ok(rootEl.querySelector('.kl-comment__header'), 'Root must have .kl-comment__header');
+            assert.ok(rootEl.querySelector('.kl-comment__avatar'), 'Root must have .kl-comment__avatar');
+            assert.ok(rootEl.querySelector('.kl-comment__author'), 'Root must have .kl-comment__author');
+            assert.ok(rootEl.querySelector('.kl-comment__time'), 'Root must have .kl-comment__time');
+            assert.ok(rootEl.querySelector('.kl-comment__body'), 'Root must have .kl-comment__body');
+            assert.ok(rootEl.querySelector('.kl-comment__primary-actions'), 'Root must have .kl-comment__primary-actions');
+            assert.ok(rootEl.querySelector('.kl-comment__overflow'), 'Root must have .kl-comment__overflow');
+
+            const replyEl = content.querySelector('.novel-comment--reply');
+            assert.ok(replyEl, 'Reply comment element must exist');
+            assert.ok(replyEl.classList.contains('kl-comment'), 'Reply must have kl-comment base class');
+            assert.ok(replyEl.querySelector('.kl-comment__header'), 'Reply must have .kl-comment__header');
+            assert.ok(replyEl.querySelector('.kl-comment__avatar'), 'Reply must have .kl-comment__avatar');
+            assert.ok(replyEl.querySelector('.kl-comment__author'), 'Reply must have .kl-comment__author');
+            assert.ok(replyEl.querySelector('.kl-comment__time'), 'Reply must have .kl-comment__time');
+            assert.ok(replyEl.querySelector('.kl-comment__body'), 'Reply must have .kl-comment__body');
+            assert.ok(replyEl.querySelector('.kl-comment__primary-actions'), 'Reply must have .kl-comment__primary-actions');
+            assert.ok(replyEl.querySelector('.kl-comment__overflow'), 'Reply must have .kl-comment__overflow');
+        });
+
+        test('B. Legacy prefix compatibility: elements carry both kl-comment and novel-comment classes', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-102',
+                        blockKey: 'blk-abc-2',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-102',
+                                    body: 'Legacy test root',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Trần Bình An' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-102',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-2',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootEl = content.querySelector('.novel-comment--root');
+            assert.ok(rootEl.classList.contains('kl-comment'), 'Root has kl-comment');
+            assert.ok(rootEl.classList.contains('novel-comment'), 'Root has novel-comment');
+
+            const header = rootEl.querySelector('.kl-comment__header');
+            assert.ok(header.classList.contains('kl-comment__header'), 'Header has kl-comment__header');
+            assert.ok(header.classList.contains('novel-comment-header'), 'Header has novel-comment-header');
+
+            const author = rootEl.querySelector('.kl-comment__author');
+            assert.ok(author.classList.contains('kl-comment__author'), 'Author has kl-comment__author');
+            assert.ok(author.classList.contains('novel-comment-author'), 'Author has novel-comment-author');
+
+            const body = rootEl.querySelector('.kl-comment__body');
+            assert.ok(body.classList.contains('kl-comment__body'), 'Body has kl-comment__body');
+            assert.ok(body.classList.contains('novel-comment-body'), 'Body has novel-comment-body');
+
+            const replyBtn = rootEl.querySelector('.novel-comment-reply-btn');
+            assert.ok(replyBtn.classList.contains('kl-comment__primary-action'), 'Reply btn has kl-comment__primary-action');
+            assert.ok(replyBtn.classList.contains('novel-comment-reply-btn'), 'Reply btn has novel-comment-reply-btn');
+
+            const menu = rootEl.querySelector('.kl-comment__overflow');
+            assert.ok(menu.classList.contains('kl-comment__overflow'), 'Overflow has kl-comment__overflow');
+            assert.ok(menu.classList.contains('novel-comment-actions-menu'), 'Overflow has novel-comment-actions-menu');
+        });
+
+        test('C. Primary action: "Phản hồi" button outside overflow menu carrying semantic IDs', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap-103',
+                        blockKey: 'blk-abc-3',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-103',
+                                    body: 'Active root',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Lý Thất Dạ' }
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-103',
+                                        parentCommentId: 'root-103',
+                                        body: 'Active child',
+                                        tombstone: false,
+                                        createdAt: '2026-09-20T10:05:00Z',
+                                        author: { displayName: 'Nam Hoài Nhân' }
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-103',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-3',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootBtn = content.querySelector('.novel-comment--root .novel-comment-reply-btn');
+            assert.ok(rootBtn, 'Root reply button must exist');
+            assert.strictEqual(rootBtn.textContent, 'Phản hồi');
+            assert.strictEqual(rootBtn.getAttribute('data-action'), 'reply');
+            assert.strictEqual(rootBtn.getAttribute('data-comment-id'), 'root-103');
+            assert.strictEqual(rootBtn.getAttribute('data-root-id'), 'root-103');
+            assert.strictEqual(rootBtn.getAttribute('data-author-name'), 'Lý Thất Dạ');
+
+            const repBtn = content.querySelector('.novel-comment--reply .novel-comment-reply-btn');
+            assert.ok(repBtn, 'Reply button must exist');
+            assert.strictEqual(repBtn.textContent, 'Phản hồi');
+            assert.strictEqual(repBtn.getAttribute('data-action'), 'reply');
+            assert.strictEqual(repBtn.getAttribute('data-comment-id'), 'rep-103');
+            assert.strictEqual(repBtn.getAttribute('data-root-id'), 'root-103');
+            assert.strictEqual(repBtn.getAttribute('data-author-name'), 'Nam Hoài Nhân');
+        });
+
+        test('D. Overflow menu rendering: 3-dots trigger with aria attributes and hidden popover', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Passage',
+                        contentVersion: 1,
+                        chapterId: 'chap-104',
+                        blockKey: 'blk-abc-4',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-104',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Comment',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Bạch Tiểu Thuần' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-104',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-4',
+                    canonicalText: 'Passage',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const trigger = content.querySelector('.kl-comment__menu-trigger');
+            assert.ok(trigger, 'Menu trigger must exist');
+            assert.strictEqual(trigger.getAttribute('aria-label'), 'Mở menu bình luận');
+            assert.strictEqual(trigger.getAttribute('aria-haspopup'), 'menu');
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+
+            const dots = trigger.querySelector('.kl-comment__menu-dots');
+            assert.ok(dots, 'Dots element must exist');
+            assert.strictEqual(dots.textContent, '⋯');
+
+            const menu = content.querySelector('.kl-comment__menu');
+            assert.ok(menu, 'Menu popover must exist');
+            assert.strictEqual(menu.getAttribute('role'), 'menu');
+            assert.strictEqual(menu.hidden, true);
+        });
+
+        test('E. Overflow descriptors ordering and strict exclusion of view-origin in drawer', () => {
+            const descriptors = drawerModule.buildOverflowActionDescriptors({
+                commentId: 'cmt-ord-1',
+                rootCommentId: 'cmt-ord-1',
+                isEdited: true,
+                canEdit: true,
+                canDelete: true,
+                canReport: false,
+                originNavigable: true,
+                blockKey: 'blk-1'
+            });
+
+            const keys = descriptors.map(d => d.key);
+            assert.deepStrictEqual(keys, ['view-revisions', 'edit', 'delete']);
+            assert.strictEqual(descriptors.some(d => d.key === 'view-origin'), false, 'Drawer must NEVER render view-origin');
+        });
+
+        test('F. Separator before report when preceded by revisions, edit, or delete', () => {
+            const descriptorsWithEdit = drawerModule.buildOverflowActionDescriptors({
+                commentId: 'cmt-sep-1',
+                rootCommentId: 'cmt-sep-1',
+                isEdited: false,
+                canEdit: true,
+                canDelete: false,
+                canReport: true
+            });
+            const reportDesc = descriptorsWithEdit.find(d => d.key === 'report');
+            assert.ok(reportDesc, 'Report descriptor must be present');
+            assert.strictEqual(reportDesc.separatorBefore, true, 'Report preceded by edit must have separatorBefore');
+
+            const descriptorsReportOnly = drawerModule.buildOverflowActionDescriptors({
+                commentId: 'cmt-sep-2',
+                rootCommentId: 'cmt-sep-2',
+                isEdited: false,
+                canEdit: false,
+                canDelete: false,
+                canReport: true
+            });
+            assert.strictEqual(descriptorsReportOnly.length, 1);
+            assert.strictEqual(descriptorsReportOnly[0].separatorBefore, false, 'Report-only descriptor must NOT have separatorBefore');
+        });
+
+        test('G. Danger styling on delete and report items', () => {
+            const descriptors = drawerModule.buildOverflowActionDescriptors({
+                commentId: 'cmt-danger-1',
+                rootCommentId: 'cmt-danger-1',
+                isEdited: false,
+                canEdit: false,
+                canDelete: true,
+                canReport: true
+            });
+
+            const del = descriptors.find(d => d.key === 'delete');
+            const rep = descriptors.find(d => d.key === 'report');
+            assert.ok(del && del.danger === true, 'Delete must have danger: true');
+            assert.ok(rep && rep.danger === true, 'Report must have danger: true');
+
+            const doc = new FakeDocument();
+            const menuEl = drawerModule.createActionsMenu(descriptors, doc);
+            assert.ok(menuEl, 'Rendered menu element must exist');
+            const delBtn = menuEl.querySelector('[data-action="delete"]');
+            const repBtn = menuEl.querySelector('[data-action="report"]');
+            assert.ok(delBtn && delBtn.classList.contains('kl-comment__menu-item--danger'), 'Delete button has danger class');
+            assert.ok(repBtn && repBtn.classList.contains('kl-comment__menu-item--danger'), 'Report button has danger class');
+        });
+
+        test('H. Capability ownership - Owner: canEdit: true, canDelete: true -> canReport: false', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-105',
+                        blockKey: 'blk-abc-5',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-owner-1',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Owner comment',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Owner' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-105',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-5',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootEl = content.querySelector('.novel-comment--root');
+            const editBtn = rootEl.querySelector('[data-action="edit"]');
+            const delBtn = rootEl.querySelector('[data-action="delete"]');
+            const repBtn = rootEl.querySelector('[data-action="report"]');
+            assert.ok(editBtn, 'Owner has edit action');
+            assert.ok(delBtn, 'Owner has delete action');
+            assert.strictEqual(repBtn, null, 'Owner must NOT have report action');
+        });
+
+        test('I. Capability ownership - Non-owner: canEdit: false, canDelete: false -> canReport: true', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-106',
+                        blockKey: 'blk-abc-6',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-nonowner-1',
+                                    canEdit: false,
+                                    canDelete: false,
+                                    body: 'Non-owner comment',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Non-Owner' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-106',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-6',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const rootEl = content.querySelector('.novel-comment--root');
+            const editBtn = rootEl.querySelector('[data-action="edit"]');
+            const delBtn = rootEl.querySelector('[data-action="delete"]');
+            const repBtn = rootEl.querySelector('[data-action="report"]');
+            assert.strictEqual(editBtn, null, 'Non-owner does not have edit');
+            assert.strictEqual(delBtn, null, 'Non-owner does not have delete');
+            assert.ok(repBtn, 'Non-owner has report action');
+        });
+
+        test('J. Deleted root thread is completely hidden: no root card, no descendant replies, no actions', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-107',
+                        blockKey: 'blk-abc-7',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-tomb-1',
+                                    tombstone: true,
+                                    status: 'DELETED',
+                                    body: 'Old text',
+                                    createdAt: '2026-09-20T10:00:00Z'
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-under-deleted-root',
+                                        parentCommentId: 'root-tomb-1',
+                                        body: 'Descendant reply',
+                                        tombstone: false,
+                                        canEdit: true,
+                                        canDelete: true,
+                                        createdAt: '2026-09-20T10:05:00Z'
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-107',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-7',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            // Entire thread must be absent
+            assert.strictEqual(content.querySelector('.novel-block-discussion-thread'), null, 'No thread card should be rendered for deleted root');
+            assert.strictEqual(content.querySelector('.novel-comment--root'), null, 'No root comment card should be rendered');
+            assert.strictEqual(content.querySelector('.novel-comment--reply'), null, 'No replies should be rendered from deleted root thread');
+            assert.strictEqual(content.querySelector('.novel-comment-reply-btn'), null, 'No reply button from deleted root thread');
+            assert.strictEqual(content.querySelector('[data-action="report"]'), null, 'No report button from deleted root thread');
+            assert.strictEqual(content.querySelector('[data-action="edit"]'), null, 'No edit button from deleted root thread');
+            assert.strictEqual(content.querySelector('[data-action="delete"]'), null, 'No delete button from deleted root thread');
+        });
+
+        test('K. Active root with intermediate tombstone reply: intermediate tombstone has no actions, active descendant remains actionable and reportable', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-108',
+                        blockKey: 'blk-abc-8',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-active-k',
+                                    tombstone: false,
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Active parent root',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Active Root Author' }
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-tombstone-inter',
+                                        parentCommentId: 'root-active-k',
+                                        tombstone: true,
+                                        status: 'DELETED',
+                                        body: '[Bình luận đã bị xóa]',
+                                        createdAt: '2026-09-20T10:05:00Z'
+                                    },
+                                    {
+                                        id: 'rep-active-descendant',
+                                        parentCommentId: 'rep-tombstone-inter',
+                                        authorUserId: 'u-descendant',
+                                        body: 'Active non-owner descendant reply',
+                                        tombstone: false,
+                                        canEdit: false,
+                                        canDelete: false,
+                                        createdAt: '2026-09-20T10:10:00Z',
+                                        author: { displayName: 'Descendant User' }
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-108',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-8',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            // Root is rendered
+            const rootEl = content.querySelector('.novel-comment--root');
+            assert.ok(rootEl, 'Active root must be rendered');
+
+            // Replies
+            const replyEls = content.querySelectorAll('.novel-comment--reply');
+            assert.strictEqual(replyEls.length, 2, 'Both intermediate tombstone and descendant reply must be rendered');
+
+            // Intermediate tombstone has no actions
+            const tombEl = replyEls[0];
+            assert.strictEqual(
+                tombEl.classList.contains('is-tombstone'),
+                true,
+                'Intermediate deleted reply must render as tombstone'
+            );
+            assert.strictEqual(tombEl.querySelector('.kl-comment__overflow'), null, 'Intermediate tombstone has no overflow menu');
+            assert.strictEqual(tombEl.querySelector('.novel-comment-reply-btn'), null, 'Intermediate tombstone has no reply button');
+            assert.strictEqual(tombEl.querySelector('[data-action="report"]'), null, 'Intermediate tombstone has no report button');
+
+            // Active descendant has Phản hồi and Report
+            const descEl = replyEls[1];
+            assert.ok(descEl, 'Active descendant is rendered');
+            const descReplyBtn = descEl.querySelector('.novel-comment-reply-btn');
+            assert.ok(descReplyBtn, 'Active descendant has Phản hồi button');
+            assert.strictEqual(descReplyBtn.getAttribute('data-action'), 'reply');
+            assert.strictEqual(descReplyBtn.getAttribute('data-comment-id'), 'rep-active-descendant');
+            assert.strictEqual(descReplyBtn.getAttribute('data-reply-id'), 'rep-active-descendant');
+            assert.strictEqual(descReplyBtn.getAttribute('data-root-id'), 'root-active-k');
+            assert.strictEqual(descReplyBtn.getAttribute('data-author-name'), 'Descendant User');
+
+            const descReportBtn = descEl.querySelector('[data-action="report"]');
+            assert.ok(descReportBtn, 'Non-owner descendant has Report action');
+            assert.strictEqual(descReportBtn.getAttribute('data-comment-id'), 'rep-active-descendant');
+            assert.strictEqual(descReportBtn.getAttribute('data-reply-id'), 'rep-active-descendant');
+            assert.strictEqual(descReportBtn.getAttribute('data-root-id'), 'root-active-k');
+        });
+
+        test('L. Contextual tombstone message: single active direct child renders contextual deletion notice', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-109',
+                        blockKey: 'blk-abc-9',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-109',
+                                    body: 'Root',
+                                    createdAt: '2026-09-20T10:00:00Z'
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-tomb-109',
+                                        parentCommentId: 'root-109',
+                                        tombstone: true,
+                                        createdAt: '2026-09-20T10:05:00Z'
+                                    },
+                                    {
+                                        id: 'rep-child-109',
+                                        parentCommentId: 'rep-tomb-109',
+                                        tombstone: false,
+                                        body: 'Active child replying to deleted comment',
+                                        createdAt: '2026-09-20T10:10:00Z',
+                                        author: { displayName: 'Vương Lâm' }
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-109',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-9',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replies = content.querySelectorAll('.novel-comment--reply');
+            assert.strictEqual(replies.length, 2);
+            const tombReply = replies[0];
+            assert.ok(tombReply.textContent.includes('Bình luận mà @Vương Lâm phản hồi đã bị xóa.'));
+            const mentionSpan = tombReply.querySelector('.novel-comment-reply-mention');
+            assert.ok(mentionSpan, 'Contextual tombstone mention span must exist');
+            assert.strictEqual(mentionSpan.textContent, '@Vương Lâm');
+        });
+
+        test('M. Wattpad @mention parent attribution preserved for active reply with non-root parent', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-110',
+                        blockKey: 'blk-abc-10',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-110',
+                                    body: 'Root',
+                                    createdAt: '2026-09-20T10:00:00Z'
+                                },
+                                replies: [
+                                    {
+                                        id: 'rep-parent-110',
+                                        parentCommentId: 'root-110',
+                                        body: 'Parent reply',
+                                        tombstone: false,
+                                        createdAt: '2026-09-20T10:05:00Z',
+                                        author: { displayName: 'Mạnh Hạo' }
+                                    },
+                                    {
+                                        id: 'rep-child-110',
+                                        parentCommentId: 'rep-parent-110',
+                                        body: 'Child reply text',
+                                        tombstone: false,
+                                        createdAt: '2026-09-20T10:10:00Z',
+                                        author: { displayName: 'Hứa Thanh' }
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-110',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-10',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const replies = content.querySelectorAll('.novel-comment--reply');
+            const childReply = replies[1];
+            assert.ok(childReply, 'Child reply must exist');
+            const mention = childReply.querySelector('.novel-comment-reply-mention');
+            assert.ok(mention, 'Mention span must exist in child reply');
+            assert.strictEqual(mention.textContent, '@Mạnh Hạo');
+            const bodyText = childReply.querySelector('.novel-comment-reply-body-text');
+            assert.ok(bodyText, 'Body text span must exist');
+            assert.strictEqual(bodyText.textContent, 'Child reply text');
+        });
+
+        test('N. Menu open/close toggle and outside click delegation', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-111',
+                        blockKey: 'blk-abc-11',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-111',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Comment for menu test',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Tô Minh' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-111',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-11',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            const trigger = content.querySelector('.kl-comment__menu-trigger');
+            const menu = content.querySelector('.kl-comment__menu');
+            const container = content.querySelector('.kl-comment__overflow');
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+
+            // 1. Click trigger -> open menu
+            trigger.dispatchEvent({ type: 'click', target: trigger });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(menu.hidden, false);
+            assert.ok(container.classList.contains('is-open'));
+            assert.ok(drawerModule.getActiveOpenMenu() !== null, 'Active open menu descriptor is present');
+
+            // 2. Click trigger again -> closes menu
+            trigger.dispatchEvent({ type: 'click', target: trigger });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(container.classList.contains('is-open'), false);
+            assert.strictEqual(drawerModule.getActiveOpenMenu(), null);
+
+            // 3. Open menu again and click outside -> closes menu
+            trigger.dispatchEvent({ type: 'click', target: trigger });
+            assert.strictEqual(menu.hidden, false);
+
+            const outsideEl = doc.body;
+            doc.dispatchEvent({ type: 'click', target: outsideEl });
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+        });
+
+        test('O. Escape key precedence: first Escape dismisses menu, second Escape dismisses drawer', async () => {
+            const { doc, content } = setupChapterDOM();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-112',
+                        blockKey: 'blk-abc-12',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: {
+                                    id: 'root-112',
+                                    canEdit: true,
+                                    canDelete: true,
+                                    body: 'Comment',
+                                    createdAt: '2026-09-20T10:00:00Z',
+                                    author: { displayName: 'Diệp Phàm' }
+                                },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-112',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-12',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(drawerModule.isDrawerOpen(), true, 'Drawer is open');
+
+            // Open overflow menu
+            const trigger = content.querySelector('.kl-comment__menu-trigger');
+            trigger.dispatchEvent({ type: 'click', target: trigger });
+            assert.ok(drawerModule.getActiveOpenMenu() !== null, 'Menu is open');
+
+            // First Escape: closes menu, drawer remains open
+            const escEvent1 = {
+                type: 'keydown',
+                key: 'Escape',
+                defaultPrevented: false,
+                preventDefault() { this.defaultPrevented = true; }
+            };
+            doc.dispatchEvent(escEvent1);
+
+            assert.strictEqual(drawerModule.getActiveOpenMenu(), null, 'Menu must be closed after 1st Escape');
+            assert.strictEqual(drawerModule.isDrawerOpen(), true, 'Drawer MUST REMAIN OPEN after 1st Escape');
+
+            // Second Escape: closes drawer
+            const escEvent2 = {
+                type: 'keydown',
+                key: 'Escape',
+                defaultPrevented: false,
+                preventDefault() { this.defaultPrevented = true; }
+            };
+            doc.dispatchEvent(escEvent2);
+
+            assert.strictEqual(drawerModule.isDrawerOpen(), false, 'Drawer must be closed after 2nd Escape');
+        });
+
+        test('P. Fail-safe contract: when CommentPresentation is null / missing, render returns null without crash', async () => {
+            const { doc } = setupChapterDOM();
+
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                commentPresentation: null,
+                fetchFn: () => Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: () => Promise.resolve({
+                        canonicalText: 'Text',
+                        contentVersion: 1,
+                        chapterId: 'chap-113',
+                        blockKey: 'blk-abc-13',
+                        threadCount: 1,
+                        threads: [
+                            {
+                                root: { id: 'root-113', body: 'Comment', createdAt: '2026-09-20T10:00:00Z' },
+                                replies: []
+                            }
+                        ]
+                    })
+                })
+            });
+
+            assert.strictEqual(drawerModule.renderRoot({ id: 'r-1' }, doc), null);
+            assert.strictEqual(drawerModule.renderReply({ id: 'rep-1' }, { id: 'r-1' }, [], {}, doc), null);
+
+            // Dispatching discussion request does not crash
+            doc.dispatchEvent({
+                type: drawerModule.EVENT_DISCUSSION_REQUESTED,
+                detail: {
+                    chapterId: 'chap-113',
+                    contentVersion: 1,
+                    blockKey: 'blk-abc-13',
+                    canonicalText: 'Text',
+                    threadCount: 1
+                }
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+            assert.strictEqual(drawerModule.isDrawerOpen(), true, 'Drawer opens safely even when presentation is null');
+        });
+
+        test('Q. Explicit dependency injection via options.commentPresentation and setCommentPresentation', () => {
+            const customPresentation = {
+                renderComment: () => null,
+                renderActionsMenu: () => null,
+                closeActiveMenu: () => {},
+                getActiveOpenMenu: () => null
+            };
+
+            const doc = new FakeDocument();
+            drawerModule.initReaderBlockDiscussionDrawer(doc, {
+                commentPresentation: customPresentation
+            });
+
+            assert.strictEqual(drawerModule.resolveCommentPresentation(), customPresentation);
+
+            const anotherPresentation = { ...customPresentation };
+            drawerModule.setCommentPresentation(anotherPresentation);
+            assert.strictEqual(drawerModule.resolveCommentPresentation(), anotherPresentation);
+        });
+
+        test('R. Teardown / cleanup: resetDrawerState clears injected presentation and resets menu', () => {
+            const customPresentation = {
+                renderComment: () => null,
+                unbindDocument: () => {}
+            };
+            drawerModule.setCommentPresentation(customPresentation);
+            assert.strictEqual(drawerModule.resolveCommentPresentation(), customPresentation);
+
+            drawerModule.resetDrawerState();
+            assert.strictEqual(drawerModule.getActiveOpenMenu(), null);
+            assert.strictEqual(drawerModule.isDrawerOpen(), false);
+            // After reset, resolution falls back to default shared module
+            assert.strictEqual(drawerModule.resolveCommentPresentation(), sharedPresentation);
+        });
+    });
 });

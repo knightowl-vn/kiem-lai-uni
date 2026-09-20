@@ -377,69 +377,11 @@ body.has-block-discussion-open {
     border-bottom: none;
 }
 
-/* Root Comment */
-.novel-comment {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.novel-comment-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.novel-comment-avatar {
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
-    object-fit: cover;
-    flex-shrink: 0;
-    background-color: var(--reader-surface-soft, #f3f4f6);
-}
-
-.novel-comment-avatar--fallback {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%;
-    background: var(--reader-surface-soft, #e5e7eb);
-    color: var(--reader-text-muted, #6b7280);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    flex-shrink: 0;
-    user-select: none;
-}
-
-.novel-comment-author {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--reader-text, #111827);
-}
-
-.novel-comment-time {
-    font-size: 0.6875rem;
-    color: var(--reader-text-muted, #9ca3af);
-}
-
-.novel-comment-edited {
-    font-size: 0.6875rem;
-    color: var(--reader-text-muted, #9ca3af);
-    font-style: italic;
-    margin-left: 0.25rem;
-}
-
-.novel-comment-body {
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: var(--reader-text, #374151);
-    white-space: pre-wrap;
-    word-break: break-word;
-}
+/* =========================================================
+   Base comment card, header, avatar, author, time, edited,
+   overflow actions menu, body, and tombstone styles are
+   defined in shared /css/shared/comments.css (MS-05E / E8C4-UX2)
+   ========================================================= */
 
 /* Mention Presentation (MS-05E5G4A-UX1) */
 .novel-comment-reply-mention {
@@ -467,17 +409,6 @@ body.has-block-discussion-open {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
-}
-
-/* Tombstone / Deleted Presentation */
-.novel-comment.is-tombstone,
-.novel-comment--reply.is-tombstone {
-    opacity: 0.7;
-}
-
-.novel-comment-body--tombstone {
-    font-style: italic;
-    color: var(--reader-text-muted, #9ca3af);
 }
 
 /* =========================================================
@@ -519,48 +450,8 @@ body.has-block-discussion-open {
 }
 
 /* =========================================================
-   REPLY ACTIONS & COMPOSER (MS-05E5G4A)
+   INLINE REPLY COMPOSER FORM (MS-05E5G4A)
    ========================================================= */
-.novel-comment-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-top: 0.35rem;
-}
-
-.novel-comment-reply-btn,
-.novel-comment-edit-btn,
-.novel-comment-delete-btn {
-    background: none;
-    border: none;
-    padding: 0.15rem 0.4rem;
-    font-size: 0.775rem;
-    font-weight: 500;
-    color: var(--reader-text-muted, #6b7280);
-    cursor: pointer;
-    border-radius: 4px;
-    transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.novel-comment-reply-btn:hover,
-.novel-comment-edit-btn:hover {
-    color: var(--accent, #b45309);
-    background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
-}
-
-.novel-comment-delete-btn:hover {
-    color: var(--color-danger, #dc2626);
-    background-color: var(--reader-hover-bg, rgba(0, 0, 0, 0.04));
-}
-
-.novel-comment-reply-btn:focus-visible,
-.novel-comment-edit-btn:focus-visible,
-.novel-comment-delete-btn:focus-visible {
-    outline: 2px solid var(--accent, #b45309);
-    outline-offset: 1px;
-}
-
-/* Inline Reply Composer Form */
 .novel-reply-composer {
     margin-top: 0.5rem;
     padding: 0.5rem;
