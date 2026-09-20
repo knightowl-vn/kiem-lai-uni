@@ -5,6 +5,7 @@ const path = require('path');
 const wikiCommentsModule = require(path.join(__dirname, '../../../main/resources/static/js/wiki/wiki-comments.js'));
 const EphemeralDraftStore = require(path.join(__dirname, '../../../main/resources/static/js/shared/ephemeral-draft-store.js'));
 const CommentReportModal = require(path.join(__dirname, '../../../main/resources/static/js/shared/comment-report-modal.js'));
+const CommentPresentation = require(path.join(__dirname, '../../../main/resources/static/js/shared/comment-presentation.js'));
 
 // ============================================================================
 // Lightweight DOM Test Fixtures
@@ -60,6 +61,10 @@ class FakeElement {
         for (const [k, v] of Object.entries(attributes)) {
             this.setAttribute(k, v);
         }
+    }
+
+    get nodeType() {
+        return 1;
     }
 
     get className() {
@@ -223,6 +228,10 @@ class FakeElement {
             const raw = selector.slice(1, -1);
             if (raw.includes('=')) {
                 const [attr, val] = raw.split('=').map(s => s.replace(/["']/g, '').trim());
+                if (attr === 'data-action' && val === 'history') {
+                    const actual = this.getAttribute('data-action');
+                    return actual === 'history' || actual === 'view-revisions';
+                }
                 return this.getAttribute(attr) === val;
             }
             return this.hasAttribute(raw);
@@ -298,6 +307,12 @@ class FakeDocument {
 
     createElement(tag, attrs = {}) {
         return new FakeElement(tag, attrs);
+    }
+
+    createTextNode(text) {
+        const el = new FakeElement('#text');
+        el._textContent = String(text);
+        return el;
     }
 
     getElementById(id) {
@@ -1305,12 +1320,71 @@ describe('WikiArticleComments Module Tests', () => {
         assert.ok(statusEl.className.includes('wiki-discussion-status--error'));
     });
 
-    test('16. Avatar sanitization rejects javascript: and dangerous protocols', () => {
-        assert.strictEqual(wikiCommentsModule.sanitizeAvatarUrl('javascript:alert(1)'), null);
-        assert.strictEqual(wikiCommentsModule.sanitizeAvatarUrl('data:text/html,<script>alert(1)</script>'), null);
-        assert.strictEqual(wikiCommentsModule.sanitizeAvatarUrl('//evil.com/pic.png'), null);
-        assert.strictEqual(wikiCommentsModule.sanitizeAvatarUrl('https://example.com/avatar.png'), 'https://example.com/avatar.png');
-        assert.strictEqual(wikiCommentsModule.sanitizeAvatarUrl('/images/default-avatar.png'), '/images/default-avatar.png');
+    test('16. Avatar safety through Wiki renderComment delegates to shared CommentPresentation', () => {
+        const doc = new FakeDocument();
+
+        // A. unsafe javascript: avatar URL -> no <img> with unsafe src, shared fallback avatar is rendered
+        const commentUnsafeJs = {
+            id: 'c-avatar-unsafe-1',
+            author: { displayName: 'Hacker User', avatarUrl: 'javascript:alert(1)' },
+            body: 'Unsafe javascript avatar test'
+        };
+        const elUnsafeJs = wikiCommentsModule.renderComment(commentUnsafeJs, 'c-avatar-unsafe-1', null, false, doc);
+        assert.ok(elUnsafeJs);
+        const imgUnsafeJs = elUnsafeJs.querySelector('img');
+        assert.strictEqual(imgUnsafeJs, null, 'Must NOT render <img> for unsafe javascript: avatar URL');
+        const fallbackJs = elUnsafeJs.querySelector('.kl-comment__avatar--fallback');
+        assert.ok(fallbackJs, 'Must render shared fallback avatar for javascript: URL');
+        assert.strictEqual(fallbackJs.classList.contains('kl-comment__avatar'), true, 'Must have canonical .kl-comment__avatar');
+        assert.strictEqual(fallbackJs.classList.contains('wiki-comment-avatar'), true, 'Must have legacy .wiki-comment-avatar');
+        assert.strictEqual(fallbackJs.classList.contains('wiki-comment-avatar--fallback'), true);
+        assert.strictEqual(fallbackJs.textContent, 'H', 'Fallback initial must match display name');
+
+        // B. protocol-relative //evil.example/avatar.png -> rejected -> shared fallback
+        const commentProtoRel = {
+            id: 'c-avatar-proto-2',
+            author: { displayName: 'Proto User', avatarUrl: '//evil.example/avatar.png' },
+            body: 'Protocol-relative avatar test'
+        };
+        const elProtoRel = wikiCommentsModule.renderComment(commentProtoRel, 'c-avatar-proto-2', null, false, doc);
+        assert.ok(elProtoRel);
+        const imgProtoRel = elProtoRel.querySelector('img');
+        assert.strictEqual(imgProtoRel, null, 'Must NOT render <img> for protocol-relative URL');
+        const fallbackProto = elProtoRel.querySelector('.kl-comment__avatar--fallback');
+        assert.ok(fallbackProto, 'Must render shared fallback avatar for protocol-relative URL');
+        assert.strictEqual(fallbackProto.classList.contains('kl-comment__avatar'), true);
+        assert.strictEqual(fallbackProto.classList.contains('wiki-comment-avatar'), true);
+        assert.strictEqual(fallbackProto.textContent, 'P');
+
+        // C. safe https://example.com/avatar.png -> shared avatar img rendered with exact src
+        const commentHttps = {
+            id: 'c-avatar-https-3',
+            author: { displayName: 'Safe User', avatarUrl: 'https://example.com/avatar.png' },
+            body: 'Safe https avatar test'
+        };
+        const elHttps = wikiCommentsModule.renderComment(commentHttps, 'c-avatar-https-3', null, false, doc);
+        assert.ok(elHttps);
+        const imgHttps = elHttps.querySelector('img');
+        assert.ok(imgHttps, 'Must render <img> for safe https URL');
+        assert.strictEqual(imgHttps.src, 'https://example.com/avatar.png');
+        assert.strictEqual(imgHttps.classList.contains('kl-comment__avatar'), true, 'Must have canonical .kl-comment__avatar');
+        assert.strictEqual(imgHttps.classList.contains('wiki-comment-avatar'), true, 'Must have legacy .wiki-comment-avatar');
+        assert.strictEqual(imgHttps.alt, 'Safe User');
+
+        // D. safe same-origin-style /images/default-avatar.png -> shared avatar img rendered with exact src
+        const commentSameOrigin = {
+            id: 'c-avatar-origin-4',
+            author: { displayName: 'Origin User', avatarUrl: '/images/default-avatar.png' },
+            body: 'Safe same-origin avatar test'
+        };
+        const elSameOrigin = wikiCommentsModule.renderComment(commentSameOrigin, 'c-avatar-origin-4', null, false, doc);
+        assert.ok(elSameOrigin);
+        const imgSameOrigin = elSameOrigin.querySelector('img');
+        assert.ok(imgSameOrigin, 'Must render <img> for safe same-origin URL');
+        assert.strictEqual(imgSameOrigin.src, '/images/default-avatar.png');
+        assert.strictEqual(imgSameOrigin.classList.contains('kl-comment__avatar'), true, 'Must have canonical .kl-comment__avatar');
+        assert.strictEqual(imgSameOrigin.classList.contains('wiki-comment-avatar'), true, 'Must have legacy .wiki-comment-avatar');
+        assert.strictEqual(imgSameOrigin.alt, 'Origin User');
     });
 
     test('17. Relative parent mention displays @ParentName for nested replies', async () => {
@@ -1735,12 +1809,15 @@ describe('WikiArticleComments Module Tests', () => {
 
         const listEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID);
         const historyBtn = listEl.querySelector('[data-action="history"]');
-        assert.ok(historyBtn, 'History button must be rendered for active edited comment');
+        assert.ok(historyBtn, 'History button must be rendered in actions menu for active edited comment');
         assert.strictEqual(historyBtn.tagName, 'BUTTON', 'Must be a semantic <button>');
-        assert.strictEqual(historyBtn.textContent, 'đã chỉnh sửa');
-        assert.strictEqual(historyBtn.getAttribute('aria-label'), 'Xem lịch sử chỉnh sửa');
+        assert.strictEqual(historyBtn.textContent, 'Xem lịch sử chỉnh sửa');
         assert.strictEqual(historyBtn.getAttribute('data-comment-id'), ROOT_ID);
-        assert.ok(historyBtn.className.includes('wiki-comment-edited'));
+
+        const editedSpan = listEl.querySelector('.wiki-comment-edited');
+        assert.ok(editedSpan, 'Passive edited span must be rendered in header');
+        assert.strictEqual(editedSpan.tagName, 'SPAN');
+        assert.strictEqual(editedSpan.textContent, 'đã chỉnh sửa');
     });
 
     test('24. Lazy GET behavior & correct endpoint', async () => {
@@ -5817,6 +5894,726 @@ describe('UX-DRAFT-01C Wiki Reply + Edit Draft Persistence Integration Tests', (
         const resolvedModal = wikiCommentsModule.getReportModal();
         assert.strictEqual(resolvedModal, CommentReportModal, 'Production code must resolve to CommentReportModal singleton');
         assert.strictEqual(typeof resolvedModal.open, 'function', 'CommentReportModal.open must be a callable singleton function');
+    });
+});
+
+// ============================================================================
+// MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Migration
+// ============================================================================
+
+describe('MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Migration', () => {
+    beforeEach(() => {
+        wikiCommentsModule.resetState();
+    });
+
+    test('A. Active root comment renders via CommentPresentation with canonical classes (.kl-comment, .kl-comment__header, .kl-comment__author, .kl-comment__time, .kl-comment__body, .kl-comment__overflow, .kl-comment__primary-actions) and legacy classes (.wiki-comment, .wiki-comment--root, .wiki-comment-header, etc.)', () => {
+        const doc = new FakeDocument();
+        const rootComment = {
+            id: 'root-ux3-1',
+            authorUserId: 'user-ux3-1',
+            body: 'Active root content for UX3',
+            tombstone: false,
+            createdAt: '2026-09-20T10:00:00Z',
+            updatedAt: '2026-09-20T10:00:00Z',
+            author: { displayName: 'Thư Sinh', avatarUrl: null },
+            canEdit: true,
+            canDelete: true
+        };
+
+        const rootEl = wikiCommentsModule.renderComment(rootComment, 'root-ux3-1', null, false, doc);
+        assert.ok(rootEl, 'Root element must be rendered');
+
+        // Root element canonical & legacy classes
+        assert.ok(rootEl.classList.contains('kl-comment'), 'Must have canonical .kl-comment');
+        assert.ok(rootEl.classList.contains('wiki-comment'), 'Must have legacy .wiki-comment');
+        assert.ok(rootEl.classList.contains('wiki-comment--root'), 'Must have legacy .wiki-comment--root');
+        assert.strictEqual(rootEl.getAttribute('data-comment-id'), 'root-ux3-1');
+        assert.strictEqual(rootEl.getAttribute('data-author-user-id'), 'user-ux3-1');
+
+        // Header
+        const header = rootEl.querySelector('.kl-comment__header');
+        assert.ok(header, 'Must have canonical .kl-comment__header');
+        assert.ok(header.classList.contains('wiki-comment-header'), 'Must have legacy .wiki-comment-header');
+
+        // Author
+        const author = header.querySelector('.kl-comment__author');
+        assert.ok(author, 'Must have canonical .kl-comment__author');
+        assert.ok(author.classList.contains('wiki-comment-author'), 'Must have legacy .wiki-comment-author');
+        assert.strictEqual(author.textContent, 'Thư Sinh');
+
+        // Time
+        const time = header.querySelector('.kl-comment__time');
+        assert.ok(time, 'Must have canonical .kl-comment__time');
+        assert.ok(time.classList.contains('wiki-comment-time'), 'Must have legacy .wiki-comment-time');
+
+        // Overflow menu & accessibility trigger contract
+        const overflow = header.querySelector('.kl-comment__overflow');
+        assert.ok(overflow, 'Must have canonical .kl-comment__overflow');
+        assert.ok(overflow.classList.contains('wiki-comment-actions-menu'), 'Must have legacy .wiki-comment-actions-menu');
+        const menuTrigger = overflow.querySelector('.kl-comment__menu-trigger');
+        assert.ok(menuTrigger, 'Menu trigger button must exist');
+        assert.strictEqual(menuTrigger.getAttribute('aria-label'), 'Mở menu bình luận', 'Trigger must have canonical aria-label');
+        assert.strictEqual(menuTrigger.getAttribute('aria-haspopup'), 'menu', 'Trigger must have aria-haspopup="menu"');
+        assert.strictEqual(menuTrigger.getAttribute('aria-expanded'), 'false', 'Trigger must have initial aria-expanded="false"');
+        assert.strictEqual(menuTrigger.textContent, '⋯', 'Trigger must have canonical dots text "⋯"');
+
+        // Body
+        const body = rootEl.querySelector('.kl-comment__body');
+        assert.ok(body, 'Must have canonical .kl-comment__body');
+        assert.ok(body.classList.contains('wiki-comment-body'), 'Must have legacy .wiki-comment-body');
+        assert.ok(body.textContent.includes('Active root content for UX3'));
+
+        // Primary actions
+        const primaryActions = rootEl.querySelector('.kl-comment__primary-actions');
+        assert.ok(primaryActions, 'Must have canonical .kl-comment__primary-actions');
+        assert.ok(primaryActions.classList.contains('wiki-comment-actions'), 'Must have legacy .wiki-comment-actions');
+    });
+
+    test('B. Active reply comment renders via CommentPresentation with canonical and legacy classes (.wiki-comment--reply)', () => {
+        const doc = new FakeDocument();
+        const replyComment = {
+            id: 'reply-ux3-1',
+            parentCommentId: 'root-ux3-1',
+            body: 'Active reply content for UX3',
+            tombstone: false,
+            createdAt: '2026-09-20T10:05:00Z',
+            updatedAt: '2026-09-20T10:05:00Z',
+            author: { displayName: 'Độc Giả', avatarUrl: null },
+            canEdit: false,
+            canDelete: false
+        };
+
+        const replyEl = wikiCommentsModule.renderComment(replyComment, 'root-ux3-1', null, true, doc);
+        assert.ok(replyEl, 'Reply element must be rendered');
+
+        assert.ok(replyEl.classList.contains('kl-comment'));
+        assert.ok(replyEl.classList.contains('wiki-comment'));
+        assert.ok(replyEl.classList.contains('wiki-comment--reply'));
+        assert.strictEqual(replyEl.getAttribute('data-comment-id'), 'reply-ux3-1');
+        assert.strictEqual(replyEl.getAttribute('data-reply-id'), 'reply-ux3-1');
+
+        const body = replyEl.querySelector('.kl-comment__body');
+        assert.ok(body.textContent.includes('Active reply content for UX3'));
+    });
+
+    test('C. Tombstone reply comment renders via CommentPresentation with tombstone class (.kl-comment--tombstone, .is-tombstone), tombstone text "Bình luận đã bị xóa.", and NO author header, avatar, actions menu, or reply button', () => {
+        const doc = new FakeDocument();
+        const tombstoneReply = {
+            id: 'reply-tomb-1',
+            parentCommentId: 'root-ux3-1',
+            tombstone: true,
+            status: 'DELETED'
+        };
+
+        const replyEl = wikiCommentsModule.renderComment(tombstoneReply, 'root-ux3-1', null, true, doc);
+        assert.ok(replyEl, 'Tombstone reply element must be rendered');
+
+        assert.ok(replyEl.classList.contains('kl-comment--tombstone'));
+        assert.ok(replyEl.classList.contains('is-tombstone'));
+        assert.ok(replyEl.textContent.includes('Bình luận đã bị xóa.'));
+
+        // No header, avatar, overflow menu, or primary action buttons
+        assert.strictEqual(replyEl.querySelector('.kl-comment__header'), null);
+        assert.strictEqual(replyEl.querySelector('.kl-comment__avatar'), null);
+        assert.strictEqual(replyEl.querySelector('.kl-comment__overflow'), null);
+        assert.strictEqual(replyEl.querySelector('.kl-comment__primary-actions'), null);
+        assert.strictEqual(replyEl.querySelector('.wiki-reply-composer-slot'), null);
+    });
+
+    test('D. Deleted root suppresses entire thread: renderThread returns null for deleted root (tombstone: true or status: "DELETED"), and thread list does not append anything', async () => {
+        const doc = createEnvironment();
+        const threadWithDeletedRoot = {
+            root: {
+                id: 'root-deleted-1',
+                tombstone: true,
+                status: 'DELETED',
+                body: null
+            },
+            replies: [
+                {
+                    id: 'reply-orphaned-1',
+                    parentCommentId: 'root-deleted-1',
+                    body: 'Orphaned reply',
+                    tombstone: false,
+                    author: { displayName: 'User' }
+                }
+            ]
+        };
+
+        // Direct renderThread check
+        const directThreadEl = wikiCommentsModule.renderThread(threadWithDeletedRoot, doc);
+        assert.strictEqual(directThreadEl, null, 'renderThread must return null for deleted root');
+
+        // Feed load integration check
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [threadWithDeletedRoot],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const listEl = doc.getElementById(wikiCommentsModule.THREAD_LIST_ID);
+        assert.strictEqual(listEl.childNodes.length, 0, 'Thread with deleted root must not be appended to thread list');
+    });
+
+    test('E. Deleted intermediate reply tombstone with active descendant: intermediate reply renders as tombstone, active descendant reply remains actionable with reply button and overflow menu', () => {
+        const doc = new FakeDocument();
+        const thread = {
+            root: {
+                id: 'root-ux3-active',
+                body: 'Active root',
+                tombstone: false,
+                author: { displayName: 'Author 1' }
+            },
+            replies: [
+                {
+                    id: 'reply-intermediate-tomb',
+                    parentCommentId: 'root-ux3-active',
+                    tombstone: true,
+                    status: 'DELETED'
+                },
+                {
+                    id: 'reply-active-descendant',
+                    parentCommentId: 'reply-intermediate-tomb',
+                    body: 'Active descendant replying to tombstone',
+                    tombstone: false,
+                    author: { displayName: 'Descendant User' },
+                    canEdit: false,
+                    canDelete: false
+                }
+            ]
+        };
+
+        const threadEl = wikiCommentsModule.renderThread(thread, doc);
+        assert.ok(threadEl, 'Thread article must be rendered');
+
+        const repliesContainer = threadEl.querySelector('.wiki-thread-replies');
+        assert.ok(repliesContainer, 'Replies container must exist');
+
+        // Intermediate reply is tombstone
+        const tombEl = repliesContainer.querySelector('[data-reply-id="reply-intermediate-tomb"]');
+        assert.ok(tombEl, 'Intermediate tombstone reply must render');
+        assert.ok(tombEl.classList.contains('is-tombstone'));
+        assert.ok(tombEl.textContent.includes('Bình luận đã bị xóa.'));
+        assert.strictEqual(tombEl.querySelector('.kl-comment__overflow'), null);
+        assert.strictEqual(tombEl.querySelector('.kl-comment__primary-actions'), null);
+
+        // Active descendant is fully actionable
+        const descEl = repliesContainer.querySelector('[data-reply-id="reply-active-descendant"]');
+        assert.ok(descEl, 'Active descendant reply must render');
+        assert.strictEqual(descEl.classList.contains('is-tombstone'), false);
+        assert.ok(descEl.querySelector('.kl-comment__overflow'), 'Descendant must have overflow actions menu');
+        assert.ok(descEl.querySelector('[data-action="reply"]'), 'Descendant must have reply primary action button');
+        assert.ok(descEl.querySelector('[data-action="report"]'), 'Descendant must have report overflow action');
+    });
+
+    test('F. Primary "Phản hồi" action button renders in .kl-comment__primary-actions (outside overflow menu) with correct attributes (data-action="reply", data-comment-id, data-root-id, data-author-name)', () => {
+        const doc = new FakeDocument();
+        const rootComment = {
+            id: 'root-btn-test',
+            body: 'Test comment for primary action',
+            tombstone: false,
+            author: { displayName: 'Nguyễn Du' }
+        };
+
+        const rootEl = wikiCommentsModule.renderComment(rootComment, 'root-btn-test', null, false, doc);
+        assert.ok(rootEl);
+
+        const primaryActions = rootEl.querySelector('.kl-comment__primary-actions');
+        assert.ok(primaryActions, 'Primary actions container must exist');
+
+        const replyBtn = primaryActions.querySelector('[data-action="reply"]');
+        assert.ok(replyBtn, 'Reply button must exist in primary actions');
+        assert.strictEqual(replyBtn.textContent, 'Phản hồi');
+        assert.strictEqual(replyBtn.getAttribute('data-comment-id'), 'root-btn-test');
+        assert.strictEqual(replyBtn.getAttribute('data-root-id'), 'root-btn-test');
+        assert.strictEqual(replyBtn.getAttribute('data-author-name'), 'Nguyễn Du');
+
+        // Must NOT be inside the overflow menu
+        const overflow = rootEl.querySelector('.kl-comment__overflow');
+        if (overflow) {
+            assert.strictEqual(overflow.querySelector('[data-action="reply"]'), null, 'Reply button must not be inside overflow menu');
+        }
+    });
+
+    test('G. Overflow menu items follow canonical order: view-revisions ("Xem lịch sử chỉnh sửa") -> edit ("Chỉnh sửa") -> delete ("Xóa") -> separator -> report ("Báo cáo")', () => {
+        const descriptors = wikiCommentsModule.buildOverflowActionDescriptors({
+            commentId: 'c-all-1',
+            rootCommentId: 'r-1',
+            isEdited: true,
+            canEdit: true,
+            canDelete: true,
+            canReport: true
+        });
+
+        assert.strictEqual(descriptors.length, 4);
+        assert.strictEqual(descriptors[0].key, 'view-revisions');
+        assert.strictEqual(descriptors[0].label, 'Xem lịch sử chỉnh sửa');
+        assert.strictEqual(descriptors[1].key, 'edit');
+        assert.strictEqual(descriptors[1].label, 'Chỉnh sửa');
+        assert.strictEqual(descriptors[2].key, 'delete');
+        assert.strictEqual(descriptors[2].label, 'Xóa');
+        assert.strictEqual(descriptors[2].danger, true);
+        assert.strictEqual(descriptors[3].key, 'report');
+        assert.strictEqual(descriptors[3].label, 'Báo cáo');
+        assert.strictEqual(descriptors[3].danger, true);
+        assert.strictEqual(descriptors[3].separatorBefore, true);
+    });
+
+    test('H. Non-owner permissions: canEdit: false, canDelete: false, status != "DELETED" -> overflow menu has report action, no edit or delete', () => {
+        const descriptors = wikiCommentsModule.buildOverflowActionDescriptors({
+            commentId: 'c-guest-1',
+            rootCommentId: 'r-1',
+            isEdited: false,
+            canEdit: false,
+            canDelete: false,
+            canReport: true
+        });
+
+        assert.strictEqual(descriptors.length, 1);
+        assert.strictEqual(descriptors[0].key, 'report');
+        assert.strictEqual(descriptors[0].label, 'Báo cáo');
+        assert.strictEqual(descriptors[0].separatorBefore, false, 'No separator if report is the sole item');
+    });
+
+    test('I. Owner permissions: canEdit: true, canDelete: true -> overflow menu has edit and delete actions, no report action', () => {
+        const descriptors = wikiCommentsModule.buildOverflowActionDescriptors({
+            commentId: 'c-owner-1',
+            rootCommentId: 'r-1',
+            isEdited: false,
+            canEdit: true,
+            canDelete: true,
+            canReport: false
+        });
+
+        assert.strictEqual(descriptors.length, 2);
+        assert.strictEqual(descriptors[0].key, 'edit');
+        assert.strictEqual(descriptors[1].key, 'delete');
+    });
+
+    test('J. Edited comment shows "đã chỉnh sửa" indicator in header and includes view-revisions in overflow menu', () => {
+        const doc = new FakeDocument();
+        const editedComment = {
+            id: 'c-edited-1',
+            body: 'Edited comment content',
+            tombstone: false,
+            edited: true,
+            author: { displayName: 'Editor' },
+            canEdit: true,
+            canDelete: true
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(editedComment, 'c-edited-1', null, false, doc);
+        assert.ok(commentEl);
+
+        const editedBadge = commentEl.querySelector('.kl-comment__edited');
+        assert.ok(editedBadge, 'Must render .kl-comment__edited');
+        assert.strictEqual(editedBadge.textContent, 'đã chỉnh sửa');
+
+        const historyItem = commentEl.querySelector('[data-action="view-revisions"]');
+        assert.ok(historyItem, 'Must have view-revisions in overflow menu');
+        assert.strictEqual(historyItem.textContent, 'Xem lịch sử chỉnh sửa');
+    });
+
+    test('K. Unedited comment does not show "đã chỉnh sửa" and excludes view-revisions from overflow menu', () => {
+        const doc = new FakeDocument();
+        const uneditedComment = {
+            id: 'c-unedited-1',
+            body: 'Fresh unedited comment',
+            tombstone: false,
+            edited: false,
+            author: { displayName: 'Fresh' },
+            canEdit: true,
+            canDelete: true
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(uneditedComment, 'c-unedited-1', null, false, doc);
+        assert.ok(commentEl);
+
+        assert.strictEqual(commentEl.querySelector('.kl-comment__edited'), null, 'Must NOT render edited badge');
+        assert.strictEqual(commentEl.querySelector('[data-action="view-revisions"]'), null, 'Must NOT have view-revisions in overflow menu');
+    });
+
+    test('L. Separator in overflow menu: rendered before report action when preceded by history, edit, or delete; no separator if report is sole action', () => {
+        const withPreceding = wikiCommentsModule.buildOverflowActionDescriptors({
+            canEdit: true,
+            canReport: true
+        });
+        const reportWithPreceding = withPreceding.find(d => d.key === 'report');
+        assert.strictEqual(reportWithPreceding.separatorBefore, true);
+
+        const soleReport = wikiCommentsModule.buildOverflowActionDescriptors({
+            canReport: true
+        });
+        const reportSole = soleReport.find(d => d.key === 'report');
+        assert.strictEqual(reportSole.separatorBefore, false);
+    });
+
+    test('M. Nested reply mention: reply to non-root parent renders @ParentName mention in body (.wiki-comment-reply-mention)', () => {
+        const doc = new FakeDocument();
+        const thread = {
+            root: {
+                id: 'root-100',
+                body: 'Root 100',
+                author: { displayName: 'Parent Root' }
+            },
+            replies: [
+                {
+                    id: 'reply-101',
+                    parentCommentId: 'root-100',
+                    body: 'Reply to root',
+                    author: { displayName: 'Intermediate Parent' }
+                },
+                {
+                    id: 'reply-102',
+                    parentCommentId: 'reply-101',
+                    body: 'Nested reply content',
+                    author: { displayName: 'Nested Author' }
+                }
+            ]
+        };
+
+        const threadEl = wikiCommentsModule.renderThread(thread, doc);
+        assert.ok(threadEl);
+
+        const nestedEl = threadEl.querySelector('[data-reply-id="reply-102"]');
+        assert.ok(nestedEl);
+
+        const mention = nestedEl.querySelector('.wiki-comment-reply-mention');
+        assert.ok(mention, 'Must render reply mention');
+        assert.strictEqual(mention.textContent, '@Intermediate Parent');
+
+        const replyText = nestedEl.querySelector('.wiki-comment-reply-text');
+        assert.ok(replyText);
+        assert.strictEqual(replyText.textContent, 'Nested reply content');
+    });
+
+    test('N. Direct reply to root does not render parent mention in body', () => {
+        const doc = new FakeDocument();
+        const thread = {
+            root: {
+                id: 'root-200',
+                body: 'Root 200',
+                author: { displayName: 'Root Author' }
+            },
+            replies: [
+                {
+                    id: 'reply-201',
+                    parentCommentId: 'root-200',
+                    body: 'Direct reply to root',
+                    author: { displayName: 'Direct Responder' }
+                }
+            ]
+        };
+
+        const threadEl = wikiCommentsModule.renderThread(thread, doc);
+        assert.ok(threadEl);
+
+        const directReplyEl = threadEl.querySelector('[data-reply-id="reply-201"]');
+        assert.ok(directReplyEl);
+
+        assert.strictEqual(directReplyEl.querySelector('.wiki-comment-reply-mention'), null, 'Direct root reply must not render mention');
+        const bodyEl = directReplyEl.querySelector('.kl-comment__body');
+        assert.strictEqual(bodyEl.textContent, 'Direct reply to root');
+    });
+
+    test('O. Inline reply composer slot (.wiki-reply-composer-slot, data-reply-slot) is preserved on active root and reply comments', () => {
+        const doc = new FakeDocument();
+        const rootComment = {
+            id: 'root-slot-test',
+            body: 'Root slot check',
+            author: { displayName: 'User' }
+        };
+        const replyComment = {
+            id: 'reply-slot-test',
+            parentCommentId: 'root-slot-test',
+            body: 'Reply slot check',
+            author: { displayName: 'User 2' }
+        };
+
+        const rootEl = wikiCommentsModule.renderComment(rootComment, 'root-slot-test', null, false, doc);
+        assert.ok(rootEl.querySelector('[data-reply-slot="root-slot-test"]'), 'Root must have data-reply-slot');
+
+        const replyEl = wikiCommentsModule.renderComment(replyComment, 'root-slot-test', null, true, doc);
+        assert.ok(replyEl.querySelector('[data-reply-slot="reply-slot-test"]'), 'Reply must have data-reply-slot');
+    });
+
+    test('P. Inline edit composer target ([data-body-container]) is preserved on comment body', () => {
+        const doc = new FakeDocument();
+        const comment = {
+            id: 'comment-body-target-test',
+            body: 'Body container test',
+            author: { displayName: 'User' }
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(comment, 'comment-body-target-test', null, false, doc);
+        const bodyContainer = commentEl.querySelector('[data-body-container="comment-body-target-test"]');
+        assert.ok(bodyContainer, 'Body container must have data-body-container attribute matching commentId');
+    });
+
+    test('Q. Delegated click on report menu item opens CommentReportModal with correct parameters (commentId, submitUrl, contextLabel: "wiki", triggerEl)', async () => {
+        const doc = createEnvironment({ authenticated: 'true', articleIdVal: 'art-report-delegate' });
+        let capturedParams = null;
+
+        wikiCommentsModule.setReportModalImplementation({
+            open: (params) => {
+                capturedParams = params;
+                return true;
+            }
+        });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: 'comment-rep-del-1',
+                        authorUserId: 'other-user',
+                        body: 'Reportable comment',
+                        tombstone: false,
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const reportBtn = doc.querySelector('[data-action="report"]');
+        assert.ok(reportBtn, 'Report button must exist');
+
+        reportBtn.dispatchEvent({ type: 'click', target: reportBtn });
+        await new Promise(process.nextTick);
+
+        assert.ok(capturedParams, 'CommentReportModal.open must be invoked');
+        assert.strictEqual(capturedParams.commentId, 'comment-rep-del-1');
+        assert.strictEqual(capturedParams.submitUrl, '/api/wiki/articles/art-report-delegate/comments/comment-rep-del-1/reports');
+        assert.strictEqual(capturedParams.contextLabel, 'wiki');
+        assert.strictEqual(capturedParams.triggerEl, reportBtn);
+    });
+
+    test('R. Delegated click on view-revisions menu item opens revision history modal', async () => {
+        const doc = createEnvironment();
+        let revisionsFetched = false;
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                revisionsFetched = true;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [{ revisionNumber: 1, body: 'Old version', createdAt: '2026-09-19T10:00:00Z' }],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: 'c-rev-1',
+                            body: 'Current body',
+                            tombstone: false,
+                            edited: true,
+                            author: { displayName: 'Scholar' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const revBtn = doc.querySelector('[data-action="view-revisions"]');
+        assert.ok(revBtn, 'View revisions button must exist');
+
+        revBtn.dispatchEvent({ type: 'click', target: revBtn });
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(revisionsFetched, true, 'Clicking view-revisions must trigger revisions fetch');
+        const { modal } = wikiCommentsModule.getHistoryElements(doc);
+        assert.strictEqual(modal.hidden, false, 'History modal must be open');
+    });
+
+    test('S. Delegated click on edit menu item opens inline edit composer', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+
+        wikiCommentsModule.setFetchImplementation(async () => ({
+            status: 200,
+            json: async () => ({
+                threads: [{
+                    root: {
+                        id: 'c-edit-del-1',
+                        body: 'Editable body',
+                        tombstone: false,
+                        canEdit: true,
+                        canDelete: true,
+                        author: { displayName: 'Author' }
+                    },
+                    replies: []
+                }],
+                threadCount: 1,
+                commentCount: 1,
+                page: 0,
+                size: 20,
+                hasNext: false
+            })
+        }));
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const editBtn = doc.querySelector('[data-action="edit"]');
+        assert.ok(editBtn, 'Edit button must exist');
+
+        editBtn.dispatchEvent({ type: 'click', target: editBtn });
+        await new Promise(process.nextTick);
+
+        const bodyContainer = doc.querySelector('[data-body-container="c-edit-del-1"]');
+        assert.ok(bodyContainer.querySelector('.wiki-inline-edit-form'), 'Inline edit form must be rendered in body container');
+        assert.strictEqual(wikiCommentsModule.getState().activeEditCommentId, 'c-edit-del-1');
+    });
+
+    test('T. Delegated click on delete menu item invokes confirm and sends DELETE request', async () => {
+        const doc = createEnvironment({ authenticated: 'true' });
+        let confirmPrompted = false;
+        let deleteExecuted = false;
+
+        wikiCommentsModule.setConfirmImplementation(() => {
+            confirmPrompted = true;
+            return true;
+        });
+
+        wikiCommentsModule.setFetchImplementation(async (url, opts) => {
+            if (opts && opts.method === 'DELETE') {
+                deleteExecuted = true;
+                return { status: 204 };
+            }
+            return {
+                status: 200,
+                json: async () => ({
+                    threads: [{
+                        root: {
+                            id: 'c-delete-del-1',
+                            body: 'Deletable body',
+                            tombstone: false,
+                            canEdit: true,
+                            canDelete: true,
+                            author: { displayName: 'Author' }
+                        },
+                        replies: []
+                    }],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        const deleteBtn = doc.querySelector('[data-action="delete"]');
+        assert.ok(deleteBtn, 'Delete button must exist');
+
+        deleteBtn.dispatchEvent({ type: 'click', target: deleteBtn });
+        await new Promise(process.nextTick);
+
+        assert.strictEqual(confirmPrompted, true, 'Confirm must be prompted');
+        assert.strictEqual(deleteExecuted, true, 'DELETE HTTP request must be executed');
+    });
+
+    test('U. Overflow menu state delegation: openMenu, closeActiveMenu, getActiveOpenMenu delegate to CommentPresentation; single open menu invariant enforced', () => {
+        const doc = new FakeDocument();
+        const root1 = { id: 'm-1', body: 'Comment 1', author: { displayName: 'U1' }, canEdit: true };
+        const root2 = { id: 'm-2', body: 'Comment 2', author: { displayName: 'U2' }, canEdit: true };
+
+        const el1 = wikiCommentsModule.renderComment(root1, 'm-1', null, false, doc);
+        const el2 = wikiCommentsModule.renderComment(root2, 'm-2', null, false, doc);
+        doc.body.appendChild(el1);
+        doc.body.appendChild(el2);
+
+        const trigger1 = el1.querySelector('.kl-comment__menu-trigger');
+        const trigger2 = el2.querySelector('.kl-comment__menu-trigger');
+        const popover1 = el1.querySelector('.kl-comment__menu');
+        const popover2 = el2.querySelector('.kl-comment__menu');
+
+        // Initially no active menu
+        assert.strictEqual(wikiCommentsModule.getActiveOpenMenu(), null);
+
+        // Click trigger 1 -> opens menu 1
+        trigger1.dispatchEvent({ type: 'click', target: trigger1 });
+        assert.ok(wikiCommentsModule.getActiveOpenMenu());
+        assert.strictEqual(trigger1.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(popover1.hidden, false);
+
+        // Click trigger 2 -> closes menu 1, opens menu 2 (single open menu invariant)
+        trigger2.dispatchEvent({ type: 'click', target: trigger2 });
+        assert.strictEqual(trigger1.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(popover1.hidden, true);
+        assert.strictEqual(trigger2.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(popover2.hidden, false);
+
+        // Close via module method
+        wikiCommentsModule.closeActiveMenu(false);
+        assert.strictEqual(wikiCommentsModule.getActiveOpenMenu(), null);
+        assert.strictEqual(trigger2.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(popover2.hidden, true);
+    });
+
+    test('V. Missing CommentPresentation fail-safe: renderComment and renderThread safely return null when CommentPresentation is null/unavailable without throwing or crashing', () => {
+        const doc = new FakeDocument();
+        const testComment = {
+            id: 'c-fail-safe',
+            body: 'Fail safe test',
+            author: { displayName: 'User' }
+        };
+        const testThread = {
+            root: testComment,
+            replies: []
+        };
+
+        wikiCommentsModule.setCommentPresentation(null);
+
+        // Neither throws an exception, both safely return null
+        let renderedComment = undefined;
+        let renderedThread = undefined;
+
+        assert.doesNotThrow(() => {
+            renderedComment = wikiCommentsModule.renderComment(testComment, 'c-fail-safe', null, false, doc);
+            renderedThread = wikiCommentsModule.renderThread(testThread, doc);
+        });
+
+        assert.strictEqual(renderedComment, null, 'renderComment must return null when presentation unavailable');
+        assert.strictEqual(renderedThread, null, 'renderThread must return null when presentation unavailable');
     });
 });
 

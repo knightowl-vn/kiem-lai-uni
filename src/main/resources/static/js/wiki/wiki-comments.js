@@ -75,6 +75,7 @@
     let injectedFetch = null;
     let injectedConfirm = null;
     let injectedReportModal = null;
+    let injectedCommentPresentation = undefined;
 
     // Ephemeral Draft State (UX-DRAFT-01B)
     let rootDraftDebounceTimer = null;
@@ -98,9 +99,44 @@
     let activeEditContainerEl = null;
 
     /**
+     * Resolves the CommentPresentation module.
+     *
+     * @returns {Object|null}
+     */
+    function resolveCommentPresentation() {
+        if (injectedCommentPresentation !== undefined) {
+            return injectedCommentPresentation;
+        }
+        if (typeof window !== 'undefined') {
+            const pres = window.CommentPresentation || (window.KiemLai && window.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof globalThis !== 'undefined') {
+            const pres = globalThis.CommentPresentation || (globalThis.KiemLai && globalThis.KiemLai.CommentPresentation);
+            if (pres) return pres;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/comment-presentation.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Sets the injected CommentPresentation module (for testing or explicit dependency injection).
+     *
+     * @param {Object|null} pres
+     */
+    function setCommentPresentation(pres) {
+        injectedCommentPresentation = pres;
+    }
+
+    /**
      * Resets all module internal state.
      */
     function resetState() {
+        closeActiveMenu(false);
         closeRevisionHistory();
         historyActiveCommentId = null;
         historyCurrentPage = 0;
@@ -173,6 +209,152 @@
         injectedFetch = null;
         injectedConfirm = null;
         injectedReportModal = null;
+        injectedCommentPresentation = undefined;
+    }
+
+    /**
+     * Closes any currently open overflow actions menu popover.
+     * Delegates entirely to the shared CommentPresentation primitive.
+     *
+     * @param {boolean} [restoreFocus=false]
+     */
+    function closeActiveMenu(restoreFocus) {
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.closeActiveMenu === 'function') {
+            presentation.closeActiveMenu(restoreFocus);
+        }
+    }
+
+    /**
+     * Returns the currently active open menu state descriptor.
+     * Delegates entirely to the shared CommentPresentation primitive.
+     *
+     * @returns {Object|null}
+     */
+    function getActiveOpenMenu() {
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.getActiveOpenMenu === 'function') {
+            return presentation.getActiveOpenMenu();
+        }
+        return null;
+    }
+
+    /**
+     * Constructs normalized overflow action descriptors for a Wiki comment.
+     * Strictly ordered: view-revisions -> edit -> delete -> report.
+     *
+     * @param {Object} options
+     * @returns {Array}
+     */
+    function buildOverflowActionDescriptors(options) {
+        if (!options || typeof options !== 'object') {
+            return [];
+        }
+        const hasHistory = Boolean(options.isEdited);
+        const hasEdit = Boolean(options.canEdit);
+        const hasDelete = Boolean(options.canDelete);
+        const hasReport = Boolean(options.canReport);
+
+        if (!hasHistory && !hasEdit && !hasDelete && !hasReport) {
+            return [];
+        }
+
+        const descriptors = [];
+
+        // 1. View Revisions
+        if (hasHistory) {
+            descriptors.push({
+                key: 'view-revisions',
+                label: 'Xem lịch sử chỉnh sửa',
+                className: 'wiki-comment-menu-item wiki-comment-action-btn',
+                attributes: {
+                    'data-action': 'view-revisions',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 2. Edit
+        if (hasEdit) {
+            descriptors.push({
+                key: 'edit',
+                label: 'Chỉnh sửa',
+                className: 'wiki-comment-menu-item wiki-comment-action-btn wiki-comment-edit-btn',
+                attributes: {
+                    'data-action': 'edit',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 3. Delete
+        if (hasDelete) {
+            descriptors.push({
+                key: 'delete',
+                label: 'Xóa',
+                danger: true,
+                className: 'wiki-comment-menu-item wiki-comment-action-btn wiki-comment-action-btn--danger wiki-comment-delete-btn',
+                attributes: {
+                    'data-action': 'delete',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        // 4. Report (with separator if preceded by other items)
+        if (hasReport) {
+            const hasPreceding = hasHistory || hasEdit || hasDelete;
+            descriptors.push({
+                key: 'report',
+                label: 'Báo cáo',
+                danger: true,
+                separatorBefore: hasPreceding,
+                className: 'wiki-comment-menu-item wiki-comment-action-btn wiki-comment-action-btn--report wiki-comment-report-btn',
+                attributes: {
+                    'data-action': 'report',
+                    ...(options.commentId ? { 'data-comment-id': String(options.commentId) } : {}),
+                    ...(options.replyId ? { 'data-reply-id': String(options.replyId) } : {}),
+                    ...(options.rootCommentId ? { 'data-root-id': String(options.rootCommentId) } : {})
+                }
+            });
+        }
+
+        return descriptors;
+    }
+
+    /**
+     * Constructs the three-dot overflow actions menu element by delegating to CommentPresentation.
+     *
+     * @param {Object|Array} opts
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function createActionsMenu(opts, doc) {
+        if (!opts) return null;
+        const documentRef = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const descriptors = Array.isArray(opts)
+            ? opts
+            : buildOverflowActionDescriptors(opts);
+
+        if (!descriptors || descriptors.length === 0) {
+            return null;
+        }
+
+        const presentation = resolveCommentPresentation();
+        if (presentation && typeof presentation.renderActionsMenu === 'function') {
+            return presentation.renderActionsMenu({
+                items: descriptors,
+                legacyPrefix: 'wiki-comment'
+            }, documentRef);
+        }
+
+        return null;
     }
 
     /**
@@ -221,40 +403,6 @@
         } catch (_) {
             return null;
         }
-    }
-
-    /**
-     * Sanitizes an avatar URL ensuring safe protocols (http, https, or same-origin path).
-     */
-    function sanitizeAvatarUrl(url) {
-        if (typeof url !== 'string') {
-            return null;
-        }
-        const trimmed = url.trim();
-        if (!trimmed) {
-            return null;
-        }
-        const lower = trimmed.toLowerCase();
-        if (lower.startsWith('https://') || lower.startsWith('http://')) {
-            return trimmed;
-        }
-        if (lower.startsWith('/') && !lower.startsWith('//')) {
-            return trimmed;
-        }
-        return null;
-    }
-
-    /**
-     * Creates an avatar fallback element with the first initial of the display name.
-     */
-    function createAvatarFallback(displayName, doc) {
-        const fallback = doc.createElement('span');
-        fallback.className = 'wiki-comment-avatar wiki-comment-avatar--fallback';
-        fallback.setAttribute('aria-hidden', 'true');
-        const trimmed = (typeof displayName === 'string') ? displayName.trim() : '';
-        const firstChar = trimmed ? trimmed.charAt(0).toUpperCase() : 'U';
-        fallback.textContent = firstChar;
-        return fallback;
     }
 
     /**
@@ -1010,11 +1158,13 @@
                     if (renderedRootIds.has(rootIdStr)) {
                         continue; // Prevent duplicate roots
                     }
-                    renderedRootIds.add(rootIdStr);
-                    currentThreads.push(t);
 
                     const threadEl = renderThread(t, d);
-                    els.threadListEl.appendChild(threadEl);
+                    if (threadEl) {
+                        renderedRootIds.add(rootIdStr);
+                        currentThreads.push(t);
+                        els.threadListEl.appendChild(threadEl);
+                    }
                 }
             }
 
@@ -1070,8 +1220,12 @@
 
                 if (threadEl) {
                     const newThreadEl = renderThread(freshThread, d);
-                    if (threadEl.parentNode) {
+                    if (newThreadEl && threadEl.parentNode) {
                         threadEl.parentNode.replaceChild(newThreadEl, threadEl);
+                    } else if (!newThreadEl && threadEl.parentNode) {
+                        threadEl.parentNode.removeChild(threadEl);
+                        renderedRootIds.delete(strRootId);
+                        currentThreads = currentThreads.filter(t => t && t.root && String(t.root.id) !== strRootId);
                     }
                 }
                 restoreActiveInlineComposer(d);
@@ -1088,47 +1242,6 @@
         } catch (err) {
             showDiscussionError('Lỗi kết nối khi cập nhật thảo luận. Vui lòng thử lại.', d);
         }
-    }
-
-    /**
-     * Renders author presentation safely (avatar image or fallback + display name).
-     */
-    function renderAuthorPresentation(headerEl, author, doc) {
-        const authorObj = (author && typeof author === 'object') ? author : null;
-        const rawName = (authorObj && typeof authorObj.displayName === 'string') ? authorObj.displayName.trim() : '';
-        const displayName = rawName || 'Người dùng';
-        const rawAvatar = (authorObj && typeof authorObj.avatarUrl === 'string') ? authorObj.avatarUrl.trim() : '';
-        const sanitizedAvatar = sanitizeAvatarUrl(rawAvatar);
-
-        if (sanitizedAvatar) {
-            const avatarImg = doc.createElement('img');
-            avatarImg.className = 'wiki-comment-avatar';
-            avatarImg.src = sanitizedAvatar;
-            avatarImg.setAttribute('src', sanitizedAvatar);
-            avatarImg.alt = displayName;
-            avatarImg.setAttribute('alt', displayName);
-            avatarImg.setAttribute('referrerpolicy', 'no-referrer');
-            avatarImg.onerror = function () {
-                const parent = avatarImg.parentNode;
-                if (parent) {
-                    const fallback = createAvatarFallback(displayName, doc);
-                    if (typeof parent.replaceChild === 'function') {
-                        parent.replaceChild(fallback, avatarImg);
-                    } else if (typeof parent.removeChild === 'function') {
-                        parent.removeChild(avatarImg);
-                        parent.appendChild(fallback);
-                    }
-                }
-            };
-            headerEl.appendChild(avatarImg);
-        } else {
-            headerEl.appendChild(createAvatarFallback(displayName, doc));
-        }
-
-        const authorSpan = doc.createElement('span');
-        authorSpan.className = 'wiki-comment-author';
-        authorSpan.textContent = displayName;
-        headerEl.appendChild(authorSpan);
     }
 
     /**
@@ -1150,7 +1263,7 @@
             for (let i = 0; i < replies.length; i++) {
                 const cand = replies[i];
                 if (cand && String(cand.id).trim() === strParentId) {
-                    if (cand.tombstone !== true && cand.author && cand.author.displayName) {
+                    if (cand.tombstone !== true && cand.status !== 'DELETED' && cand.author && cand.author.displayName) {
                         return cand.author.displayName.trim() || null;
                     }
                 }
@@ -1160,137 +1273,147 @@
     }
 
     /**
-     * Renders a comment item (root or reply) safely.
+     * Renders a comment item (root or reply, active or tombstone) using CommentPresentation.
+     * Returns null if CommentPresentation is unavailable.
+     *
+     * @param {Object} comment Comment DTO
+     * @param {string|number} rootCommentId Root comment ID
+     * @param {Object} [thread] Thread object containing root and replies
+     * @param {boolean} [isReply=false] True if rendering a reply
+     * @param {Document} [doc]
+     * @returns {Element|null}
      */
     function renderComment(comment, rootCommentId, thread, isReply, doc) {
-        const commentEl = doc.createElement('div');
-        commentEl.className = isReply ? 'wiki-comment wiki-comment--reply' : 'wiki-comment wiki-comment--root';
-        const strCommentId = String(comment.id);
-        commentEl.setAttribute('data-comment-id', strCommentId);
-        if (isReply) {
-            commentEl.setAttribute('data-reply-id', strCommentId);
+        const presentation = resolveCommentPresentation();
+        if (!presentation || typeof presentation.renderComment !== 'function') {
+            return null;
         }
 
-        // Tombstone check
-        if (comment.tombstone === true) {
-            commentEl.classList.add('is-tombstone');
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
 
-            const tombstoneBody = doc.createElement('div');
-            tombstoneBody.className = 'wiki-comment-body wiki-comment-body--tombstone';
-            tombstoneBody.textContent = 'Bình luận đã bị xóa.';
-            commentEl.appendChild(tombstoneBody);
-            return commentEl;
+        if (!comment || typeof comment !== 'object') {
+            return null;
+        }
+
+        const strCommentId = comment.id != null ? String(comment.id) : '';
+        const strRootId = rootCommentId != null ? String(rootCommentId) : strCommentId;
+        const isTombstone = comment.tombstone === true || comment.status === 'DELETED';
+
+        // Tombstone branch
+        if (isTombstone) {
+            const tombstoneAttrs = {};
+            if (strCommentId) {
+                tombstoneAttrs['data-comment-id'] = strCommentId;
+                if (isReply) {
+                    tombstoneAttrs['data-reply-id'] = strCommentId;
+                }
+            }
+
+            const tombstoneDescriptor = {
+                id: strCommentId,
+                tag: 'div',
+                legacyPrefix: 'wiki-comment',
+                className: (isReply ? 'wiki-comment--reply' : 'wiki-comment--root') + ' is-tombstone',
+                attributes: tombstoneAttrs,
+                tombstone: true,
+                tombstoneContent: 'Bình luận đã bị xóa.'
+            };
+
+            return presentation.renderComment(tombstoneDescriptor, d);
         }
 
         // Active comment
-        const headerEl = doc.createElement('header');
-        headerEl.className = 'wiki-comment-header';
+        const authorUserId = (comment.author && comment.author.userId) || comment.authorUserId;
+        const authorDisplayName = (comment.author && typeof comment.author.displayName === 'string')
+            ? comment.author.displayName.trim()
+            : '';
+        const isEdited = isCommentEdited(comment);
+        const canEdit = comment.canEdit === true;
+        const canDelete = comment.canDelete === true;
+        const canReport = comment.status !== 'DELETED' && !canEdit && !canDelete;
 
-        renderAuthorPresentation(headerEl, comment.author, doc);
-
-        const timeStr = formatTimestamp(comment.createdAt);
-        if (timeStr) {
-            const timeEl = doc.createElement('time');
-            timeEl.className = 'wiki-comment-time';
-            timeEl.setAttribute('datetime', String(comment.createdAt));
-            timeEl.textContent = timeStr;
-            headerEl.appendChild(timeEl);
-        }
-
-        if (isCommentEdited(comment)) {
-            const historyBtn = doc.createElement('button');
-            historyBtn.type = 'button';
-            historyBtn.className = 'wiki-comment-edited';
-            historyBtn.setAttribute('data-action', 'history');
-            historyBtn.setAttribute('data-comment-id', strCommentId);
-            historyBtn.setAttribute('data-root-id', String(rootCommentId));
-            historyBtn.setAttribute('aria-label', 'Xem lịch sử chỉnh sửa');
-            historyBtn.title = 'Xem lịch sử chỉnh sửa';
-            historyBtn.textContent = 'đã chỉnh sửa';
-            headerEl.appendChild(historyBtn);
-        }
-
-        // Action buttons
-        const actionsContainer = doc.createElement('div');
-        actionsContainer.className = 'wiki-comment-actions';
-
-        const replyBtn = doc.createElement('button');
-        replyBtn.type = 'button';
-        replyBtn.className = 'wiki-comment-action-btn';
-        replyBtn.setAttribute('data-action', 'reply');
-        replyBtn.setAttribute('data-comment-id', strCommentId);
-        replyBtn.setAttribute('data-root-id', String(rootCommentId));
-        const authorName = (comment.author && comment.author.displayName) ? comment.author.displayName : '';
-        replyBtn.setAttribute('data-author-name', authorName);
-        replyBtn.textContent = 'Trả lời';
-        actionsContainer.appendChild(replyBtn);
-
-        if (comment.canEdit === true) {
-            const editBtn = doc.createElement('button');
-            editBtn.type = 'button';
-            editBtn.className = 'wiki-comment-action-btn';
-            editBtn.setAttribute('data-action', 'edit');
-            editBtn.setAttribute('data-comment-id', strCommentId);
-            editBtn.setAttribute('data-root-id', String(rootCommentId));
-            editBtn.textContent = 'Sửa';
-            actionsContainer.appendChild(editBtn);
-        }
-
-        if (comment.canDelete === true) {
-            const deleteBtn = doc.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'wiki-comment-action-btn wiki-comment-action-btn--danger';
-            deleteBtn.setAttribute('data-action', 'delete');
-            deleteBtn.setAttribute('data-comment-id', strCommentId);
-            deleteBtn.setAttribute('data-root-id', String(rootCommentId));
-            deleteBtn.textContent = 'Xóa';
-            actionsContainer.appendChild(deleteBtn);
-        }
-
-        if (!comment.canEdit && !comment.canDelete) {
-            const reportBtn = doc.createElement('button');
-            reportBtn.type = 'button';
-            reportBtn.className = 'wiki-comment-action-btn';
-            reportBtn.setAttribute('data-action', 'report');
-            reportBtn.setAttribute('data-comment-id', strCommentId);
-            reportBtn.setAttribute('data-root-id', String(rootCommentId));
-            reportBtn.textContent = 'Báo cáo';
-            actionsContainer.appendChild(reportBtn);
-        }
-
-        headerEl.appendChild(actionsContainer);
-        commentEl.appendChild(headerEl);
-
-        // Body
-        const bodyEl = doc.createElement('div');
-        bodyEl.className = 'wiki-comment-body';
-        bodyEl.setAttribute('data-body-container', strCommentId);
-
-        if (isReply) {
-            const immediateParentName = thread
-                ? resolveImmediateParentDisplayName(comment, thread.root, thread.replies)
-                : null;
-            if (immediateParentName) {
-                const mentionSpan = doc.createElement('span');
-                mentionSpan.className = 'wiki-comment-reply-mention';
-                mentionSpan.textContent = '@' + immediateParentName;
-                bodyEl.appendChild(mentionSpan);
-
-                const textSpan = doc.createElement('span');
-                textSpan.className = 'wiki-comment-reply-text';
-                textSpan.textContent = comment.body || '';
-                bodyEl.appendChild(textSpan);
-            } else {
-                bodyEl.textContent = comment.body || '';
+        const cardAttrs = {};
+        if (strCommentId) {
+            cardAttrs['data-comment-id'] = strCommentId;
+            if (isReply) {
+                cardAttrs['data-reply-id'] = strCommentId;
             }
-        } else {
-            bodyEl.textContent = comment.body || '';
+        }
+        if (authorUserId) {
+            cardAttrs['data-author-user-id'] = String(authorUserId);
         }
 
-        commentEl.appendChild(bodyEl);
+        const overflowDescriptors = buildOverflowActionDescriptors({
+            commentId: strCommentId,
+            replyId: isReply ? strCommentId : undefined,
+            rootCommentId: strRootId,
+            isEdited: isEdited,
+            canEdit: canEdit,
+            canDelete: canDelete,
+            canReport: canReport
+        });
 
-        // Container for inline reply composer
-        const replyComposerContainer = doc.createElement('div');
+        const primaryActions = strCommentId ? [
+            {
+                key: 'reply',
+                label: 'Phản hồi',
+                className: 'wiki-comment-action-btn wiki-comment-reply-btn',
+                attributes: {
+                    'data-action': 'reply',
+                    'data-comment-id': strCommentId,
+                    'data-root-id': strRootId,
+                    ...(authorDisplayName ? { 'data-author-name': authorDisplayName } : {})
+                }
+            }
+        ] : [];
+
+        const commentDescriptor = {
+            id: strCommentId,
+            tag: 'div',
+            legacyPrefix: 'wiki-comment',
+            className: isReply ? 'wiki-comment--reply' : 'wiki-comment--root',
+            attributes: cardAttrs,
+            tombstone: false,
+            author: comment.author,
+            createdAt: comment.createdAt,
+            edited: isEdited,
+            body: function (bodyEl, bodyDoc) {
+                const targetDoc = bodyDoc || d;
+                bodyEl.setAttribute('data-body-container', strCommentId);
+
+                if (isReply) {
+                    const immediateParentName = thread
+                        ? resolveImmediateParentDisplayName(comment, thread.root, thread.replies)
+                        : null;
+                    if (immediateParentName) {
+                        const mentionSpan = targetDoc.createElement('span');
+                        mentionSpan.className = 'wiki-comment-reply-mention';
+                        mentionSpan.textContent = '@' + immediateParentName;
+                        bodyEl.appendChild(mentionSpan);
+
+                        const textSpan = targetDoc.createElement('span');
+                        textSpan.className = 'wiki-comment-reply-text';
+                        textSpan.textContent = comment.body || '';
+                        bodyEl.appendChild(textSpan);
+                    } else {
+                        bodyEl.textContent = comment.body || '';
+                    }
+                } else {
+                    bodyEl.textContent = comment.body || '';
+                }
+            },
+            overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
+            primaryActions: primaryActions
+        };
+
+        const commentEl = presentation.renderComment(commentDescriptor, d);
+        if (!commentEl) {
+            return null;
+        }
+
+        // Inline reply composer slot (attached for active comments)
+        const replyComposerContainer = d.createElement('div');
         replyComposerContainer.className = 'wiki-reply-composer-slot';
         replyComposerContainer.setAttribute('data-reply-slot', strCommentId);
         commentEl.appendChild(replyComposerContainer);
@@ -1300,17 +1423,37 @@
 
     /**
      * Renders a full thread card (root + flat replies container).
+     * Suppresses deleted root comments completely.
+     * Returns null if CommentPresentation is unavailable or if root is deleted.
+     *
+     * @param {Object} thread
+     * @param {Document} [doc]
+     * @returns {Element|null}
      */
     function renderThread(thread, doc) {
+        if (!thread || !thread.root) {
+            return null;
+        }
+
+        const isRootDeleted = thread.root.tombstone === true || thread.root.status === 'DELETED';
+        if (isRootDeleted) {
+            return null;
+        }
+
         const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        const strRootId = String(thread.root.id);
+        const rootEl = renderComment(thread.root, strRootId, thread, false, d);
+        if (!rootEl) {
+            return null;
+        }
+
         const threadArticle = d.createElement('article');
         threadArticle.className = 'wiki-thread';
-        const strRootId = String(thread.root.id);
         threadArticle.setAttribute('data-thread-id', strRootId);
         threadArticle.setAttribute('data-root-id', strRootId);
 
-        // Render root comment
-        const rootEl = renderComment(thread.root, strRootId, thread, false, d);
         threadArticle.appendChild(rootEl);
 
         // Render replies container (flat level 1)
@@ -1323,7 +1466,9 @@
             const rep = replies[i];
             if (!rep || !rep.id) continue;
             const replyEl = renderComment(rep, strRootId, thread, true, d);
-            repliesContainer.appendChild(replyEl);
+            if (replyEl) {
+                repliesContainer.appendChild(replyEl);
+            }
         }
 
         threadArticle.appendChild(repliesContainer);
@@ -2667,7 +2812,7 @@
             });
         }
 
-        // Delegate comment action buttons (reply, edit, delete, history) on thread list
+        // Delegate comment action buttons (reply, edit, delete, history, report) on thread list
         if (els.threadListEl) {
             els.threadListEl.addEventListener('click', function (e) {
                 const target = e.target;
@@ -2675,30 +2820,38 @@
 
                 let actionBtn = null;
                 if (typeof target.closest === 'function') {
-                    actionBtn = target.closest('.wiki-comment-action-btn') ||
-                                target.closest('[data-action="history"]') ||
+                    actionBtn = target.closest('.kl-comment__menu-item') ||
+                                target.closest('.kl-comment__primary-action') ||
+                                target.closest('.wiki-comment-action-btn') ||
+                                target.closest('.wiki-comment-menu-item') ||
+                                target.closest('[data-action]') ||
                                 target.closest('.wiki-comment-edited');
                 } else if (target.getAttribute && (target.getAttribute('data-action') || (target.classList && target.classList.contains('wiki-comment-edited')))) {
                     actionBtn = target;
                 }
                 if (!actionBtn) return;
 
-                const action = actionBtn.getAttribute('data-action');
+                const action = actionBtn.getAttribute('data-action') || actionBtn.getAttribute('data-action-key');
                 const commentId = actionBtn.getAttribute('data-comment-id');
                 const rootCommentId = actionBtn.getAttribute('data-root-id');
                 const authorName = actionBtn.getAttribute('data-author-name') || '';
 
-                if ((action === 'history' || (actionBtn.classList && actionBtn.classList.contains('wiki-comment-edited'))) && commentId) {
+                if ((action === 'history' || action === 'view-revisions') && commentId) {
                     if (typeof e.preventDefault === 'function') e.preventDefault();
+                    closeActiveMenu(false);
                     openRevisionHistory(commentId, actionBtn, currentDoc);
                 } else if (action === 'reply' && commentId && rootCommentId) {
+                    closeActiveMenu(false);
                     openReplyComposer(commentId, rootCommentId, authorName, currentDoc);
                 } else if (action === 'edit' && commentId && rootCommentId) {
+                    closeActiveMenu(false);
                     openEditComposer(commentId, rootCommentId, currentDoc);
                 } else if (action === 'delete' && commentId && rootCommentId) {
+                    closeActiveMenu(false);
                     handleDeleteComment(commentId, rootCommentId, currentDoc);
                 } else if (action === 'report' && commentId) {
                     if (typeof e.preventDefault === 'function') e.preventDefault();
+                    closeActiveMenu(false);
                     if (!isAuthenticated) {
                         redirectToLogin(currentDoc);
                         return;
@@ -2708,10 +2861,19 @@
             });
         }
 
-        // Escape key listener for history modal
+        // Escape key listener for actions menu popover first, then history modal
         if (currentDoc && typeof currentDoc.addEventListener === 'function') {
             keydownHandler = function (e) {
-                if (e && (e.key === 'Escape' || e.keyCode === 27)) {
+                if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
+                    if (e.defaultPrevented) {
+                        return;
+                    }
+                    const presentation = resolveCommentPresentation();
+                    if (presentation && typeof presentation.getActiveOpenMenu === 'function' && presentation.getActiveOpenMenu()) {
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
+                        closeActiveMenu(true);
+                        return;
+                    }
                     const { modal } = getExistingHistoryElements(currentDoc);
                     if (modal && !modal.hidden) {
                         if (typeof e.preventDefault === 'function') e.preventDefault();
@@ -2767,8 +2929,6 @@
         formatTimestamp: formatTimestamp,
         formatCommentCount: formatCommentCount,
         isCommentEdited: isCommentEdited,
-        sanitizeAvatarUrl: sanitizeAvatarUrl,
-        createAvatarFallback: createAvatarFallback,
         getValidSecurityRedirectUrl: getValidSecurityRedirectUrl,
         openReplyComposer: openReplyComposer,
         openEditComposer: openEditComposer,
@@ -2843,6 +3003,12 @@
             injectedReportModal = modal;
         },
         getReportModal: getReportModal,
-        showDiscussionSuccess: showDiscussionSuccess
+        showDiscussionSuccess: showDiscussionSuccess,
+        closeActiveMenu: closeActiveMenu,
+        getActiveOpenMenu: getActiveOpenMenu,
+        createActionsMenu: createActionsMenu,
+        resolveCommentPresentation: resolveCommentPresentation,
+        setCommentPresentation: setCommentPresentation,
+        buildOverflowActionDescriptors: buildOverflowActionDescriptors
     };
 }));

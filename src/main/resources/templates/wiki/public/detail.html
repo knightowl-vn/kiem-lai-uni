@@ -26,7 +26,9 @@
 <meta th:if="${_csrf != null}" name="_csrf" th:content="${_csrf.token}">
 <meta th:if="${_csrf != null}" name="_csrf_header" th:content="${_csrf.headerName}">
 
+<link rel="stylesheet" th:href="@{/css/shared/comments.css}">
 <link rel="stylesheet" th:href="@{/css/wiki/wiki-comments.css}">
+<link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
 
 </head>
 
@@ -415,6 +417,7 @@
 	<script th:src="@{/js/wiki/wiki-saved.js}" defer></script>
 	<script th:src="@{/js/shared/ephemeral-draft-store.js}" defer></script>
 	<script th:src="@{/js/shared/comment-report-modal.js}" defer></script>
+	<script th:src="@{/js/shared/comment-presentation.js}" defer></script>
 	<script th:src="@{/js/wiki/wiki-comments.js}" defer></script>
 </body>
 </html>
