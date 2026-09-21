@@ -62,6 +62,9 @@
     let injectedCommentPresentation = undefined;
     let chapterChangedHandler = null;
     let documentClickHandler = null;
+    let highlightedElement = null;
+    let highlightTimer = null;
+    let pendingDeepLink = null;
 
     /**
      * Formats comment count label (e.g. '3 bình luận').
@@ -303,6 +306,451 @@
             countEl: doc.getElementById(COUNT_ID),
             moreEl: doc.getElementById(MORE_ID)
         };
+    }
+
+    /**
+     * Resolves the window reference safely.
+     *
+     * @param {Document} [doc]
+     * @returns {Window|Object|null}
+     */
+    function resolveWindow(doc) {
+        if (doc && doc.defaultView) {
+            return doc.defaultView;
+        }
+        if (typeof window !== 'undefined') {
+            return window;
+        }
+        if (typeof globalThis !== 'undefined') {
+            return globalThis;
+        }
+        return null;
+    }
+
+    /**
+     * Extracts deep-link parameters (commentId, threadId) from options or window.location.
+     * Both must be non-empty; otherwise returns null.
+     *
+     * @param {Document} [doc]
+     * @param {Object} [options]
+     * @returns {{commentId: string, threadId: string, fromOptions: boolean}|null}
+     */
+    function extractDeepLinkParams(doc, options) {
+        let commentId = null;
+        let threadId = null;
+        let fromOptions = false;
+
+        if (options && typeof options === 'object') {
+            if (options.commentId && options.threadId) {
+                commentId = String(options.commentId).trim();
+                threadId = String(options.threadId).trim();
+                fromOptions = true;
+            }
+        }
+
+        if (!commentId || !threadId) {
+            const win = resolveWindow(doc);
+            if (win && win.location && win.location.search) {
+                try {
+                    if (typeof URLSearchParams === 'function') {
+                        const params = new URLSearchParams(win.location.search);
+                        const c = params.get('commentId');
+                        const t = params.get('threadId');
+                        if (c && t) {
+                            commentId = String(c).trim();
+                            threadId = String(t).trim();
+                            fromOptions = false;
+                        }
+                    } else {
+                        const search = win.location.search.replace(/^\?/, '');
+                        const pairs = search.split('&');
+                        let foundC = null;
+                        let foundT = null;
+                        for (let i = 0; i < pairs.length; i++) {
+                            const part = pairs[i];
+                            if (!part) continue;
+                            const eq = part.indexOf('=');
+                            const k = eq >= 0 ? decodeURIComponent(part.slice(0, eq)) : decodeURIComponent(part);
+                            const v = eq >= 0 ? decodeURIComponent(part.slice(eq + 1)) : '';
+                            if (k === 'commentId') foundC = v;
+                            if (k === 'threadId') foundT = v;
+                        }
+                        if (foundC && foundT) {
+                            commentId = String(foundC).trim();
+                            threadId = String(foundT).trim();
+                            fromOptions = false;
+                        }
+                    }
+                } catch (_) {}
+            }
+        }
+
+        if (commentId && threadId) {
+            return {
+                commentId: commentId,
+                threadId: threadId,
+                fromOptions: fromOptions
+            };
+        }
+        return null;
+    }
+
+    /**
+     * Removes commentId and threadId from URL query parameters via replaceState.
+     * Preserves unrelated query parameters and hash.
+     *
+     * @param {Document} [doc]
+     */
+    function scrubDeepLinkParams(doc) {
+        const win = resolveWindow(doc);
+        if (!win || !win.location || !win.history || typeof win.history.replaceState !== 'function') {
+            return;
+        }
+        try {
+            const search = win.location.search || '';
+            if (!search) return;
+
+            let newSearch = '';
+            if (typeof URLSearchParams === 'function') {
+                const params = new URLSearchParams(search);
+                const c = params.get('commentId');
+                const t = params.get('threadId');
+                if (!c || !t || !c.trim() || !t.trim()) {
+                    return;
+                }
+                params.delete('commentId');
+                params.delete('threadId');
+                newSearch = params.toString();
+            } else {
+                const pairs = search.replace(/^\?/, '').split('&');
+                let foundC = false;
+                let foundT = false;
+                for (let i = 0; i < pairs.length; i++) {
+                    const part = pairs[i];
+                    if (!part) continue;
+                    const eq = part.indexOf('=');
+                    const k = eq >= 0 ? decodeURIComponent(part.slice(0, eq)) : decodeURIComponent(part);
+                    const v = eq >= 0 ? decodeURIComponent(part.slice(eq + 1)) : '';
+                    if (k === 'commentId' && v.trim()) foundC = true;
+                    if (k === 'threadId' && v.trim()) foundT = true;
+                }
+                if (!foundC || !foundT) {
+                    return;
+                }
+                const remaining = [];
+                for (let i = 0; i < pairs.length; i++) {
+                    const part = pairs[i];
+                    if (!part) continue;
+                    const eq = part.indexOf('=');
+                    const k = eq >= 0 ? decodeURIComponent(part.slice(0, eq)) : decodeURIComponent(part);
+                    if (k !== 'commentId' && k !== 'threadId') {
+                        remaining.push(part);
+                    }
+                }
+                newSearch = remaining.join('&');
+            }
+
+            const pathname = win.location.pathname || '';
+            const hash = win.location.hash || '';
+            const newUrl = pathname + (newSearch ? '?' + newSearch : '') + hash;
+
+            win.history.replaceState(win.history.state, '', newUrl);
+        } catch (_) {}
+    }
+
+    /**
+     * Clears current highlight on active comment element.
+     */
+    function clearHighlight() {
+        if (highlightTimer) {
+            clearTimeout(highlightTimer);
+            highlightTimer = null;
+        }
+        if (highlightedElement) {
+            if (highlightedElement.classList && typeof highlightedElement.classList.remove === 'function') {
+                highlightedElement.classList.remove('is-restored-target');
+            }
+            highlightedElement = null;
+        }
+    }
+
+    /**
+     * Applies restored target highlight to target element.
+     *
+     * @param {Element} targetEl
+     */
+    function applyHighlight(targetEl) {
+        if (!targetEl) return;
+        clearHighlight();
+
+        highlightedElement = targetEl;
+        if (targetEl.classList && typeof targetEl.classList.add === 'function') {
+            targetEl.classList.add('is-restored-target');
+        }
+
+        if (typeof targetEl.scrollIntoView === 'function') {
+            try {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } catch (_) {
+                targetEl.scrollIntoView();
+            }
+        }
+
+        const hasTabIndex = typeof targetEl.hasAttribute === 'function'
+            ? targetEl.hasAttribute('tabindex')
+            : (targetEl.getAttribute && targetEl.getAttribute('tabindex') !== null);
+
+        if (!hasTabIndex) {
+            if (typeof targetEl.setAttribute === 'function') {
+                targetEl.setAttribute('tabindex', '-1');
+            } else {
+                targetEl.tabIndex = -1;
+            }
+        }
+
+        if (typeof targetEl.focus === 'function') {
+            try {
+                targetEl.focus();
+            } catch (_) {}
+        }
+
+        highlightTimer = setTimeout(function () {
+            if (highlightedElement === targetEl) {
+                if (targetEl.classList && typeof targetEl.classList.remove === 'function') {
+                    targetEl.classList.remove('is-restored-target');
+                }
+                highlightedElement = null;
+            }
+            highlightTimer = null;
+        }, 2500);
+    }
+
+    /**
+     * Falls back smoothly to chapter comments discussion container.
+     */
+    function fallbackToContainer() {
+        const { sectionEl } = getElements();
+        if (sectionEl) {
+            if (typeof sectionEl.scrollIntoView === 'function') {
+                try {
+                    sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (_) {
+                    sectionEl.scrollIntoView();
+                }
+            }
+            if (typeof sectionEl.focus === 'function') {
+                try {
+                    sectionEl.focus();
+                } catch (_) {}
+            }
+        }
+    }
+
+    /**
+     * Resolves and focuses exact comment or reply in bottom discussion feed.
+     *
+     * @param {Object} deepLink
+     * @param {string} deepLink.commentId
+     * @param {string} deepLink.threadId
+     * @param {Document} doc
+     * @param {number} [token]
+     * @returns {Promise<void>}
+     */
+    async function resolveDeepLink(deepLink, doc, token) {
+        if (!deepLink || !doc || !currentChapterId) {
+            return;
+        }
+        const strCommentId = String(deepLink.commentId).trim();
+        const strThreadId = String(deepLink.threadId).trim();
+        if (!strCommentId || !strThreadId) {
+            return;
+        }
+
+        const targetChapterId = currentChapterId;
+        let isStale = false;
+
+        try {
+            const { listEl } = getElements();
+            if (!listEl) {
+                return;
+            }
+
+            // 1. Check if the thread is already in currentItems / rendered DOM
+            const existingItem = currentItems.find(function (it) {
+                return it && String(it.rootCommentId || it.id) === strThreadId;
+            });
+            const threadCard = findThreadCard(listEl, strThreadId);
+
+            if (threadCard && existingItem) {
+                if (strCommentId === strThreadId) {
+                    const rootEl = threadCard.querySelector('.novel-comment--root[data-comment-id="' + strCommentId + '"]')
+                        || threadCard.querySelector('[data-comment-id="' + strCommentId + '"]')
+                        || threadCard;
+                    applyHighlight(rootEl);
+                    return;
+                }
+
+                let replyEl = threadCard.querySelector('.novel-comment--reply[data-comment-id="' + strCommentId + '"]')
+                    || threadCard.querySelector('[data-reply-id="' + strCommentId + '"]');
+                if (replyEl) {
+                    applyHighlight(replyEl);
+                    return;
+                }
+
+                const replies = Array.isArray(existingItem.replies) ? existingItem.replies : [];
+                const repIdx = replies.findIndex(function (r) {
+                    return r && String(r.id) === strCommentId;
+                });
+
+                if (repIdx >= 0) {
+                    const targetRevealCount = Math.max(repIdx + 1, INITIAL_VISIBLE_REPLIES);
+                    const newThreadCard = renderThread(existingItem, doc, targetRevealCount);
+                    if (newThreadCard && threadCard.parentNode) {
+                        threadCard.parentNode.replaceChild(newThreadCard, threadCard);
+                        replyEl = newThreadCard.querySelector('.novel-comment--reply[data-comment-id="' + strCommentId + '"]')
+                            || newThreadCard.querySelector('[data-reply-id="' + strCommentId + '"]');
+                        if (replyEl) {
+                            applyHighlight(replyEl);
+                            return;
+                        }
+                    }
+                }
+
+                fallbackToContainer();
+                return;
+            }
+
+            // 2. Thread is NOT in current page. Fetch from GET /api/novel/chapters/{chapterId}/comments/{threadId}/thread
+            const fetchFn = (typeof injectedFetch === 'function')
+                ? injectedFetch
+                : (typeof window !== 'undefined' && typeof window.fetch === 'function')
+                    ? window.fetch.bind(window)
+                    : (typeof fetch === 'function') ? fetch : null;
+
+            if (!fetchFn) {
+                fallbackToContainer();
+                return;
+            }
+
+            const threadUrl = '/api/novel/chapters/' + encodeURIComponent(currentChapterId) +
+                '/comments/' + encodeURIComponent(strThreadId) + '/thread';
+
+            try {
+                const res = await fetchFn(threadUrl);
+                if ((token && token !== loadToken) || targetChapterId !== currentChapterId) {
+                    isStale = true;
+                    return;
+                }
+                if (!res || !res.ok) {
+                    fallbackToContainer();
+                    return;
+                }
+
+                const data = await res.json();
+                if ((token && token !== loadToken) || targetChapterId !== currentChapterId) {
+                    isStale = true;
+                    return;
+                }
+                if (!data || !data.root) {
+                    fallbackToContainer();
+                    return;
+                }
+
+                const rootComment = data.root;
+                if (rootComment.tombstone === true || rootComment.status === 'DELETED') {
+                    fallbackToContainer();
+                    return;
+                }
+
+                const replies = Array.isArray(data.replies) ? data.replies : [];
+                const threadItem = {
+                    rootCommentId: rootComment.id,
+                    id: rootComment.id,
+                    author: rootComment.author,
+                    authorUserId: rootComment.authorUserId,
+                    body: rootComment.body,
+                    tombstone: Boolean(rootComment.tombstone),
+                    status: rootComment.tombstone ? 'DELETED' : 'ACTIVE',
+                    createdAt: rootComment.createdAt,
+                    updatedAt: rootComment.updatedAt,
+                    edited: isCommentEdited(rootComment),
+                    canEdit: Boolean(rootComment.canEdit),
+                    canDelete: Boolean(rootComment.canDelete),
+                    anchorStatus: rootComment.anchorStatus || 'NONE',
+                    blockKey: rootComment.blockKey || null,
+                    passageExcerpt: rootComment.passageExcerpt || null,
+                    replyCount: replies.length,
+                    replies: replies
+                };
+
+                // Duplicate safety: verify thread was not inserted during fetch
+                let existingCard = findThreadCard(listEl, strThreadId);
+                if (!existingCard) {
+                    let initialRevealed = INITIAL_VISIBLE_REPLIES;
+                    if (strCommentId !== strThreadId && replies.length > 0) {
+                        const repIdx = replies.findIndex(function (r) {
+                            return r && String(r.id) === strCommentId;
+                        });
+                        if (repIdx >= 0) {
+                            initialRevealed = Math.max(INITIAL_VISIBLE_REPLIES, repIdx + 1);
+                        }
+                    }
+
+                    const newCard = renderThread(threadItem, doc, initialRevealed);
+                    if (newCard) {
+                        const emptyEl = listEl.querySelector('.novel-chapter-comments-empty');
+                        if (emptyEl && emptyEl.parentNode) {
+                            emptyEl.parentNode.removeChild(emptyEl);
+                        }
+
+                        if (listEl.firstChild) {
+                            listEl.insertBefore(newCard, listEl.firstChild);
+                        } else {
+                            listEl.appendChild(newCard);
+                        }
+
+                        currentItems.unshift(threadItem);
+                        currentStatus = 'populated';
+                        const { countEl } = getElements();
+                        if (countEl) {
+                            countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
+                        }
+                        existingCard = newCard;
+                    }
+                }
+
+                if (!existingCard) {
+                    fallbackToContainer();
+                    return;
+                }
+
+                let targetEl = null;
+                if (strCommentId === strThreadId) {
+                    targetEl = existingCard.querySelector('.novel-comment--root[data-comment-id="' + strCommentId + '"]')
+                        || existingCard.querySelector('[data-comment-id="' + strCommentId + '"]')
+                        || existingCard;
+                } else {
+                    targetEl = existingCard.querySelector('.novel-comment--reply[data-comment-id="' + strCommentId + '"]')
+                        || existingCard.querySelector('[data-reply-id="' + strCommentId + '"]');
+                }
+
+                if (targetEl) {
+                    applyHighlight(targetEl);
+                } else {
+                    fallbackToContainer();
+                }
+            } catch (_) {
+                if ((token && token !== loadToken) || targetChapterId !== currentChapterId) {
+                    isStale = true;
+                    return;
+                }
+                fallbackToContainer();
+            }
+        } finally {
+            if (!isStale && (!token || token === loadToken) && targetChapterId === currentChapterId) {
+                scrubDeepLinkParams(doc);
+            }
+        }
     }
 
     /**
@@ -1520,6 +1968,11 @@
                 : (typeof fetch === 'function') ? fetch : null;
 
         if (!fetchFn) {
+            if (pendingDeepLink) {
+                pendingDeepLink = null;
+                fallbackToContainer();
+                scrubDeepLinkParams(doc);
+            }
             renderError('Trình duyệt không hỗ trợ tải dữ liệu.', statusEl, listEl, countEl, moreEl, doc);
             return;
         }
@@ -1544,7 +1997,7 @@
                 }
                 return res.json();
             })
-            .then(function (data) {
+            .then(async function (data) {
                 if (token !== loadToken || targetChapterId !== currentChapterId || !data) {
                     return;
                 }
@@ -1571,10 +2024,21 @@
                         renderMoreHidden(moreEl);
                     }
                 }
+
+                if (pendingDeepLink) {
+                    const dl = pendingDeepLink;
+                    pendingDeepLink = null;
+                    await resolveDeepLink(dl, doc, token);
+                }
             })
             .catch(function (_) {
                 if (token !== loadToken || targetChapterId !== currentChapterId) {
                     return;
+                }
+                if (pendingDeepLink) {
+                    pendingDeepLink = null;
+                    fallbackToContainer();
+                    scrubDeepLinkParams(doc);
                 }
                 renderError('Không thể tải bình luận. Vui lòng thử lại.', statusEl, listEl, countEl, moreEl, doc);
             });
@@ -1673,6 +2137,8 @@
      */
     function handleChapterChanged(evt) {
         closeActiveMenu(false);
+        clearHighlight();
+        pendingDeepLink = null;
         isRefreshing = false;
         rootPageMap = Object.create(null);
 
@@ -1708,6 +2174,7 @@
      * @returns {Promise<Object>}
      */
     function refreshFromPageZero() {
+        clearHighlight();
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { statusEl, listEl, countEl, moreEl } = getElements();
         if (!doc || !listEl || !currentChapterId) {
@@ -2017,6 +2484,11 @@
             currentDoc.addEventListener('click', documentClickHandler);
         }
 
+        const deepLink = extractDeepLinkParams(currentDoc, opts);
+        if (deepLink) {
+            pendingDeepLink = deepLink;
+        }
+
         fetchFeed();
     }
 
@@ -2025,6 +2497,8 @@
      */
     function destroyReaderChapterComments() {
         loadToken++; // Invalidate any in-flight request
+        clearHighlight();
+        pendingDeepLink = null;
         closeActiveMenu(false);
         const presentation = resolveCommentPresentation();
         if (presentation && typeof presentation.unbindDocument === 'function') {
@@ -2132,7 +2606,11 @@
         openOriginDiscussion: openOriginDiscussion,
         closeActiveMenu: closeActiveMenu,
         getActiveOpenMenu: getActiveOpenMenu,
-        getHighlightedElement: function () { return null; },
+        getHighlightedElement: function () { return highlightedElement; },
+        clearHighlight: clearHighlight,
+        resolveDeepLink: resolveDeepLink,
+        extractDeepLinkParams: extractDeepLinkParams,
+        scrubDeepLinkParams: scrubDeepLinkParams,
         deduplicateRoots: deduplicateRoots,
         getActiveCommentCount: getActiveCommentCount,
         openReportModal: openReportModal,

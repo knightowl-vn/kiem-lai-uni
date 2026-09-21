@@ -4791,4 +4791,813 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
             assert.strictEqual(result, false, 'openReportModal must return false when modal is non-callable');
         });
     });
+
+    // ============================================================================
+    // MS-05E / E8E-5C2A Novel Reader Exact Comment Context Focus (Cases A-G)
+    // ============================================================================
+
+    describe('MS-05E / E8E-5C2A Novel Reader Exact Comment Context Focus (Cases A-G)', () => {
+
+        test('Case A: No params -> normal behavior unchanged', async () => {
+            const { doc, list } = createStandardFixture('chap-a');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-a',
+                    search: '',
+                    hash: '#novelChapterComments'
+                }
+            };
+
+            let fetchCount = 0;
+            const fakeFetch = (url) => {
+                fetchCount++;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-a1',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: 'Comment 1',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(fetchCount, 1, 'Only feed fetch should be performed');
+            const threads = list.querySelectorAll('.novel-block-discussion-thread');
+            assert.strictEqual(threads.length, 1, 'One thread card should be rendered');
+            assert.strictEqual(commentsModule.getHighlightedElement(), null, 'No comment should be highlighted');
+            const highlighted = list.querySelectorAll('.is-restored-target');
+            assert.strictEqual(highlighted.length, 0, 'No element should have is-restored-target class');
+        });
+
+        test('Case B: Root already in DOM -> focused/highlighted, no extra fetch, params scrubbed', async () => {
+            const { doc, list } = createStandardFixture('chap-b');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-b',
+                    search: '?commentId=root-b2&threadId=root-b2',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: { scroll: 100 },
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            let fetchCount = 0;
+            const fakeFetch = (url) => {
+                fetchCount++;
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-b1',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: 'First root',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            replies: []
+                        },
+                        {
+                            rootCommentId: 'root-b2',
+                            author: { userId: 'u2', displayName: 'User 2' },
+                            body: 'Second root to highlight',
+                            createdAt: '2026-09-18T10:05:00Z',
+                            updatedAt: '2026-09-18T10:05:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            assert.strictEqual(fetchCount, 1, 'Only feed page-0 fetch should be performed; no extra thread fetch');
+            const targetEl = list.querySelector('[data-comment-id="root-b2"]');
+            assert.ok(targetEl, 'Target root comment must exist in DOM');
+            assert.strictEqual(targetEl.classList.contains('is-restored-target'), true, 'Target must have is-restored-target class');
+            assert.strictEqual(targetEl.scrollIntoViewCalled, true, 'scrollIntoView must be called');
+            assert.deepStrictEqual(targetEl.lastScrollOptions, { behavior: 'smooth', block: 'center' });
+            assert.strictEqual(targetEl.isFocused, true, 'Target must receive focus');
+            assert.strictEqual(commentsModule.getHighlightedElement(), targetEl, 'getHighlightedElement must return targetEl');
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-b#novelChapterComments', 'Params must be scrubbed preserving hash');
+        });
+
+        test('Case C: Target thread not in initial page -> fetches exact thread, inserts once, focuses root', async () => {
+            const { doc, list, count } = createStandardFixture('chap-c');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-c',
+                    search: '?commentId=root-older&threadId=root-older',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fetchedUrls = [];
+            const fakeFetch = (url) => {
+                fetchedUrls.push(url);
+                if (url.includes('/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([
+                            {
+                                rootCommentId: 'root-recent',
+                                author: { userId: 'u1', displayName: 'User 1' },
+                                body: 'Recent comment',
+                                createdAt: '2026-09-18T10:00:00Z',
+                                updatedAt: '2026-09-18T10:00:00Z',
+                                canEdit: false,
+                                canDelete: false,
+                                replies: []
+                            }
+                        ]))
+                    });
+                }
+                if (url.includes('/comments/root-older/thread')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({
+                            root: {
+                                id: 'root-older',
+                                authorUserId: 'u2',
+                                parentCommentId: null,
+                                replyToAuthorUserId: null,
+                                body: 'Older root comment from thread endpoint',
+                                tombstone: false,
+                                createdAt: '2026-09-10T08:00:00Z',
+                                updatedAt: '2026-09-10T08:00:00Z',
+                                author: { userId: 'u2', displayName: 'Older Author' },
+                                canEdit: false,
+                                canDelete: false
+                            },
+                            replies: []
+                        })
+                    });
+                }
+                return Promise.reject(new Error('Unknown url: ' + url));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(fetchedUrls.length, 2, 'Must fetch feed and exact thread');
+            assert.ok(fetchedUrls[1].includes('/comments/root-older/thread'), 'Second fetch must be for target thread');
+
+            const threadCards = list.querySelectorAll('.novel-block-discussion-thread');
+            assert.strictEqual(threadCards.length, 2, 'Both threads must be present in DOM');
+            const targetThreadCards = list.querySelectorAll('.novel-block-discussion-thread[data-root-id="root-older"]');
+            assert.strictEqual(targetThreadCards.length, 1, 'Target thread card must be inserted exactly once');
+
+            const targetEl = list.querySelector('[data-comment-id="root-older"]');
+            assert.ok(targetEl, 'Target root comment must exist in DOM');
+            assert.strictEqual(targetEl.classList.contains('is-restored-target'), true);
+            assert.strictEqual(targetEl.scrollIntoViewCalled, true);
+            assert.strictEqual(targetEl.isFocused, true);
+            assert.strictEqual(commentsModule.getHighlightedElement(), targetEl);
+            assert.strictEqual(count.textContent, '2 bình luận', 'Comment count should update');
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-c#novelChapterComments');
+        });
+
+        test('Case D: Reply target beyond initial visible limit (index >= 3) -> reveals replies, focuses reply', async () => {
+            const { doc, list } = createStandardFixture('chap-d');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-d',
+                    search: '?commentId=rep-4&threadId=root-d1',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const repliesList = [];
+            for (let i = 0; i < 6; i++) {
+                repliesList.push({
+                    id: 'rep-' + i,
+                    parentCommentId: 'root-d1',
+                    author: { userId: 'ur' + i, displayName: 'Replier ' + i },
+                    body: 'Reply text ' + i,
+                    createdAt: '2026-09-18T10:0' + i + ':00Z',
+                    updatedAt: '2026-09-18T10:0' + i + ':00Z',
+                    canEdit: false,
+                    canDelete: false,
+                    tombstone: false
+                });
+            }
+
+            const fakeFetch = (url) => {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-d1',
+                            author: { userId: 'u1', displayName: 'Root Author' },
+                            body: 'Root with many replies',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            replyCount: 6,
+                            replies: repliesList
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            const targetReplyEl = list.querySelector('[data-comment-id="rep-4"]');
+            assert.ok(targetReplyEl, 'Target reply rep-4 must be revealed in the DOM');
+            assert.strictEqual(targetReplyEl.classList.contains('is-restored-target'), true, 'Reply must have is-restored-target');
+            assert.strictEqual(targetReplyEl.scrollIntoViewCalled, true, 'Reply must be scrolled into view');
+            assert.strictEqual(targetReplyEl.isFocused, true, 'Reply must receive focus');
+            assert.strictEqual(commentsModule.getHighlightedElement(), targetReplyEl);
+
+            const moreBtn = list.querySelector('.novel-comment-replies-more-btn');
+            assert.ok(moreBtn, 'More button should still exist for 1 remaining reply');
+            assert.strictEqual(moreBtn.textContent, 'Xem thêm 1 phản hồi');
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-d#novelChapterComments');
+        });
+
+        test('Case E: Duplicate safety -> existing thread not inserted twice', async () => {
+            const { doc, list } = createStandardFixture('chap-e');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-e',
+                    search: '?commentId=root-e1&threadId=root-e1',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState() {}
+                }
+            };
+
+            const fakeFetch = () => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([
+                    {
+                        rootCommentId: 'root-e1',
+                        author: { userId: 'u1', displayName: 'User 1' },
+                        body: 'Only root',
+                        createdAt: '2026-09-18T10:00:00Z',
+                        updatedAt: '2026-09-18T10:00:00Z',
+                        canEdit: false,
+                        canDelete: false,
+                        replies: []
+                    }
+                ]))
+            });
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            let threadCards = list.querySelectorAll('.novel-block-discussion-thread[data-root-id="root-e1"]');
+            assert.strictEqual(threadCards.length, 1, 'Thread must appear exactly once initially');
+
+            await commentsModule.resolveDeepLink({ commentId: 'root-e1', threadId: 'root-e1' }, doc);
+            threadCards = list.querySelectorAll('.novel-block-discussion-thread[data-root-id="root-e1"]');
+            assert.strictEqual(threadCards.length, 1, 'Thread must not be duplicated on re-resolution');
+        });
+
+        test('Case F: Target unavailable/deleted -> fallback to discussion container, params scrubbed', async () => {
+            const { doc, section } = createStandardFixture('chap-f');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-f',
+                    search: '?commentId=missing-reply&threadId=root-f1',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fakeFetch = (url) => {
+                if (url.includes('/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([
+                            {
+                                rootCommentId: 'root-f1',
+                                author: { userId: 'u1', displayName: 'User 1' },
+                                body: 'Root with no matching reply',
+                                createdAt: '2026-09-18T10:00:00Z',
+                                updatedAt: '2026-09-18T10:00:00Z',
+                                canEdit: false,
+                                canDelete: false,
+                                replies: []
+                            }
+                        ]))
+                    });
+                }
+                return Promise.resolve({ ok: false, status: 404 });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(section.scrollIntoViewCalled, true, 'Section container must receive fallback scroll');
+            assert.deepStrictEqual(section.lastScrollOptions, { behavior: 'smooth', block: 'start' });
+            assert.strictEqual(commentsModule.getHighlightedElement(), null, 'No highlight when target missing');
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-f#novelChapterComments', 'Params must still be scrubbed');
+        });
+
+        test('Case F2: Deleted root thread from API -> fallback to container, params scrubbed', async () => {
+            const { doc, section } = createStandardFixture('chap-f2');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-f2',
+                    search: '?commentId=root-del&threadId=root-del',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fakeFetch = (url) => {
+                if (url.includes('/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([]))
+                    });
+                }
+                if (url.includes('/comments/root-del/thread')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({
+                            root: {
+                                id: 'root-del',
+                                tombstone: true,
+                                status: 'DELETED',
+                                createdAt: '2026-09-18T10:00:00Z',
+                                updatedAt: '2026-09-18T10:00:00Z'
+                            },
+                            replies: []
+                        })
+                    });
+                }
+                return Promise.reject(new Error('Unknown url'));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(section.scrollIntoViewCalled, true, 'Section container must receive fallback scroll');
+            assert.strictEqual(commentsModule.getHighlightedElement(), null);
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-f2#novelChapterComments');
+        });
+
+        test('Case G: Unrelated query params and hash preserved after scrub', () => {
+            const doc = new FakeDocument();
+            let lastUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-g',
+                    search: '?mode=night&commentId=c-123&fontSize=18&threadId=t-123&sort=asc',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: { pos: 42 },
+                    replaceState(state, title, url) {
+                        lastUrl = url;
+                    }
+                }
+            };
+
+            commentsModule.scrubDeepLinkParams(doc);
+
+            assert.strictEqual(
+                lastUrl,
+                '/novel/chapters/chap-g?mode=night&fontSize=18&sort=asc#novelChapterComments',
+                'Must preserve unrelated query params and hash exactly'
+            );
+        });
+
+        test('Case G2: Missing commentId or threadId results in no-op guard', () => {
+            const doc = new FakeDocument();
+            let replaceCalled = false;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-g2',
+                    search: '?commentId=c-only',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    replaceState() { replaceCalled = true; }
+                }
+            };
+
+            const result = commentsModule.extractDeepLinkParams(doc);
+            assert.strictEqual(result, null, 'Must return null when threadId is missing');
+
+            commentsModule.scrubDeepLinkParams(doc);
+            assert.strictEqual(replaceCalled, false, 'replaceState must not be called when deep link is incomplete');
+        });
+
+        test('Highlight timer: clearHighlight resets state immediately', async () => {
+            const { doc, list } = createStandardFixture('chap-timer');
+            const targetEl = doc.createElement('div');
+            targetEl.setAttribute('data-comment-id', 'test-c');
+            list.appendChild(targetEl);
+
+            commentsModule.clearHighlight();
+            assert.strictEqual(commentsModule.getHighlightedElement(), null);
+        });
+    });
+
+    // ============================================================================
+    // E8E-5C2A Micro-Corrective: Defer URL Scrub + Real Focusability (Cases A-G)
+    // ============================================================================
+
+    describe('E8E-5C2A Micro-Corrective: Defer URL Scrub + Real Focusability (Cases A-G)', () => {
+
+        test('Case A: URL remains intact while an async deep-link attempt has not yet completed', async () => {
+            const { doc } = createStandardFixture('chap-mc-a');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-a',
+                    search: '?commentId=c-target&threadId=t-target',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            let resolveThreadFetch = null;
+            const threadPromise = new Promise(resolve => {
+                resolveThreadFetch = resolve;
+            });
+
+            const fakeFetch = (url) => {
+                if (url.includes('/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([]))
+                    });
+                }
+                if (url.includes('/comments/t-target/thread')) {
+                    return threadPromise;
+                }
+                return Promise.reject(new Error('Unknown url'));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+
+            // Allow initial feed fetch to resolve, triggering resolveDeepLink -> thread fetch
+            await new Promise(r => setTimeout(r, 10));
+
+            // While thread fetch is pending: replaceState must NOT have been called
+            assert.strictEqual(replacedUrl, null, 'URL must remain intact while async deep-link fetch is in-flight');
+
+            // Complete thread fetch
+            resolveThreadFetch({
+                ok: true,
+                json: () => Promise.resolve({
+                    root: {
+                        id: 't-target',
+                        authorUserId: 'u1',
+                        parentCommentId: null,
+                        body: 'Target root',
+                        tombstone: false,
+                        status: 'ACTIVE',
+                        createdAt: '2026-09-18T10:00:00Z',
+                        updatedAt: '2026-09-18T10:00:00Z',
+                        canEdit: false,
+                        canDelete: false
+                    },
+                    replies: []
+                })
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            // Now that resolution reached terminal outcome, params are scrubbed
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-mc-a#novelChapterComments', 'URL scrubbed after terminal completion');
+        });
+
+        test('Case B: Successful resolution scrubs params afterward', async () => {
+            const { doc, list } = createStandardFixture('chap-mc-b');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-b',
+                    search: '?commentId=root-b1&threadId=root-b1&sort=desc',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: { mark: 1 },
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fakeFetch = (url) => {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve(makeFeedResponse([
+                        {
+                            rootCommentId: 'root-b1',
+                            author: { userId: 'u1', displayName: 'User 1' },
+                            body: 'Root comment',
+                            createdAt: '2026-09-18T10:00:00Z',
+                            updatedAt: '2026-09-18T10:00:00Z',
+                            canEdit: false,
+                            canDelete: false,
+                            replies: []
+                        }
+                    ]))
+                });
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            const targetEl = list.querySelector('[data-comment-id="root-b1"]');
+            assert.ok(targetEl, 'Target must exist in DOM');
+            assert.strictEqual(targetEl.classList.contains('is-restored-target'), true);
+            assert.strictEqual(commentsModule.getHighlightedElement(), targetEl);
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-mc-b?sort=desc#novelChapterComments', 'Params scrubbed preserving unrelated sort param');
+        });
+
+        test('Case C: Exact-thread failure/fallback scrubs afterward', async () => {
+            const { doc, section } = createStandardFixture('chap-mc-c');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-c',
+                    search: '?commentId=missing-c&threadId=missing-t',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fakeFetch = (url) => {
+                if (url.includes('/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([]))
+                    });
+                }
+                if (url.includes('/comments/missing-t/thread')) {
+                    return Promise.resolve({ ok: false, status: 500 });
+                }
+                return Promise.reject(new Error('Unknown url'));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(section.scrollIntoViewCalled, true, 'Container fallback invoked on exact-thread failure');
+            assert.strictEqual(commentsModule.getHighlightedElement(), null);
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-mc-c#novelChapterComments', 'Params scrubbed after exact-thread failure');
+        });
+
+        test('Case D: Initial feed failure with pending deep-link also scrubs afterward', async () => {
+            const { doc, section, status } = createStandardFixture('chap-mc-d');
+            let replacedUrl = null;
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-d',
+                    search: '?commentId=c-100&threadId=t-100',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replacedUrl = url;
+                    }
+                }
+            };
+
+            const fakeFetch = () => Promise.reject(new Error('Network failure'));
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 20));
+
+            assert.strictEqual(section.scrollIntoViewCalled, true, 'Container fallback invoked on feed failure with deep link');
+            assert.ok(status.querySelector('.novel-chapter-comments-error'), 'Error UI rendered');
+            assert.strictEqual(replacedUrl, '/novel/chapters/chap-mc-d#novelChapterComments', 'Params scrubbed after initial feed failure');
+        });
+
+        test('Case E: Stale resolution/token invalidation does NOT scrub a newer URL state', async () => {
+            const { doc } = createStandardFixture('chap-mc-e1');
+            let replaceCalls = [];
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-e1',
+                    search: '?commentId=c-old&threadId=t-old',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    state: null,
+                    replaceState(state, title, url) {
+                        replaceCalls.push(url);
+                    }
+                }
+            };
+
+            let resolveThreadFetch = null;
+            const threadPromise = new Promise(resolve => {
+                resolveThreadFetch = resolve;
+            });
+
+            const fakeFetch = (url) => {
+                if (url.includes('/chapters/chap-mc-e1/comments/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([]))
+                    });
+                }
+                if (url.includes('/comments/t-old/thread')) {
+                    return threadPromise;
+                }
+                if (url.includes('/chapters/chap-mc-e2/comments/feed')) {
+                    return Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(makeFeedResponse([]))
+                    });
+                }
+                return Promise.reject(new Error('Unknown url'));
+            };
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 10));
+
+            // While thread fetch for chap-mc-e1 is in-flight, navigate to new chapter chap-mc-e2
+            doc.defaultView.location.pathname = '/novel/chapters/chap-mc-e2';
+            doc.defaultView.location.search = '?commentId=c-new&threadId=t-new';
+            doc.dispatchEvent({
+                type: commentsModule.EVENT_CHAPTER_CHANGED,
+                detail: { chapterId: 'chap-mc-e2' }
+            });
+
+            // Now stale thread fetch from chap-mc-e1 completes
+            resolveThreadFetch({
+                ok: true,
+                json: () => Promise.resolve({
+                    root: {
+                        id: 't-old',
+                        body: 'Stale root',
+                        tombstone: false,
+                        status: 'ACTIVE'
+                    },
+                    replies: []
+                })
+            });
+
+            await new Promise(r => setTimeout(r, 20));
+
+            // Verify stale resolution did NOT scrub the newer chapter URL
+            const scrubbedOld = replaceCalls.find(u => u && u.includes('chap-mc-e1'));
+            assert.strictEqual(scrubbedOld, undefined, 'Stale resolution must not scrub old chapter URL');
+            const scrubbedNewWithoutPending = replaceCalls.find(u => u && u.includes('chap-mc-e2') && !u.includes('commentId'));
+            assert.strictEqual(scrubbedNewWithoutPending, undefined, 'Stale resolution must not scrub newer chapter state');
+        });
+
+        test('Case F: Highlighted root/reply receives tabindex="-1" if it had none', async () => {
+            const { doc, list } = createStandardFixture('chap-mc-f');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-f',
+                    search: '?commentId=root-f&threadId=root-f',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    replaceState() {}
+                }
+            };
+
+            const fakeFetch = () => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([
+                    {
+                        rootCommentId: 'root-f',
+                        author: { userId: 'u1', displayName: 'User 1' },
+                        body: 'Root without tabindex',
+                        createdAt: '2026-09-18T10:00:00Z',
+                        updatedAt: '2026-09-18T10:00:00Z',
+                        canEdit: false,
+                        canDelete: false,
+                        replies: []
+                    }
+                ]))
+            });
+
+            commentsModule.init(doc, { fetch: fakeFetch });
+            await new Promise(r => setTimeout(r, 15));
+
+            const targetEl = list.querySelector('[data-comment-id="root-f"]');
+            assert.ok(targetEl, 'Target element must exist');
+            assert.strictEqual(targetEl.getAttribute('tabindex'), '-1', 'Target must receive tabindex="-1"');
+            assert.strictEqual(targetEl.isFocused, true, 'Target must receive programmatic focus');
+        });
+
+        test('Case G: Existing tabindex is preserved and not overwritten', async () => {
+            const { doc, list } = createStandardFixture('chap-mc-g');
+            doc.defaultView = {
+                location: {
+                    pathname: '/novel/chapters/chap-mc-g',
+                    search: '?commentId=root-g&threadId=root-g',
+                    hash: '#novelChapterComments'
+                },
+                history: {
+                    replaceState() {}
+                }
+            };
+
+            // Delegate to real CommentPresentation but inject pre-existing tabindex="0"
+            const realPresentation = commentsModule.getCommentPresentation();
+            commentsModule.setCommentPresentationImplementation({
+                renderComment(descriptor, docRef) {
+                    const el = realPresentation.renderComment(descriptor, docRef);
+                    if (el) {
+                        el.setAttribute('tabindex', '0');
+                    }
+                    return el;
+                },
+                renderActionsMenu: realPresentation ? realPresentation.renderActionsMenu.bind(realPresentation) : undefined,
+                unbindDocument: realPresentation && realPresentation.unbindDocument ? realPresentation.unbindDocument.bind(realPresentation) : undefined
+            });
+
+            const fakeFetch = () => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(makeFeedResponse([
+                    {
+                        rootCommentId: 'root-g',
+                        author: { userId: 'u1', displayName: 'User 1' },
+                        body: 'Root with existing tabindex',
+                        createdAt: '2026-09-18T10:00:00Z',
+                        updatedAt: '2026-09-18T10:00:00Z',
+                        canEdit: false,
+                        canDelete: false,
+                        replies: []
+                    }
+                ]))
+            });
+
+            try {
+                commentsModule.init(doc, { fetch: fakeFetch });
+                await new Promise(r => setTimeout(r, 15));
+
+                const targetEl = list.querySelector('[data-comment-id="root-g"]');
+                assert.ok(targetEl, 'Target element must exist');
+                assert.strictEqual(targetEl.getAttribute('tabindex'), '0', 'Pre-existing tabindex="0" must NOT be overwritten');
+                assert.strictEqual(targetEl.isFocused, true, 'Target must receive programmatic focus');
+            } finally {
+                commentsModule.setCommentPresentationImplementation(undefined);
+            }
+        });
+    });
 });
+

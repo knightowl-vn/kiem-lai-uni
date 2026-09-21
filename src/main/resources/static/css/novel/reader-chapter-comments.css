@@ -822,3 +822,22 @@
     opacity: 0.6;
     cursor: not-allowed;
 }
+
+/* =========================================================
+   RESTORED INTERACTION TARGET HIGHLIGHT (MS-05E5C2A)
+   ========================================================= */
+.novel-chapter-comments .novel-block-discussion-thread.is-restored-target,
+.novel-chapter-comments .novel-comment.is-restored-target {
+    border-radius: 6px;
+    outline: 2px solid var(--accent, #b45309);
+    outline-offset: 2px;
+    background-color: var(--reader-target-bg, rgba(180, 83, 9, 0.08));
+    transition: outline-color 0.4s ease, background-color 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .novel-chapter-comments .novel-block-discussion-thread.is-restored-target,
+    .novel-chapter-comments .novel-comment.is-restored-target {
+        transition: none;
+    }
+}
