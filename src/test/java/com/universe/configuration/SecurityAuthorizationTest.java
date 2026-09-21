@@ -246,6 +246,9 @@ class SecurityAuthorizationTest {
     private com.universe.interaction.entry.admin.AdminCommentReportDetailCoordinator adminCommentReportDetailCoordinator;
 
     @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportContextNavigationCoordinator adminCommentReportContextNavigationCoordinator;
+
+    @MockBean
     private ThymeleafViewResolver thymeleafViewResolver;
 
     @BeforeEach
@@ -886,5 +889,51 @@ class SecurityAuthorizationTest {
 
         mockMvc.perform(get("/admin/comments/reports/" + reportId))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports/{reportId}/context (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportContext() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports/{reportId}/context (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportContextForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports/{reportId}/context")
+    void shouldAllowAccessToAdminCommentReportContextForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportContextNavigationCoordinator.resolveNavigation(reportId))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO.unavailable(reportId));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports/{reportId}/context")
+    void shouldAllowAccessToAdminCommentReportContextForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportContextNavigationCoordinator.resolveNavigation(reportId))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO.unavailable(reportId));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
     }
 }
