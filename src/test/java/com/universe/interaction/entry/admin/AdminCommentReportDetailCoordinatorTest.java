@@ -95,6 +95,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Nội dung quảng cáo vi phạm (live)",
                 CommentTargetType.NOVEL_CHAPTER,
                 chapterId,
+                null,
                 baseTime.minusSeconds(600),
                 baseTime.minusSeconds(600),
                 null
@@ -177,6 +178,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Bình luận công kích nhân vật",
                 CommentTargetType.WIKI_ARTICLE,
                 articleId,
+                null,
                 baseTime.minusSeconds(300),
                 baseTime.minusSeconds(300),
                 null
@@ -236,6 +238,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 null,
                 CommentTargetType.NOVEL_CHAPTER,
                 chapterId,
+                null,
                 baseTime.minusSeconds(1000),
                 baseTime.plusSeconds(1800),
                 baseTime.plusSeconds(1800)
@@ -289,6 +292,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Live body",
                 CommentTargetType.WIKI_ARTICLE,
                 articleId,
+                null,
                 baseTime.minusSeconds(100),
                 baseTime.minusSeconds(100),
                 null
@@ -340,6 +344,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Live body",
                 CommentTargetType.NOVEL_CHAPTER,
                 chapterId,
+                null,
                 baseTime.minusSeconds(60),
                 baseTime.minusSeconds(60),
                 null
@@ -374,6 +379,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 null,
                 null,
                 false, // Missing comment
+                null,
                 null,
                 null,
                 null,
@@ -427,6 +433,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 null, // null body for DELETED tombstone
                 CommentTargetType.WIKI_ARTICLE,
                 articleId,
+                null,
                 baseTime.minusSeconds(500),
                 deletedAt,
                 deletedAt

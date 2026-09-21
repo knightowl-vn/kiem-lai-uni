@@ -101,6 +101,7 @@ class GetInteractionReportDetailUseCaseTest {
         assertThat(result.currentCommentBody()).isEqualTo("Mua acc vip tại web abc.xyz (edited)");
         assertThat(result.targetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
         assertThat(result.targetId()).isEqualTo(targetId);
+        assertThat(result.currentCommentThreadRootCommentId()).isNull();
         assertThat(result.commentCreatedAt()).isEqualTo(baseTime.minusSeconds(600));
         assertThat(result.commentUpdatedAt()).isEqualTo(baseTime.minusSeconds(600));
         assertThat(result.commentDeletedAt()).isNull();
@@ -164,6 +165,7 @@ class GetInteractionReportDetailUseCaseTest {
         assertThat(result.commentDeletedAt()).isEqualTo(commentDeletedAt);
         assertThat(result.targetType()).isEqualTo(CommentTargetType.WIKI_ARTICLE);
         assertThat(result.targetId()).isEqualTo(targetId);
+        assertThat(result.currentCommentThreadRootCommentId()).isNull();
 
         verify(reportRepositoryPort, times(1)).findById(reportId);
         verify(commentRepositoryPort, times(1)).findById(commentId);
@@ -203,6 +205,7 @@ class GetInteractionReportDetailUseCaseTest {
         assertThat(result.currentCommentBody()).isNull();
         assertThat(result.targetType()).isNull();
         assertThat(result.targetId()).isNull();
+        assertThat(result.currentCommentThreadRootCommentId()).isNull();
         assertThat(result.commentCreatedAt()).isNull();
         assertThat(result.commentUpdatedAt()).isNull();
         assertThat(result.commentDeletedAt()).isNull();
@@ -229,5 +232,51 @@ class GetInteractionReportDetailUseCaseTest {
 
         verifyNoInteractions(reportRepositoryPort);
         verifyNoInteractions(commentRepositoryPort);
+    }
+
+    @Test
+    @DisplayName("Case F: Reply comment - currentCommentThreadRootCommentId preserves domain threadRootCommentId")
+    void shouldReturnDetailWithReplyCommentPreservingThreadRootCommentId() {
+        UUID rootCommentId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        UUID parentCommentId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+
+        InteractionReport report = InteractionReport.reconstitute(
+                reportId,
+                commentId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Quấy rối trong phản hồi",
+                "Nội dung phản hồi vi phạm",
+                ReportStatus.PENDING,
+                baseTime,
+                null,
+                null
+        );
+
+        Comment replyComment = Comment.rehydrate(
+                commentId,
+                new CommentTarget(CommentTargetType.NOVEL_CHAPTER, targetId),
+                authorUserId,
+                parentCommentId,
+                rootCommentId,
+                "Nội dung phản hồi vi phạm",
+                CommentStatus.ACTIVE,
+                baseTime.minusSeconds(400),
+                baseTime.minusSeconds(400),
+                null
+        );
+
+        when(reportRepositoryPort.findById(reportId)).thenReturn(Optional.of(report));
+        when(commentRepositoryPort.findById(commentId)).thenReturn(Optional.of(replyComment));
+
+        InteractionReportDetailResult result = useCase.execute(reportId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.currentCommentAvailable()).isTrue();
+        assertThat(result.commentId()).isEqualTo(commentId);
+        assertThat(result.currentCommentThreadRootCommentId()).isEqualTo(rootCommentId);
+
+        verify(reportRepositoryPort, times(1)).findById(reportId);
+        verify(commentRepositoryPort, times(1)).findById(commentId);
     }
 }

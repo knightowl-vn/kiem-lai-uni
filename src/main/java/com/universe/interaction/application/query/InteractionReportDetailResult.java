@@ -42,6 +42,7 @@ public record InteractionReportDetailResult(
         String currentCommentBody,
         CommentTargetType targetType,
         UUID targetId,
+        UUID currentCommentThreadRootCommentId,
         Instant commentCreatedAt,
         Instant commentUpdatedAt,
         Instant commentDeletedAt
@@ -84,6 +85,7 @@ public record InteractionReportDetailResult(
                 comment.getBody(),
                 comment.getTarget() != null ? comment.getTarget().type() : null,
                 comment.getTarget() != null ? comment.getTarget().targetId() : null,
+                comment.getThreadRootCommentId(),
                 comment.getCreatedAt(),
                 comment.getUpdatedAt(),
                 comment.getDeletedAt()
@@ -109,6 +111,7 @@ public record InteractionReportDetailResult(
                 report.getResolvedByUserId(),
                 report.getResolvedAt(),
                 false,
+                null,
                 null,
                 null,
                 null,
