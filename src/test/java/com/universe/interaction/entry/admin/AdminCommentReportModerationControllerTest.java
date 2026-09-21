@@ -7,9 +7,9 @@ import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentit
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.InteractionReportNotFoundException;
 import com.universe.interaction.application.exceptions.ReportAlreadyResolvedException;
-import com.universe.interaction.application.mutation.ReportModerationAction;
 import com.universe.interaction.application.mutation.ResolveCommentReportCommand;
 import com.universe.interaction.application.mutation.ResolveCommentReportUseCase;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

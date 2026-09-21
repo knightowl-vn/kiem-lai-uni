@@ -8,6 +8,7 @@ import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,7 @@ class GetInteractionReportDetailUseCaseTest {
                 "Mua acc vip tại web abc.xyz",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null
         );
@@ -126,7 +128,8 @@ class GetInteractionReportDetailUseCaseTest {
                 ReportStatus.RESOLVED_ACTION_TAKEN,
                 baseTime,
                 resolverUserId,
-                resolvedAt
+                resolvedAt,
+                ReportModerationAction.DELETE_COMMENT
         );
 
         Instant commentCreatedAt = baseTime.minusSeconds(1200);
@@ -183,6 +186,7 @@ class GetInteractionReportDetailUseCaseTest {
                 "Bằng chứng lịch sử của bình luận",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null
         );
@@ -249,6 +253,7 @@ class GetInteractionReportDetailUseCaseTest {
                 "Nội dung phản hồi vi phạm",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null
         );
