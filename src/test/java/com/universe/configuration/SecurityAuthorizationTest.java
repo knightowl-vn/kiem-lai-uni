@@ -48,6 +48,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.web.servlet.View;
+import org.thymeleaf.spring6.view.ThymeleafViewResolver;
 
 import java.time.Instant;
 import java.util.List;
@@ -105,7 +107,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.novel.entry.reader.PublicNovelManagedVoiceCatalogController.class,
         com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class,
         com.universe.wiki.entry.web.SavedWikiArticleController.class,
-        com.universe.wiki.entry.web.PublicWikiController.class
+        com.universe.wiki.entry.web.PublicWikiController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportQueueController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -235,6 +238,12 @@ class SecurityAuthorizationTest {
     @MockBean
     private com.universe.wiki.application.saved.IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
 
+    @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
+
+    @MockBean
+    private ThymeleafViewResolver thymeleafViewResolver;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -244,6 +253,9 @@ class SecurityAuthorizationTest {
             chain.doFilter(request, response);
             return null;
         }).when(accountStatusFilter).doFilter(any(), any(), any());
+
+        View noOpView = (model, request, response) -> {};
+        when(thymeleafViewResolver.resolveViewName(any(), any())).thenReturn(noOpView);
     }
 
     @Test
@@ -785,6 +797,46 @@ class SecurityAuthorizationTest {
                 ));
 
         mockMvc.perform(get("/wiki/saved").with(requestIdentity(userId)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportQueue() throws Exception {
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportQueueForUser() throws Exception {
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports")
+    void shouldAllowAccessToAdminCommentReportQueueForAdmin() throws Exception {
+        when(adminCommentReportQueueCoordinator.getReportQueue(any()))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO.empty(0, 20));
+
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports")
+    void shouldAllowAccessToAdminCommentReportQueueForSuperAdmin() throws Exception {
+        when(adminCommentReportQueueCoordinator.getReportQueue(any()))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO.empty(0, 20));
+
+        mockMvc.perform(get("/admin/comments/reports"))
                 .andExpect(status().isOk());
     }
 }
