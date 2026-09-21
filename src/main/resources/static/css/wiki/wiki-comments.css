@@ -497,3 +497,26 @@
     outline-offset: 2px;
 }
 
+/* =========================================================
+   RESTORED INTERACTION TARGET HIGHLIGHT (MS-05E5C2B)
+   ========================================================= */
+.wiki-discussion-section .wiki-thread.is-restored-target,
+.wiki-discussion-section .wiki-comment.is-restored-target,
+#wikiDiscussion .wiki-thread.is-restored-target,
+#wikiDiscussion .wiki-comment.is-restored-target {
+    border-radius: 6px;
+    outline: 2px solid var(--accent, #b45309);
+    outline-offset: 2px;
+    background-color: var(--wiki-target-bg, rgba(180, 83, 9, 0.08));
+    transition: outline-color 0.4s ease, background-color 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wiki-discussion-section .wiki-thread.is-restored-target,
+    .wiki-discussion-section .wiki-comment.is-restored-target,
+    #wikiDiscussion .wiki-thread.is-restored-target,
+    #wikiDiscussion .wiki-comment.is-restored-target {
+        transition: none;
+    }
+}
+

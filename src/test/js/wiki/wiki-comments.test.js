@@ -67,6 +67,14 @@ class FakeElement {
         return 1;
     }
 
+    get firstChild() {
+        return this.childNodes.length > 0 ? this.childNodes[0] : null;
+    }
+
+    get children() {
+        return this.childNodes.filter(c => c.nodeType === 1);
+    }
+
     get className() {
         return this.getAttribute('class') || '';
     }
@@ -191,8 +199,32 @@ class FakeElement {
         }
     }
 
-    focus() {
+    insertBefore(newChild, refChild) {
+        if (!newChild) return newChild;
+        if (newChild.parentNode) {
+            newChild.parentNode.removeChild(newChild);
+        }
+        if (!refChild) {
+            return this.appendChild(newChild);
+        }
+        const idx = this.childNodes.indexOf(refChild);
+        if (idx >= 0) {
+            newChild.parentNode = this;
+            this.childNodes.splice(idx, 0, newChild);
+        } else {
+            this.appendChild(newChild);
+        }
+        return newChild;
+    }
+
+    focus(options) {
         this.isFocused = true;
+        this.lastFocusOptions = options;
+    }
+
+    scrollIntoView(options) {
+        this.scrolledIntoView = true;
+        this.lastScrollOptions = options;
     }
 
     querySelector(selector) {
@@ -218,6 +250,10 @@ class FakeElement {
 
     _matchesSelector(selector) {
         if (!selector) return false;
+        const compoundMatch = selector.match(/^(\.[\w-]+)(\[.+\])$/);
+        if (compoundMatch) {
+            return this._matchesSelector(compoundMatch[1]) && this._matchesSelector(compoundMatch[2]);
+        }
         if (selector.startsWith('.')) {
             return this.classList.contains(selector.slice(1));
         }
@@ -262,11 +298,38 @@ class FakeElement {
 
 class FakeWindow {
     constructor(href = 'http://localhost/wiki/character/tran-binh-an') {
-        this.location = {
-            href: href,
-            origin: 'http://localhost'
-        };
         this.listeners = {};
+        this._updateUrl(href);
+        this.history = {
+            state: null,
+            replaceState: (state, title, url) => {
+                this.history.state = state;
+                if (url) {
+                    this._updateUrl(url);
+                }
+            }
+        };
+    }
+
+    _updateUrl(rawUrl) {
+        try {
+            const parsed = new URL(rawUrl, 'http://localhost');
+            this.location = {
+                href: parsed.href,
+                origin: parsed.origin,
+                pathname: parsed.pathname,
+                search: parsed.search,
+                hash: parsed.hash
+            };
+        } catch (_) {
+            this.location = {
+                href: rawUrl,
+                origin: 'http://localhost',
+                pathname: rawUrl,
+                search: '',
+                hash: ''
+            };
+        }
     }
 
     addEventListener(event, handler) {
@@ -6661,5 +6724,447 @@ describe('MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Mi
         assert.strictEqual(renderedThread, null, 'renderThread must return null when presentation unavailable');
     });
 });
+
+describe('MS-05E / E8E-5C2B Wiki Public Discussion Exact Comment Context Focus (Cases A-L)', () => {
+    function setupWikiDom(doc, articleId = 'article-uuid-1', authenticated = false) {
+        const section = doc.createElement('section', {
+            id: 'wikiDiscussion',
+            'data-article-id': articleId,
+            'data-authenticated': authenticated ? 'true' : 'false',
+            'data-login-url': '/login'
+        });
+        section.className = 'wiki-discussion-section';
+
+        const badge = doc.createElement('span', { id: 'wikiDiscussionCountBadge' });
+        const list = doc.createElement('div', { id: 'wikiDiscussionThreadList' });
+        const status = doc.createElement('div', { id: 'wikiDiscussionStatus' });
+        const footer = doc.createElement('div', { id: 'wikiDiscussionFooter' });
+        const moreBtn = doc.createElement('button', { id: 'wikiDiscussionLoadMoreBtn' });
+        footer.appendChild(moreBtn);
+
+        section.appendChild(badge);
+        section.appendChild(status);
+        section.appendChild(list);
+        section.appendChild(footer);
+        doc.body.appendChild(section);
+
+        doc.registerElement('wikiDiscussion', section);
+        doc.registerElement('wikiDiscussionCountBadge', badge);
+        doc.registerElement('wikiDiscussionThreadList', list);
+        doc.registerElement('wikiDiscussionStatus', status);
+        doc.registerElement('wikiDiscussionFooter', footer);
+        doc.registerElement('wikiDiscussionLoadMoreBtn', moreBtn);
+
+        return { section, badge, list, status, footer, moreBtn };
+    }
+
+    beforeEach(() => {
+        wikiCommentsModule.resetState();
+    });
+
+    test('Case A: No deep link parameters -> normal feed load, no /thread request, no highlight', async () => {
+        const doc = new FakeDocument();
+        setupWikiDom(doc);
+
+        let threadEndpointCalled = false;
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                threadEndpointCalled = true;
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 1, commentCount: 1, threads: [
+                    { root: { id: 'r-1', body: 'Normal root', author: { displayName: 'User' } }, replies: [] }
+                ] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(threadEndpointCalled, false, 'Exact /thread endpoint must NOT be called');
+        assert.strictEqual(wikiCommentsModule.getHighlightedElement(), null, 'No element should be highlighted');
+        assert.strictEqual(wikiCommentsModule.getState().pendingDeepLink, null);
+    });
+
+    test('Case B: Root comment already rendered in feed -> focused, highlighted, no /thread fetch, params scrubbed after', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=r-target&threadId=r-target#wikiDiscussion');
+        setupWikiDom(doc);
+
+        let threadEndpointCalled = false;
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                threadEndpointCalled = true;
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 1, commentCount: 1, threads: [
+                    { root: { id: 'r-target', body: 'Target root', author: { displayName: 'Author 1' } }, replies: [] }
+                ] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.strictEqual(threadEndpointCalled, false, 'Should not request /thread when already in feed');
+        const highlighted = wikiCommentsModule.getHighlightedElement();
+        assert.ok(highlighted, 'Target root comment must be highlighted');
+        assert.ok(highlighted.classList.contains('is-restored-target'));
+        assert.strictEqual(highlighted.getAttribute('tabindex'), '-1', 'Accessible tabindex must be set to -1');
+        assert.strictEqual(highlighted.isFocused, true, 'Target must receive focus');
+        assert.strictEqual(highlighted.scrolledIntoView, true, 'Target must be scrolled into view');
+        assert.strictEqual(highlighted.lastScrollOptions?.block, 'center', 'Scroll block must be center');
+
+        // URL scrubbed after terminal outcome
+        assert.strictEqual(doc.defaultView.location.search, '', 'commentId and threadId must be scrubbed from search');
+        assert.strictEqual(doc.defaultView.location.hash, '#wikiDiscussion', 'hash must be preserved');
+    });
+
+    test('Case C: Off-page root comment -> exact thread fetched, prepended to thread list, focused, highlighted, params scrubbed', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=r-offpage&threadId=r-offpage');
+        const { list } = setupWikiDom(doc);
+
+        let requestedThreadUrl = null;
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                requestedThreadUrl = url;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        root: { id: 'r-offpage', body: 'Offpage Root Body', author: { displayName: 'Offpage Author' } },
+                        replies: []
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: true, threadCount: 5, commentCount: 5, threads: [
+                    { root: { id: 'r-page0', body: 'Page 0 root', author: { displayName: 'P0' } }, replies: [] }
+                ] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.ok(requestedThreadUrl, '/thread endpoint must be requested');
+        assert.ok(requestedThreadUrl.includes('/comments/r-offpage/thread'));
+
+        const highlighted = wikiCommentsModule.getHighlightedElement();
+        assert.ok(highlighted, 'Target off-page root comment must be highlighted');
+        assert.ok(highlighted.classList.contains('is-restored-target'));
+        assert.strictEqual(highlighted.isFocused, true);
+        assert.strictEqual(highlighted.scrolledIntoView, true);
+
+        // Prepend check: off-page thread must be first child in thread list
+        const firstCard = list.childNodes[0];
+        assert.strictEqual(firstCard.getAttribute('data-thread-id'), 'r-offpage');
+
+        // URL scrubbed
+        assert.strictEqual(doc.defaultView.location.search, '');
+    });
+
+    test('Case D: Reply comment inside exact thread -> exact reply focused, highlighted, params scrubbed', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=rep-target&threadId=r-root');
+        setupWikiDom(doc);
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        root: { id: 'r-root', body: 'Root Body', author: { displayName: 'Root Author' } },
+                        replies: [
+                            { id: 'rep-other', body: 'Other reply', author: { displayName: 'User 2' }, parentCommentId: 'r-root' },
+                            { id: 'rep-target', body: 'Target reply body', author: { displayName: 'Target Author' }, parentCommentId: 'r-root' }
+                        ]
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 0, commentCount: 0, threads: [] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        const highlighted = wikiCommentsModule.getHighlightedElement();
+        assert.ok(highlighted, 'Target reply must be highlighted');
+        assert.strictEqual(highlighted.getAttribute('data-comment-id'), 'rep-target');
+        assert.strictEqual(highlighted.getAttribute('data-reply-id'), 'rep-target');
+        assert.ok(highlighted.classList.contains('is-restored-target'));
+        assert.strictEqual(highlighted.isFocused, true);
+        assert.strictEqual(highlighted.scrolledIntoView, true);
+        assert.strictEqual(highlighted.lastScrollOptions?.block, 'center');
+
+        assert.strictEqual(doc.defaultView.location.search, '');
+    });
+
+    test('Case E: Duplicate prevention -> existing thread card is not duplicated', async () => {
+        const doc = new FakeDocument();
+        const { list } = setupWikiDom(doc);
+
+        let threadRequests = 0;
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                threadRequests++;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        root: { id: 'r-1', body: 'Root 1', author: { displayName: 'Author' } },
+                        replies: []
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 1, commentCount: 1, threads: [
+                    { root: { id: 'r-1', body: 'Root 1', author: { displayName: 'Author' } }, replies: [] }
+                ] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(list.childNodes.length, 1);
+
+        // Explicitly trigger resolveDeepLink for already existing thread
+        await wikiCommentsModule.resolveDeepLink({ commentId: 'r-1', threadId: 'r-1' }, doc);
+        assert.strictEqual(threadRequests, 0, 'No /thread fetch should occur for already rendered thread');
+        assert.strictEqual(list.childNodes.length, 1, 'Thread list must still have exactly 1 card');
+    });
+
+    test('Case F: Deleted or missing target (404 / tombstone root) -> fallback to #wikiDiscussion, no throw, params scrubbed', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=r-404&threadId=r-404');
+        const { section } = setupWikiDom(doc);
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                return {
+                    status: 404,
+                    json: async () => ({ message: 'Not found' })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 0, commentCount: 0, threads: [] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.strictEqual(wikiCommentsModule.getHighlightedElement(), null, 'No comment element should be highlighted on 404');
+        assert.strictEqual(section.isFocused, true, 'Discussion container must receive fallback focus');
+        assert.strictEqual(section.getAttribute('tabindex'), '-1');
+        assert.strictEqual(section.scrolledIntoView, true);
+        assert.strictEqual(section.lastScrollOptions?.block, 'start', 'Fallback scroll block must be start');
+        assert.strictEqual(doc.defaultView.location.search, '', 'Params must be scrubbed after fallback');
+    });
+
+    test('Case G: Initial feed failure with pending deep link -> graceful fallback, params scrubbed, pending cleared', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=r-1&threadId=r-1');
+        const { section } = setupWikiDom(doc);
+
+        wikiCommentsModule.setFetchImplementation(async () => {
+            return {
+                status: 500,
+                json: async () => ({ message: 'Internal Server Error' })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.strictEqual(wikiCommentsModule.getState().pendingDeepLink, null);
+        assert.strictEqual(section.isFocused, true, 'Discussion container must receive fallback focus on feed failure');
+        assert.strictEqual(doc.defaultView.location.search, '', 'Params must be scrubbed on feed failure');
+    });
+
+    test('Case H: Parameter scrubbing preserves unrelated query params and hash', () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?filter=active&commentId=c-123&threadId=t-123&sort=asc#wikiDiscussion');
+
+        wikiCommentsModule.scrubDeepLinkParams(doc);
+
+        assert.strictEqual(doc.defaultView.location.search, '?filter=active&sort=asc');
+        assert.strictEqual(doc.defaultView.location.hash, '#wikiDiscussion');
+        assert.strictEqual(doc.defaultView.location.pathname, '/wiki/article/intro');
+    });
+
+    test('Case I: Params remain in URL while async context resolution is in flight', async () => {
+        const doc = new FakeDocument();
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=r-slow&threadId=r-slow#wikiDiscussion');
+        setupWikiDom(doc);
+
+        let resolveThreadFetch;
+        const threadPromise = new Promise(resolve => { resolveThreadFetch = resolve; });
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/thread')) {
+                await threadPromise;
+                return {
+                    status: 200,
+                    json: async () => ({ root: { id: 'r-slow', body: 'Slow Root' }, replies: [] })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 0, commentCount: 0, threads: [] })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        // While thread fetch is in flight, URL search must still contain commentId and threadId
+        assert.ok(doc.defaultView.location.search.includes('commentId=r-slow'), 'Params must remain in URL while in flight');
+        assert.ok(doc.defaultView.location.search.includes('threadId=r-slow'));
+
+        // Now resolve thread fetch
+        resolveThreadFetch();
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Terminal outcome reached -> params scrubbed
+        assert.strictEqual(doc.defaultView.location.search, '');
+    });
+
+    test('Case J: Monotonic load token across reset/reinit protects same-article stale race', async () => {
+        const doc = new FakeDocument();
+        // 1. Initialize Wiki article A with old deep-link
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=old-comment&threadId=old-thread');
+        const { list } = setupWikiDom(doc, 'article-intro');
+
+        let resolveOldThread;
+        const oldThreadPromise = new Promise(resolve => { resolveOldThread = resolve; });
+
+        let resolveNewThread;
+        const newThreadPromise = new Promise(resolve => { resolveNewThread = resolve; });
+
+        const mockFetch = async (url) => {
+            if (url.includes('/comments/old-thread/thread')) {
+                // 2. Allow old exact-thread request to remain pending
+                await oldThreadPromise;
+                return {
+                    status: 200,
+                    json: async () => ({ root: { id: 'old-thread', body: 'Old Thread Body', author: { displayName: 'Old Author' } }, replies: [] })
+                };
+            }
+            if (url.includes('/comments/new-thread/thread')) {
+                // Hold new exact-thread request pending while resolving old request
+                await newThreadPromise;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        root: { id: 'new-thread', body: 'New Thread Body', author: { displayName: 'New Author' } },
+                        replies: [
+                            { id: 'new-comment', body: 'New Reply Body', author: { displayName: 'New Author' }, parentCommentId: 'new-thread' }
+                        ]
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ page: 0, hasNext: false, threadCount: 0, commentCount: 0, threads: [] })
+            };
+        };
+
+        wikiCommentsModule.init(doc, { fetch: mockFetch });
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        // 3. Call resetState()
+        wikiCommentsModule.resetState();
+
+        // 4. Reinitialize the SAME article A with a NEW deep-link
+        doc.defaultView = new FakeWindow('http://localhost/wiki/article/intro?commentId=new-comment&threadId=new-thread');
+        wikiCommentsModule.init(doc, { fetch: mockFetch });
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        // 5. Allow NEW flow to become current; new params are in URL
+        assert.ok(doc.defaultView.location.search.includes('commentId=new-comment'), 'New params must be present in URL');
+        assert.ok(doc.defaultView.location.search.includes('threadId=new-thread'));
+
+        // 6. Resolve the OLD pending request
+        resolveOldThread();
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // Prove old response:
+        // - does NOT insert old thread
+        assert.strictEqual(list.querySelector('[data-thread-id="old-thread"]'), null, 'Old thread must NOT be inserted into DOM');
+        // - does NOT highlight old comment
+        assert.notStrictEqual(wikiCommentsModule.getHighlightedElement()?.getAttribute('data-comment-id'), 'old-comment');
+        // - does NOT scrub newer URL state
+        assert.ok(doc.defaultView.location.search.includes('commentId=new-comment'), 'Old response must NOT scrub newer URL state');
+        assert.ok(doc.defaultView.location.search.includes('threadId=new-thread'));
+
+        // Finish the new request and verify normal terminal behavior
+        resolveNewThread();
+        await new Promise(process.nextTick);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        assert.ok(list.querySelector('[data-thread-id="new-thread"]'), 'New thread must be inserted into DOM');
+        assert.strictEqual(wikiCommentsModule.getHighlightedElement()?.getAttribute('data-comment-id'), 'new-comment');
+        assert.strictEqual(doc.defaultView.location.search, '', 'New URL params must be scrubbed after new resolution');
+    });
+
+    test('Case K: Accessible tabindex="-1" added only when element has no tabindex', () => {
+        const doc = new FakeDocument();
+        const el = doc.createElement('div');
+        assert.strictEqual(el.hasAttribute('tabindex'), false);
+
+        wikiCommentsModule.applyHighlight(el);
+        assert.strictEqual(el.getAttribute('tabindex'), '-1');
+    });
+
+    test('Case L: Preserves existing tabindex="0" and tabindex="1" without overwriting', () => {
+        const doc = new FakeDocument();
+        const el0 = doc.createElement('div');
+        el0.setAttribute('tabindex', '0');
+
+        const el1 = doc.createElement('div');
+        el1.setAttribute('tabindex', '1');
+
+        wikiCommentsModule.applyHighlight(el0);
+        assert.strictEqual(el0.getAttribute('tabindex'), '0', 'tabindex="0" must NOT be overwritten');
+
+        wikiCommentsModule.applyHighlight(el1);
+        assert.strictEqual(el1.getAttribute('tabindex'), '1', 'tabindex="1" must NOT be overwritten');
+    });
+
+    test('Highlight timer: clearHighlight removes is-restored-target immediately', () => {
+        const doc = new FakeDocument();
+        const el = doc.createElement('div');
+        doc.body.appendChild(el);
+
+        wikiCommentsModule.applyHighlight(el);
+        assert.strictEqual(wikiCommentsModule.getHighlightedElement(), el);
+        assert.ok(el.classList.contains('is-restored-target'));
+
+        wikiCommentsModule.clearHighlight();
+        assert.strictEqual(wikiCommentsModule.getHighlightedElement(), null);
+        assert.strictEqual(el.classList.contains('is-restored-target'), false);
+    });
+});
+
 
 
