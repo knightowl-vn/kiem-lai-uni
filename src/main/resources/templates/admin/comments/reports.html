@@ -31,6 +31,11 @@
                     </div>
                 </div>
 
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
                 <!-- Bộ lọc -->
                 <section class="admin-filter-panel">
                     <form method="get" th:action="@{/admin/comments/reports}" class="admin-filter-form comment-reports-filter-form">
@@ -131,6 +136,10 @@
                                     01/01/2026 12:00
                                 </time>
                                 <span class="comment-report-id" th:text="${'ID: ' + report.reportId}">ID</span>
+                                <a th:href="@{/admin/comments/reports/{id}(id=${report.reportId})}"
+                                   class="admin-view-button comment-report-detail-link">
+                                    Xem chi tiết
+                                </a>
                             </div>
                         </div>
 
