@@ -108,7 +108,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class,
         com.universe.wiki.entry.web.SavedWikiArticleController.class,
         com.universe.wiki.entry.web.PublicWikiController.class,
-        com.universe.interaction.entry.admin.AdminCommentReportQueueController.class
+        com.universe.interaction.entry.admin.AdminCommentReportQueueController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportDetailController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -240,6 +241,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
+
+    @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportDetailCoordinator adminCommentReportDetailCoordinator;
 
     @MockBean
     private ThymeleafViewResolver thymeleafViewResolver;
@@ -837,6 +841,50 @@ class SecurityAuthorizationTest {
                 .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO.empty(0, 20));
 
         mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports/{reportId} (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportDetail() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports/{reportId} (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportDetailForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports/{reportId}")
+    void shouldAllowAccessToAdminCommentReportDetailForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportDetailCoordinator.getDetail(reportId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO.class));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports/{reportId}")
+    void shouldAllowAccessToAdminCommentReportDetailForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportDetailCoordinator.getDetail(reportId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO.class));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
                 .andExpect(status().isOk());
     }
 }
