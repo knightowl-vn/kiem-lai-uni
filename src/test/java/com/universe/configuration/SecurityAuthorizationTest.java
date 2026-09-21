@@ -109,7 +109,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.wiki.entry.web.SavedWikiArticleController.class,
         com.universe.wiki.entry.web.PublicWikiController.class,
         com.universe.interaction.entry.admin.AdminCommentReportQueueController.class,
-        com.universe.interaction.entry.admin.AdminCommentReportDetailController.class
+        com.universe.interaction.entry.admin.AdminCommentReportDetailController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportModerationController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -247,6 +248,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportContextNavigationCoordinator adminCommentReportContextNavigationCoordinator;
+
+    @MockBean
+    private com.universe.interaction.application.mutation.ResolveCommentReportUseCase resolveCommentReportUseCase;
 
     @MockBean
     private ThymeleafViewResolver thymeleafViewResolver;
@@ -559,6 +563,21 @@ class SecurityAuthorizationTest {
                 null,
                 UserStatus.ACTIVE,
                 UserRole.USER
+        );
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
+    }
+
+    private RequestPostProcessor requestIdentity(UUID userId, UserRole role) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
+                userId,
+                role == UserRole.SUPER_ADMIN ? "superadmin@universe.local" : "admin@universe.local",
+                role == UserRole.SUPER_ADMIN ? "SuperAdmin" : "Admin",
+                null,
+                UserStatus.ACTIVE,
+                role
         );
         return request -> {
             AuthenticatedRequestIdentityTestSupport.attach(request, identity);
@@ -935,5 +954,63 @@ class SecurityAuthorizationTest {
         mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/comments/reports/{reportId}/resolve (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportResolve() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/comments/reports/{reportId}/resolve (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportResolveForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/comments/reports/{reportId}/resolve")
+    void shouldAllowAccessToAdminCommentReportResolveForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(moderatorId, UserRole.ADMIN))
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+
+        verify(resolveCommentReportUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/comments/reports/{reportId}/resolve")
+    void shouldAllowAccessToAdminCommentReportResolveForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(moderatorId, UserRole.SUPER_ADMIN))
+                        .param("action", "NO_ACTION"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+
+        verify(resolveCommentReportUseCase).execute(any());
     }
 }
