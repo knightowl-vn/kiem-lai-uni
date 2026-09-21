@@ -2,9 +2,9 @@ package com.universe.interaction.entry.admin;
 
 import com.universe.interaction.application.query.InteractionReportQueueFilter;
 import com.universe.interaction.application.query.InteractionReportQueueSort;
+import com.universe.interaction.application.query.ReportQueueLifecycleScope;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportReason;
-import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
@@ -40,7 +40,7 @@ public class AdminCommentReportQueueController {
 
     @GetMapping("/admin/comments/reports")
     public String reportQueue(
-            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String scope,
             @RequestParam(required = false) String reason,
             @RequestParam(required = false) String targetType,
             @RequestParam(required = false) String sort,
@@ -53,13 +53,13 @@ public class AdminCommentReportQueueController {
             disableCaching(response);
         }
 
-        ReportStatus normalizedStatus = normalizeStatus(status);
+        ReportQueueLifecycleScope normalizedScope = normalizeScope(scope);
         ReportReason normalizedReason = normalizeReason(reason);
         CommentTargetType normalizedTargetType = normalizeTargetType(targetType);
         InteractionReportQueueSort normalizedSort = normalizeSort(sort);
 
         InteractionReportQueueFilter filter = new InteractionReportQueueFilter(
-                normalizedStatus,
+                normalizedScope,
                 normalizedReason,
                 normalizedTargetType,
                 normalizedSort,
@@ -74,14 +74,14 @@ public class AdminCommentReportQueueController {
         model.addAttribute("pageTitle", PAGE_TITLE);
         model.addAttribute("activeMenu", ACTIVE_MENU);
 
-        model.addAttribute("selectedStatus", normalizedStatus);
+        model.addAttribute("selectedScope", normalizedScope);
         model.addAttribute("selectedReason", normalizedReason);
         model.addAttribute("selectedTargetType", normalizedTargetType);
         model.addAttribute("selectedSort", normalizedSort);
         model.addAttribute("pageSize", size);
         model.addAttribute("page", page);
 
-        model.addAttribute("statuses", ReportStatus.values());
+        model.addAttribute("scopes", ReportQueueLifecycleScope.values());
         model.addAttribute("reasons", ReportReason.values());
         model.addAttribute("targetTypes", CommentTargetType.values());
         model.addAttribute("sorts", InteractionReportQueueSort.values());
@@ -89,18 +89,18 @@ public class AdminCommentReportQueueController {
         return VIEW_NAME;
     }
 
-    private ReportStatus normalizeStatus(String status) {
-        if (status == null) {
-            return ReportStatus.PENDING;
+    private ReportQueueLifecycleScope normalizeScope(String scope) {
+        if (scope == null) {
+            return ReportQueueLifecycleScope.PENDING;
         }
-        String trimmed = status.trim();
-        if (trimmed.isEmpty() || "ALL".equalsIgnoreCase(trimmed)) {
-            return null;
+        String trimmed = scope.trim();
+        if (trimmed.isEmpty()) {
+            return ReportQueueLifecycleScope.PENDING;
         }
         try {
-            return ReportStatus.valueOf(trimmed.toUpperCase(Locale.ROOT));
+            return ReportQueueLifecycleScope.valueOf(trimmed.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException ex) {
-            throw new IllegalArgumentException("Trạng thái báo cáo không hợp lệ: " + status, ex);
+            return ReportQueueLifecycleScope.PENDING;
         }
     }
 

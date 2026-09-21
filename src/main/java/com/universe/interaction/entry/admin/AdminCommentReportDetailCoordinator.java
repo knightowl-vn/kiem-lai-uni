@@ -124,6 +124,7 @@ public class AdminCommentReportDetailCoordinator {
                 raw.resolvedByUserId(),
                 resolver,
                 raw.resolvedAt(),
+                raw.moderationAction(),
                 raw.currentCommentAvailable(),
                 raw.currentCommentBody(),
                 raw.currentCommentStatus(),

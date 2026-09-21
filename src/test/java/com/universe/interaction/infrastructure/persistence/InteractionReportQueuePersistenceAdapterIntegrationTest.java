@@ -4,8 +4,10 @@ import com.universe.interaction.application.query.InteractionReportQueueFilter;
 import com.universe.interaction.application.query.InteractionReportQueueItem;
 import com.universe.interaction.application.query.InteractionReportQueuePage;
 import com.universe.interaction.application.query.InteractionReportQueueSort;
+import com.universe.interaction.application.query.ReportQueueLifecycleScope;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.test.TestDatabaseSupport;
@@ -103,10 +105,26 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
             UUID resolvedByUserId,
             Instant resolvedAt
     ) {
+        insertReport(reportId, commentId, reporterUserId, reason, description, reportedBodySnapshot, status, createdAt, resolvedByUserId, resolvedAt, null);
+    }
+
+    private void insertReport(
+            UUID reportId,
+            UUID commentId,
+            UUID reporterUserId,
+            ReportReason reason,
+            String description,
+            String reportedBodySnapshot,
+            ReportStatus status,
+            Instant createdAt,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            ReportModerationAction moderationAction
+    ) {
         Timestamp resolvedAtTs = resolvedAt != null ? Timestamp.from(resolvedAt) : null;
         jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at, moderation_action) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 reportId.toString(),
                 commentId.toString(),
                 reporterUserId.toString(),
@@ -116,7 +134,8 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
                 status.name(),
                 Timestamp.from(createdAt),
                 resolvedByUserId != null ? resolvedByUserId.toString() : null,
-                resolvedAtTs
+                resolvedAtTs,
+                moderationAction != null ? moderationAction.name() : null
         );
     }
 
@@ -142,7 +161,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         insertReport(idNewest, commentId, UUID.randomUUID(), ReportReason.SPOILER, null, "Snap 4", ReportStatus.PENDING, t3, null, null);
 
         InteractionReportQueueFilter filter = new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
         );
 
         InteractionReportQueuePage page = adapter.findQueueReports(filter);
@@ -173,7 +192,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         insertReport(idNewest, commentId, UUID.randomUUID(), ReportReason.SPOILER, null, "Snap 4", ReportStatus.PENDING, t3, null, null);
 
         InteractionReportQueueFilter filter = new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.OLDEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.OLDEST, 0, 10
         );
 
         InteractionReportQueuePage page = adapter.findQueueReports(filter);
@@ -206,7 +225,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // Page 0 (size 2)
         InteractionReportQueueFilter filter0 = new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 0, 2
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 2
         );
         InteractionReportQueuePage page0 = adapter.findQueueReports(filter0);
         assertThat(page0.items()).hasSize(2);
@@ -219,7 +238,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // Page 1 (size 2)
         InteractionReportQueueFilter filter1 = new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 1, 2
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 1, 2
         );
         InteractionReportQueuePage page1 = adapter.findQueueReports(filter1);
         assertThat(page1.items()).hasSize(2);
@@ -232,7 +251,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // Page 2 (size 2) - last page with 1 item
         InteractionReportQueueFilter filter2 = new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 2, 2
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 2, 2
         );
         InteractionReportQueuePage page2 = adapter.findQueueReports(filter2);
         assertThat(page2.items()).hasSize(1);
@@ -245,38 +264,144 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("D. Status filter: filters by PENDING, RESOLVED_ACTION_TAKEN, and all statuses")
-    void shouldFilterByReportStatus() {
+    @DisplayName("D. Scope isolation: PENDING scope returns only PENDING, PROCESSED returns ACTION_TAKEN and NO_ACTION")
+    void shouldIsolatePendingAndProcessedScopes() {
         UUID commentId = insertComment(CommentTargetType.NOVEL_CHAPTER, CommentStatus.ACTIVE, "Comment body");
         Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 
         UUID pendingId = UUID.randomUUID();
         UUID actionId = UUID.randomUUID();
         UUID noActionId = UUID.randomUUID();
+        UUID resolverId = UUID.randomUUID();
 
-        insertReport(pendingId, commentId, UUID.randomUUID(), ReportReason.SPAM, null, "Snap 1", ReportStatus.PENDING, now, null, null);
-        insertReport(actionId, commentId, UUID.randomUUID(), ReportReason.HARASSMENT, null, "Snap 2", ReportStatus.RESOLVED_ACTION_TAKEN, now, UUID.randomUUID(), now.plusSeconds(60));
-        insertReport(noActionId, commentId, UUID.randomUUID(), ReportReason.OTHER, "Explanation", "Snap 3", ReportStatus.RESOLVED_NO_ACTION, now, UUID.randomUUID(), now.plusSeconds(60));
+        insertReport(pendingId, commentId, UUID.randomUUID(), ReportReason.SPAM, null, "Snap 1", ReportStatus.PENDING, now, null, null, null);
+        insertReport(actionId, commentId, UUID.randomUUID(), ReportReason.HARASSMENT, null, "Snap 2", ReportStatus.RESOLVED_ACTION_TAKEN, now, resolverId, now.plusSeconds(60), ReportModerationAction.DELETE_COMMENT);
+        insertReport(noActionId, commentId, UUID.randomUUID(), ReportReason.OTHER, "Explanation", "Snap 3", ReportStatus.RESOLVED_NO_ACTION, now, resolverId, now.plusSeconds(120), ReportModerationAction.NO_ACTION);
 
         // 1. Filter PENDING
         InteractionReportQueuePage pendingPage = adapter.findQueueReports(new InteractionReportQueueFilter(
-                ReportStatus.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
         ));
         assertThat(pendingPage.totalElements()).isEqualTo(1);
         assertThat(pendingPage.items().get(0).reportId()).isEqualTo(pendingId);
+        assertThat(pendingPage.items().get(0).status()).isEqualTo(ReportStatus.PENDING);
+        assertThat(pendingPage.items().get(0).moderationAction()).isNull();
+        assertThat(pendingPage.items().get(0).resolverUserId()).isNull();
+        assertThat(pendingPage.items().get(0).resolvedAt()).isNull();
 
-        // 2. Filter RESOLVED_ACTION_TAKEN
-        InteractionReportQueuePage actionPage = adapter.findQueueReports(new InteractionReportQueueFilter(
-                ReportStatus.RESOLVED_ACTION_TAKEN, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+        // 2. Filter PROCESSED
+        InteractionReportQueuePage processedPage = adapter.findQueueReports(new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PROCESSED, null, null, InteractionReportQueueSort.OLDEST, 0, 10
         ));
-        assertThat(actionPage.totalElements()).isEqualTo(1);
-        assertThat(actionPage.items().get(0).reportId()).isEqualTo(actionId);
+        assertThat(processedPage.totalElements()).isEqualTo(2);
+        // Processed is ordered by resolved_at DESC, so noActionId (plusSeconds(120)) comes first, then actionId (plusSeconds(60))
+        assertThat(processedPage.items().get(0).reportId()).isEqualTo(noActionId);
+        assertThat(processedPage.items().get(0).status()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
+        assertThat(processedPage.items().get(0).moderationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
+        assertThat(processedPage.items().get(0).resolverUserId()).isEqualTo(resolverId);
+        assertThat(processedPage.items().get(0).resolvedAt()).isEqualTo(now.plusSeconds(120));
 
-        // 3. Filter null (all)
-        InteractionReportQueuePage allPage = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+        assertThat(processedPage.items().get(1).reportId()).isEqualTo(actionId);
+        assertThat(processedPage.items().get(1).status()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+        assertThat(processedPage.items().get(1).moderationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
+        assertThat(processedPage.items().get(1).resolverUserId()).isEqualTo(resolverId);
+        assertThat(processedPage.items().get(1).resolvedAt()).isEqualTo(now.plusSeconds(60));
+    }
+
+    @Test
+    @DisplayName("D2. PROCESSED fixed ordering: resolved_at DESC then reportId DESC tie-breaker")
+    void shouldOrderProcessedQueueByResolvedAtDescThenReportIdDesc() {
+        UUID commentId = insertComment(CommentTargetType.NOVEL_CHAPTER, CommentStatus.ACTIVE, "Comment body");
+        Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        UUID resolverId = UUID.randomUUID();
+
+        Instant createdTime = baseTime.minus(20, ChronoUnit.MINUTES);
+        Instant t1 = baseTime.minus(10, ChronoUnit.MINUTES);
+        Instant t2 = baseTime.minus(5, ChronoUnit.MINUTES);
+        Instant t3 = baseTime;
+
+        UUID idLow = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID idHigh = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        UUID idOldestResolved = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID idNewestResolved = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+        insertReport(idOldestResolved, commentId, UUID.randomUUID(), ReportReason.SPAM, null, "Snap 1", ReportStatus.RESOLVED_ACTION_TAKEN, createdTime, resolverId, t1, ReportModerationAction.DELETE_COMMENT);
+        insertReport(idLow, commentId, UUID.randomUUID(), ReportReason.HARASSMENT, null, "Snap 2", ReportStatus.RESOLVED_NO_ACTION, createdTime, resolverId, t2, ReportModerationAction.NO_ACTION);
+        insertReport(idHigh, commentId, UUID.randomUUID(), ReportReason.HATE_SPEECH, null, "Snap 3", ReportStatus.RESOLVED_ACTION_TAKEN, createdTime, resolverId, t2, ReportModerationAction.DELETE_COMMENT);
+        insertReport(idNewestResolved, commentId, UUID.randomUUID(), ReportReason.SPOILER, null, "Snap 4", ReportStatus.RESOLVED_NO_ACTION, createdTime, resolverId, t3, ReportModerationAction.NO_ACTION);
+
+        InteractionReportQueueFilter filter = new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PROCESSED, null, null, InteractionReportQueueSort.OLDEST, 0, 10
+        );
+
+        InteractionReportQueuePage page = adapter.findQueueReports(filter);
+        List<UUID> reportIds = page.items().stream().map(InteractionReportQueueItem::reportId).toList();
+
+        // Expected PROCESSED order: t3 (idNewestResolved), t2 with idHigh, t2 with idLow, t1 (idOldestResolved)
+        assertThat(reportIds).containsExactly(idNewestResolved, idHigh, idLow, idOldestResolved);
+    }
+
+    @Test
+    @DisplayName("D3. DB-level pagination and count isolation: PROCESSED vs PENDING")
+    void shouldIsolateProcessedAndPendingPaginationAndCounts() {
+        UUID commentId = insertComment(CommentTargetType.NOVEL_CHAPTER, CommentStatus.ACTIVE, "Comment body");
+        Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Instant createdTime = baseTime.minus(1, ChronoUnit.HOURS);
+        UUID resolverId = UUID.randomUUID();
+
+        // 5 PROCESSED reports
+        for (int i = 0; i < 5; i++) {
+            insertReport(
+                    UUID.randomUUID(),
+                    commentId,
+                    UUID.randomUUID(),
+                    ReportReason.SPAM,
+                    null,
+                    "Processed Snap " + i,
+                    i % 2 == 0 ? ReportStatus.RESOLVED_ACTION_TAKEN : ReportStatus.RESOLVED_NO_ACTION,
+                    createdTime.plus(i, ChronoUnit.MINUTES),
+                    resolverId,
+                    baseTime.plus(i, ChronoUnit.MINUTES),
+                    i % 2 == 0 ? ReportModerationAction.DELETE_COMMENT : ReportModerationAction.NO_ACTION
+            );
+        }
+
+        // 3 PENDING reports
+        for (int i = 0; i < 3; i++) {
+            insertReport(
+                    UUID.randomUUID(),
+                    commentId,
+                    UUID.randomUUID(),
+                    ReportReason.SPAM,
+                    null,
+                    "Pending Snap " + i,
+                    ReportStatus.PENDING,
+                    baseTime.plus(i, ChronoUnit.MINUTES),
+                    null,
+                    null,
+                    null
+            );
+        }
+
+        // Query PROCESSED with page 0, size 2
+        InteractionReportQueuePage processedPage = adapter.findQueueReports(new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PROCESSED, null, null, InteractionReportQueueSort.NEWEST, 0, 2
         ));
-        assertThat(allPage.totalElements()).isEqualTo(3);
+        assertThat(processedPage.totalElements()).isEqualTo(5);
+        assertThat(processedPage.totalPages()).isEqualTo(3);
+        assertThat(processedPage.items()).hasSize(2);
+        assertThat(processedPage.items()).allSatisfy(item ->
+                assertThat(item.status()).isNotEqualTo(ReportStatus.PENDING));
+
+        // Query PENDING with page 0, size 2
+        InteractionReportQueuePage pendingPage = adapter.findQueueReports(new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 2
+        ));
+        assertThat(pendingPage.totalElements()).isEqualTo(3);
+        assertThat(pendingPage.totalPages()).isEqualTo(2);
+        assertThat(pendingPage.items()).hasSize(2);
+        assertThat(pendingPage.items()).allSatisfy(item ->
+                assertThat(item.status()).isEqualTo(ReportStatus.PENDING));
     }
 
     @Test
@@ -294,7 +419,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         insertReport(spoilerId, commentId, UUID.randomUUID(), ReportReason.SPOILER, null, "Snap 3", ReportStatus.PENDING, now, null, null);
 
         InteractionReportQueuePage result = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, ReportReason.HARASSMENT, null, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, ReportReason.HARASSMENT, null, InteractionReportQueueSort.NEWEST, 0, 10
         ));
 
         assertThat(result.totalElements()).isEqualTo(1);
@@ -317,7 +442,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // Filter NOVEL_CHAPTER
         InteractionReportQueuePage novelPage = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, null, CommentTargetType.NOVEL_CHAPTER, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, CommentTargetType.NOVEL_CHAPTER, InteractionReportQueueSort.NEWEST, 0, 10
         ));
         assertThat(novelPage.totalElements()).isEqualTo(1);
         assertThat(novelPage.items().get(0).reportId()).isEqualTo(novelReportId);
@@ -325,7 +450,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // Filter WIKI_ARTICLE
         InteractionReportQueuePage wikiPage = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, null, CommentTargetType.WIKI_ARTICLE, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, CommentTargetType.WIKI_ARTICLE, InteractionReportQueueSort.NEWEST, 0, 10
         ));
         assertThat(wikiPage.totalElements()).isEqualTo(1);
         assertThat(wikiPage.items().get(0).reportId()).isEqualTo(wikiReportId);
@@ -333,7 +458,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("G. Combined filters: status + reason + targetType excludes unrelated rows")
+    @DisplayName("G. Combined filters: scope + reason + targetType excludes unrelated rows")
     void shouldApplyCombinedFiltersAccurately() {
         UUID novelCommentId = insertComment(CommentTargetType.NOVEL_CHAPTER, CommentStatus.ACTIVE, "Novel comment");
         UUID wikiCommentId = insertComment(CommentTargetType.WIKI_ARTICLE, CommentStatus.ACTIVE, "Wiki comment");
@@ -346,15 +471,15 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
 
         // 1. Matches all: PENDING + SPAM + NOVEL_CHAPTER
         insertReport(matchId, novelCommentId, UUID.randomUUID(), ReportReason.SPAM, null, "Match", ReportStatus.PENDING, now, null, null);
-        // 2. Wrong status: RESOLVED_ACTION_TAKEN + SPAM + NOVEL_CHAPTER
-        insertReport(wrongStatusId, novelCommentId, UUID.randomUUID(), ReportReason.SPAM, null, "Wrong Status", ReportStatus.RESOLVED_ACTION_TAKEN, now, UUID.randomUUID(), now.plusSeconds(10));
+        // 2. Wrong scope: RESOLVED_ACTION_TAKEN + SPAM + NOVEL_CHAPTER
+        insertReport(wrongStatusId, novelCommentId, UUID.randomUUID(), ReportReason.SPAM, null, "Wrong Status", ReportStatus.RESOLVED_ACTION_TAKEN, now, UUID.randomUUID(), now.plusSeconds(10), ReportModerationAction.DELETE_COMMENT);
         // 3. Wrong reason: PENDING + HARASSMENT + NOVEL_CHAPTER
         insertReport(wrongReasonId, novelCommentId, UUID.randomUUID(), ReportReason.HARASSMENT, null, "Wrong Reason", ReportStatus.PENDING, now, null, null);
         // 4. Wrong target: PENDING + SPAM + WIKI_ARTICLE
         insertReport(wrongTargetId, wikiCommentId, UUID.randomUUID(), ReportReason.SPAM, null, "Wrong Target", ReportStatus.PENDING, now, null, null);
 
         InteractionReportQueuePage result = adapter.findQueueReports(new InteractionReportQueueFilter(
-                ReportStatus.PENDING, ReportReason.SPAM, CommentTargetType.NOVEL_CHAPTER, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, ReportReason.SPAM, CommentTargetType.NOVEL_CHAPTER, InteractionReportQueueSort.NEWEST, 0, 10
         ));
 
         assertThat(result.totalElements()).isEqualTo(1);
@@ -362,7 +487,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("H. Projection fidelity: verifies exact mapping of all 12 raw queue fields")
+    @DisplayName("H. Projection fidelity: verifies exact mapping of raw queue fields including moderation action and resolver")
     void shouldMapAll12QueueItemFieldsWithHighFidelity() {
         UUID authorId = UUID.randomUUID();
         UUID targetId = UUID.randomUUID();
@@ -386,7 +511,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         );
 
         InteractionReportQueuePage page = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
         ));
 
         assertThat(page.totalElements()).isEqualTo(1);
@@ -405,6 +530,9 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         assertThat(item.targetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
         assertThat(item.targetId()).isEqualTo(targetId);
         assertThat(item.commentStatus()).isEqualTo(CommentStatus.ACTIVE);
+        assertThat(item.moderationAction()).isNull();
+        assertThat(item.resolverUserId()).isNull();
+        assertThat(item.resolvedAt()).isNull();
     }
 
     @Test
@@ -442,7 +570,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
         );
 
         InteractionReportQueuePage page = adapter.findQueueReports(new InteractionReportQueueFilter(
-                null, null, null, InteractionReportQueueSort.NEWEST, 0, 10
+                ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
         ));
 
         assertThat(page.totalElements()).isEqualTo(1);
@@ -462,22 +590,27 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("InteractionReportQueueFilter cannot be null");
 
+        // Null scope
+        assertThatThrownBy(() -> new InteractionReportQueueFilter(null, null, null, InteractionReportQueueSort.NEWEST, 0, 10))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("ReportQueueLifecycleScope cannot be null");
+
         // Negative page index
-        assertThatThrownBy(() -> new InteractionReportQueueFilter(null, null, null, InteractionReportQueueSort.NEWEST, -1, 10))
+        assertThatThrownBy(() -> new InteractionReportQueueFilter(ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, -1, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page index cannot be negative");
 
         // Zero or negative size
-        assertThatThrownBy(() -> new InteractionReportQueueFilter(null, null, null, InteractionReportQueueSort.NEWEST, 0, 0))
+        assertThatThrownBy(() -> new InteractionReportQueueFilter(ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
 
-        assertThatThrownBy(() -> new InteractionReportQueueFilter(null, null, null, InteractionReportQueueSort.NEWEST, 0, -5))
+        assertThatThrownBy(() -> new InteractionReportQueueFilter(ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, -5))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
 
         // Null sort
-        assertThatThrownBy(() -> new InteractionReportQueueFilter(null, null, null, null, 0, 10))
+        assertThatThrownBy(() -> new InteractionReportQueueFilter(ReportQueueLifecycleScope.PENDING, null, null, null, 0, 10))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("InteractionReportQueueSort cannot be null");
 

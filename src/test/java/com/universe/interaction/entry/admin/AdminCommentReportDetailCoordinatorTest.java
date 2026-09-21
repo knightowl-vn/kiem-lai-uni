@@ -7,6 +7,7 @@ import com.universe.interaction.application.query.GetInteractionReportDetailUseC
 import com.universe.interaction.application.query.InteractionReportDetailResult;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
@@ -89,6 +90,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 baseTime,
                 null,
                 null,
+                null,
                 true,
                 authorId,
                 CommentStatus.ACTIVE,
@@ -124,6 +126,7 @@ class AdminCommentReportDetailCoordinatorTest {
         assertThat(detail.commentId()).isEqualTo(commentId);
         assertThat(detail.reportedBodySnapshot()).isEqualTo("Nội dung quảng cáo vi phạm");
         assertThat(detail.currentCommentBody()).isEqualTo("Nội dung quảng cáo vi phạm (live)");
+        assertThat(detail.moderationAction()).isNull();
 
         // Reporter
         assertThat(detail.reporter()).isNotNull();
@@ -170,6 +173,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Bình luận công kích nhân vật",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 true,
@@ -232,6 +236,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 baseTime,
                 resolverId,
                 resolvedAt,
+                ReportModerationAction.DELETE_COMMENT,
                 true,
                 authorId,
                 CommentStatus.DELETED,
@@ -257,6 +262,7 @@ class AdminCommentReportDetailCoordinatorTest {
 
         assertThat(detail).isNotNull();
         assertThat(detail.status()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+        assertThat(detail.moderationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
         assertThat(detail.resolvedByUserId()).isEqualTo(resolverId);
         assertThat(detail.resolvedAt()).isEqualTo(resolvedAt);
 
@@ -286,6 +292,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 baseTime,
                 resolverId,
                 baseTime.plusSeconds(60),
+                ReportModerationAction.NO_ACTION,
                 true,
                 authorId,
                 CommentStatus.ACTIVE,
@@ -305,6 +312,7 @@ class AdminCommentReportDetailCoordinatorTest {
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 
         assertThat(detail).isNotNull();
+        assertThat(detail.moderationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
         // Reporter unresolved fallback
         assertThat(detail.reporter()).isNotNull();
         assertThat(detail.reporter().userId()).isEqualTo(reporterId);
@@ -338,6 +346,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 baseTime,
                 null,
                 null,
+                null,
                 true,
                 authorId,
                 CommentStatus.ACTIVE,
@@ -357,6 +366,7 @@ class AdminCommentReportDetailCoordinatorTest {
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 
         assertThat(detail).isNotNull();
+        assertThat(detail.moderationAction()).isNull();
         assertThat(detail.target()).isNotNull();
         assertThat(detail.target().targetType()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
         assertThat(detail.target().targetId()).isEqualTo(chapterId);
@@ -376,6 +386,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Snapshot historical evidence",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 false, // Missing comment
@@ -399,6 +410,7 @@ class AdminCommentReportDetailCoordinatorTest {
         assertThat(detail).isNotNull();
         assertThat(detail.reportId()).isEqualTo(reportId);
         assertThat(detail.reportedBodySnapshot()).isEqualTo("Snapshot historical evidence");
+        assertThat(detail.moderationAction()).isNull();
         assertThat(detail.currentCommentAvailable()).isFalse();
         assertThat(detail.commentAuthor()).isNull();
         assertThat(detail.target()).isNull();
@@ -427,6 +439,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 baseTime,
                 null,
                 null,
+                null,
                 true,
                 authorId,
                 CommentStatus.DELETED,
@@ -450,6 +463,7 @@ class AdminCommentReportDetailCoordinatorTest {
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
 
         assertThat(detail).isNotNull();
+        assertThat(detail.moderationAction()).isNull();
         assertThat(detail.currentCommentAvailable()).isTrue();
         assertThat(detail.currentCommentStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(detail.currentCommentBody()).isNull();

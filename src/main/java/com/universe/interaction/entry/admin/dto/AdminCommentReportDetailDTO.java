@@ -1,6 +1,7 @@
 package com.universe.interaction.entry.admin.dto;
 
 import com.universe.interaction.domain.CommentStatus;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 
@@ -36,6 +37,7 @@ public record AdminCommentReportDetailDTO(
         UUID resolvedByUserId,
         AdminCommentReportUserDTO resolver,
         Instant resolvedAt,
+        ReportModerationAction moderationAction,
 
         // Current comment state
         boolean currentCommentAvailable,

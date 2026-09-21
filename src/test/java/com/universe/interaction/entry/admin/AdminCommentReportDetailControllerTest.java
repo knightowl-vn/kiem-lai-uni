@@ -360,6 +360,7 @@ class AdminCommentReportDetailControllerTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 "Live comment body",
                 CommentStatus.ACTIVE,

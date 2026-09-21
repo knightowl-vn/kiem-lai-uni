@@ -31,6 +31,20 @@
                     </div>
                 </div>
 
+                <!-- Tab Navigation -->
+                <nav class="comment-reports-tabs" aria-label="Phân loại hàng đợi báo cáo">
+                    <a th:href="@{/admin/comments/reports(scope='PENDING')}"
+                       class="comment-reports-tab"
+                       th:classappend="${selectedScope.name() == 'PENDING' ? 'active' : ''}">
+                        Cần xử lý
+                    </a>
+                    <a th:href="@{/admin/comments/reports(scope='PROCESSED')}"
+                       class="comment-reports-tab"
+                       th:classappend="${selectedScope.name() == 'PROCESSED' ? 'active' : ''}">
+                        Đã xử lý
+                    </a>
+                </nav>
+
                 <!-- Flash Error Message -->
                 <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
                     Thông báo lỗi
@@ -40,15 +54,8 @@
                 <section class="admin-filter-panel">
                     <form method="get" th:action="@{/admin/comments/reports}" class="admin-filter-form comment-reports-filter-form">
 
-                        <div class="admin-field">
-                            <label for="status">Trạng thái</label>
-                            <select id="status" name="status">
-                                <option value="ALL" th:selected="${selectedStatus == null}">Tất cả trạng thái</option>
-                                <option value="PENDING" th:selected="${selectedStatus != null and selectedStatus.name() == 'PENDING'}">Chờ xử lý</option>
-                                <option value="RESOLVED_ACTION_TAKEN" th:selected="${selectedStatus != null and selectedStatus.name() == 'RESOLVED_ACTION_TAKEN'}">Đã xử lý — có hành động</option>
-                                <option value="RESOLVED_NO_ACTION" th:selected="${selectedStatus != null and selectedStatus.name() == 'RESOLVED_NO_ACTION'}">Đã xử lý — không hành động</option>
-                            </select>
-                        </div>
+                        <!-- Hidden Scope -->
+                        <input type="hidden" name="scope" th:value="${selectedScope.name()}">
 
                         <div class="admin-field">
                             <label for="reason">Lý do</label>
@@ -72,7 +79,7 @@
                             </select>
                         </div>
 
-                        <div class="admin-field">
+                        <div th:if="${selectedScope.name() == 'PENDING'}" class="admin-field">
                             <label for="sort">Sắp xếp</label>
                             <select id="sort" name="sort">
                                 <option value="OLDEST" th:selected="${selectedSort != null and selectedSort.name() == 'OLDEST'}">Cũ nhất trước</option>
@@ -84,7 +91,7 @@
 
                         <div class="admin-filter-actions">
                             <button type="submit" class="admin-primary-button">Lọc kết quả</button>
-                            <a th:href="@{/admin/comments/reports}" class="admin-secondary-button">Đặt lại</a>
+                            <a th:href="@{/admin/comments/reports(scope=${selectedScope.name()})}" class="admin-secondary-button">Đặt lại</a>
                         </div>
 
                     </form>
@@ -100,8 +107,9 @@
                 <section th:if="${#lists.isEmpty(reports)}" class="admin-empty-state">
                     <div class="admin-empty-icon">✓</div>
                     <h3>Không có báo cáo phù hợp</h3>
-                    <p>Không có báo cáo nào khớp với bộ lọc hiện tại.</p>
-                    <a th:href="@{/admin/comments/reports}" class="admin-secondary-button">Về báo cáo chờ xử lý</a>
+                    <p th:if="${selectedScope.name() == 'PENDING'}">Hiện không có báo cáo nào đang chờ xử lý khớp với bộ lọc.</p>
+                    <p th:unless="${selectedScope.name() == 'PENDING'}">Hiện không có báo cáo đã xử lý nào khớp với bộ lọc.</p>
+                    <a th:href="@{/admin/comments/reports(scope=${selectedScope.name()})}" class="admin-secondary-button">Đặt lại bộ lọc</a>
                 </section>
 
                 <!-- Danh sách thẻ báo cáo (Moderation Cards) -->
@@ -120,6 +128,12 @@
                                                'Đã xử lý — không hành động'}">
                                     Chờ xử lý
                                 </span>
+                                <span th:if="${report.moderationAction != null}"
+                                      class="comment-report-badge"
+                                      th:classappend="${report.moderationAction.name() == 'DELETE_COMMENT' ? ' status-action-taken' : ' status-resolved-no-action'}"
+                                      th:text="${report.moderationAction.name() == 'DELETE_COMMENT' ? 'Xóa bình luận' : 'Không thực hiện hành động'}">
+                                    Xóa bình luận
+                                </span>
                                 <span class="comment-report-reason-badge"
                                       th:text="${report.reason.name() == 'SPAM' ? 'Spam' :
                                                report.reason.name() == 'HARASSMENT' ? 'Quấy rối' :
@@ -132,6 +146,13 @@
                             </div>
                             <div class="comment-report-header-right">
                                 <time class="comment-report-time"
+                                      th:if="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}"
+                                      th:title="${'Báo cáo lúc: ' + #temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}"
+                                      th:text="${'Đã xử lý: ' + #temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}">
+                                    01/01/2026 12:00
+                                </time>
+                                <time class="comment-report-time"
+                                      th:unless="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}"
                                       th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
                                     01/01/2026 12:00
                                 </time>
@@ -270,6 +291,29 @@
                                 </div>
                             </div>
 
+                            <!--/* Bảng 5: Người xử lý (chỉ khi đã xử lý) */-->
+                            <div th:if="${report.resolvedAt != null}" class="comment-report-meta-panel">
+                                <span class="comment-report-meta-label">Người xử lý</span>
+                                <div class="comment-report-user">
+                                    <div th:if="${report.resolver != null and report.resolver.resolved}">
+                                        <div th:if="${report.resolver.avatarUrl != null and !report.resolver.avatarUrl.isBlank()}" class="comment-report-avatar">
+                                            <img th:src="${report.resolver.avatarUrl}" alt="Avatar" class="comment-report-avatar-img" referrerpolicy="no-referrer">
+                                        </div>
+                                        <div th:unless="${report.resolver.avatarUrl != null and !report.resolver.avatarUrl.isBlank()}"
+                                             class="comment-report-avatar"
+                                             th:text="${report.resolver.displayName != null and !report.resolver.displayName.isBlank() ? #strings.substring(report.resolver.displayName, 0, 1) : '?'}">
+                                            M
+                                        </div>
+                                    </div>
+                                    <div th:unless="${report.resolver != null and report.resolver.resolved}" class="comment-report-avatar unresolved">?</div>
+                                    <div class="comment-report-user-info">
+                                        <strong th:if="${report.resolver != null and report.resolver.resolved}" class="comment-report-user-name" th:text="${report.resolver.displayName}">Người kiểm duyệt</strong>
+                                        <strong th:unless="${report.resolver != null and report.resolver.resolved}" class="comment-report-user-name unresolved">Người dùng không khả dụng</strong>
+                                        <span th:if="${report.resolver != null and report.resolver.userId != null}" class="comment-report-code" th:text="${report.resolver.userId}">UUID</span>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
 
                     </article>
@@ -280,7 +324,7 @@
                     <a th:if="${reportPage.hasPrevious}"
                        class="admin-page-button"
                        th:href="@{/admin/comments/reports(
-                           status=${selectedStatus == null ? 'ALL' : selectedStatus.name()},
+                           scope=${selectedScope.name()},
                            reason=${selectedReason == null ? 'ALL' : selectedReason.name()},
                            targetType=${selectedTargetType == null ? 'ALL' : selectedTargetType.name()},
                            sort=${selectedSort.name()},
@@ -297,7 +341,7 @@
                     <a th:if="${reportPage.hasNext}"
                        class="admin-page-button"
                        th:href="@{/admin/comments/reports(
-                           status=${selectedStatus == null ? 'ALL' : selectedStatus.name()},
+                           scope=${selectedScope.name()},
                            reason=${selectedReason == null ? 'ALL' : selectedReason.name()},
                            targetType=${selectedTargetType == null ? 'ALL' : selectedTargetType.name()},
                            sort=${selectedSort.name()},

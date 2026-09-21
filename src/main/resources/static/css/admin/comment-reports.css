@@ -23,13 +23,55 @@
 }
 
 /* =========================================================
+   QUEUE TABS
+   ========================================================= */
+.comment-reports-tabs {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 22px;
+    border-bottom: 2px solid var(--border);
+}
+
+.comment-reports-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-decoration: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.15s ease;
+}
+
+.comment-reports-tab:hover {
+    color: var(--primary);
+}
+
+.comment-reports-tab.active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+    font-weight: 700;
+}
+
+/* =========================================================
    FILTER FORM
    ========================================================= */
 .comment-reports-filter-form {
-    display: grid;
-    grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: end;
     gap: 14px;
+}
+
+.comment-reports-filter-form .admin-field {
+    min-width: 170px;
+    flex: 1 1 170px;
+}
+
+.comment-reports-filter-form .admin-filter-actions {
+    margin-left: auto;
 }
 
 /* =========================================================
@@ -198,10 +240,10 @@
     word-break: break-word;
 }
 
-/* --- Meta Grid (Current state, Reporter, Author, Target) --- */
+/* --- Meta Grid (Current state, Reporter, Author, Target, Resolver) --- */
 .comment-report-meta-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 14px;
     padding-top: 14px;
     border-top: 1px dashed var(--border);
@@ -382,14 +424,6 @@
    RESPONSIVE DESIGN
    ========================================================= */
 @media (max-width: 1200px) {
-    .comment-reports-filter-form {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .comment-reports-filter-form .admin-filter-actions {
-        grid-column: 1 / -1;
-    }
-
     .comment-report-meta-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -401,12 +435,14 @@
         align-items: flex-start;
     }
 
-    .comment-reports-filter-form {
-        grid-template-columns: 1fr;
+    .comment-reports-filter-form .admin-field {
+        flex-basis: 100%;
+        min-width: 0;
     }
 
     .comment-reports-filter-form .admin-filter-actions {
-        grid-column: auto;
+        margin-left: 0;
+        width: 100%;
     }
 
     .comment-report-card {

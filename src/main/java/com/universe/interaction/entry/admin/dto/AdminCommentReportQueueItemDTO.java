@@ -1,6 +1,7 @@
 package com.universe.interaction.entry.admin.dto;
 
 import com.universe.interaction.domain.CommentStatus;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 
@@ -12,7 +13,8 @@ import java.util.UUID;
  * Immutable composite item DTO for an entry in the Admin comment report queue.
  *
  * <p>Contains report evidence, current comment lifecycle state, enriched reporter
- * identity, enriched comment author identity, and enriched target display metadata.
+ * identity, enriched comment author identity, enriched target display metadata, and
+ * moderation audit information.
  *
  * @param reportId unique identifier of the report
  * @param commentId unique identifier of the reported comment
@@ -25,6 +27,9 @@ import java.util.UUID;
  * @param commentAuthor enriched comment author user metadata (never null)
  * @param commentStatus current lifecycle state of the comment (never null)
  * @param target enriched target display metadata (never null)
+ * @param moderationAction exact persisted moderation action (null for PENDING, populated for PROCESSED)
+ * @param resolver enriched resolver user metadata (null for PENDING, populated for PROCESSED)
+ * @param resolvedAt timestamp when report was resolved (null for PENDING, populated for PROCESSED)
  */
 public record AdminCommentReportQueueItemDTO(
         UUID reportId,
@@ -37,7 +42,10 @@ public record AdminCommentReportQueueItemDTO(
         Instant createdAt,
         AdminCommentReportUserDTO commentAuthor,
         CommentStatus commentStatus,
-        AdminCommentReportTargetDTO target
+        AdminCommentReportTargetDTO target,
+        ReportModerationAction moderationAction,
+        AdminCommentReportUserDTO resolver,
+        Instant resolvedAt
 ) {
     public AdminCommentReportQueueItemDTO {
         Objects.requireNonNull(reportId, "reportId cannot be null");

@@ -86,6 +86,9 @@ public class AdminCommentReportQueueCoordinator {
             if (item.commentAuthorUserId() != null) {
                 userIds.add(item.commentAuthorUserId());
             }
+            if (item.resolverUserId() != null) {
+                userIds.add(item.resolverUserId());
+            }
         }
 
         Map<UUID, UserPublicProfileDTO> profiles = userIds.isEmpty()
@@ -117,6 +120,9 @@ public class AdminCommentReportQueueCoordinator {
         for (InteractionReportQueueItem rawItem : rawItems) {
             AdminCommentReportUserDTO reporter = composeUser(rawItem.reporterUserId(), profiles);
             AdminCommentReportUserDTO commentAuthor = composeUser(rawItem.commentAuthorUserId(), profiles);
+            AdminCommentReportUserDTO resolver = rawItem.resolverUserId() != null
+                    ? composeUser(rawItem.resolverUserId(), profiles)
+                    : null;
             AdminCommentReportTargetDTO target = composeTarget(rawItem.targetType(), rawItem.targetId(), chapters, articles);
 
             enrichedItems.add(new AdminCommentReportQueueItemDTO(
@@ -130,7 +136,10 @@ public class AdminCommentReportQueueCoordinator {
                     rawItem.createdAt(),
                     commentAuthor,
                     rawItem.commentStatus(),
-                    target
+                    target,
+                    rawItem.moderationAction(),
+                    resolver,
+                    rawItem.resolvedAt()
             ));
         }
 

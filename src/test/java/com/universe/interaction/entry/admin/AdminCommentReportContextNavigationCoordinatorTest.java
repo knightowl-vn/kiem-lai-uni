@@ -267,6 +267,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                 baseTime,
                 null,
                 null,
+                null,
                 false, // comment is unavailable / deleted from store
                 null,
                 null,
@@ -493,6 +494,7 @@ class AdminCommentReportContextNavigationCoordinatorTest {
                 "Reported evidence snapshot",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 commentAvailable,

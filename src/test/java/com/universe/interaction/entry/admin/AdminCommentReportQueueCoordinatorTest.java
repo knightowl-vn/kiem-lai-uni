@@ -7,8 +7,10 @@ import com.universe.interaction.application.query.InteractionReportQueueFilter;
 import com.universe.interaction.application.query.InteractionReportQueueItem;
 import com.universe.interaction.application.query.InteractionReportQueuePage;
 import com.universe.interaction.application.query.InteractionReportQueueSort;
+import com.universe.interaction.application.query.ReportQueueLifecycleScope;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueueItemDTO;
@@ -56,7 +58,7 @@ class AdminCommentReportQueueCoordinatorTest {
     private AdminCommentReportQueueCoordinator coordinator;
 
     private final InteractionReportQueueFilter defaultFilter = new InteractionReportQueueFilter(
-            ReportStatus.PENDING,
+            ReportQueueLifecycleScope.PENDING,
             null,
             null,
             InteractionReportQueueSort.OLDEST,
@@ -392,6 +394,73 @@ class AdminCommentReportQueueCoordinatorTest {
         assertThat(result.items().get(2).reportId()).isEqualTo(repId3);
     }
 
+    @Test
+    @DisplayName("Case I: Processed queue items include resolver in batch Identity lookup and map resolver DTO")
+    void shouldBatchLookupResolverIdentityForProcessedQueueItems() {
+        UUID reportId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        UUID reporterId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID resolverId = UUID.randomUUID();
+        UUID chapterId = UUID.randomUUID();
+        Instant resolvedAt = Instant.parse("2026-09-20T11:00:00Z");
+
+        InteractionReportQueueItem processedItem = new InteractionReportQueueItem(
+                reportId,
+                commentId,
+                reporterId,
+                ReportReason.SPAM,
+                "Spam report",
+                "Spam comment body",
+                ReportStatus.RESOLVED_ACTION_TAKEN,
+                Instant.parse("2026-09-20T10:00:00Z"),
+                authorId,
+                CommentTargetType.NOVEL_CHAPTER,
+                chapterId,
+                CommentStatus.DELETED,
+                ReportModerationAction.DELETE_COMMENT,
+                resolverId,
+                resolvedAt
+        );
+
+        InteractionReportQueueFilter processedFilter = new InteractionReportQueueFilter(
+                ReportQueueLifecycleScope.PROCESSED,
+                null,
+                null,
+                InteractionReportQueueSort.OLDEST,
+                0,
+                20
+        );
+
+        when(queueQueryPort.findQueueReports(processedFilter))
+                .thenReturn(new InteractionReportQueuePage(List.of(processedItem), 0, 20, 1));
+
+        Set<UUID> expectedUserIds = Set.of(reporterId, authorId, resolverId);
+        when(userIdentityContract.findPublicProfilesByIds(expectedUserIds)).thenReturn(Map.of(
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter", null),
+                authorId, new UserPublicProfileDTO(authorId, "Author", null),
+                resolverId, new UserPublicProfileDTO(resolverId, "Moderator Bob", "https://img/bob.png")
+        ));
+        when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId))).thenReturn(Map.of(
+                chapterId, new ChapterListItemDTO(chapterId, 1, "Chương 1", "tap-1/chuong-1", "PUBLISHED", Instant.now())
+        ));
+
+        AdminCommentReportQueuePageDTO result = coordinator.getReportQueue(processedFilter);
+
+        assertThat(result.items()).hasSize(1);
+        AdminCommentReportQueueItemDTO dto = result.items().get(0);
+
+        assertThat(dto.moderationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
+        assertThat(dto.resolvedAt()).isEqualTo(resolvedAt);
+        assertThat(dto.resolver()).isNotNull();
+        assertThat(dto.resolver().userId()).isEqualTo(resolverId);
+        assertThat(dto.resolver().displayName()).isEqualTo("Moderator Bob");
+        assertThat(dto.resolver().avatarUrl()).isEqualTo("https://img/bob.png");
+        assertThat(dto.resolver().resolved()).isTrue();
+
+        verify(userIdentityContract).findPublicProfilesByIds(expectedUserIds);
+    }
+
     private InteractionReportQueueItem createRawItem(
             UUID reportId,
             UUID commentId,
@@ -403,6 +472,19 @@ class AdminCommentReportQueueCoordinatorTest {
             ReportStatus reportStatus,
             CommentStatus commentStatus
     ) {
+        ReportModerationAction action = null;
+        UUID resolverId = null;
+        Instant resolvedAt = null;
+        if (reportStatus == ReportStatus.RESOLVED_ACTION_TAKEN) {
+            action = ReportModerationAction.DELETE_COMMENT;
+            resolverId = UUID.randomUUID();
+            resolvedAt = Instant.parse("2026-09-20T11:00:00Z");
+        } else if (reportStatus == ReportStatus.RESOLVED_NO_ACTION) {
+            action = ReportModerationAction.NO_ACTION;
+            resolverId = UUID.randomUUID();
+            resolvedAt = Instant.parse("2026-09-20T11:00:00Z");
+        }
+
         return new InteractionReportQueueItem(
                 reportId,
                 commentId,
@@ -415,7 +497,10 @@ class AdminCommentReportQueueCoordinatorTest {
                 authorId,
                 targetType,
                 targetId,
-                commentStatus
+                commentStatus,
+                action,
+                resolverId,
+                resolvedAt
         );
     }
 }

@@ -437,6 +437,15 @@
 
                     <!-- Khi TERMINAL (Đã xử lý) -->
                     <div th:unless="${report.status.name() == 'PENDING'}" class="comment-report-detail-resolution-grid">
+                        <div th:if="${report.moderationAction != null}" class="comment-report-detail-meta-item">
+                            <span class="comment-report-detail-meta-label">Hành động xử lý:</span>
+                            <span class="comment-report-detail-terminal-status"
+                                  th:classappend="${report.moderationAction.name() == 'DELETE_COMMENT' ? ' action-taken' : ' no-action'}"
+                                  th:text="${report.moderationAction.name() == 'DELETE_COMMENT' ? 'Xóa bình luận' :
+                                           report.moderationAction.name() == 'NO_ACTION' ? 'Không thực hiện hành động' : report.moderationAction}">
+                                Xóa bình luận
+                            </span>
+                        </div>
                         <div class="comment-report-detail-meta-item">
                             <span class="comment-report-detail-meta-label">Trạng thái xử lý:</span>
                             <span class="comment-report-detail-terminal-status"

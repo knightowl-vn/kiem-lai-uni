@@ -2,7 +2,6 @@ package com.universe.interaction.application.query;
 
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportReason;
-import com.universe.interaction.domain.report.ReportStatus;
 
 import java.util.Objects;
 
@@ -11,7 +10,7 @@ import java.util.Objects;
  *
  * <p>Framework-free query descriptor. Does not encode web/HTTP defaults.
  *
- * @param status nullable report status filter (null = all statuses)
+ * @param scope lifecycle queue scope (required, never null)
  * @param reason nullable report reason filter (null = all reasons)
  * @param targetType nullable comment target type filter (null = all target types)
  * @param sort deterministic sort order (required)
@@ -19,7 +18,7 @@ import java.util.Objects;
  * @param size page size (> 0)
  */
 public record InteractionReportQueueFilter(
-        ReportStatus status,
+        ReportQueueLifecycleScope scope,
         ReportReason reason,
         CommentTargetType targetType,
         InteractionReportQueueSort sort,
@@ -27,6 +26,7 @@ public record InteractionReportQueueFilter(
         int size
 ) {
     public InteractionReportQueueFilter {
+        Objects.requireNonNull(scope, "ReportQueueLifecycleScope cannot be null.");
         Objects.requireNonNull(sort, "InteractionReportQueueSort cannot be null.");
         if (page < 0) {
             throw new IllegalArgumentException("Page index cannot be negative: " + page);

@@ -95,6 +95,7 @@ class GetInteractionReportDetailUseCaseTest {
         assertThat(result.createdAt()).isEqualTo(baseTime);
         assertThat(result.resolvedByUserId()).isNull();
         assertThat(result.resolvedAt()).isNull();
+        assertThat(result.moderationAction()).isNull();
 
         // Current comment state verification
         assertThat(result.currentCommentAvailable()).isTrue();
@@ -160,6 +161,7 @@ class GetInteractionReportDetailUseCaseTest {
         assertThat(result.status()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
         assertThat(result.resolvedByUserId()).isEqualTo(resolverUserId);
         assertThat(result.resolvedAt()).isEqualTo(resolvedAt);
+        assertThat(result.moderationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
 
         // Deleted comment tombstone semantics
         assertThat(result.currentCommentAvailable()).isTrue();

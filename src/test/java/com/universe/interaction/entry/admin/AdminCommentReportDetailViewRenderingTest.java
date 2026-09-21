@@ -4,6 +4,7 @@ import com.universe.identity.entry.web.advice.CurrentUserAdvice;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
@@ -86,6 +87,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 "Nội dung bình luận trực tiếp hiện tại đang hiển thị",
                 CommentStatus.ACTIVE,
@@ -159,6 +161,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 "Bình luận wiki đang hiển thị",
                 CommentStatus.ACTIVE,
@@ -213,6 +216,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 resolverId,
                 AdminCommentReportUserDTO.resolved(resolverId, "Admin Eva", "https://img.local/eva.png"),
                 baseTime.plusSeconds(300),
+                ReportModerationAction.DELETE_COMMENT,
                 true,
                 null,
                 CommentStatus.DELETED,
@@ -280,6 +284,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 false,
                 null,
                 null,
@@ -325,6 +330,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 resolverId,
                 AdminCommentReportUserDTO.unresolved(resolverId),
                 baseTime.plusSeconds(500),
+                ReportModerationAction.NO_ACTION,
                 true,
                 "Nội dung tiết lộ cốt truyện kết thúc truyện",
                 CommentStatus.ACTIVE,
@@ -370,6 +376,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 ReportStatus.PENDING,
                 baseTime,
                 AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                null,
                 null,
                 null,
                 null,
@@ -422,6 +429,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 "Bình luận",
                 CommentStatus.ACTIVE,
@@ -471,6 +479,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 false,
                 null,
                 null,
@@ -508,6 +517,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 ReportStatus.PENDING,
                 baseTime,
                 AdminCommentReportUserDTO.resolved(reporterId, scriptSentinel + "reporter", null),
+                null,
                 null,
                 null,
                 null,
@@ -560,6 +570,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 "Bình luận đang hiển thị",
                 CommentStatus.ACTIVE,
@@ -604,6 +615,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 null,
                 CommentStatus.DELETED,
@@ -639,6 +651,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 ReportStatus.PENDING,
                 baseTime,
                 AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                null,
                 null,
                 null,
                 null,
@@ -682,6 +695,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 resolverId,
                 AdminCommentReportUserDTO.resolved(resolverId, "Moderator Bob", "https://img.local/bob.png"),
                 baseTime.plusSeconds(600),
+                ReportModerationAction.DELETE_COMMENT,
                 true,
                 null,
                 CommentStatus.DELETED,
@@ -697,16 +711,16 @@ class AdminCommentReportDetailViewRenderingTest {
         mockMvc.perform(get("/admin/comments/reports/" + reportId))
                 .andExpect(status().isOk())
                 .andExpect(view().name("admin/comments/report-detail"))
-                // Terminal label
+                // Terminal label & action label
                 .andExpect(content().string(containsString("ĐÃ XỬ LÝ — CÓ HÀNH ĐỘNG")))
+                .andExpect(content().string(containsString("Xóa bình luận")))
                 .andExpect(content().string(containsString("Moderator Bob")))
                 .andExpect(content().string(containsString("Thời gian xử lý:")))
                 // No mutation forms
                 .andExpect(content().string(not(containsString("Hành động kiểm duyệt"))))
                 .andExpect(content().string(not(containsString("value=\"NO_ACTION\""))))
                 .andExpect(content().string(not(containsString("value=\"DELETE_COMMENT\""))))
-                .andExpect(content().string(not(containsString("Không cần hành động"))))
-                .andExpect(content().string(not(containsString("Xóa bình luận"))));
+                .andExpect(content().string(not(containsString("Không cần hành động"))));
 
         verify(coordinator).getDetail(reportId);
     }
@@ -726,6 +740,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 resolverId,
                 AdminCommentReportUserDTO.resolved(resolverId, "Moderator Bob", null),
                 baseTime.plusSeconds(300),
+                ReportModerationAction.NO_ACTION,
                 true,
                 "Bình luận vẫn đang hiển thị bình thường",
                 CommentStatus.ACTIVE,
@@ -741,8 +756,9 @@ class AdminCommentReportDetailViewRenderingTest {
         mockMvc.perform(get("/admin/comments/reports/" + reportId))
                 .andExpect(status().isOk())
                 .andExpect(view().name("admin/comments/report-detail"))
-                // Terminal label
+                // Terminal label & action label
                 .andExpect(content().string(containsString("ĐÃ XỬ LÝ — KHÔNG HÀNH ĐỘNG")))
+                .andExpect(content().string(containsString("Không thực hiện hành động")))
                 .andExpect(content().string(containsString("Moderator Bob")))
                 .andExpect(content().string(containsString("Thời gian xử lý:")))
                 // No mutation forms
@@ -767,6 +783,7 @@ class AdminCommentReportDetailViewRenderingTest {
                 ReportStatus.PENDING,
                 baseTime,
                 AdminCommentReportUserDTO.resolved(reporterId, "Alice", null),
+                null,
                 null,
                 null,
                 null,

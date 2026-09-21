@@ -4,6 +4,7 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 
@@ -34,6 +35,7 @@ public record InteractionReportDetailResult(
         Instant createdAt,
         UUID resolvedByUserId,
         Instant resolvedAt,
+        ReportModerationAction moderationAction,
 
         // Current comment state
         boolean currentCommentAvailable,
@@ -79,6 +81,7 @@ public record InteractionReportDetailResult(
                 report.getCreatedAt(),
                 report.getResolvedByUserId(),
                 report.getResolvedAt(),
+                report.getModerationAction(),
                 true,
                 comment.getAuthorUserId(),
                 comment.getStatus(),
@@ -110,6 +113,7 @@ public record InteractionReportDetailResult(
                 report.getCreatedAt(),
                 report.getResolvedByUserId(),
                 report.getResolvedAt(),
+                report.getModerationAction(),
                 false,
                 null,
                 null,

@@ -6,6 +6,7 @@ import com.universe.interaction.application.query.InteractionReportQueueItem;
 import com.universe.interaction.application.query.InteractionReportQueuePage;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTargetType;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.springframework.data.domain.Page;
@@ -41,16 +42,18 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
             throw new IllegalArgumentException("InteractionReportQueueFilter cannot be null.");
         }
 
-        String statusParam = filter.status() != null ? filter.status().name() : null;
         String reasonParam = filter.reason() != null ? filter.reason().name() : null;
         String targetTypeParam = filter.targetType() != null ? filter.targetType().name() : null;
 
         // Unsorted PageRequest because SQL query explicitly owns the ORDER BY
         Pageable pageable = PageRequest.of(filter.page(), filter.size());
 
-        Page<InteractionReportQueueRowProjection> springPage = switch (filter.sort()) {
-            case NEWEST -> repository.findQueueNewest(statusParam, reasonParam, targetTypeParam, pageable);
-            case OLDEST -> repository.findQueueOldest(statusParam, reasonParam, targetTypeParam, pageable);
+        Page<InteractionReportQueueRowProjection> springPage = switch (filter.scope()) {
+            case PENDING -> switch (filter.sort()) {
+                case NEWEST -> repository.findPendingQueueNewest(reasonParam, targetTypeParam, pageable);
+                case OLDEST -> repository.findPendingQueueOldest(reasonParam, targetTypeParam, pageable);
+            };
+            case PROCESSED -> repository.findProcessedQueue(reasonParam, targetTypeParam, pageable);
         };
 
         List<InteractionReportQueueItem> items = springPage.getContent().stream()
@@ -84,6 +87,12 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
         UUID targetId = parseUuid(row.getTargetId(), "targetId");
         CommentStatus commentStatus = parseCommentStatus(row.getCommentStatus());
 
+        ReportModerationAction moderationAction = parseModerationAction(row.getModerationAction());
+        UUID resolverUserId = row.getResolvedByUserId() != null
+                ? parseUuid(row.getResolvedByUserId(), "resolvedByUserId")
+                : null;
+        Instant resolvedAt = row.getResolvedAt();
+
         return new InteractionReportQueueItem(
                 reportId,
                 commentId,
@@ -96,7 +105,10 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
                 commentAuthorUserId,
                 targetType,
                 targetId,
-                commentStatus
+                commentStatus,
+                moderationAction,
+                resolverUserId,
+                resolvedAt
         );
     }
 
@@ -160,5 +172,16 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
             throw new IllegalStateException(fieldName + " cannot be null or blank in persisted queue row.");
         }
         return value;
+    }
+
+    private static ReportModerationAction parseModerationAction(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return ReportModerationAction.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException("Invalid ReportModerationAction: " + value, ex);
+        }
     }
 }
