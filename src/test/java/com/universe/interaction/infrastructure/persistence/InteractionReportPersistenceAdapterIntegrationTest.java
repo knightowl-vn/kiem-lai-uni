@@ -1,6 +1,7 @@
 package com.universe.interaction.infrastructure.persistence;
 
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.test.TestDatabaseSupport;
@@ -59,6 +60,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -132,6 +134,7 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(retrieved.getResolvedByUserId()).isNull();
         assertThat(retrieved.getResolvedAt()).isNull();
+        assertThat(retrieved.getModerationAction()).isNull();
         assertThat(retrieved.isPending()).isTrue();
         assertThat(retrieved.isTerminal()).isFalse();
     }
@@ -268,9 +271,11 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         assertThat(retrieved1).isPresent();
         assertThat(retrieved1.get().getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+        assertThat(retrieved1.get().getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
 
         assertThat(retrieved2).isPresent();
         assertThat(retrieved2.get().getStatus()).isEqualTo(ReportStatus.PENDING);
+        assertThat(retrieved2.get().getModerationAction()).isNull();
     }
 
     @Test
@@ -410,5 +415,87 @@ class InteractionReportPersistenceAdapterIntegrationTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("Persists exact moderation_action column and reconstitutes faithfully for both terminal statuses")
+    void shouldPersistAndReloadTerminalReportsWithExactModerationActionInDatabase() {
+        UUID commentId = insertComment();
+        UUID reporter1 = UUID.randomUUID();
+        UUID reporter2 = UUID.randomUUID();
+        UUID resolverUserId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        // 1. RESOLVED_ACTION_TAKEN -> DELETE_COMMENT
+        UUID reportId1 = UUID.randomUUID();
+        InteractionReport report1 = InteractionReport.createPending(
+                reportId1, commentId, reporter1, ReportReason.SPAM, null, "Snapshot 1", now
+        );
+        adapter.save(report1);
+        report1.resolveActionTaken(resolverUserId, now.plusSeconds(10));
+        adapter.save(report1);
+
+        InteractionReport retrieved1 = adapter.findById(reportId1).orElseThrow();
+        assertThat(retrieved1.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+        assertThat(retrieved1.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
+
+        String dbAction1 = jdbcTemplate.queryForObject(
+                "SELECT moderation_action FROM interaction_reports WHERE id = ?",
+                String.class,
+                reportId1.toString()
+        );
+        assertThat(dbAction1).isEqualTo("DELETE_COMMENT");
+
+        // 2. RESOLVED_NO_ACTION -> NO_ACTION
+        UUID reportId2 = UUID.randomUUID();
+        InteractionReport report2 = InteractionReport.createPending(
+                reportId2, commentId, reporter2, ReportReason.HARASSMENT, "No violation", "Snapshot 2", now
+        );
+        adapter.save(report2);
+        report2.resolveNoAction(resolverUserId, now.plusSeconds(20));
+        adapter.save(report2);
+
+        InteractionReport retrieved2 = adapter.findById(reportId2).orElseThrow();
+        assertThat(retrieved2.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
+        assertThat(retrieved2.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
+
+        String dbAction2 = jdbcTemplate.queryForObject(
+                "SELECT moderation_action FROM interaction_reports WHERE id = ?",
+                String.class,
+                reportId2.toString()
+        );
+        assertThat(dbAction2).isEqualTo("NO_ACTION");
+    }
+
+    @Test
+    @DisplayName("Database check constraint rejects invalid status and moderation_action combinations")
+    void shouldEnforceDatabaseCheckConstraintOnModerationAction() {
+        UUID commentId = insertComment();
+        UUID reporter = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        // Invalid: PENDING with moderation_action set
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?)",
+                UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now)
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // Invalid: RESOLVED_ACTION_TAKEN with NULL moderation_action
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
+                UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // Invalid: RESOLVED_NO_ACTION with DELETE_COMMENT
+        assertThatThrownBy(() -> jdbcTemplate.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
+                UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
+        )).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasMessageContaining("chk_interaction_reports_moderation_action");
     }
 }

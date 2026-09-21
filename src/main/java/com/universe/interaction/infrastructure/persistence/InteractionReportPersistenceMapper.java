@@ -1,6 +1,7 @@
 package com.universe.interaction.infrastructure.persistence;
 
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,7 @@ import java.util.UUID;
  *   <li>ReportReason and ReportStatus name preservation;</li>
  *   <li>Snapshot evidence immutability;</li>
  *   <li>Nullable description and resolution fields;</li>
+ *   <li>Authoritative moderation action persistence;</li>
  *   <li>Reconstitution via {@link InteractionReport#reconstitute}.</li>
  * </ul>
  */
@@ -40,7 +42,8 @@ public class InteractionReportPersistenceMapper {
                 domain.getStatus().name(),
                 domain.getCreatedAt(),
                 domain.getResolvedByUserId() != null ? domain.getResolvedByUserId().toString() : null,
-                domain.getResolvedAt()
+                domain.getResolvedAt(),
+                domain.getModerationAction() != null ? domain.getModerationAction().name() : null
         );
     }
 
@@ -60,6 +63,7 @@ public class InteractionReportPersistenceMapper {
         UUID resolvedByUserId = entity.getResolvedByUserId() != null
                 ? parseUuid(entity.getResolvedByUserId(), "ResolvedBy user ID")
                 : null;
+        ReportModerationAction moderationAction = parseModerationAction(entity.getModerationAction());
 
         return InteractionReport.reconstitute(
                 id,
@@ -71,7 +75,8 @@ public class InteractionReportPersistenceMapper {
                 status,
                 entity.getCreatedAt(),
                 resolvedByUserId,
-                entity.getResolvedAt()
+                entity.getResolvedAt(),
+                moderationAction
         );
     }
 
@@ -105,6 +110,17 @@ public class InteractionReportPersistenceMapper {
             return ReportStatus.valueOf(value);
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Unknown report status: " + value, ex);
+        }
+    }
+
+    private static ReportModerationAction parseModerationAction(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return ReportModerationAction.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Unknown report moderation action: " + value, ex);
         }
     }
 }

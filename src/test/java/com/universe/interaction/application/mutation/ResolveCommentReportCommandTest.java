@@ -1,6 +1,7 @@
 package com.universe.interaction.application.mutation;
 
 import com.universe.interaction.application.exceptions.ReportAlreadyResolvedException;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

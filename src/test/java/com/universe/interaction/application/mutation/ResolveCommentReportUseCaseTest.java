@@ -10,6 +10,7 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -248,6 +249,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort).save(reportCaptor.capture());
             InteractionReport savedReport = reportCaptor.getValue();
             assertThat(savedReport.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+            assertThat(savedReport.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
             assertThat(savedReport.getResolvedByUserId()).isEqualTo(MODERATOR_USER_ID);
             assertThat(savedReport.getResolvedAt()).isEqualTo(FIXED_NOW);
         }
@@ -286,6 +288,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort).save(reportCaptor.capture());
             InteractionReport savedReport = reportCaptor.getValue();
             assertThat(savedReport.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
+            assertThat(savedReport.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
             assertThat(savedReport.getResolvedByUserId()).isEqualTo(MODERATOR_USER_ID);
             assertThat(savedReport.getResolvedAt()).isEqualTo(FIXED_NOW);
         }
@@ -341,6 +344,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort).save(reportCaptor.capture());
             InteractionReport savedReport = reportCaptor.getValue();
             assertThat(savedReport.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
+            assertThat(savedReport.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
             assertThat(savedReport.getResolvedByUserId()).isEqualTo(MODERATOR_USER_ID);
             assertThat(savedReport.getResolvedAt()).isEqualTo(FIXED_NOW);
 

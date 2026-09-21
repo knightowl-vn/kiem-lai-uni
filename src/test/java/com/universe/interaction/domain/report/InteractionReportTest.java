@@ -47,6 +47,7 @@ class InteractionReportTest {
             assertThat(report.getCreatedAt()).isEqualTo(now);
             assertThat(report.getResolvedByUserId()).isNull();
             assertThat(report.getResolvedAt()).isNull();
+            assertThat(report.getModerationAction()).isNull();
             assertThat(report.isPending()).isTrue();
             assertThat(report.isTerminal()).isFalse();
         }
@@ -174,6 +175,7 @@ class InteractionReportTest {
             assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
             assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
             assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
             assertThat(report.isPending()).isFalse();
             assertThat(report.isTerminal()).isTrue();
         }
@@ -191,6 +193,7 @@ class InteractionReportTest {
             assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
             assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
             assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
             assertThat(report.isPending()).isFalse();
             assertThat(report.isTerminal()).isTrue();
         }
@@ -250,7 +253,7 @@ class InteractionReportTest {
     class ReconstitutionTests {
 
         @Test
-        @DisplayName("Successfully reconstitutes valid PENDING report")
+        @DisplayName("Case D: Successfully reconstitutes valid PENDING report with null moderationAction")
         void shouldSuccessfullyReconstituteValidPendingReport() {
             InteractionReport report = InteractionReport.reconstitute(
                     reportId,
@@ -261,6 +264,7 @@ class InteractionReportTest {
                     snapshot,
                     ReportStatus.PENDING,
                     now,
+                    null,
                     null,
                     null
             );
@@ -275,12 +279,33 @@ class InteractionReportTest {
             assertThat(report.getCreatedAt()).isEqualTo(now);
             assertThat(report.getResolvedByUserId()).isNull();
             assertThat(report.getResolvedAt()).isNull();
+            assertThat(report.getModerationAction()).isNull();
             assertThat(report.isPending()).isTrue();
             assertThat(report.isTerminal()).isFalse();
         }
 
         @Test
-        @DisplayName("Successfully reconstitutes valid RESOLVED_ACTION_TAKEN report")
+        @DisplayName("Case E: Rejects PENDING report with DELETE_COMMENT action")
+        void shouldRejectPendingWithDeleteComment() {
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
+                    ReportStatus.PENDING, now, null, null, ReportModerationAction.DELETE_COMMENT
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be null for a PENDING report");
+        }
+
+        @Test
+        @DisplayName("Case F: Rejects PENDING report with NO_ACTION action")
+        void shouldRejectPendingWithNoAction() {
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
+                    ReportStatus.PENDING, now, null, null, ReportModerationAction.NO_ACTION
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be null for a PENDING report");
+        }
+
+        @Test
+        @DisplayName("Case G: Successfully reconstitutes valid RESOLVED_ACTION_TAKEN with DELETE_COMMENT")
         void shouldSuccessfullyReconstituteValidResolvedActionTakenReport() {
             Instant resolvedAt = now.plus(30, ChronoUnit.MINUTES);
             InteractionReport report = InteractionReport.reconstitute(
@@ -293,19 +318,43 @@ class InteractionReportTest {
                     ReportStatus.RESOLVED_ACTION_TAKEN,
                     now,
                     resolverUserId,
-                    resolvedAt
+                    resolvedAt,
+                    ReportModerationAction.DELETE_COMMENT
             );
 
             assertThat(report.getId()).isEqualTo(reportId);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
             assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
             assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
             assertThat(report.isPending()).isFalse();
             assertThat(report.isTerminal()).isTrue();
         }
 
         @Test
-        @DisplayName("Successfully reconstitutes valid RESOLVED_NO_ACTION report")
+        @DisplayName("Case H: Rejects RESOLVED_ACTION_TAKEN report with null moderationAction")
+        void shouldRejectActionTakenWithNullModerationAction() {
+            Instant resolvedAt = now.plus(30, ChronoUnit.MINUTES);
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.HARASSMENT, null, snapshot,
+                    ReportStatus.RESOLVED_ACTION_TAKEN, now, resolverUserId, resolvedAt, null
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be DELETE_COMMENT for RESOLVED_ACTION_TAKEN report");
+        }
+
+        @Test
+        @DisplayName("Case I: Rejects RESOLVED_ACTION_TAKEN report with NO_ACTION moderationAction")
+        void shouldRejectActionTakenWithNoAction() {
+            Instant resolvedAt = now.plus(30, ChronoUnit.MINUTES);
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.HARASSMENT, null, snapshot,
+                    ReportStatus.RESOLVED_ACTION_TAKEN, now, resolverUserId, resolvedAt, ReportModerationAction.NO_ACTION
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be DELETE_COMMENT for RESOLVED_ACTION_TAKEN report");
+        }
+
+        @Test
+        @DisplayName("Case J: Successfully reconstitutes valid RESOLVED_NO_ACTION with NO_ACTION")
         void shouldSuccessfullyReconstituteValidResolvedNoActionReport() {
             Instant resolvedAt = now.plus(45, ChronoUnit.MINUTES);
             InteractionReport report = InteractionReport.reconstitute(
@@ -318,15 +367,39 @@ class InteractionReportTest {
                     ReportStatus.RESOLVED_NO_ACTION,
                     now,
                     resolverUserId,
-                    resolvedAt
+                    resolvedAt,
+                    ReportModerationAction.NO_ACTION
             );
 
             assertThat(report.getId()).isEqualTo(reportId);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
             assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
             assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
             assertThat(report.isPending()).isFalse();
             assertThat(report.isTerminal()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Case K: Rejects RESOLVED_NO_ACTION report with null moderationAction")
+        void shouldRejectNoActionWithNullModerationAction() {
+            Instant resolvedAt = now.plus(45, ChronoUnit.MINUTES);
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.OTHER, "No violation", snapshot,
+                    ReportStatus.RESOLVED_NO_ACTION, now, resolverUserId, resolvedAt, null
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be NO_ACTION for RESOLVED_NO_ACTION report");
+        }
+
+        @Test
+        @DisplayName("Case L: Rejects RESOLVED_NO_ACTION report with DELETE_COMMENT moderationAction")
+        void shouldRejectNoActionWithDeleteComment() {
+            Instant resolvedAt = now.plus(45, ChronoUnit.MINUTES);
+            assertThatThrownBy(() -> InteractionReport.reconstitute(
+                    reportId, commentId, reporterUserId, ReportReason.OTHER, "No violation", snapshot,
+                    ReportStatus.RESOLVED_NO_ACTION, now, resolverUserId, resolvedAt, ReportModerationAction.DELETE_COMMENT
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ModerationAction must be NO_ACTION for RESOLVED_NO_ACTION report");
         }
 
         @Test
@@ -334,13 +407,13 @@ class InteractionReportTest {
         void shouldRejectPendingWithResolvedFields() {
             assertThatThrownBy(() -> InteractionReport.reconstitute(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
-                    ReportStatus.PENDING, now, resolverUserId, null
+                    ReportStatus.PENDING, now, resolverUserId, null, null
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("ResolvedByUserId must be null for a PENDING report");
 
             assertThatThrownBy(() -> InteractionReport.reconstitute(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
-                    ReportStatus.PENDING, now, null, now
+                    ReportStatus.PENDING, now, null, now, null
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("ResolvedAt must be null for a PENDING report");
         }
@@ -350,13 +423,13 @@ class InteractionReportTest {
         void shouldRejectTerminalWithMissingResolvedFields() {
             assertThatThrownBy(() -> InteractionReport.reconstitute(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
-                    ReportStatus.RESOLVED_ACTION_TAKEN, now, null, now
+                    ReportStatus.RESOLVED_ACTION_TAKEN, now, null, now, ReportModerationAction.DELETE_COMMENT
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("ResolvedByUserId cannot be null for a resolved report");
 
             assertThatThrownBy(() -> InteractionReport.reconstitute(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
-                    ReportStatus.RESOLVED_NO_ACTION, now, resolverUserId, null
+                    ReportStatus.RESOLVED_NO_ACTION, now, resolverUserId, null, ReportModerationAction.NO_ACTION
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("ResolvedAt cannot be null for a resolved report");
         }
@@ -367,7 +440,7 @@ class InteractionReportTest {
             Instant earlier = now.minusSeconds(10);
             assertThatThrownBy(() -> InteractionReport.reconstitute(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot,
-                    ReportStatus.RESOLVED_ACTION_TAKEN, now, resolverUserId, earlier
+                    ReportStatus.RESOLVED_ACTION_TAKEN, now, resolverUserId, earlier, ReportModerationAction.DELETE_COMMENT
             )).isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("ResolvedAt timestamp cannot be before createdAt timestamp");
         }

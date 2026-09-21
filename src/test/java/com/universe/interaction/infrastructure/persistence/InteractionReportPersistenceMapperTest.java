@@ -1,6 +1,7 @@
 package com.universe.interaction.infrastructure.persistence;
 
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -50,6 +51,7 @@ class InteractionReportPersistenceMapperTest {
         assertThat(entity.getCreatedAt()).isEqualTo(createdAt);
         assertThat(entity.getResolvedByUserId()).isNull();
         assertThat(entity.getResolvedAt()).isNull();
+        assertThat(entity.getModerationAction()).isNull();
 
         InteractionReport reconstituted = mapper.toDomain(entity);
 
@@ -63,11 +65,12 @@ class InteractionReportPersistenceMapperTest {
         assertThat(reconstituted.getCreatedAt()).isEqualTo(domain.getCreatedAt());
         assertThat(reconstituted.getResolvedByUserId()).isNull();
         assertThat(reconstituted.getResolvedAt()).isNull();
+        assertThat(reconstituted.getModerationAction()).isNull();
     }
 
     @Test
-    @DisplayName("Maps RESOLVED domain report to JPA entity and back with full roundtrip fidelity")
-    void shouldRoundTripResolvedReport() {
+    @DisplayName("Maps RESOLVED_ACTION_TAKEN domain report to JPA entity and back with full roundtrip fidelity")
+    void shouldRoundTripResolvedActionTakenReport() {
         InteractionReport domain = InteractionReport.reconstitute(
                 reportId,
                 commentId,
@@ -78,7 +81,8 @@ class InteractionReportPersistenceMapperTest {
                 ReportStatus.RESOLVED_ACTION_TAKEN,
                 createdAt,
                 resolverUserId,
-                resolvedAt
+                resolvedAt,
+                ReportModerationAction.DELETE_COMMENT
         );
 
         InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
@@ -87,12 +91,14 @@ class InteractionReportPersistenceMapperTest {
         assertThat(entity.getStatus()).isEqualTo("RESOLVED_ACTION_TAKEN");
         assertThat(entity.getResolvedByUserId()).isEqualTo(resolverUserId.toString());
         assertThat(entity.getResolvedAt()).isEqualTo(resolvedAt);
+        assertThat(entity.getModerationAction()).isEqualTo("DELETE_COMMENT");
 
         InteractionReport reconstituted = mapper.toDomain(entity);
 
         assertThat(reconstituted.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
         assertThat(reconstituted.getResolvedByUserId()).isEqualTo(resolverUserId);
         assertThat(reconstituted.getResolvedAt()).isEqualTo(resolvedAt);
+        assertThat(reconstituted.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
     }
 
     @Test
@@ -108,7 +114,8 @@ class InteractionReportPersistenceMapperTest {
                 ReportStatus.RESOLVED_NO_ACTION,
                 createdAt,
                 resolverUserId,
-                resolvedAt
+                resolvedAt,
+                ReportModerationAction.NO_ACTION
         );
 
         InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
@@ -117,12 +124,14 @@ class InteractionReportPersistenceMapperTest {
         assertThat(entity.getStatus()).isEqualTo("RESOLVED_NO_ACTION");
         assertThat(entity.getResolvedByUserId()).isEqualTo(resolverUserId.toString());
         assertThat(entity.getResolvedAt()).isEqualTo(resolvedAt);
+        assertThat(entity.getModerationAction()).isEqualTo("NO_ACTION");
 
         InteractionReport reconstituted = mapper.toDomain(entity);
 
         assertThat(reconstituted.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
         assertThat(reconstituted.getResolvedByUserId()).isEqualTo(resolverUserId);
         assertThat(reconstituted.getResolvedAt()).isEqualTo(resolvedAt);
+        assertThat(reconstituted.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
     }
 
     @Test
@@ -159,11 +168,11 @@ class InteractionReportPersistenceMapperTest {
     }
 
     @Test
-    @DisplayName("Throws on corrupt UUID or enum values during toDomain")
+    @DisplayName("Throws on corrupt UUID, enum, or moderation action values during toDomain")
     void shouldThrowOnCorruptValuesInEntity() {
         InteractionReportJpaEntity corruptId = new InteractionReportJpaEntity(
                 "invalid-uuid", commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "PENDING", createdAt, null, null
+                "SPAM", null, snapshot, "PENDING", createdAt, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptId))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -171,7 +180,7 @@ class InteractionReportPersistenceMapperTest {
 
         InteractionReportJpaEntity corruptReason = new InteractionReportJpaEntity(
                 reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "NON_EXISTENT_REASON", null, snapshot, "PENDING", createdAt, null, null
+                "NON_EXISTENT_REASON", null, snapshot, "PENDING", createdAt, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptReason))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -179,10 +188,50 @@ class InteractionReportPersistenceMapperTest {
 
         InteractionReportJpaEntity corruptStatus = new InteractionReportJpaEntity(
                 reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "UNKNOWN_STATUS", createdAt, null, null
+                "SPAM", null, snapshot, "UNKNOWN_STATUS", createdAt, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptStatus))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown report status");
+
+        InteractionReportJpaEntity corruptModerationAction = new InteractionReportJpaEntity(
+                reportId.toString(), commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "RESOLVED_ACTION_TAKEN", createdAt, resolverUserId.toString(), resolvedAt,
+                "UNKNOWN_ACTION"
+        );
+        assertThatThrownBy(() -> mapper.toDomain(corruptModerationAction))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown report moderation action");
+    }
+
+    @Test
+    @DisplayName("Throws when entity status and moderation action combination violates domain invariants")
+    void shouldThrowWhenEntityStatusAndModerationActionViolateInvariants() {
+        // PENDING with non-null moderation action
+        InteractionReportJpaEntity pendingWithAction = new InteractionReportJpaEntity(
+                reportId.toString(), commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "PENDING", createdAt, null, null, "DELETE_COMMENT"
+        );
+        assertThatThrownBy(() -> mapper.toDomain(pendingWithAction))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ModerationAction must be null for a PENDING report.");
+
+        // RESOLVED_ACTION_TAKEN with null action
+        InteractionReportJpaEntity actionTakenWithNull = new InteractionReportJpaEntity(
+                reportId.toString(), commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "RESOLVED_ACTION_TAKEN", createdAt, resolverUserId.toString(), resolvedAt, null
+        );
+        assertThatThrownBy(() -> mapper.toDomain(actionTakenWithNull))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ModerationAction must be DELETE_COMMENT for RESOLVED_ACTION_TAKEN report.");
+
+        // RESOLVED_NO_ACTION with wrong action (DELETE_COMMENT)
+        InteractionReportJpaEntity noActionWithWrong = new InteractionReportJpaEntity(
+                reportId.toString(), commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "RESOLVED_NO_ACTION", createdAt, resolverUserId.toString(), resolvedAt, "DELETE_COMMENT"
+        );
+        assertThatThrownBy(() -> mapper.toDomain(noActionWithWrong))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ModerationAction must be NO_ACTION for RESOLVED_NO_ACTION report.");
     }
 }

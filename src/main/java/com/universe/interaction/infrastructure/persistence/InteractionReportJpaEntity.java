@@ -91,6 +91,12 @@ public class InteractionReportJpaEntity {
     )
     private Instant resolvedAt;
 
+    @Column(
+            name = "moderation_action",
+            length = 40
+    )
+    private String moderationAction;
+
     protected InteractionReportJpaEntity() {
     }
 
@@ -104,7 +110,8 @@ public class InteractionReportJpaEntity {
             String status,
             Instant createdAt,
             String resolvedByUserId,
-            Instant resolvedAt
+            Instant resolvedAt,
+            String moderationAction
     ) {
         this.id = id;
         this.commentId = commentId;
@@ -116,6 +123,7 @@ public class InteractionReportJpaEntity {
         this.createdAt = createdAt;
         this.resolvedByUserId = resolvedByUserId;
         this.resolvedAt = resolvedAt;
+        this.moderationAction = moderationAction;
     }
 
     public String getId() {
@@ -198,6 +206,14 @@ public class InteractionReportJpaEntity {
         this.resolvedAt = resolvedAt;
     }
 
+    public String getModerationAction() {
+        return moderationAction;
+    }
+
+    public void setModerationAction(String moderationAction) {
+        this.moderationAction = moderationAction;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -224,6 +240,7 @@ public class InteractionReportJpaEntity {
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId='" + resolvedByUserId + '\'' +
                 ", resolvedAt=" + resolvedAt +
+                ", moderationAction='" + moderationAction + '\'' +
                 '}';
     }
 }

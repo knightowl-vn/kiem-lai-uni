@@ -1,5 +1,7 @@
 package com.universe.interaction.application.mutation;
 
+import com.universe.interaction.domain.report.ReportModerationAction;
+
 import java.util.Objects;
 import java.util.UUID;
 

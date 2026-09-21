@@ -8,6 +8,7 @@ import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 

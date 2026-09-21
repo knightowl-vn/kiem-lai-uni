@@ -1,4 +1,4 @@
-package com.universe.interaction.application.mutation;
+package com.universe.interaction.domain.report;
 
 /**
  * Moderation actions applicable to an interaction comment report.

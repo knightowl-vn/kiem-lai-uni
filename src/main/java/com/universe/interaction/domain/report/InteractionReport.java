@@ -34,6 +34,7 @@ public final class InteractionReport {
     private final Instant createdAt;
     private UUID resolvedByUserId;
     private Instant resolvedAt;
+    private ReportModerationAction moderationAction;
 
     private InteractionReport(
             UUID id,
@@ -45,7 +46,8 @@ public final class InteractionReport {
             ReportStatus status,
             Instant createdAt,
             UUID resolvedByUserId,
-            Instant resolvedAt
+            Instant resolvedAt,
+            ReportModerationAction moderationAction
     ) {
         this.id = Objects.requireNonNull(id, "Report ID cannot be null.");
         this.commentId = Objects.requireNonNull(commentId, "Comment ID cannot be null.");
@@ -88,7 +90,10 @@ public final class InteractionReport {
             if (resolvedAt != null) {
                 throw new IllegalArgumentException("ResolvedAt must be null for a PENDING report.");
             }
-        } else {
+            if (moderationAction != null) {
+                throw new IllegalArgumentException("ModerationAction must be null for a PENDING report.");
+            }
+        } else if (this.status == ReportStatus.RESOLVED_ACTION_TAKEN) {
             if (resolvedByUserId == null) {
                 throw new IllegalArgumentException("ResolvedByUserId cannot be null for a resolved report.");
             }
@@ -98,9 +103,28 @@ public final class InteractionReport {
             if (resolvedAt.isBefore(this.createdAt)) {
                 throw new IllegalArgumentException("ResolvedAt timestamp cannot be before createdAt timestamp.");
             }
+            if (moderationAction != ReportModerationAction.DELETE_COMMENT) {
+                throw new IllegalArgumentException("ModerationAction must be DELETE_COMMENT for RESOLVED_ACTION_TAKEN report.");
+            }
+        } else if (this.status == ReportStatus.RESOLVED_NO_ACTION) {
+            if (resolvedByUserId == null) {
+                throw new IllegalArgumentException("ResolvedByUserId cannot be null for a resolved report.");
+            }
+            if (resolvedAt == null) {
+                throw new IllegalArgumentException("ResolvedAt cannot be null for a resolved report.");
+            }
+            if (resolvedAt.isBefore(this.createdAt)) {
+                throw new IllegalArgumentException("ResolvedAt timestamp cannot be before createdAt timestamp.");
+            }
+            if (moderationAction != ReportModerationAction.NO_ACTION) {
+                throw new IllegalArgumentException("ModerationAction must be NO_ACTION for RESOLVED_NO_ACTION report.");
+            }
+        } else {
+            throw new IllegalArgumentException("Unsupported report status: " + this.status);
         }
         this.resolvedByUserId = resolvedByUserId;
         this.resolvedAt = resolvedAt;
+        this.moderationAction = moderationAction;
     }
 
     /**
@@ -125,6 +149,7 @@ public final class InteractionReport {
                 ReportStatus.PENDING,
                 createdAt,
                 null,
+                null,
                 null
         );
     }
@@ -142,7 +167,8 @@ public final class InteractionReport {
             ReportStatus status,
             Instant createdAt,
             UUID resolvedByUserId,
-            Instant resolvedAt
+            Instant resolvedAt,
+            ReportModerationAction moderationAction
     ) {
         return new InteractionReport(
                 id,
@@ -154,7 +180,8 @@ public final class InteractionReport {
                 status,
                 createdAt,
                 resolvedByUserId,
-                resolvedAt
+                resolvedAt,
+                moderationAction
         );
     }
 
@@ -165,6 +192,7 @@ public final class InteractionReport {
         ensurePending();
         validateResolutionArguments(resolverUserId, resolvedAt);
         this.status = ReportStatus.RESOLVED_ACTION_TAKEN;
+        this.moderationAction = ReportModerationAction.DELETE_COMMENT;
         this.resolvedByUserId = resolverUserId;
         this.resolvedAt = resolvedAt;
     }
@@ -176,6 +204,7 @@ public final class InteractionReport {
         ensurePending();
         validateResolutionArguments(resolverUserId, resolvedAt);
         this.status = ReportStatus.RESOLVED_NO_ACTION;
+        this.moderationAction = ReportModerationAction.NO_ACTION;
         this.resolvedByUserId = resolverUserId;
         this.resolvedAt = resolvedAt;
     }
@@ -238,6 +267,10 @@ public final class InteractionReport {
         return resolvedAt;
     }
 
+    public ReportModerationAction getModerationAction() {
+        return moderationAction;
+    }
+
     public boolean isPending() {
         return status.isPending();
     }
@@ -272,6 +305,7 @@ public final class InteractionReport {
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId=" + resolvedByUserId +
                 ", resolvedAt=" + resolvedAt +
+                ", moderationAction=" + moderationAction +
                 '}';
     }
 }
