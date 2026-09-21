@@ -9,10 +9,10 @@ import com.universe.interaction.application.ports.InteractionReportRepositoryPor
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
+import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 
@@ -48,18 +48,18 @@ public class ResolveCommentReportUseCase {
     private final InteractionReportRepositoryPort reportRepositoryPort;
     private final CommentRepositoryPort commentRepositoryPort;
     private final CommentRevisionRepositoryPort commentRevisionRepositoryPort;
-    private final Clock clock;
+    private final ClockPort clockPort;
 
     public ResolveCommentReportUseCase(
             InteractionReportRepositoryPort reportRepositoryPort,
             CommentRepositoryPort commentRepositoryPort,
             CommentRevisionRepositoryPort commentRevisionRepositoryPort,
-            Clock clock
+            ClockPort clockPort
     ) {
         this.reportRepositoryPort = Objects.requireNonNull(reportRepositoryPort, "reportRepositoryPort cannot be null");
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "commentRepositoryPort cannot be null");
         this.commentRevisionRepositoryPort = Objects.requireNonNull(commentRevisionRepositoryPort, "commentRevisionRepositoryPort cannot be null");
-        this.clock = Objects.requireNonNull(clock, "clock cannot be null");
+        this.clockPort = Objects.requireNonNull(clockPort, "clockPort cannot be null");
     }
 
     /**
@@ -73,8 +73,6 @@ public class ResolveCommentReportUseCase {
     public void execute(ResolveCommentReportCommand command) {
         Objects.requireNonNull(command, "ResolveCommentReportCommand cannot be null");
 
-        Instant now = clock.instant();
-
         InteractionReport report = reportRepositoryPort.findByIdForUpdate(command.reportId())
                 .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
 
@@ -87,6 +85,8 @@ public class ResolveCommentReportUseCase {
                 Comment comment = commentRepositoryPort.findByIdForUpdate(report.getCommentId())
                         .orElseThrow(() -> new CommentNotFoundException(report.getCommentId()));
 
+                Instant now = clockPort.now();
+
                 if (comment.isActive()) {
                     comment.delete(now);
                     commentRevisionRepositoryPort.deleteAllByCommentId(comment.getId());
@@ -97,6 +97,7 @@ public class ResolveCommentReportUseCase {
                 reportRepositoryPort.save(report);
             }
             case NO_ACTION -> {
+                Instant now = clockPort.now();
                 report.resolveNoAction(command.moderatorUserId(), now);
                 reportRepositoryPort.save(report);
             }

@@ -13,27 +13,29 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,6 +53,9 @@ class ResolveCommentReportUseCaseTest {
     @Mock
     private CommentRevisionRepositoryPort commentRevisionRepositoryPort;
 
+    @Mock
+    private ClockPort clockPort;
+
     private static final Instant FIXED_NOW = Instant.parse("2026-09-21T10:00:00Z");
     private static final Instant REPORT_CREATED_AT = Instant.parse("2026-09-21T09:00:00Z");
     private static final Instant COMMENT_CREATED_AT = Instant.parse("2026-09-21T08:00:00Z");
@@ -63,17 +68,15 @@ class ResolveCommentReportUseCaseTest {
     private static final UUID MODERATOR_USER_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final UUID COMMENT_AUTHOR_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
 
-    private Clock fixedClock;
     private ResolveCommentReportUseCase useCase;
 
     @BeforeEach
     void setUp() {
-        fixedClock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
         useCase = new ResolveCommentReportUseCase(
                 reportRepositoryPort,
                 commentRepositoryPort,
                 commentRevisionRepositoryPort,
-                fixedClock
+                clockPort
         );
     }
 
@@ -106,21 +109,21 @@ class ResolveCommentReportUseCaseTest {
         @Test
         @DisplayName("Should reject null dependencies in constructor")
         void shouldRejectNullDependencies() {
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(null, commentRepositoryPort, commentRevisionRepositoryPort, fixedClock))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(null, commentRepositoryPort, commentRevisionRepositoryPort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("reportRepositoryPort cannot be null");
 
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, null, commentRevisionRepositoryPort, fixedClock))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, null, commentRevisionRepositoryPort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("commentRepositoryPort cannot be null");
 
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, null, fixedClock))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, null, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("commentRevisionRepositoryPort cannot be null");
 
             assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, commentRevisionRepositoryPort, null))
                     .isInstanceOf(NullPointerException.class)
-                    .hasMessageContaining("clock cannot be null");
+                    .hasMessageContaining("clockPort cannot be null");
         }
 
         @Test
@@ -152,6 +155,7 @@ class ResolveCommentReportUseCaseTest {
                     .hasMessageContaining(REPORT_ID.toString());
 
             verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            verifyNoInteractions(clockPort);
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
@@ -177,6 +181,7 @@ class ResolveCommentReportUseCaseTest {
                     .hasMessageContaining("RESOLVED_ACTION_TAKEN");
 
             verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            verifyNoInteractions(clockPort);
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
@@ -202,6 +207,7 @@ class ResolveCommentReportUseCaseTest {
                     .hasMessageContaining("RESOLVED_NO_ACTION");
 
             verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            verifyNoInteractions(clockPort);
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
@@ -224,6 +230,7 @@ class ResolveCommentReportUseCaseTest {
                     ReportModerationAction.DELETE_COMMENT
             );
 
+            when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
             when(commentRepositoryPort.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -231,8 +238,13 @@ class ResolveCommentReportUseCaseTest {
 
             useCase.execute(command);
 
-            // Verify comment mutation & persistence
-            verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
+            // Verify lock and timestamp orchestration order
+            InOrder inOrder = inOrder(reportRepositoryPort, commentRepositoryPort, clockPort);
+            inOrder.verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            inOrder.verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
+            inOrder.verify(clockPort).now();
+
+            verify(clockPort, times(1)).now();
             verify(commentRevisionRepositoryPort).deleteAllByCommentId(COMMENT_ID);
 
             ArgumentCaptor<Comment> commentCaptor = ArgumentCaptor.forClass(Comment.class);
@@ -268,14 +280,20 @@ class ResolveCommentReportUseCaseTest {
                     ReportModerationAction.DELETE_COMMENT
             );
 
+            when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
             when(reportRepositoryPort.save(any(InteractionReport.class))).thenAnswer(inv -> inv.getArgument(0));
 
             useCase.execute(command);
 
-            // Comment repository and revision repository should NOT be mutated or saved
-            verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
+            // Verify lock and timestamp orchestration order
+            InOrder inOrder = inOrder(reportRepositoryPort, commentRepositoryPort, clockPort);
+            inOrder.verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            inOrder.verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
+            inOrder.verify(clockPort).now();
+
+            verify(clockPort, times(1)).now();
             verify(commentRevisionRepositoryPort, never()).deleteAllByCommentId(any());
             verify(commentRepositoryPort, never()).save(any());
 
@@ -311,7 +329,10 @@ class ResolveCommentReportUseCaseTest {
                     .isInstanceOf(CommentNotFoundException.class)
                     .hasMessageContaining(COMMENT_ID.toString());
 
-            // Report is NOT resolved and NOT saved
+            // Report is NOT resolved, NOT saved, and ClockPort is NEVER called
+            verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
+            verifyNoInteractions(clockPort);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.PENDING);
             verify(reportRepositoryPort, never()).save(any());
             verify(commentRevisionRepositoryPort, never()).deleteAllByCommentId(any());
@@ -334,10 +355,18 @@ class ResolveCommentReportUseCaseTest {
                     ReportModerationAction.NO_ACTION
             );
 
+            when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
             when(reportRepositoryPort.save(any(InteractionReport.class))).thenAnswer(inv -> inv.getArgument(0));
 
             useCase.execute(command);
+
+            // Verify orchestration order: lock report then clockPort.now()
+            InOrder inOrder = inOrder(reportRepositoryPort, clockPort);
+            inOrder.verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
+            inOrder.verify(clockPort).now();
+
+            verify(clockPort, times(1)).now();
 
             // Report should be saved with RESOLVED_NO_ACTION
             ArgumentCaptor<InteractionReport> reportCaptor = ArgumentCaptor.forClass(InteractionReport.class);
@@ -370,6 +399,7 @@ class ResolveCommentReportUseCaseTest {
                     ReportModerationAction.DELETE_COMMENT
             );
 
+            when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
             when(commentRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -393,6 +423,7 @@ class ResolveCommentReportUseCaseTest {
                     ReportModerationAction.DELETE_COMMENT
             );
 
+            when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(targetReport));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
             when(commentRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
