@@ -485,6 +485,13 @@
     color: var(--text-secondary);
 }
 
+.comment-report-detail-target-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .comment-report-detail-target-btn {
     flex-shrink: 0;
 }
@@ -572,6 +579,9 @@
 
     .comment-report-detail-target-action {
         width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
     }
 
     .comment-report-detail-target-btn {

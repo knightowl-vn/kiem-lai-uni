@@ -36,6 +36,11 @@
                     </div>
                 </div>
 
+                <!-- Flash Error Message -->
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
                 <!-- =========================================================
                      1. TỔNG QUAN BÁO CÁO (REPORT SUMMARY)
                      ========================================================= -->
@@ -324,6 +329,13 @@
                                class="admin-primary-button comment-report-detail-target-btn">
                                 Xem Chapter
                             </a>
+                            <a th:if="${report.currentCommentAvailable and report.target.currentStatus == 'PUBLISHED'}"
+                               th:href="@{/admin/comments/reports/{id}/context(id=${report.reportId})}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="admin-secondary-button comment-report-detail-target-btn">
+                                Mở bình luận trong ngữ cảnh ↗
+                            </a>
                         </div>
                     </div>
 
@@ -351,6 +363,13 @@
                             <a th:href="@{/admin/wiki/articles/{id}(id=${report.target.targetId})}"
                                class="admin-primary-button comment-report-detail-target-btn">
                                 Xem bài Wiki
+                            </a>
+                            <a th:if="${report.currentCommentAvailable and report.target.currentStatus == 'PUBLISHED'}"
+                               th:href="@{/admin/comments/reports/{id}/context(id=${report.reportId})}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="admin-secondary-button comment-report-detail-target-btn">
+                                Mở bình luận trong ngữ cảnh ↗
                             </a>
                         </div>
                     </div>
