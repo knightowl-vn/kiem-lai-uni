@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -66,6 +67,23 @@ public interface SpringDataChapterJpaRepository
             @Param("status") String status,
             Pageable pageable
     );
+
+    /**
+     * Batch lookup of lightweight chapter metadata by IDs.
+     */
+    @Query("""
+            select
+                c.id as id,
+                c.chapterNumber as chapterNumber,
+                c.title as title,
+                c.slug as slug,
+                c.status as status,
+                c.updatedAt as updatedAt
+            from ChapterJpaEntity c
+            where c.id in :ids
+            """)
+    List<ChapterListItemProjection> findListItemsByIds(@Param("ids") Collection<String> ids);
+
 
     /*
      * Public Reader Chapter List

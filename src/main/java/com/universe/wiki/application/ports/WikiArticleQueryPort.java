@@ -2,6 +2,7 @@ package com.universe.wiki.application.ports;
 
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
@@ -10,7 +11,9 @@ import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -91,5 +94,15 @@ public interface WikiArticleQueryPort {
     List<PublishedWikiArticleListItemDTO> findPublishedArticlesByNormalizedAlias(
             String normalizedAlias,
             int maxResults
+    );
+
+    /**
+     * Tra cứu hàng loạt thông tin rút gọn của bài viết theo danh sách ID (không lọc trạng thái xuất bản).
+     *
+     * @param articleIds tập hợp các UUID bài viết cần tra cứu
+     * @return Map ánh xạ từ articleId sang WikiArticleListItemDTO
+     */
+    Map<UUID, WikiArticleListItemDTO> findListItemsByIds(
+            Set<UUID> articleIds
     );
 }

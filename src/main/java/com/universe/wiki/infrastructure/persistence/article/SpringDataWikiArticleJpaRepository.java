@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -148,4 +149,23 @@ public interface SpringDataWikiArticleJpaRepository
             @Param("normalizedAlias") String normalizedAlias,
             Pageable pageable
     );
+
+    /**
+     * Batch lookup of lightweight Wiki article metadata by IDs.
+     */
+    @Query("""
+            SELECT
+                article.id AS id,
+                article.title AS title,
+                article.slug AS slug,
+                article.articleType AS articleType,
+                article.status AS status,
+                article.updatedBy AS updatedBy,
+                article.createdAt AS createdAt,
+                article.updatedAt AS updatedAt,
+                article.contentVersion AS contentVersion
+            FROM WikiArticleJpaEntity article
+            WHERE article.id IN :ids
+            """)
+    List<WikiArticleListItemProjection> findListItemsByIds(@Param("ids") Collection<String> ids);
 }

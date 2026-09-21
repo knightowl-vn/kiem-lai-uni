@@ -8,8 +8,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class ChapterListQueryPersistenceAdapter
@@ -72,6 +77,31 @@ public class ChapterListQueryPersistenceAdapter
                 result.hasPrevious(),
                 result.hasNext()
         );
+    }
+
+    @Override
+    public Map<UUID, ChapterListItemDTO> findListItemsByIds(Set<UUID> chapterIds) {
+        if (chapterIds == null || chapterIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> idStrings = chapterIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        return repository.findListItemsByIds(idStrings).stream()
+                .map(this::toDTO)
+                .collect(Collectors.toMap(
+                        ChapterListItemDTO::id,
+                        dto -> dto,
+                        (existing, replacement) -> existing,
+                        LinkedHashMap::new
+                ));
     }
 
     private ChapterListItemDTO toDTO(

@@ -17,9 +17,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class WikiArticleQueryAdapter
@@ -349,6 +354,51 @@ return new PublishedWikiArticleListItemDTO(
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
                 entity.getContentVersion()
+        );
+    }
+
+    @Override
+    public Map<UUID, WikiArticleListItemDTO> findListItemsByIds(Set<UUID> articleIds) {
+        if (articleIds == null || articleIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> idStrings = articleIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        return repository.findListItemsByIds(idStrings).stream()
+                .map(this::toListItemDTO)
+                .collect(Collectors.toMap(
+                        WikiArticleListItemDTO::id,
+                        dto -> dto,
+                        (existing, replacement) -> existing,
+                        LinkedHashMap::new
+                ));
+    }
+
+    private WikiArticleListItemDTO toListItemDTO(
+            WikiArticleListItemProjection projection
+    ) {
+        return new WikiArticleListItemDTO(
+                UUID.fromString(
+                        projection.getId()
+                ),
+                projection.getTitle(),
+                projection.getSlug(),
+                projection.getArticleType(),
+                projection.getStatus(),
+                toNullableUuid(
+                        projection.getUpdatedBy()
+                ),
+                projection.getCreatedAt(),
+                projection.getUpdatedAt(),
+                projection.getContentVersion()
         );
     }
 
