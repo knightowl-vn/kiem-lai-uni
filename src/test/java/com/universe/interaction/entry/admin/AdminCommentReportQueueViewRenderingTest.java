@@ -177,6 +177,10 @@ class AdminCommentReportQueueViewRenderingTest {
                 .andExpect(content().string(containsString("&lt;script&gt;")))
                 .andExpect(content().string(containsString("&lt;b&gt;evidence&lt;/b&gt;")))
                 .andExpect(content().string(not(containsString("<script>alert(\"x\")</script>"))))
+                // Detail view links
+                .andExpect(content().string(containsString("Xem chi tiết")))
+                .andExpect(content().string(containsString("/admin/comments/reports/" + reportNovelId)))
+                .andExpect(content().string(containsString("/admin/comments/reports/" + reportWikiId)))
                 // Pagination controls and indicators (page 2 of 3)
                 .andExpect(content().string(containsString("Trang trước")))
                 .andExpect(content().string(containsString("Trang sau")))
@@ -230,6 +234,24 @@ class AdminCommentReportQueueViewRenderingTest {
                 .andExpect(content().string(containsString(unresolvedTargetId.toString())))
                 // Blank description guard: description panel must NOT be rendered for whitespace-only text
                 .andExpect(content().string(not(containsString("comment-report-description"))));
+
+        verify(coordinator).getReportQueue(any());
+    }
+
+    @Test
+    @DisplayName("Case 4: Flash errorMessage renders visible alert with th:text escaping")
+    void shouldRenderFlashErrorMessageWithRealThymeleaf() throws Exception {
+        when(coordinator.getReportQueue(any()))
+                .thenReturn(AdminCommentReportQueuePageDTO.empty(0, 20));
+
+        mockMvc.perform(get("/admin/comments/reports")
+                        .flashAttr("errorMessage", "Không tìm thấy báo cáo: <script>alert(\"xss\")</script>"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/reports"))
+                .andExpect(content().string(containsString("Không tìm thấy báo cáo:")))
+                .andExpect(content().string(containsString("&lt;script&gt;")))
+                .andExpect(content().string(not(containsString("<script>alert(\"xss\")</script>"))))
+                .andExpect(content().string(not(containsString("<script>"))));
 
         verify(coordinator).getReportQueue(any());
     }
