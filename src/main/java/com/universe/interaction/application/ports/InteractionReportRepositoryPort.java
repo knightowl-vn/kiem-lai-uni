@@ -2,6 +2,7 @@ package com.universe.interaction.application.ports;
 
 import com.universe.interaction.domain.report.InteractionReport;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,4 +46,14 @@ public interface InteractionReportRepositoryPort {
      * @return an Optional containing the locked domain report if found, empty otherwise
      */
     Optional<InteractionReport> findByIdForUpdate(UUID reportId);
+
+    /**
+     * Physically purges terminal resolved reports that were resolved before the specified cutoff timestamp,
+     * up to the given limit, ordered deterministically by oldest resolved first (resolved_at ASC, id ASC).
+     *
+     * @param cutoff the strict cutoff timestamp (resolved_at < cutoff)
+     * @param limit maximum number of reports to delete in this batch
+     * @return the number of deleted report records
+     */
+    int purgeExpiredResolvedBefore(Instant cutoff, int limit);
 }

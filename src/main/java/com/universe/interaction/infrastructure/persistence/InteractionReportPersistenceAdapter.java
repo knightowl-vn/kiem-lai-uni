@@ -3,13 +3,17 @@ package com.universe.interaction.infrastructure.persistence;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportStatus;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+
 
 /**
  * Persistence adapter implementing {@link InteractionReportRepositoryPort} using Spring Data JPA.
@@ -100,5 +104,24 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
                 reporterUserId.toString(),
                 ReportStatus.PENDING.name()
         );
+    }
+
+    @Override
+    @Transactional
+    public int purgeExpiredResolvedBefore(Instant cutoff, int limit) {
+        if (cutoff == null) {
+            throw new IllegalArgumentException("Cutoff cannot be null.");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be greater than 0, given: " + limit);
+        }
+
+        List<String> expiredIds = repository.findExpiredResolvedReportIds(cutoff, PageRequest.of(0, limit));
+        if (expiredIds == null || expiredIds.isEmpty()) {
+            return 0;
+        }
+
+
+        return repository.deleteByIdIn(expiredIds);
     }
 }

@@ -5,11 +5,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+
 
 /**
  * Spring Data JPA repository for {@link InteractionReportJpaEntity}.
@@ -172,4 +176,36 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             @Param("targetType") String targetType,
             Pageable pageable
     );
+
+    /**
+     * Selects up to {@code limit} expired terminal resolved report IDs ordered deterministically (resolved_at ASC, id ASC).
+     */
+    @Query(
+            value = """
+                    SELECT r.id
+                    FROM interaction_reports r
+                    WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
+                      AND r.resolved_at < :cutoff
+                    ORDER BY r.resolved_at ASC, r.id ASC
+                    """,
+            nativeQuery = true
+    )
+    List<String> findExpiredResolvedReportIds(
+            @Param("cutoff") Instant cutoff,
+            Pageable pageable
+    );
+
+
+    /**
+     * Deletes interaction reports matching the given IDs.
+     */
+    @Modifying
+    @Query(
+            value = """
+                    DELETE FROM interaction_reports
+                    WHERE id IN (:ids)
+                    """,
+            nativeQuery = true
+    )
+    int deleteByIdIn(@Param("ids") List<String> ids);
 }
