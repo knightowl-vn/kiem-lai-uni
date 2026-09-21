@@ -36,6 +36,11 @@
                     </div>
                 </div>
 
+                <!-- Flash Success Message -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
                 <!-- Flash Error Message -->
                 <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
                     Thông báo lỗi
@@ -395,13 +400,52 @@
                         </span>
                     </div>
 
-                    <!-- Khi PENDING: Không tạo giá trị giả mạo -->
+                    <!-- Khi PENDING: Không tạo giá trị giả mạo + Hiển thị panel hành động kiểm duyệt -->
                     <div th:if="${report.status.name() == 'PENDING'}" class="comment-report-detail-notice-box pending">
                         <p>Báo cáo hiện đang trong hàng đợi chờ xử lý kiểm duyệt. Chưa có hành động xử lý nào được thực hiện.</p>
                     </div>
 
+                    <div th:if="${report.status.name() == 'PENDING'}" class="comment-report-detail-moderation-panel">
+                        <div class="comment-report-detail-moderation-header">
+                            <h4>Hành động kiểm duyệt</h4>
+                            <p>Chọn phương án xử lý báo cáo. Hành động xóa bình luận sẽ loại bỏ nội dung công khai trong khi bảo lưu bằng chứng báo cáo.</p>
+                        </div>
+                        <div class="comment-report-detail-moderation-actions">
+                            <!-- Hành động 1: NO_ACTION -->
+                            <form method="post"
+                                  th:action="@{/admin/comments/reports/{id}/resolve(id=${report.reportId})}"
+                                  class="comment-report-detail-action-form">
+                                <input type="hidden" name="action" value="NO_ACTION">
+                                <button type="submit" class="admin-secondary-button comment-report-detail-btn-no-action">
+                                    Không cần hành động
+                                </button>
+                            </form>
+
+                            <!-- Hành động 2: DELETE_COMMENT (chỉ hiển thị khi currentCommentAvailable) -->
+                            <form th:if="${report.currentCommentAvailable}"
+                                  method="post"
+                                  th:action="@{/admin/comments/reports/{id}/resolve(id=${report.reportId})}"
+                                  class="comment-report-detail-action-form"
+                                  onsubmit="return confirm('Xóa bình luận này khỏi nội dung công khai? Bằng chứng tại thời điểm báo cáo vẫn được giữ lại.')">
+                                <input type="hidden" name="action" value="DELETE_COMMENT">
+                                <button type="submit" class="admin-danger-button comment-report-detail-btn-delete">
+                                    Xóa bình luận
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
                     <!-- Khi TERMINAL (Đã xử lý) -->
                     <div th:unless="${report.status.name() == 'PENDING'}" class="comment-report-detail-resolution-grid">
+                        <div class="comment-report-detail-meta-item">
+                            <span class="comment-report-detail-meta-label">Trạng thái xử lý:</span>
+                            <span class="comment-report-detail-terminal-status"
+                                  th:classappend="${report.status.name() == 'RESOLVED_ACTION_TAKEN' ? ' action-taken' : ' no-action'}"
+                                  th:text="${report.status.name() == 'RESOLVED_ACTION_TAKEN' ? 'ĐÃ XỬ LÝ — CÓ HÀNH ĐỘNG' :
+                                           report.status.name() == 'RESOLVED_NO_ACTION' ? 'ĐÃ XỬ LÝ — KHÔNG HÀNH ĐỘNG' : report.status}">
+                                ĐÃ XỬ LÝ — CÓ HÀNH ĐỘNG
+                            </span>
+                        </div>
                         <div th:if="${report.resolvedAt != null}" class="comment-report-detail-meta-item">
                             <span class="comment-report-detail-meta-label">Thời gian xử lý:</span>
                             <time class="comment-report-detail-meta-value"
@@ -409,7 +453,11 @@
                                 01/01/2026 12:00:00
                             </time>
                         </div>
-                        <div th:if="${report.resolvedByUserId != null}" class="comment-report-detail-meta-item">
+                        <div th:if="${report.resolver != null and report.resolver.resolved}" class="comment-report-detail-meta-item">
+                            <span class="comment-report-detail-meta-label">Người xử lý:</span>
+                            <span class="comment-report-detail-meta-value" th:text="${report.resolver.displayName}">Tên Admin</span>
+                        </div>
+                        <div th:if="${report.resolvedByUserId != null and (report.resolver == null or !report.resolver.resolved)}" class="comment-report-detail-meta-item">
                             <span class="comment-report-detail-meta-label">Mã người xử lý:</span>
                             <code class="comment-report-detail-code" th:text="${report.resolvedByUserId}">UUID</code>
                         </div>

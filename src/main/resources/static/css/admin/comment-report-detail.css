@@ -525,6 +525,106 @@
     gap: 24px;
 }
 
+/* --- Flash Success Alert --- */
+.admin-form-success.alert-success {
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: var(--success-light);
+    border: 1px solid #bfe8d4;
+    color: var(--success);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+/* --- Moderation Action Panel (PENDING) --- */
+.comment-report-detail-moderation-panel {
+    margin-top: 8px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.comment-report-detail-moderation-header h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-moderation-header p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.comment-report-detail-moderation-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.comment-report-detail-action-form {
+    margin: 0;
+    display: inline-block;
+}
+
+.comment-report-detail-btn-no-action {
+    min-height: 40px;
+    padding: 0 18px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.comment-report-detail-btn-delete {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 18px;
+    border: 1px solid #e05260;
+    border-radius: 10px;
+    background: var(--danger);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.15s ease, background-color 0.15s ease;
+}
+
+.comment-report-detail-btn-delete:hover {
+    filter: brightness(0.92);
+}
+
+/* --- Terminal Resolution Summary --- */
+.comment-report-detail-terminal-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+}
+
+.comment-report-detail-terminal-status.action-taken {
+    background: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid #f8c7cf;
+}
+
+.comment-report-detail-terminal-status.no-action {
+    background: var(--success-light);
+    color: var(--success);
+    border: 1px solid #bfe8d4;
+}
+
 /* =========================================================
    RESPONSIVE DESIGN
    Desktop (default): multi-column grids
@@ -593,5 +693,20 @@
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
+    }
+
+    .comment-report-detail-moderation-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .comment-report-detail-action-form {
+        width: 100%;
+    }
+
+    .comment-report-detail-btn-no-action,
+    .comment-report-detail-btn-delete {
+        width: 100%;
+        text-align: center;
     }
 }

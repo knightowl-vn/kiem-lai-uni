@@ -544,4 +544,251 @@ class AdminCommentReportDetailViewRenderingTest {
 
         verify(coordinator).getDetail(reportId);
     }
+
+    @Test
+    @DisplayName("Case J: PENDING + ACTIVE current comment - renders both NO_ACTION and DELETE_COMMENT forms with confirmation")
+    void shouldRenderPendingActiveCommentWithModerationActionForms() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.SPAM,
+                null,
+                "Snapshot spam",
+                ReportStatus.PENDING,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                null,
+                null,
+                null,
+                true,
+                "Bình luận đang hiển thị",
+                CommentStatus.ACTIVE,
+                baseTime.minusSeconds(3600),
+                null,
+                null,
+                AdminCommentReportUserDTO.resolved(authorId, "Bob Author", null),
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                // Moderation Panel exists
+                .andExpect(content().string(containsString("Hành động kiểm duyệt")))
+                // NO_ACTION form
+                .andExpect(content().string(containsString("action=\"/admin/comments/reports/" + reportId + "/resolve\"")))
+                .andExpect(content().string(containsString("value=\"NO_ACTION\"")))
+                .andExpect(content().string(containsString("Không cần hành động")))
+                // DELETE_COMMENT form + confirmation
+                .andExpect(content().string(containsString("value=\"DELETE_COMMENT\"")))
+                .andExpect(content().string(containsString("Xóa bình luận")))
+                .andExpect(content().string(containsString("onsubmit=\"return confirm('Xóa bình luận này khỏi nội dung công khai? Bằng chứng tại thời điểm báo cáo vẫn được giữ lại.')\"")));
+
+        verify(coordinator).getDetail(reportId);
+    }
+
+    @Test
+    @DisplayName("Case K: PENDING + DELETED tombstone comment - renders both NO_ACTION and DELETE_COMMENT forms")
+    void shouldRenderPendingDeletedTombstoneCommentWithBothModerationActionForms() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.HARASSMENT,
+                null,
+                "Snapshot harassment",
+                ReportStatus.PENDING,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                null,
+                null,
+                null,
+                true,
+                null,
+                CommentStatus.DELETED,
+                baseTime.minusSeconds(3600),
+                baseTime.minusSeconds(1800),
+                baseTime.minusSeconds(1800),
+                AdminCommentReportUserDTO.resolved(authorId, "Bob Author", null),
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                .andExpect(content().string(containsString("value=\"NO_ACTION\"")))
+                .andExpect(content().string(containsString("Không cần hành động")))
+                .andExpect(content().string(containsString("value=\"DELETE_COMMENT\"")))
+                .andExpect(content().string(containsString("Xóa bình luận")));
+
+        verify(coordinator).getDetail(reportId);
+    }
+
+    @Test
+    @DisplayName("Case L: PENDING + currentCommentAvailable=false - renders NO_ACTION but OMITS DELETE_COMMENT form")
+    void shouldRenderPendingMissingCommentWithNoActionFormAndOmitDeleteForm() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.OTHER,
+                "Lý do khác",
+                "Snapshot missing comment",
+                ReportStatus.PENDING,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                // NO_ACTION is available
+                .andExpect(content().string(containsString("value=\"NO_ACTION\"")))
+                .andExpect(content().string(containsString("Không cần hành động")))
+                // DELETE_COMMENT is omitted
+                .andExpect(content().string(not(containsString("value=\"DELETE_COMMENT\""))))
+                .andExpect(content().string(not(containsString("Xóa bình luận"))));
+
+        verify(coordinator).getDetail(reportId);
+    }
+
+    @Test
+    @DisplayName("Case M: RESOLVED_ACTION_TAKEN - renders read-only terminal summary with exact label and omits mutation forms")
+    void shouldRenderTerminalResolvedActionTakenWithReadOnlySummaryAndNoForms() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.SPAM,
+                null,
+                "Snapshot spam",
+                ReportStatus.RESOLVED_ACTION_TAKEN,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                resolverId,
+                AdminCommentReportUserDTO.resolved(resolverId, "Moderator Bob", "https://img.local/bob.png"),
+                baseTime.plusSeconds(600),
+                true,
+                null,
+                CommentStatus.DELETED,
+                baseTime.minusSeconds(3600),
+                null,
+                baseTime.plusSeconds(600),
+                AdminCommentReportUserDTO.resolved(authorId, "Dave Author", null),
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                // Terminal label
+                .andExpect(content().string(containsString("ĐÃ XỬ LÝ — CÓ HÀNH ĐỘNG")))
+                .andExpect(content().string(containsString("Moderator Bob")))
+                .andExpect(content().string(containsString("Thời gian xử lý:")))
+                // No mutation forms
+                .andExpect(content().string(not(containsString("Hành động kiểm duyệt"))))
+                .andExpect(content().string(not(containsString("value=\"NO_ACTION\""))))
+                .andExpect(content().string(not(containsString("value=\"DELETE_COMMENT\""))))
+                .andExpect(content().string(not(containsString("Không cần hành động"))))
+                .andExpect(content().string(not(containsString("Xóa bình luận"))));
+
+        verify(coordinator).getDetail(reportId);
+    }
+
+    @Test
+    @DisplayName("Case N: RESOLVED_NO_ACTION - renders read-only terminal summary with exact label and omits mutation forms")
+    void shouldRenderTerminalResolvedNoActionWithReadOnlySummaryAndNoForms() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.SPAM,
+                null,
+                "Snapshot spam",
+                ReportStatus.RESOLVED_NO_ACTION,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice Reporter", null),
+                resolverId,
+                AdminCommentReportUserDTO.resolved(resolverId, "Moderator Bob", null),
+                baseTime.plusSeconds(300),
+                true,
+                "Bình luận vẫn đang hiển thị bình thường",
+                CommentStatus.ACTIVE,
+                baseTime.minusSeconds(3600),
+                null,
+                null,
+                AdminCommentReportUserDTO.resolved(authorId, "Dave Author", null),
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                // Terminal label
+                .andExpect(content().string(containsString("ĐÃ XỬ LÝ — KHÔNG HÀNH ĐỘNG")))
+                .andExpect(content().string(containsString("Moderator Bob")))
+                .andExpect(content().string(containsString("Thời gian xử lý:")))
+                // No mutation forms
+                .andExpect(content().string(not(containsString("Hành động kiểm duyệt"))))
+                .andExpect(content().string(not(containsString("value=\"NO_ACTION\""))))
+                .andExpect(content().string(not(containsString("value=\"DELETE_COMMENT\""))))
+                .andExpect(content().string(not(containsString("Không cần hành động"))))
+                .andExpect(content().string(not(containsString("Xóa bình luận"))));
+
+        verify(coordinator).getDetail(reportId);
+    }
+
+    @Test
+    @DisplayName("Case O: Flash Success - renders successMessage alert when present in flash attributes")
+    void shouldRenderFlashSuccessMessageWhenPresent() throws Exception {
+        AdminCommentReportDetailDTO detailDTO = new AdminCommentReportDetailDTO(
+                reportId,
+                commentId,
+                ReportReason.SPAM,
+                null,
+                "Snapshot",
+                ReportStatus.PENDING,
+                baseTime,
+                AdminCommentReportUserDTO.resolved(reporterId, "Alice", null),
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(coordinator.getDetail(reportId)).thenReturn(detailDTO);
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId)
+                        .flashAttr("successMessage", "Đã xóa bình luận và xử lý báo cáo."))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/comments/report-detail"))
+                .andExpect(content().string(containsString("Đã xóa bình luận và xử lý báo cáo.")))
+                .andExpect(content().string(containsString("admin-form-success alert-success")));
+
+        verify(coordinator).getDetail(reportId);
+    }
 }
