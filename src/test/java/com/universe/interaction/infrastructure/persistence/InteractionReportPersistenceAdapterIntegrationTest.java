@@ -12,18 +12,31 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.lang.reflect.Method;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +73,9 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @AfterEach
     void cleanUp() {
@@ -255,5 +271,144 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         assertThat(retrieved2).isPresent();
         assertThat(retrieved2.get().getStatus()).isEqualTo(ReportStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate throws IllegalArgumentException when id is null")
+    void shouldRejectNullIdInFindByIdForUpdate() {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        assertThatThrownBy(() -> txTemplate.execute(status -> adapter.findByIdForUpdate(null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Report ID cannot be null.");
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate enforces mandatory transaction propagation")
+    void shouldEnforceMandatoryTransactionForFindByIdForUpdate() {
+        assertThatThrownBy(() -> adapter.findByIdForUpdate(UUID.randomUUID()))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate returns Optional.empty() when report is absent")
+    void shouldReturnEmptyOptionalWhenReportAbsentInFindByIdForUpdate() {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Optional<InteractionReport> result = txTemplate.execute(status -> adapter.findByIdForUpdate(UUID.randomUUID()));
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate retrieves and correctly maps existing report aggregate")
+    void shouldRetrieveAndMapExistingReportInFindByIdForUpdate() {
+        UUID reportId = UUID.randomUUID();
+        UUID commentId = insertComment();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        InteractionReport pendingReport = InteractionReport.createPending(
+                reportId,
+                commentId,
+                reporterUserId,
+                ReportReason.SPOILER,
+                "Major plot spoiler",
+                "Spoiler text snapshot",
+                createdAt
+        );
+        adapter.save(pendingReport);
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        Optional<InteractionReport> found = txTemplate.execute(status -> adapter.findByIdForUpdate(reportId));
+        assertThat(found).isPresent();
+
+        InteractionReport retrieved = found.get();
+        assertThat(retrieved.getId()).isEqualTo(reportId);
+        assertThat(retrieved.getCommentId()).isEqualTo(commentId);
+        assertThat(retrieved.getReporterUserId()).isEqualTo(reporterUserId);
+        assertThat(retrieved.getReason()).isEqualTo(ReportReason.SPOILER);
+        assertThat(retrieved.getDescription()).isEqualTo("Major plot spoiler");
+        assertThat(retrieved.getReportedBodySnapshot()).isEqualTo("Spoiler text snapshot");
+        assertThat(retrieved.getStatus()).isEqualTo(ReportStatus.PENDING);
+        assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
+    }
+
+    @Test
+    @DisplayName("SpringDataInteractionReportRepository.findByIdForUpdate is configured with PESSIMISTIC_WRITE lock")
+    void shouldVerifyPessimisticWriteLockAnnotationOnRepository() throws NoSuchMethodException {
+        Method method = SpringDataInteractionReportRepository.class.getMethod("findByIdForUpdate", String.class);
+        Lock lock = method.getAnnotation(Lock.class);
+
+        assertThat(lock).isNotNull();
+        assertThat(lock.value()).isEqualTo(LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate locks report row and serializes concurrent access")
+    void shouldLockReportRowAndSerializeConcurrentAccess() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        UUID commentId = insertComment();
+        UUID reporterUserId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        InteractionReport report = InteractionReport.createPending(
+                reportId, commentId, reporterUserId, ReportReason.HARASSMENT, null, "Harassment snapshot", now
+        );
+        adapter.save(report);
+
+        CountDownLatch thread1LockedRow = new CountDownLatch(1);
+        CountDownLatch thread2AttemptingLock = new CountDownLatch(1);
+        AtomicBoolean thread2ObservedTerminal = new AtomicBoolean(false);
+
+        TransactionTemplate txTemplate1 = new TransactionTemplate(transactionManager);
+        txTemplate1.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txTemplate2 = new TransactionTemplate(transactionManager);
+        txTemplate2.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> future1 = executor.submit(() -> {
+                txTemplate1.execute(status -> {
+                    InteractionReport locked = adapter.findByIdForUpdate(reportId).orElseThrow();
+                    thread1LockedRow.countDown();
+                    try {
+                        thread2AttemptingLock.await(5, TimeUnit.SECONDS);
+                        Thread.sleep(300);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    locked.resolveActionTaken(UUID.randomUUID(), now.plusSeconds(30));
+                    adapter.save(locked);
+                    return null;
+                });
+            });
+
+            Future<?> future2 = executor.submit(() -> {
+                try {
+                    thread1LockedRow.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                thread2AttemptingLock.countDown();
+                txTemplate2.execute(status -> {
+                    InteractionReport lockedByThread2 = adapter.findByIdForUpdate(reportId).orElseThrow();
+                    thread2ObservedTerminal.set(lockedByThread2.isTerminal());
+                    return null;
+                });
+            });
+
+            future1.get(10, TimeUnit.SECONDS);
+            future2.get(10, TimeUnit.SECONDS);
+
+            assertThat(thread2ObservedTerminal.get()).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }

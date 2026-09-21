@@ -4,6 +4,7 @@ import com.universe.interaction.application.ports.InteractionReportRepositoryPor
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
@@ -75,6 +76,15 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
             throw new IllegalArgumentException("Report ID cannot be null.");
         }
         return repository.findById(id.toString()).map(mapper::toDomain);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<InteractionReport> findByIdForUpdate(UUID id) {
+        if (id == null) {
+            throw new IllegalArgumentException("Report ID cannot be null.");
+        }
+        return repository.findByIdForUpdate(id.toString()).map(mapper::toDomain);
     }
 
     @Override

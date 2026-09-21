@@ -1,17 +1,31 @@
 package com.universe.interaction.infrastructure.persistence;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
 
 /**
  * Spring Data JPA repository for {@link InteractionReportJpaEntity}.
  */
 @Repository
 public interface SpringDataInteractionReportRepository extends JpaRepository<InteractionReportJpaEntity, String> {
+
+    /**
+     * Retrieves an existing report row by ID with an exclusive pessimistic write lock (SELECT ... FOR UPDATE).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT r FROM InteractionReportJpaEntity r
+            WHERE r.id = :id
+            """)
+    Optional<InteractionReportJpaEntity> findByIdForUpdate(@Param("id") String id);
 
     /**
      * Checks if a report exists for a specific comment, reporter, and status.

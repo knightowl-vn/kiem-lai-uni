@@ -34,4 +34,15 @@ public interface InteractionReportRepositoryPort {
      * @return true if a PENDING report already exists for this pair
      */
     boolean existsPendingByCommentIdAndReporterUserId(UUID commentId, UUID reporterUserId);
+
+    /**
+     * Finds an {@link InteractionReport} aggregate by its unique ID with an exclusive pessimistic write lock
+     * (SELECT ... FOR UPDATE).
+     *
+     * <p>Callers must invoke this method within an active transaction to protect against concurrent resolution races.
+     *
+     * @param reportId the unique report UUID
+     * @return an Optional containing the locked domain report if found, empty otherwise
+     */
+    Optional<InteractionReport> findByIdForUpdate(UUID reportId);
 }
