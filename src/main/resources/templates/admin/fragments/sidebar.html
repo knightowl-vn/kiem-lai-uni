@@ -36,6 +36,10 @@
                     : ''">
 
 				<span class="menu-icon">♙</span> <span>Người dùng</span>
+			</a> <a th:href="@{/admin/comments/reports}" class="sidebar-link"
+				th:classappend="${activeMenu == 'comment-reports'} ? ' active' : ''">
+
+				<span class="menu-icon">⚑</span> <span>Báo cáo bình luận</span>
 			</a> <a th:href="@{/admin/wiki/articles}" class="sidebar-link"
 				th:classappend="${activeMenu == 'wiki'}
             ? ' active'

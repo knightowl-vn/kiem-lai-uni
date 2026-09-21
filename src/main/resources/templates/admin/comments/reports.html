@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý báo cáo bình luận | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/comment-reports.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Heading -->
+                <div class="comment-reports-heading">
+                    <div>
+                        <span class="admin-eyebrow">INTERACTION / MODERATION</span>
+                        <h2>Báo cáo bình luận</h2>
+                        <p>Theo dõi các bình luận bị người dùng báo cáo và thông tin cần thiết cho quá trình kiểm duyệt.</p>
+                    </div>
+                </div>
+
+                <!-- Bộ lọc -->
+                <section class="admin-filter-panel">
+                    <form method="get" th:action="@{/admin/comments/reports}" class="admin-filter-form comment-reports-filter-form">
+
+                        <div class="admin-field">
+                            <label for="status">Trạng thái</label>
+                            <select id="status" name="status">
+                                <option value="ALL" th:selected="${selectedStatus == null}">Tất cả trạng thái</option>
+                                <option value="PENDING" th:selected="${selectedStatus != null and selectedStatus.name() == 'PENDING'}">Chờ xử lý</option>
+                                <option value="RESOLVED_ACTION_TAKEN" th:selected="${selectedStatus != null and selectedStatus.name() == 'RESOLVED_ACTION_TAKEN'}">Đã xử lý — có hành động</option>
+                                <option value="RESOLVED_NO_ACTION" th:selected="${selectedStatus != null and selectedStatus.name() == 'RESOLVED_NO_ACTION'}">Đã xử lý — không hành động</option>
+                            </select>
+                        </div>
+
+                        <div class="admin-field">
+                            <label for="reason">Lý do</label>
+                            <select id="reason" name="reason">
+                                <option value="ALL" th:selected="${selectedReason == null}">Tất cả lý do</option>
+                                <option value="SPAM" th:selected="${selectedReason != null and selectedReason.name() == 'SPAM'}">Spam</option>
+                                <option value="HARASSMENT" th:selected="${selectedReason != null and selectedReason.name() == 'HARASSMENT'}">Quấy rối</option>
+                                <option value="HATE_SPEECH" th:selected="${selectedReason != null and selectedReason.name() == 'HATE_SPEECH'}">Phát ngôn thù hằn</option>
+                                <option value="SEXUAL_OR_OBSCENE" th:selected="${selectedReason != null and selectedReason.name() == 'SEXUAL_OR_OBSCENE'}">Nội dung khiêu dâm / thô tục</option>
+                                <option value="SPOILER" th:selected="${selectedReason != null and selectedReason.name() == 'SPOILER'}">Tiết lộ nội dung (Spoiler)</option>
+                                <option value="OTHER" th:selected="${selectedReason != null and selectedReason.name() == 'OTHER'}">Lý do khác</option>
+                            </select>
+                        </div>
+
+                        <div class="admin-field">
+                            <label for="targetType">Nội dung mục tiêu</label>
+                            <select id="targetType" name="targetType">
+                                <option value="ALL" th:selected="${selectedTargetType == null}">Tất cả nội dung</option>
+                                <option value="NOVEL_CHAPTER" th:selected="${selectedTargetType != null and selectedTargetType.name() == 'NOVEL_CHAPTER'}">Chương truyện</option>
+                                <option value="WIKI_ARTICLE" th:selected="${selectedTargetType != null and selectedTargetType.name() == 'WIKI_ARTICLE'}">Bài Wiki</option>
+                            </select>
+                        </div>
+
+                        <div class="admin-field">
+                            <label for="sort">Sắp xếp</label>
+                            <select id="sort" name="sort">
+                                <option value="OLDEST" th:selected="${selectedSort != null and selectedSort.name() == 'OLDEST'}">Cũ nhất trước</option>
+                                <option value="NEWEST" th:selected="${selectedSort != null and selectedSort.name() == 'NEWEST'}">Mới nhất trước</option>
+                            </select>
+                        </div>
+
+                        <input type="hidden" name="size" th:value="${pageSize}">
+
+                        <div class="admin-filter-actions">
+                            <button type="submit" class="admin-primary-button">Lọc kết quả</button>
+                            <a th:href="@{/admin/comments/reports}" class="admin-secondary-button">Đặt lại</a>
+                        </div>
+
+                    </form>
+                </section>
+
+                <!-- Tổng số kết quả -->
+                <div class="admin-result-summary">
+                    <span>Tìm thấy <strong th:text="${reportPage.totalElements}">0</strong> báo cáo</span>
+                    <span>Trang <strong th:text="${reportPage.page + 1}">1</strong> / <strong th:text="${reportPage.totalPages > 0 ? reportPage.totalPages : 1}">1</strong></span>
+                </div>
+
+                <!-- Trạng thái rỗng -->
+                <section th:if="${#lists.isEmpty(reports)}" class="admin-empty-state">
+                    <div class="admin-empty-icon">✓</div>
+                    <h3>Không có báo cáo phù hợp</h3>
+                    <p>Không có báo cáo nào khớp với bộ lọc hiện tại.</p>
+                    <a th:href="@{/admin/comments/reports}" class="admin-secondary-button">Về báo cáo chờ xử lý</a>
+                </section>
+
+                <!-- Danh sách thẻ báo cáo (Moderation Cards) -->
+                <div th:unless="${#lists.isEmpty(reports)}" class="comment-reports-list">
+                    <article class="comment-report-card" th:each="report : ${reports}">
+
+                        <!-- Header thẻ -->
+                        <div class="comment-report-card-header">
+                            <div class="comment-report-header-left">
+                                <span class="comment-report-badge"
+                                      th:classappend="${report.status.name() == 'PENDING' ? ' status-pending' :
+                                                       report.status.name() == 'RESOLVED_ACTION_TAKEN' ? ' status-action-taken' :
+                                                       ' status-resolved-no-action'}"
+                                      th:text="${report.status.name() == 'PENDING' ? 'Chờ xử lý' :
+                                               report.status.name() == 'RESOLVED_ACTION_TAKEN' ? 'Đã xử lý — có hành động' :
+                                               'Đã xử lý — không hành động'}">
+                                    Chờ xử lý
+                                </span>
+                                <span class="comment-report-reason-badge"
+                                      th:text="${report.reason.name() == 'SPAM' ? 'Spam' :
+                                               report.reason.name() == 'HARASSMENT' ? 'Quấy rối' :
+                                               report.reason.name() == 'HATE_SPEECH' ? 'Phát ngôn thù hằn' :
+                                               report.reason.name() == 'SEXUAL_OR_OBSCENE' ? 'Khiêu dâm / Thô tục' :
+                                               report.reason.name() == 'SPOILER' ? 'Tiết lộ nội dung (Spoiler)' :
+                                               report.reason.name() == 'OTHER' ? 'Lý do khác' : report.reason.name()}">
+                                    Lý do
+                                </span>
+                            </div>
+                            <div class="comment-report-header-right">
+                                <time class="comment-report-time"
+                                      th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                    01/01/2026 12:00
+                                </time>
+                                <span class="comment-report-id" th:text="${'ID: ' + report.reportId}">ID</span>
+                            </div>
+                        </div>
+
+                        <!-- Bằng chứng vi phạm (Snapshot lịch sử bất biến) -->
+                        <div class="comment-report-evidence">
+                            <div class="comment-report-evidence-label">
+                                <span class="comment-report-evidence-icon">❝</span>
+                                <span>Nội dung tại thời điểm báo cáo</span>
+                            </div>
+                            <p class="comment-report-snapshot" th:text="${report.reportedBodySnapshot}">Nội dung bình luận bị báo cáo</p>
+                        </div>
+
+                        <!-- Ghi chú của người báo cáo (nếu có) -->
+                        <div th:if="${report.description != null and !report.description.isBlank()}" class="comment-report-description">
+                            <div class="comment-report-description-label">Ghi chú của người báo cáo</div>
+                            <p class="comment-report-description-text" th:text="${report.description}">Ghi chú của người báo cáo</p>
+                        </div>
+
+                        <!-- Lưới thông tin bổ sung -->
+                        <div class="comment-report-meta-grid">
+
+                            <!-- Bảng 1: Trạng thái bình luận hiện tại -->
+                            <div class="comment-report-meta-panel">
+                                <span class="comment-report-meta-label">Trạng thái bình luận hiện tại</span>
+                                <span class="comment-status-badge"
+                                      th:classappend="${report.commentStatus.name() == 'ACTIVE' ? ' comment-status-active' :
+                                                       report.commentStatus.name() == 'DELETED' ? ' comment-status-deleted' :
+                                                       ' comment-status-neutral'}"
+                                      th:text="${report.commentStatus.name() == 'ACTIVE' ? 'Đang hiển thị' :
+                                               report.commentStatus.name() == 'DELETED' ? 'Đã xóa' :
+                                               report.commentStatus.name()}">
+                                    Đang hiển thị
+                                </span>
+                            </div>
+
+                            <!-- Bảng 2: Người báo cáo -->
+                            <div class="comment-report-meta-panel">
+                                <span class="comment-report-meta-label">Người báo cáo</span>
+                                <div class="comment-report-user">
+                                    <div th:if="${report.reporter.resolved}">
+                                        <div th:if="${report.reporter.avatarUrl != null and !report.reporter.avatarUrl.isBlank()}" class="comment-report-avatar">
+                                            <img th:src="${report.reporter.avatarUrl}" alt="Avatar" class="comment-report-avatar-img" referrerpolicy="no-referrer">
+                                        </div>
+                                        <div th:unless="${report.reporter.avatarUrl != null and !report.reporter.avatarUrl.isBlank()}"
+                                             class="comment-report-avatar"
+                                             th:text="${report.reporter.displayName != null and !report.reporter.displayName.isBlank() ? #strings.substring(report.reporter.displayName, 0, 1) : '?'}">
+                                            U
+                                        </div>
+                                    </div>
+                                    <div th:unless="${report.reporter.resolved}" class="comment-report-avatar unresolved">?</div>
+                                    <div class="comment-report-user-info">
+                                        <strong th:if="${report.reporter.resolved}" class="comment-report-user-name" th:text="${report.reporter.displayName}">Tên người dùng</strong>
+                                        <strong th:unless="${report.reporter.resolved}" class="comment-report-user-name unresolved">Người dùng không khả dụng</strong>
+                                        <span class="comment-report-code" th:text="${report.reporter.userId}">UUID</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bảng 3: Tác giả bình luận -->
+                            <div class="comment-report-meta-panel">
+                                <span class="comment-report-meta-label">Tác giả bình luận</span>
+                                <div class="comment-report-user">
+                                    <div th:if="${report.commentAuthor.resolved}">
+                                        <div th:if="${report.commentAuthor.avatarUrl != null and !report.commentAuthor.avatarUrl.isBlank()}" class="comment-report-avatar">
+                                            <img th:src="${report.commentAuthor.avatarUrl}" alt="Avatar" class="comment-report-avatar-img" referrerpolicy="no-referrer">
+                                        </div>
+                                        <div th:unless="${report.commentAuthor.avatarUrl != null and !report.commentAuthor.avatarUrl.isBlank()}"
+                                             class="comment-report-avatar"
+                                             th:text="${report.commentAuthor.displayName != null and !report.commentAuthor.displayName.isBlank() ? #strings.substring(report.commentAuthor.displayName, 0, 1) : '?'}">
+                                            A
+                                        </div>
+                                    </div>
+                                    <div th:unless="${report.commentAuthor.resolved}" class="comment-report-avatar unresolved">?</div>
+                                    <div class="comment-report-user-info">
+                                        <strong th:if="${report.commentAuthor.resolved}" class="comment-report-user-name" th:text="${report.commentAuthor.displayName}">Tên tác giả</strong>
+                                        <strong th:unless="${report.commentAuthor.resolved}" class="comment-report-user-name unresolved">Người dùng không khả dụng</strong>
+                                        <span class="comment-report-code" th:text="${report.commentAuthor.userId}">UUID</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bảng 4: Nội dung mục tiêu -->
+                            <div class="comment-report-meta-panel">
+                                <span class="comment-report-meta-label">Mục tiêu</span>
+                                <div class="comment-report-target-content">
+                                    <span class="comment-report-target-type-badge"
+                                          th:text="${report.target.targetType.name() == 'NOVEL_CHAPTER' ? 'Chương truyện' : 'Bài Wiki'}">
+                                        Loại mục tiêu
+                                    </span>
+
+                                    <!-- Mục tiêu Chương truyện đã tìm thấy -->
+                                    <th:block th:if="${report.target.resolved and report.target.targetType.name() == 'NOVEL_CHAPTER'}">
+                                        <span class="comment-report-target-title"
+                                              th:text="${'Chương ' + report.target.chapterNumber + ': ' + report.target.title}">
+                                            Chương 1: Tiêu đề
+                                        </span>
+                                        <span class="comment-report-target-meta"
+                                              th:text="${'Slug: ' + report.target.slug + ' | Trạng thái: ' + report.target.currentStatus}">
+                                            tap-1/chuong-1 | PUBLISHED
+                                        </span>
+                                        <a th:href="@{/admin/novel/chapters/{id}(id=${report.target.targetId})}"
+                                           class="comment-report-target-link">
+                                            Xem Chapter ↗
+                                        </a>
+                                    </th:block>
+
+                                    <!-- Mục tiêu Bài Wiki đã tìm thấy -->
+                                    <th:block th:if="${report.target.resolved and report.target.targetType.name() == 'WIKI_ARTICLE'}">
+                                        <span class="comment-report-target-title"
+                                              th:text="${report.target.title}">
+                                            Tiêu đề bài viết
+                                        </span>
+                                        <span class="comment-report-target-meta"
+                                              th:text="${'Loại: ' + report.target.articleType + ' | Slug: ' + report.target.slug + ' | Trạng thái: ' + report.target.currentStatus}">
+                                            CHARACTER | tran-binh-an | PUBLISHED
+                                        </span>
+                                        <a th:href="@{/admin/wiki/articles/{id}(id=${report.target.targetId})}"
+                                           class="comment-report-target-link">
+                                            Xem bài Wiki ↗
+                                        </a>
+                                    </th:block>
+
+                                    <!-- Mục tiêu không khả dụng / không tìm thấy -->
+                                    <th:block th:unless="${report.target.resolved}">
+                                        <span class="comment-report-target-title unresolved">Nội dung không khả dụng</span>
+                                        <span class="comment-report-code" th:text="${report.target.targetId}">UUID</span>
+                                    </th:block>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </article>
+                </div>
+
+                <!-- Phân trang -->
+                <nav th:if="${reportPage.totalPages > 1}" class="admin-pagination" aria-label="Phân trang báo cáo bình luận">
+                    <a th:if="${reportPage.hasPrevious}"
+                       class="admin-page-button"
+                       th:href="@{/admin/comments/reports(
+                           status=${selectedStatus == null ? 'ALL' : selectedStatus.name()},
+                           reason=${selectedReason == null ? 'ALL' : selectedReason.name()},
+                           targetType=${selectedTargetType == null ? 'ALL' : selectedTargetType.name()},
+                           sort=${selectedSort.name()},
+                           size=${pageSize},
+                           page=${reportPage.page - 1}
+                       )}">
+                        ← Trang trước
+                    </a>
+
+                    <span>
+                        Trang <strong th:text="${reportPage.page + 1}">1</strong> / <strong th:text="${reportPage.totalPages}">1</strong>
+                    </span>
+
+                    <a th:if="${reportPage.hasNext}"
+                       class="admin-page-button"
+                       th:href="@{/admin/comments/reports(
+                           status=${selectedStatus == null ? 'ALL' : selectedStatus.name()},
+                           reason=${selectedReason == null ? 'ALL' : selectedReason.name()},
+                           targetType=${selectedTargetType == null ? 'ALL' : selectedTargetType.name()},
+                           sort=${selectedSort.name()},
+                           size=${pageSize},
+                           page=${reportPage.page + 1}
+                       )}">
+                        Trang sau →
+                    </a>
+                </nav>
+
+            </section>
+
+        </main>
+
+    </div>
+
+</body>
+</html>
