@@ -32,4 +32,10 @@ public interface InteractionReportQueueRowProjection {
     String getTargetId();
 
     String getCommentStatus();
+
+    String getModerationAction();
+
+    String getResolvedByUserId();
+
+    Instant getResolvedAt();
 }
