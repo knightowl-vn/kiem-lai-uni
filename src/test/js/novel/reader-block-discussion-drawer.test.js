@@ -5247,6 +5247,18 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
         });
 
         test('A. Shared presentation classes: root and reply elements contain .kl-comment and BEM child classes', async () => {
+            let capturedRootDescriptor = null;
+            let capturedReplyDescriptor = null;
+            const spyPresentation = {
+                ...sharedPresentation,
+                renderComment(desc, docRef, opts) {
+                    if (desc && desc.id === 'root-101') capturedRootDescriptor = desc;
+                    if (desc && desc.id === 'rep-101') capturedReplyDescriptor = desc;
+                    return sharedPresentation.renderComment(desc, docRef, opts);
+                }
+            };
+            drawerModule.setCommentPresentation(spyPresentation);
+
             const { doc, content } = setupChapterDOM();
             drawerModule.initReaderBlockDiscussionDrawer(doc, {
                 fetchFn: () => Promise.resolve({
@@ -5302,11 +5314,20 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             assert.ok(rootEl.classList.contains('kl-comment'), 'Root must have kl-comment base class');
             assert.ok(rootEl.querySelector('.kl-comment__header'), 'Root must have .kl-comment__header');
             assert.ok(rootEl.querySelector('.kl-comment__avatar'), 'Root must have .kl-comment__avatar');
-            assert.ok(rootEl.querySelector('.kl-comment__author'), 'Root must have .kl-comment__author');
-            assert.ok(rootEl.querySelector('.kl-comment__time'), 'Root must have .kl-comment__time');
+            const rootTime = rootEl.querySelector('.kl-comment__time');
+            assert.ok(rootTime, 'Root must have .kl-comment__time');
+            assert.strictEqual(rootTime.hasAttribute('data-relative-time'), true, 'Root time must have data-relative-time');
+            assert.strictEqual(rootTime.getAttribute('datetime'), '2026-09-20T10:00:00Z', 'Root time must preserve datetime');
+            assert.ok(rootTime.getAttribute('title'), 'Root time must have title');
+            assert.ok(rootTime.getAttribute('aria-label'), 'Root time must have aria-label');
             assert.ok(rootEl.querySelector('.kl-comment__body'), 'Root must have .kl-comment__body');
             assert.ok(rootEl.querySelector('.kl-comment__primary-actions'), 'Root must have .kl-comment__primary-actions');
             assert.ok(rootEl.querySelector('.kl-comment__overflow'), 'Root must have .kl-comment__overflow');
+
+            // Architecture assertions: canonical createdAt and no formattedTime
+            assert.ok(capturedRootDescriptor, 'Root descriptor must be passed to renderComment');
+            assert.strictEqual(capturedRootDescriptor.createdAt, '2026-09-20T10:00:00Z', 'Root createdAt must match server createdAt');
+            assert.strictEqual(capturedRootDescriptor.formattedTime, undefined, 'Root formattedTime must be undefined');
 
             const replyEl = content.querySelector('.novel-comment--reply');
             assert.ok(replyEl, 'Reply comment element must exist');
@@ -5318,6 +5339,10 @@ describe('MS-05E5G2 Wattpad-Style Novel Block Discussion Drawer Tests', () => {
             assert.ok(replyEl.querySelector('.kl-comment__body'), 'Reply must have .kl-comment__body');
             assert.ok(replyEl.querySelector('.kl-comment__primary-actions'), 'Reply must have .kl-comment__primary-actions');
             assert.ok(replyEl.querySelector('.kl-comment__overflow'), 'Reply must have .kl-comment__overflow');
+
+            assert.ok(capturedReplyDescriptor, 'Reply descriptor must be passed to renderComment');
+            assert.strictEqual(capturedReplyDescriptor.createdAt, '2026-09-20T10:05:00Z', 'Reply createdAt must match server createdAt');
+            assert.strictEqual(capturedReplyDescriptor.formattedTime, undefined, 'Reply formattedTime must be undefined');
         });
 
         test('B. Legacy prefix compatibility: elements carry both kl-comment and novel-comment classes', async () => {

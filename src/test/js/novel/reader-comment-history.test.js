@@ -557,6 +557,20 @@ describe('MS-05E5G5E Reader Comment Revision History UI Suite', () => {
             })
         });
 
+        const fakeRelativeTime = {
+            formatAbsolute(value) {
+                return 'EXACT:' + value;
+            },
+            formatElement(el) {
+                const raw = el.getAttribute('datetime');
+                el.textContent = 'RELATIVE:' + raw;
+                el.setAttribute('title', 'EXACT:' + raw);
+                el.setAttribute('aria-label', 'RELATIVE:' + raw + ', EXACT:' + raw);
+                return true;
+            }
+        };
+        historyModule.setRelativeTime(fakeRelativeTime);
+
         await historyModule.open({ chapterId: 'ch-1', commentId: 'cm-1' });
 
         const listEl = doc.querySelector('#novelCommentHistoryList');
@@ -570,7 +584,39 @@ describe('MS-05E5G5E Reader Comment Revision History UI Suite', () => {
         assert.strictEqual(bodyEl.textContent, 'Second revision content');
 
         const timeEl = entries[0].querySelector('.novel-comment-history-time');
-        assert.ok(timeEl.textContent.includes('18/09/2026'));
+        assert.ok(timeEl, 'Must render .novel-comment-history-time');
+        assert.strictEqual(timeEl.hasAttribute('data-relative-time'), true, 'Must have data-relative-time');
+        assert.strictEqual(timeEl.getAttribute('datetime'), '2026-09-18T10:30:00Z', 'Must preserve datetime');
+        assert.strictEqual(timeEl.textContent, 'RELATIVE:2026-09-18T10:30:00Z', 'Must format visible content with injected RelativeTime');
+        assert.strictEqual(timeEl.getAttribute('title'), 'EXACT:2026-09-18T10:30:00Z', 'Must have exact title from injected RelativeTime');
+        assert.strictEqual(timeEl.getAttribute('aria-label'), 'RELATIVE:2026-09-18T10:30:00Z, EXACT:2026-09-18T10:30:00Z', 'Must have aria-label from injected RelativeTime');
+    });
+
+    test('7b. invalid revision timestamp does not append empty time element', async () => {
+        const doc = new FakeDocument();
+        const fakeRevisions = [
+            {
+                revisionNumber: 1,
+                body: 'Rev with invalid date',
+                createdAt: 'invalid-date'
+            }
+        ];
+
+        historyModule.init(doc, {
+            fetch: async () => ({
+                ok: true,
+                status: 200,
+                json: async () => ({ items: fakeRevisions, page: 0, size: 20, hasNext: false })
+            })
+        });
+
+        await historyModule.open({ chapterId: 'ch-1', commentId: 'cm-1' });
+
+        const listEl = doc.querySelector('#novelCommentHistoryList');
+        const entries = listEl.querySelectorAll('.novel-comment-history-entry');
+        assert.strictEqual(entries.length, 1);
+        const timeEl = entries[0].querySelector('.novel-comment-history-time');
+        assert.strictEqual(timeEl, null, 'Invalid revision timestamp must NOT append an empty <time> element');
     });
 
     test('8. entries preserve newest-first server order', async () => {

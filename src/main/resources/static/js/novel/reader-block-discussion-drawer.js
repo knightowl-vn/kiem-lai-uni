@@ -522,23 +522,14 @@
      * @returns {string}
      */
     function formatTimestamp(isoString) {
-        if (!isoString || typeof isoString !== 'string') {
-            return '';
+        const pres = resolveCommentPresentation();
+        if (pres && typeof pres.formatTimestamp === 'function') {
+            return pres.formatTimestamp(isoString);
         }
-        try {
-            const date = new Date(isoString);
-            if (isNaN(date.getTime())) {
-                return '';
-            }
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return day + '/' + month + '/' + year + ' ' + hours + ':' + minutes;
-        } catch (_) {
-            return '';
+        if (typeof RelativeTime !== 'undefined' && typeof RelativeTime.formatAbsolute === 'function') {
+            return RelativeTime.formatAbsolute(isoString);
         }
+        return '';
     }
 
     /**
@@ -1003,7 +994,6 @@
         const authorDisplayName = (root.author && typeof root.author.displayName === 'string')
             ? root.author.displayName.trim()
             : '';
-        const rootTimeStr = formatTimestamp(root.createdAt);
 
         const rootAttrs = {};
         if (rootId) {
@@ -1031,7 +1021,6 @@
             tombstone: false,
             author: root.author,
             createdAt: root.createdAt,
-            formattedTime: rootTimeStr,
             edited: isRootEdited,
             body: root.body || '',
             overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
@@ -1181,7 +1170,6 @@
             tombstoneContent: tombstoneContentNodes,
             author: reply.author,
             createdAt: reply.createdAt,
-            formattedTime: formatTimestamp(reply.createdAt),
             edited: isReplyEdited,
             body: function (bodyEl, bodyDoc) {
                 const targetDoc = bodyDoc || d;

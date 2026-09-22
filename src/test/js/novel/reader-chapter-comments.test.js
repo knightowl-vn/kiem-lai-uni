@@ -5558,8 +5558,10 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
 
             // Delegate to real CommentPresentation but inject pre-existing tabindex="0"
             const realPresentation = commentsModule.getCommentPresentation();
+            let capturedDescriptor = null;
             commentsModule.setCommentPresentationImplementation({
                 renderComment(descriptor, docRef) {
+                    capturedDescriptor = descriptor;
                     const el = realPresentation.renderComment(descriptor, docRef);
                     if (el) {
                         el.setAttribute('tabindex', '0');
@@ -5594,6 +5596,19 @@ describe('MS-05E5H2F1 Authoritative Mutation Refresh (refreshFromPageZero)', () 
                 assert.ok(targetEl, 'Target element must exist');
                 assert.strictEqual(targetEl.getAttribute('tabindex'), '0', 'Pre-existing tabindex="0" must NOT be overwritten');
                 assert.strictEqual(targetEl.isFocused, true, 'Target must receive programmatic focus');
+
+                // UX-TIME-01B1: Rendered comment timestamp conforms to RelativeTime DOM contract
+                const timeEl = targetEl.querySelector('.kl-comment__time');
+                assert.ok(timeEl, 'Must render .kl-comment__time');
+                assert.strictEqual(timeEl.hasAttribute('data-relative-time'), true, 'Must have data-relative-time');
+                assert.strictEqual(timeEl.getAttribute('datetime'), '2026-09-18T10:00:00Z', 'Must preserve canonical datetime');
+                assert.ok(timeEl.getAttribute('title'), 'Must have exact datetime title');
+                assert.ok(timeEl.getAttribute('aria-label'), 'Must have accessible aria-label');
+
+                // Architecture assertion: descriptor.createdAt === server createdAt, descriptor.formattedTime === undefined
+                assert.ok(capturedDescriptor, 'renderComment must receive descriptor');
+                assert.strictEqual(capturedDescriptor.createdAt, '2026-09-18T10:00:00Z', 'descriptor.createdAt must match server createdAt');
+                assert.strictEqual(capturedDescriptor.formattedTime, undefined, 'descriptor.formattedTime must be undefined');
             } finally {
                 commentsModule.setCommentPresentationImplementation(undefined);
             }

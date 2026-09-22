@@ -2064,6 +2064,20 @@ describe('WikiArticleComments Module Tests', () => {
             };
         });
 
+        const fakeRelativeTime = {
+            formatAbsolute(value) {
+                return 'EXACT:' + value;
+            },
+            formatElement(el) {
+                const raw = el.getAttribute('datetime');
+                el.textContent = 'RELATIVE:' + raw;
+                el.setAttribute('title', 'EXACT:' + raw);
+                el.setAttribute('aria-label', 'RELATIVE:' + raw + ', EXACT:' + raw);
+                return true;
+            }
+        };
+        wikiCommentsModule.setRelativeTime(fakeRelativeTime);
+
         wikiCommentsModule.init(doc);
         await new Promise(process.nextTick);
 
@@ -2082,6 +2096,51 @@ describe('WikiArticleComments Module Tests', () => {
 
         // Current body (C) is NOT duplicated in history list
         assert.strictEqual(listEl.textContent.includes('Current latest version (C)'), false, 'Current body must NOT be in history list');
+
+        // UX-TIME-01B1: Revision timestamp adheres to RelativeTime DOM contract
+        const revTime = entries[0].querySelector('.wiki-comment-history-time');
+        assert.ok(revTime, 'Revision entry must render .wiki-comment-history-time');
+        assert.strictEqual(revTime.hasAttribute('data-relative-time'), true, 'Must have data-relative-time attribute');
+        assert.strictEqual(revTime.getAttribute('datetime'), '2026-09-19T10:15:00Z', 'Must have exact canonical datetime attribute from fixture');
+        assert.strictEqual(revTime.textContent, 'RELATIVE:2026-09-19T10:15:00Z', 'Must format visible content using injected RelativeTime');
+        assert.strictEqual(revTime.getAttribute('title'), 'EXACT:2026-09-19T10:15:00Z', 'Must have exact title attribute');
+        assert.strictEqual(revTime.getAttribute('aria-label'), 'RELATIVE:2026-09-19T10:15:00Z, EXACT:2026-09-19T10:15:00Z', 'Must have accessible aria-label');
+    });
+
+    test('26b. Invalid revision timestamp robustness: empty time element is omitted', async () => {
+        const doc = createEnvironment();
+
+        wikiCommentsModule.setFetchImplementation(async (url) => {
+            if (url.includes('/revisions')) {
+                return {
+                    status: 200,
+                    json: async () => ({
+                        items: [
+                            { revisionNumber: 1, body: 'Rev with invalid date', createdAt: 'invalid-date' }
+                        ],
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            }
+            return {
+                status: 200,
+                json: async () => ({ threads: [], threadCount: 0, commentCount: 0, page: 0, size: 20, hasNext: false })
+            };
+        });
+
+        wikiCommentsModule.init(doc);
+        await new Promise(process.nextTick);
+
+        await wikiCommentsModule.openRevisionHistory(ROOT_ID, null, doc);
+        await new Promise(process.nextTick);
+
+        const { listEl } = wikiCommentsModule.getHistoryElements(doc);
+        const entries = listEl.querySelectorAll('.wiki-comment-history-entry');
+        assert.strictEqual(entries.length, 1);
+        const revTime = entries[0].querySelector('.wiki-comment-history-time');
+        assert.strictEqual(revTime, null, 'Invalid revision timestamp must NOT append an empty <time> element');
     });
 
     test('27. Load More fetches next page, appends in order, deduplicates, and hides when exhausted', async () => {

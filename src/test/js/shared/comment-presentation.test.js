@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 const CommentPresentation = require(path.join(__dirname, '../../../main/resources/static/js/shared/comment-presentation.js'));
+const RelativeTime = require(path.join(__dirname, '../../../main/resources/static/js/shared/relative-time.js'));
 
 // ============================================================================
 // Lightweight DOM Test Fixtures
@@ -973,5 +974,25 @@ describe('CommentPresentation Module', () => {
 
         btn.click();
         assert.strictEqual(clicked, false, 'act.onClick must NOT be called by shared presentation');
+    });
+
+    test('W. renderComment: renders accessible relative time with deterministic now and data-relative-time', () => {
+        const nowMs = Date.UTC(2026, 8, 22, 10, 0, 0);
+        const createdAt = new Date(nowMs - 3 * 3600000).toISOString(); // 3 hours ago
+        const commentEl = CommentPresentation.renderComment({
+            id: '202',
+            createdAt: createdAt,
+            body: 'Relative time test',
+            now: nowMs
+        }, doc);
+
+        const time = commentEl.querySelector('.kl-comment__time');
+        assert.ok(time);
+        assert.strictEqual(time.hasAttribute('data-relative-time'), true);
+        assert.strictEqual(time.getAttribute('datetime'), createdAt);
+        assert.strictEqual(time.textContent, '3 giờ trước');
+        const exactTime = RelativeTime.formatAbsolute(new Date(createdAt));
+        assert.strictEqual(time.getAttribute('title'), exactTime);
+        assert.strictEqual(time.getAttribute('aria-label'), '3 giờ trước, thời gian chính xác ' + exactTime);
     });
 });

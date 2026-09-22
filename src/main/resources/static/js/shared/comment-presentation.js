@@ -19,16 +19,22 @@
 (function (root, factory) {
     'use strict';
     if (typeof module === 'object' && typeof module.exports === 'object') {
-        module.exports = factory();
+        let relativeTime;
+        try {
+            relativeTime = require('./relative-time.js');
+        } catch (_) {
+            relativeTime = root && root.RelativeTime;
+        }
+        module.exports = factory(relativeTime);
     } else {
-        const exports = factory();
+        const exports = factory(root.RelativeTime);
         root.CommentPresentation = exports;
         if (!root.KiemLai) {
             root.KiemLai = {};
         }
         root.KiemLai.CommentPresentation = exports;
     }
-})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function (injectedRelativeTime) {
     'use strict';
 
     // Active menu singleton state
@@ -141,6 +147,27 @@
     }
 
     /**
+     * Resolves the shared RelativeTime engine instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveRelativeTime() {
+        if (injectedRelativeTime) {
+            return injectedRelativeTime;
+        }
+        if (typeof RelativeTime !== 'undefined') {
+            return RelativeTime;
+        }
+        if (typeof window !== 'undefined' && window.RelativeTime) {
+            return window.RelativeTime;
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.RelativeTime) {
+            return globalThis.RelativeTime;
+        }
+        return null;
+    }
+
+    /**
      * Formats ISO timestamp to localized readable string (DD/MM/YYYY HH:mm).
      * Returns empty string for invalid/missing timestamp without throwing.
      *
@@ -148,23 +175,11 @@
      * @returns {string}
      */
     function formatTimestamp(isoString) {
-        if (!isoString) {
-            return '';
+        const rt = resolveRelativeTime();
+        if (rt && typeof rt.formatAbsolute === 'function') {
+            return rt.formatAbsolute(isoString);
         }
-        try {
-            const date = new Date(isoString);
-            if (isNaN(date.getTime())) {
-                return '';
-            }
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return day + '/' + month + '/' + year + ' ' + hours + ':' + minutes;
-        } catch (_) {
-            return '';
-        }
+        return '';
     }
 
     /**
@@ -492,15 +507,19 @@
      *
      * @param {Object} descriptor
      * @param {Document} [doc]
+     * @param {Object} [options]
+     * @param {number|Date} [options.now]
      * @returns {Element}
      */
-    function renderComment(descriptor, doc) {
+    function renderComment(descriptor, doc, options) {
         const d = doc || (typeof document !== 'undefined' ? document : null);
         if (!d) return null;
 
         bindDocument(d);
 
         const desc = descriptor || {};
+        const opts = options || {};
+        const renderNow = opts.now || desc.now;
         const legacyPrefix = desc.legacyPrefix;
         const tag = desc.tag || 'article';
         const commentEl = d.createElement(tag);
@@ -596,19 +615,29 @@
         header.appendChild(authorSpan);
 
         // Timestamp
-        const timeStr = desc.formattedTime || formatTimestamp(desc.createdAt);
-        if (timeStr) {
+        const rt = resolveRelativeTime();
+        if (desc.createdAt || desc.formattedTime) {
             const timeEl = d.createElement('time');
             let timeCls = 'kl-comment__time';
             if (legacyPrefix) {
                 timeCls += ' ' + legacyPrefix + '-time';
             }
             timeEl.className = timeCls;
+            timeEl.setAttribute('data-relative-time', '');
             if (desc.createdAt) {
                 timeEl.setAttribute('datetime', String(desc.createdAt));
             }
-            timeEl.textContent = timeStr;
-            header.appendChild(timeEl);
+            if (rt && typeof rt.formatElement === 'function') {
+                const formatted = rt.formatElement(timeEl, renderNow);
+                if (!formatted && desc.formattedTime) {
+                    timeEl.textContent = desc.formattedTime;
+                }
+            } else {
+                timeEl.textContent = desc.formattedTime || formatTimestamp(desc.createdAt);
+            }
+            if (timeEl.textContent) {
+                header.appendChild(timeEl);
+            }
         }
 
         // Edited Indicator

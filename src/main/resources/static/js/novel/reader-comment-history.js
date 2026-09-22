@@ -50,10 +50,43 @@
 
     let injectedFetch = null;
     let injectedMutations = null;
+    let injectedRelativeTime = undefined;
 
     let delegatedClickHandler = null;
     let keydownHandler = null;
     let chapterChangedHandler = null;
+
+    /**
+     * Resolves the shared RelativeTime engine instance.
+     *
+     * @returns {Object|null}
+     */
+    function resolveRelativeTime() {
+        if (injectedRelativeTime !== undefined) {
+            return injectedRelativeTime;
+        }
+        if (typeof window !== 'undefined' && window.RelativeTime) {
+            return window.RelativeTime;
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.RelativeTime) {
+            return globalThis.RelativeTime;
+        }
+        if (typeof require === 'function') {
+            try {
+                return require('../shared/relative-time.js');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    /**
+     * Sets the injected RelativeTime module (for testing or explicit dependency injection).
+     *
+     * @param {Object|null} rt
+     */
+    function setRelativeTime(rt) {
+        injectedRelativeTime = rt;
+    }
 
     /**
      * Helper to safely clear element contents.
@@ -79,23 +112,11 @@
      * @returns {string}
      */
     function formatTimestamp(isoString) {
-        if (!isoString || typeof isoString !== 'string') {
-            return '';
+        const rt = resolveRelativeTime();
+        if (rt && typeof rt.formatAbsolute === 'function') {
+            return rt.formatAbsolute(isoString);
         }
-        try {
-            const date = new Date(isoString);
-            if (isNaN(date.getTime())) {
-                return '';
-            }
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return day + '/' + month + '/' + year + ' ' + hours + ':' + minutes;
-        } catch (_) {
-            return '';
-        }
+        return '';
     }
 
     /**
@@ -329,13 +350,24 @@
         badgeEl.textContent = 'Phiên bản #' + revNum;
         headerEl.appendChild(badgeEl);
 
-        const timeStr = formatTimestamp(rev ? rev.createdAt : null);
-        if (timeStr) {
+        if (rev && rev.createdAt) {
             const timeEl = doc.createElement('time');
             timeEl.className = 'novel-comment-history-time';
             timeEl.setAttribute('datetime', String(rev.createdAt));
-            timeEl.textContent = timeStr;
-            headerEl.appendChild(timeEl);
+            timeEl.setAttribute('data-relative-time', '');
+            const rt = resolveRelativeTime();
+            const formatted = rt && typeof rt.formatElement === 'function'
+                ? rt.formatElement(timeEl)
+                : false;
+            if (!formatted) {
+                const fallback = formatTimestamp(rev.createdAt);
+                if (fallback) {
+                    timeEl.textContent = fallback;
+                }
+            }
+            if (timeEl.textContent) {
+                headerEl.appendChild(timeEl);
+            }
         }
 
         const bodyEl = doc.createElement('div');
@@ -814,6 +846,7 @@
         currentDoc = null;
         injectedFetch = null;
         injectedMutations = null;
+        injectedRelativeTime = undefined;
     }
 
     // Auto-init on document ready in browser environment if available
@@ -836,6 +869,8 @@
         ensureModal: ensureModal,
         formatTimestamp: formatTimestamp,
         renderRevisionItem: renderRevisionItem,
+        resolveRelativeTime: resolveRelativeTime,
+        setRelativeTime: setRelativeTime,
         resolveChapterId: resolveChapterId
     };
 });
