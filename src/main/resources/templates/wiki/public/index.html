@@ -225,13 +225,13 @@
 
 					<div class="wiki-public-index-card-meta">
 
-						<span>Cập nhật</span> <strong th:if="${article.updatedAt != null}"
+						<span>Cập nhật</span> <strong th:if="${article.updatedAt != null}"><time
+							data-relative-time
+							th:datetime="${article.updatedAt}"
 							th:text="${#temporals.format(
                         article.updatedAt,
                         'dd/MM/yyyy HH:mm'
-                    )}">
-
-							15/08/2026 15:24 </strong> <strong
+                    )}">15/08/2026 15:24</time></strong> <strong
 							th:unless="${article.updatedAt != null}"> Chưa có thông
 							tin </strong>
 

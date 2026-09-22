@@ -579,11 +579,13 @@ html[data-theme="dark"] .modal-content .btn-close, html[data-bs-theme="dark"] .m
 
 						<div class="profile-label">Ngày tham gia</div>
 
-						<div class="profile-value"
-							th:text="${user.createdAt != null
-                            ? #temporals.format(user.createdAt, 'dd/MM/yyyy HH:mm')
-                            : 'Chưa xác định'}">
-							01/01/2026 10:00</div>
+						<div class="profile-value">
+							<time th:if="${user.createdAt != null}"
+								data-relative-time
+								th:datetime="${user.createdAt}"
+								th:text="${#temporals.format(user.createdAt, 'dd/MM/yyyy HH:mm')}">01/01/2026 10:00</time>
+							<span th:unless="${user.createdAt != null}">Chưa xác định</span>
+						</div>
 
 					</div>
 

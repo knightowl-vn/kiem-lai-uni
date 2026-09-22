@@ -97,9 +97,10 @@
                     </a>
 
                     <div class="novel-bookmark-meta">
-                        <span class="novel-bookmark-time"
-                              th:text="${'Đã lưu: ' + #temporals.format(bm.bookmarkedAt, 'dd/MM/yyyy HH:mm')}">
-                            Đã lưu: 25/08/2026 10:30
+                        <span class="novel-bookmark-time">
+                            Đã lưu: <time data-relative-time
+                                         th:datetime="${bm.bookmarkedAt}"
+                                         th:text="${#temporals.format(bm.bookmarkedAt, 'dd/MM/yyyy HH:mm')}">25/08/2026 10:30</time>
                         </span>
                     </div>
                 </div>

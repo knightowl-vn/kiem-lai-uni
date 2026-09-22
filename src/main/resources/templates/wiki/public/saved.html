@@ -87,9 +87,10 @@
                             CHARACTER
                         </span>
                         <span th:if="${item.savedAt != null}"
-                              class="wiki-saved-time"
-                              th:text="${'Đã lưu: ' + #temporals.format(item.savedAt, 'dd/MM/yyyy HH:mm')}">
-                            Đã lưu: 15/08/2026 10:30
+                              class="wiki-saved-time">
+                            Đã lưu: <time data-relative-time
+                                         th:datetime="${item.savedAt}"
+                                         th:text="${#temporals.format(item.savedAt, 'dd/MM/yyyy HH:mm')}">15/08/2026 10:30</time>
                         </span>
                     </div>
 

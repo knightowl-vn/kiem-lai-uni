@@ -229,26 +229,26 @@
 					<div class="wiki-public-meta">
 
 						<span th:if="${article.publishedAt != null}"> <span
-							class="wiki-public-meta-label"> Xuất bản </span> <strong
+							class="wiki-public-meta-label"> Xuất bản </span> <strong><time
+							data-relative-time
+							th:datetime="${article.publishedAt}"
 							th:text="${#temporals.format(
                                 article.publishedAt,
                                 'dd/MM/yyyy HH:mm'
-                            )}">
-
-								14/08/2026 18:38 </strong>
+                            )}">14/08/2026 18:38</time></strong>
 
 						</span> <span
 							th:if="${article.publishedAt != null
         and article.updatedAt != null}"
 							class="wiki-public-meta-separator" aria-hidden="true"> • </span>
 						<span th:if="${article.updatedAt != null}"> <span
-							class="wiki-public-meta-label"> Cập nhật </span> <strong
+							class="wiki-public-meta-label"> Cập nhật </span> <strong><time
+							data-relative-time
+							th:datetime="${article.updatedAt}"
 							th:text="${#temporals.format(
                                 article.updatedAt,
                                 'dd/MM/yyyy HH:mm'
-                            )}">
-
-								14/08/2026 19:38 </strong>
+                            )}">14/08/2026 19:38</time></strong>
 
 						</span>
 
