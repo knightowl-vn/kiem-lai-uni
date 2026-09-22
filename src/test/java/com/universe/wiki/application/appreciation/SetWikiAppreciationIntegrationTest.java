@@ -46,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         WikiAppreciationQueryPersistenceAdapter.class,
         WikiArticleQueryAdapter.class,
         UuidGeneratorAdapter.class,
+        SetWikiAppreciationAttemptExecutor.class,
         SetWikiAppreciationUseCase.class,
         SetWikiAppreciationIntegrationTest.TestClockConfiguration.class
 })

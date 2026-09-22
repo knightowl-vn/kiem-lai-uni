@@ -1,6 +1,7 @@
 package com.universe.wiki.infrastructure.persistence.appreciation;
 
 import com.universe.test.TestDatabaseSupport;
+import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -149,7 +150,9 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         WikiAppreciationRating duplicate = WikiAppreciationRating.create(id2, ARTICLE_1, USER_1, 5, now.plusSeconds(10));
 
         assertThatThrownBy(() -> persistenceAdapter.save(duplicate))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DuplicateWikiAppreciationException.class)
+                .hasMessageContaining(ARTICLE_1.toString())
+                .hasMessageContaining(USER_1.toString());
     }
 
     @Test
