@@ -33,8 +33,10 @@ import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase;
+import com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase;
 import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
+import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,7 @@ import org.springframework.ui.ExtendedModelMap;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -106,6 +110,10 @@ class PublicWikiControllerTest {
     private GetWikiAppreciationDetailStateUseCase
             getWikiAppreciationDetailStateUseCase;
 
+    @Mock
+    private GetWikiAppreciationSummariesUseCase
+            getWikiAppreciationSummariesUseCase;
+
     private PublicWikiController
             controller;
 
@@ -118,7 +126,8 @@ class PublicWikiControllerTest {
                         articleTypePathMapper,
                         wikiMarkdownRenderer,
                         isWikiArticleSavedUseCase,
-                        getWikiAppreciationDetailStateUseCase
+                        getWikiAppreciationDetailStateUseCase,
+                        getWikiAppreciationSummariesUseCase
                 );
     }
 
@@ -149,6 +158,14 @@ class PublicWikiControllerTest {
                 )
         ).thenReturn(
                 articlePage
+        );
+
+        when(
+                getWikiAppreciationSummariesUseCase.execute(
+                        List.of(ARTICLE_ID)
+                )
+        ).thenReturn(
+                Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID))
         );
 
         ExtendedModelMap model =
@@ -192,6 +209,17 @@ class PublicWikiControllerTest {
                 ArticleType.CHARACTER
         );
 
+        assertThat(
+                model.getAttribute(
+                        "appreciationSummaries"
+                )
+        ).isEqualTo(
+                Map.of(ARTICLE_ID, WikiAppreciationSummary.empty(ARTICLE_ID))
+        );
+
+        verify(getWikiAppreciationSummariesUseCase, times(1))
+                .execute(List.of(ARTICLE_ID));
+
         ArticleType[] articleTypes =
                 (ArticleType[])
                         model.getAttribute(
@@ -217,6 +245,79 @@ class PublicWikiControllerTest {
                                 20
                         )
                 );
+    }
+
+    @Test
+    @DisplayName("F6: Bulk appreciation summary được gọi duy nhất một lần chỉ với các bài viết CHARACTER và FACTION")
+    void shouldCallBulkAppreciationOnlyForEligibleArticles() {
+        UUID charId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID factionId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID itemId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID realmId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+
+        PublishedWikiArticleListItemDTO charItem = new PublishedWikiArticleListItemDTO(
+                charId, "Trần Bình An", "tran-binh-an", "CHARACTER", "Nhân vật chính", PUBLISHED_AT, UPDATED_AT
+        );
+        PublishedWikiArticleListItemDTO factionItem = new PublishedWikiArticleListItemDTO(
+                factionId, "Thần Tú Phong", "than-tu-phong", "FACTION", "Tông môn", PUBLISHED_AT, UPDATED_AT
+        );
+        PublishedWikiArticleListItemDTO itemArticle = new PublishedWikiArticleListItemDTO(
+                itemId, "Dưỡng Kiếm Hồ", "duong-kiem-ho", "ITEM", "Bảo vật", PUBLISHED_AT, UPDATED_AT
+        );
+        PublishedWikiArticleListItemDTO realmArticle = new PublishedWikiArticleListItemDTO(
+                realmId, "Ngọc Phác Cảnh", "ngoc-phac-canh", "REALM", "Cảnh giới tu luyện", PUBLISHED_AT, UPDATED_AT
+        );
+
+        PublishedWikiArticlePageDTO mixedPage = new PublishedWikiArticlePageDTO(
+                List.of(charItem, factionItem, itemArticle, realmArticle),
+                0, 20, 4L, 1, true, true
+        );
+
+        when(listPublishedArticlesUseCase.execute(any())).thenReturn(mixedPage);
+
+        Map<UUID, WikiAppreciationSummary> expectedSummaries = Map.of(
+                charId, new WikiAppreciationSummary(charId, new java.math.BigDecimal("4.7"), 128L),
+                factionId, WikiAppreciationSummary.empty(factionId)
+        );
+        when(getWikiAppreciationSummariesUseCase.execute(List.of(charId, factionId)))
+                .thenReturn(expectedSummaries);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String viewName = controller.listPage(null, null, 0, 20, model);
+
+        assertThat(viewName).isEqualTo("wiki/public/index");
+        assertThat(model.getAttribute("articlePage")).isEqualTo(mixedPage);
+        assertThat(model.getAttribute("appreciationSummaries")).isEqualTo(expectedSummaries);
+
+        // Verification: called exactly once, and only for eligible IDs (no ITEM or REALM)
+        verify(getWikiAppreciationSummariesUseCase, times(1))
+                .execute(List.of(charId, factionId));
+    }
+
+    @Test
+    @DisplayName("F6: Không gọi bulk appreciation query khi trang chỉ chứa các bài viết không đủ điều kiện (REALM/ITEM) hoặc rỗng")
+    void shouldNotCallAppreciationQueryWhenNoEligibleArticlesOnPage() {
+        UUID itemId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        PublishedWikiArticleListItemDTO itemArticle = new PublishedWikiArticleListItemDTO(
+                itemId, "Dưỡng Kiếm Hồ", "duong-kiem-ho", "ITEM", "Bảo vật", PUBLISHED_AT, UPDATED_AT
+        );
+
+        PublishedWikiArticlePageDTO ineligiblePage = new PublishedWikiArticlePageDTO(
+                List.of(itemArticle),
+                0, 20, 1L, 1, true, true
+        );
+
+        when(listPublishedArticlesUseCase.execute(any())).thenReturn(ineligiblePage);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String viewName = controller.listPage(null, "item", 0, 20, model);
+
+        assertThat(viewName).isEqualTo("wiki/public/index");
+        assertThat(model.getAttribute("articlePage")).isEqualTo(ineligiblePage);
+        assertThat(model.getAttribute("appreciationSummaries")).isEqualTo(Map.of());
+
+        // Verification: query use case is NEVER invoked
+        verify(getWikiAppreciationSummariesUseCase, never()).execute(any());
     }
 
     @Test

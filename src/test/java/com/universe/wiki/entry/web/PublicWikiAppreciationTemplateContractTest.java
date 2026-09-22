@@ -117,6 +117,62 @@ class PublicWikiAppreciationTemplateContractTest {
         assertThat(js).contains("lượt yêu thích");
     }
 
+    @Test
+    @DisplayName("MS-05F6: Public Wiki index card enforces horizontal structure, bulk appreciation map lookup, and read-only semantics")
+    void indexPageContainsHorizontalCardAndAppreciationContract() throws Exception {
+        String indexPage = read("src/main/resources/templates/wiki/public/index.html");
+
+        // 1. Horizontal card structural containers
+        assertThat(indexPage).contains("class=\"wiki-public-index-card\"");
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-link\"");
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-media\"");
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-placeholder\"");
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-content\"");
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-appreciation\"");
+
+        // 2. Badge & relative-time timestamp preserved
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-type\"");
+        assertThat(indexPage).contains("data-relative-time");
+        assertThat(indexPage).contains("th:datetime=\"${article.updatedAt}\"");
+
+        // 3. Appreciation eligibility guard (presentation source-of-truth: map lookup, NOT duplicated article type)
+        assertThat(indexPage).contains("th:with=\"summary=${appreciationSummaries[article.id]}\"");
+        assertThat(indexPage).contains("th:if=\"${summary != null}\"");
+        assertThat(indexPage).doesNotContain("article.articleType == 'CHARACTER'");
+        assertThat(indexPage).doesNotContain("article.articleType == 'FACTION'");
+
+        // 4. Score/count formatting and branch conditions
+        assertThat(indexPage).contains("th:if=\"${summary.count > 0 and summary.average != null}\"");
+        assertThat(indexPage).contains("th:if=\"${summary.count == 0 or summary.average == null}\"");
+        assertThat(indexPage).contains("#numbers.formatDecimal(summary.average, 1, 1)");
+        assertThat(indexPage).contains("/ 5");
+        assertThat(indexPage).contains("lượt yêu thích");
+
+        // 5. Empty state copy
+        assertThat(indexPage).contains("Chưa có lượt yêu thích");
+
+        // 6. Read-only accessibility: decorative star is aria-hidden, no buttons, no interactive F5 star class
+        assertThat(indexPage).contains("class=\"wiki-public-index-card-star-icon\"");
+        assertThat(indexPage).contains("aria-hidden=\"true\"");
+        assertThat(indexPage).doesNotContain("wiki-star-btn");
+        assertThat(indexPage).doesNotContain("<button");
+    }
+
+    @Test
+    @DisplayName("MS-05F6: wiki.css defines horizontal card grid, media placeholder, and responsive breakpoints")
+    void wikiCssDefinesHorizontalCardStyles() throws Exception {
+        String css = read("src/main/resources/static/css/wiki/wiki.css");
+
+        assertThat(css).contains(".wiki-public-card-grid");
+        assertThat(css).contains("flex-direction: column");
+        assertThat(css).contains(".wiki-public-index-card-link");
+        assertThat(css).contains(".wiki-public-index-card-media");
+        assertThat(css).contains(".wiki-public-index-card-content");
+        assertThat(css).contains(".wiki-public-index-card-appreciation");
+        assertThat(css).contains(".wiki-public-index-card-star-icon");
+        assertThat(css).contains("@media (max-width: 767.98px)");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

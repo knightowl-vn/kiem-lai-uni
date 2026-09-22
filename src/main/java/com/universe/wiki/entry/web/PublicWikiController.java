@@ -14,7 +14,10 @@ import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase;
+import com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase;
 import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
+import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
+import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleType;
 
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
@@ -28,6 +31,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -50,6 +56,8 @@ public class PublicWikiController {
 
 	private final GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
 
+	private final GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
+
 	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
 
 			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
@@ -60,7 +68,9 @@ public class PublicWikiController {
 
 			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
 
-			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase) {
+			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
+
+			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase) {
 		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
 
 		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
@@ -77,6 +87,11 @@ public class PublicWikiController {
 		this.getWikiAppreciationDetailStateUseCase = Objects.requireNonNull(
 				getWikiAppreciationDetailStateUseCase,
 				"GetWikiAppreciationDetailStateUseCase không được để trống."
+		);
+
+		this.getWikiAppreciationSummariesUseCase = Objects.requireNonNull(
+				getWikiAppreciationSummariesUseCase,
+				"GetWikiAppreciationSummariesUseCase không được để trống."
 		);
 	}
 
@@ -106,7 +121,19 @@ public class PublicWikiController {
 		PublishedWikiArticlePageDTO articlePage = listPublishedArticlesUseCase
 				.execute(new ListPublishedWikiArticlesQuery(keyword, articleType, page, size));
 
+		List<UUID> eligibleArticleIds = articlePage.items().stream()
+				.filter(article -> ArticleType.CHARACTER.name().equals(article.articleType())
+						|| ArticleType.FACTION.name().equals(article.articleType()))
+				.map(PublishedWikiArticleListItemDTO::id)
+				.toList();
+
+		Map<UUID, WikiAppreciationSummary> appreciationSummaries = eligibleArticleIds.isEmpty()
+				? Collections.emptyMap()
+				: getWikiAppreciationSummariesUseCase.execute(eligibleArticleIds);
+
 		model.addAttribute("articlePage", articlePage);
+
+		model.addAttribute("appreciationSummaries", appreciationSummaries);
 
 		model.addAttribute("keyword", keyword == null ? "" : keyword);
 

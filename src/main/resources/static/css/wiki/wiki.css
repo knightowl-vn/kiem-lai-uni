@@ -1427,12 +1427,12 @@ a.is-parent-active:not(.is-active) {
 }
 
 /* =========================================================
-   PUBLIC WIKI INDEX — ARTICLE GRID
+   PUBLIC WIKI INDEX — ARTICLE LIST (HORIZONTAL CARDS)
    ========================================================= */
 .wiki-public-card-grid {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
 }
 
 /* =========================================================
@@ -1444,22 +1444,22 @@ a.is-parent-active:not(.is-active) {
 	border-radius: 16px;
 	background: var(--surface-bg);
 	overflow: hidden;
-	box-shadow: 0 7px 22px rgba(0, 0, 0, 0.045);
-	transition: transform 0.18s ease, border-color 0.18s ease, box-shadow
-		0.18s ease;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.035);
+	transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .wiki-public-index-card:hover {
-	transform: translateY(-3px);
-	border-color: rgba(93, 77, 168, 0.3);
-	box-shadow: 0 14px 32px rgba(0, 0, 0, 0.08);
+	transform: translateY(-2px);
+	border-color: rgba(93, 77, 168, 0.35);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.07);
 }
 
 .wiki-public-index-card-link {
-	min-height: 220px;
 	display: flex;
-	flex-direction: column;
-	padding: 24px 24px 22px;
+	flex-direction: row;
+	align-items: center;
+	gap: 22px;
+	padding: 20px 24px;
 	color: inherit;
 	text-decoration: none;
 }
@@ -1469,60 +1469,85 @@ a.is-parent-active:not(.is-active) {
 }
 
 /* =========================================================
-   CARD TOP
+   LEFT VISUAL PLACEHOLDER
    ========================================================= */
+.wiki-public-index-card-media {
+	flex: 0 0 68px;
+	width: 68px;
+	height: 68px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.wiki-public-index-card-placeholder {
+	width: 100%;
+	height: 100%;
+	border-radius: 12px;
+	background: var(--surface-secondary);
+	border: 1px solid var(--border-color);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-secondary);
+	transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.wiki-public-index-card:hover .wiki-public-index-card-placeholder {
+	background: rgba(93, 77, 168, 0.08);
+	color: var(--text-primary);
+}
+
+.wiki-public-index-card-placeholder-icon {
+	width: 28px;
+	height: 28px;
+	opacity: 0.85;
+}
+
+/* =========================================================
+   CONTENT COLUMN
+   ========================================================= */
+.wiki-public-index-card-content {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
 .wiki-public-index-card-top {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	margin-bottom: 17px;
+	gap: 10px;
+	margin-bottom: 8px;
 }
 
 .wiki-public-index-card-type {
 	display: inline-flex;
 	align-items: center;
-	padding: 5px 9px;
+	padding: 4px 8px;
 	border-radius: 999px;
 	background: var(--surface-secondary);
 	color: var(--text-secondary);
-	font-size: 0.66rem;
+	font-size: 0.65rem;
 	font-weight: 800;
 	letter-spacing: 0.35px;
+	line-height: 1.2;
 }
 
-.wiki-public-index-card-arrow {
-	color: var(--text-secondary);
-	font-size: 0.9rem;
-	opacity: 0;
-	transform: translate(-3px, 3px);
-	transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.wiki-public-index-card:hover
-.wiki-public-index-card-arrow {
-	opacity: 1;
-	transform: translate(0, 0);
-}
-
-/* =========================================================
-   TITLE / SUMMARY
-   ========================================================= */
 .wiki-public-index-card-title {
-	margin: 0 0 9px;
+	margin: 0 0 6px;
 	color: var(--text-primary);
-	font-size: 1.3rem;
+	font-size: 1.25rem;
 	font-weight: 700;
-	line-height: 1.3;
+	line-height: 1.35;
+	word-break: break-word;
 }
 
 .wiki-public-index-card-summary {
 	display: -webkit-box;
 	overflow: hidden;
-	margin: 0 0 24px;
+	margin: 0 0 10px;
 	color: var(--text-secondary);
-	font-size: 0.9rem;
-	line-height: 1.55;
+	font-size: 0.88rem;
+	line-height: 1.5;
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
 }
@@ -1532,17 +1557,10 @@ a.is-parent-active:not(.is-active) {
 	opacity: 0.7;
 }
 
-/* =========================================================
-   CARD META
-   ========================================================= */
 .wiki-public-index-card-meta {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	margin-top: auto;
-	padding-top: 14px;
-	border-top: 1px solid var(--border-color);
+	gap: 8px;
 	color: var(--text-secondary);
 	font-size: 0.75rem;
 }
@@ -1552,41 +1570,119 @@ a.is-parent-active:not(.is-active) {
 	font-weight: 600;
 }
 
-@media ( max-width : 1199.98px) {
-	.wiki-public-card-grid {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
+/* =========================================================
+   RIGHT APPRECIATION COLUMN (READ-ONLY COMMUNITY SUMMARY)
+   ========================================================= */
+.wiki-public-index-card-appreciation {
+	flex: 0 0 auto;
+	min-width: 140px;
+	max-width: 180px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: flex-end;
+	text-align: right;
+	gap: 4px;
+	padding-left: 20px;
+	border-left: 1px solid var(--border-color);
 }
 
-@media ( max-width : 767.98px) {
+.wiki-public-index-card-appreciation-stats {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+
+.wiki-public-index-card-rating-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.wiki-public-index-card-star-icon {
+	width: 16px;
+	height: 16px;
+	color: #f59e0b;
+	fill: #f59e0b;
+	flex-shrink: 0;
+}
+
+.wiki-public-index-card-rating-avg {
+	font-size: 1.15rem;
+	font-weight: 700;
+	color: var(--text-primary);
+	line-height: 1;
+}
+
+.wiki-public-index-card-rating-scale {
+	font-size: 0.78rem;
+	color: var(--text-secondary);
+	opacity: 0.75;
+}
+
+.wiki-public-index-card-rating-count {
+	font-size: 0.78rem;
+	color: var(--text-secondary);
+	white-space: nowrap;
+}
+
+.wiki-public-index-card-appreciation-empty {
+	font-size: 0.8rem;
+	color: var(--text-secondary);
+	font-style: italic;
+	opacity: 0.75;
+	line-height: 1.4;
+}
+
+/* =========================================================
+   RESPONSIVE BREAKPOINTS
+   ========================================================= */
+@media (max-width: 767.98px) {
 	.wiki-public-card-grid {
-		grid-template-columns: 1fr;
-		gap: 14px;
+		gap: 12px;
 	}
+
 	.wiki-public-index-card {
 		border-radius: 14px;
 	}
+
 	.wiki-public-index-card-link {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 12px;
+		padding: 16px;
 		min-height: 0;
-		padding: 20px 20px 18px;
-	}
-	.wiki-public-index-card-top {
-		margin-bottom: 13px;
-	}
-	.wiki-public-index-card-title {
-		font-size: 1.2rem;
-	}
-	.wiki-public-index-card-summary {
-		margin-bottom: 18px;
 	}
 
-	/*
-     * Mobile không có hover đáng kể,
-     * nên luôn cho thấy arrow.
-     */
-	.wiki-public-index-card-arrow {
-		opacity: 0.7;
-		transform: none;
+	.wiki-public-index-card-media {
+		display: none;
+	}
+
+	.wiki-public-index-card-title {
+		font-size: 1.15rem;
+	}
+
+	.wiki-public-index-card-summary {
+		margin-bottom: 8px;
+	}
+
+	.wiki-public-index-card-appreciation {
+		min-width: 0;
+		max-width: none;
+		border-left: none;
+		border-top: 1px dashed var(--border-color);
+		padding-left: 0;
+		padding-top: 10px;
+		align-items: flex-start;
+		text-align: left;
+	}
+
+	.wiki-public-index-card-appreciation-stats {
+		flex-direction: row;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 8px;
 	}
 }
 
