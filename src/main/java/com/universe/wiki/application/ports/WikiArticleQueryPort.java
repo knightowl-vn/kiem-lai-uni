@@ -2,6 +2,7 @@ package com.universe.wiki.application.ports;
 
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
@@ -20,6 +21,14 @@ import java.util.UUID;
  * Read port dành cho các truy vấn WikiArticle.
  */
 public interface WikiArticleQueryPort {
+
+    /**
+     * Tra cứu snapshot thông tin trạng thái và loại bài viết tối giản theo ID.
+     * Phục vụ kiểm tra tính đủ điều kiện (eligibility) mà không tải nội dung hay thông tin kiểm toán lớn.
+     */
+    Optional<WikiArticleEligibilitySnapshot> findEligibilityById(
+            UUID articleId
+    );
 
     /**
      * Lấy chi tiết bài viết theo ID cho trang quản trị.

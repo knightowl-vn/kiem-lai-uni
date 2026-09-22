@@ -168,4 +168,17 @@ public interface SpringDataWikiArticleJpaRepository
             WHERE article.id IN :ids
             """)
     List<WikiArticleListItemProjection> findListItemsByIds(@Param("ids") Collection<String> ids);
+
+    /**
+     * Single lookup of lightweight Wiki article eligibility metadata by ID.
+     */
+    @Query("""
+            SELECT
+                article.id AS id,
+                article.articleType AS articleType,
+                article.status AS status
+            FROM WikiArticleJpaEntity article
+            WHERE article.id = :id
+            """)
+    Optional<WikiArticleEligibilityProjection> findEligibilityById(@Param("id") String id);
 }

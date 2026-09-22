@@ -2,6 +2,7 @@ package com.universe.wiki.infrastructure.persistence.article;
 
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
@@ -38,6 +39,23 @@ public class WikiArticleQueryAdapter
     ) {
         this.repository =
                 repository;
+    }
+
+    @Override
+    public Optional<WikiArticleEligibilitySnapshot> findEligibilityById(
+            UUID articleId
+    ) {
+        if (articleId == null) {
+            return Optional.empty();
+        }
+
+        return repository
+                .findEligibilityById(articleId.toString())
+                .map(p -> new WikiArticleEligibilitySnapshot(
+                        UUID.fromString(p.getId()),
+                        p.getArticleType(),
+                        p.getStatus()
+                ));
     }
 
     @Override
