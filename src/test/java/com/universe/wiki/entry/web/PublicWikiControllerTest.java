@@ -32,7 +32,9 @@ import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
+import com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase;
 import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
+import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -100,6 +102,10 @@ class PublicWikiControllerTest {
     private IsWikiArticleSavedUseCase
             isWikiArticleSavedUseCase;
 
+    @Mock
+    private GetWikiAppreciationDetailStateUseCase
+            getWikiAppreciationDetailStateUseCase;
+
     private PublicWikiController
             controller;
 
@@ -111,7 +117,8 @@ class PublicWikiControllerTest {
                         getPublishedArticleUseCase,
                         articleTypePathMapper,
                         wikiMarkdownRenderer,
-                        isWikiArticleSavedUseCase
+                        isWikiArticleSavedUseCase,
+                        getWikiAppreciationDetailStateUseCase
                 );
     }
 
@@ -352,6 +359,21 @@ class PublicWikiControllerTest {
                 renderedContent
         );
 
+        WikiAppreciationDetailState appreciationState =
+                new WikiAppreciationDetailState(
+                        new java.math.BigDecimal("4.80"),
+                        10L,
+                        null
+                );
+        when(
+                getWikiAppreciationDetailStateUseCase.execute(
+                        article.id(),
+                        null
+                )
+        ).thenReturn(
+                appreciationState
+        );
+
         ExtendedModelMap model =
                 new ExtendedModelMap();
 
@@ -402,6 +424,25 @@ class PublicWikiControllerTest {
         ).isEqualTo(
                 false
         );
+
+        assertThat(
+                model.getAttribute(
+                        "isAppreciationEligible"
+                )
+        ).isEqualTo(
+                true
+        );
+
+        assertThat(
+                model.getAttribute(
+                        "appreciationState"
+                )
+        ).isEqualTo(
+                appreciationState
+        );
+
+        verify(getWikiAppreciationDetailStateUseCase)
+                .execute(article.id(), null);
 
         verify(isWikiArticleSavedUseCase, never())
                 .execute(any(), any());
@@ -474,6 +515,19 @@ class PublicWikiControllerTest {
                 )
         ).thenReturn(
                 true
+        );
+
+        when(
+                getWikiAppreciationDetailStateUseCase.execute(
+                        article.id(),
+                        USER_ID
+                )
+        ).thenReturn(
+                new WikiAppreciationDetailState(
+                        new java.math.BigDecimal("4.80"),
+                        10L,
+                        5
+                )
         );
 
         MockHttpServletRequest request =
@@ -573,6 +627,19 @@ class PublicWikiControllerTest {
                 false
         );
 
+        when(
+                getWikiAppreciationDetailStateUseCase.execute(
+                        article.id(),
+                        USER_ID
+                )
+        ).thenReturn(
+                new WikiAppreciationDetailState(
+                        new java.math.BigDecimal("4.80"),
+                        10L,
+                        null
+                )
+        );
+
         MockHttpServletRequest request =
                 new MockHttpServletRequest();
         AuthenticatedRequestIdentityTestSupport.attach(
@@ -613,6 +680,75 @@ class PublicWikiControllerTest {
 
         verify(isWikiArticleSavedUseCase)
                 .execute(USER_ID, ARTICLE_ID);
+    }
+
+    @Test
+    @DisplayName("Bài viết FACTION đủ điều kiện đánh giá -> isAppreciationEligible = true và truy vấn trạng thái")
+    void shouldComposeAppreciationStateForFaction() {
+        PublishedWikiArticleDTO article = new PublishedWikiArticleDTO(
+                ARTICLE_ID,
+                "Lạc Phách Sơn",
+                "lac-phach-son",
+                "FACTION",
+                "Tông môn của Trần Bình An.",
+                "## Giới thiệu",
+                PUBLISHED_AT,
+                UPDATED_AT
+        );
+
+        when(articleTypePathMapper.fromPath("faction")).thenReturn(ArticleType.FACTION);
+        when(getPublishedArticleUseCase.execute(new GetPublishedWikiArticleQuery(ArticleType.FACTION, "lac-phach-son")))
+                .thenReturn(article);
+        when(articleTypePathMapper.toPath(ArticleType.FACTION)).thenReturn("faction");
+        when(wikiMarkdownRenderer.render(article.content()))
+                .thenReturn(new RenderedWikiContent("<p>Giới thiệu</p>", List.of()));
+
+        WikiAppreciationDetailState appreciationState =
+                new WikiAppreciationDetailState(new java.math.BigDecimal("4.90"), 20L, 5);
+        when(getWikiAppreciationDetailStateUseCase.execute(ARTICLE_ID, null))
+                .thenReturn(appreciationState);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String viewName = controller.detailPage("faction", "lac-phach-son", request, model);
+
+        assertThat(viewName).isEqualTo("wiki/public/detail");
+        assertThat(model.getAttribute("isAppreciationEligible")).isEqualTo(true);
+        assertThat(model.getAttribute("appreciationState")).isEqualTo(appreciationState);
+        verify(getWikiAppreciationDetailStateUseCase).execute(ARTICLE_ID, null);
+    }
+
+    @Test
+    @DisplayName("Bài viết loại ITEM không đủ điều kiện đánh giá -> isAppreciationEligible = false, KHÔNG truy vấn appreciation")
+    void shouldNotComposeAppreciationStateForIneligibleArticleType() {
+        PublishedWikiArticleDTO article = new PublishedWikiArticleDTO(
+                ARTICLE_ID,
+                "Dưỡng Kiếm Hồ",
+                "duong-kiem-ho",
+                "ITEM",
+                "Hồ lô chứa kiếm.",
+                "## Pháp bảo",
+                PUBLISHED_AT,
+                UPDATED_AT
+        );
+
+        when(articleTypePathMapper.fromPath("item")).thenReturn(ArticleType.ITEM);
+        when(getPublishedArticleUseCase.execute(new GetPublishedWikiArticleQuery(ArticleType.ITEM, "duong-kiem-ho")))
+                .thenReturn(article);
+        when(articleTypePathMapper.toPath(ArticleType.ITEM)).thenReturn("item");
+        when(wikiMarkdownRenderer.render(article.content()))
+                .thenReturn(new RenderedWikiContent("<p>Pháp bảo</p>", List.of()));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        String viewName = controller.detailPage("item", "duong-kiem-ho", request, model);
+
+        assertThat(viewName).isEqualTo("wiki/public/detail");
+        assertThat(model.getAttribute("isAppreciationEligible")).isEqualTo(false);
+        assertThat(model.getAttribute("appreciationState")).isNull();
+        verify(getWikiAppreciationDetailStateUseCase, never()).execute(any(), any());
     }
 
     private PublishedWikiArticlePageDTO

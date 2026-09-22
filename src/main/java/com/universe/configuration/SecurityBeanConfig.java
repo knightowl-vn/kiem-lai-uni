@@ -206,6 +206,12 @@ public class SecurityBeanConfig {
                         .authenticated()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.PUT,
+                                "/api/wiki/articles/*/appreciation"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
                                 "/novel/bookmarks",
                                 "/novel/bookmarks/**",
                                 "/novel/history",

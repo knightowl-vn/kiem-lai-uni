@@ -1,0 +1,114 @@
+/**
+ * Kiem Lai Wiki — Appreciation Rating Styles
+ * MS-05F5: Interactive Star Rating on Public Wiki Detail
+ */
+
+.wiki-appreciation-widget {
+    margin-top: 1.25rem;
+    padding: 0.85rem 1.1rem;
+    background: var(--bg-surface-elevated, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wiki-appreciation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.wiki-appreciation-label {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--bs-body-color, #e2e8f0);
+}
+
+.wiki-appreciation-stats {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.84rem;
+    color: var(--bs-secondary-color, #94a3b8);
+}
+
+.wiki-appreciation-average {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f59e0b;
+    line-height: 1;
+}
+
+.wiki-appreciation-separator {
+    opacity: 0.6;
+}
+
+.wiki-appreciation-count {
+    font-size: 0.82rem;
+}
+
+.wiki-appreciation-stars {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.wiki-star-btn {
+    background: transparent;
+    border: none;
+    padding: 0.25rem;
+    margin: 0;
+    cursor: pointer;
+    color: var(--border-color, #475569);
+    border-radius: 4px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.wiki-star-btn:hover:not(:disabled) {
+    transform: scale(1.18);
+    color: #fbbf24;
+}
+
+.wiki-star-btn:focus-visible {
+    outline: 2px solid #f59e0b;
+    outline-offset: 2px;
+}
+
+.wiki-star-btn.is-active {
+    color: #f59e0b;
+}
+
+.wiki-star-btn.is-hover-preview {
+    color: #fbbf24;
+}
+
+.wiki-star-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wiki-star-icon {
+    pointer-events: none;
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+}
+
+.wiki-appreciation-feedback {
+    font-size: 0.8rem;
+    min-height: 1.1rem;
+    color: var(--bs-danger, #ef4444);
+    transition: opacity 0.2s ease;
+}
+
+.wiki-appreciation-feedback.is-success {
+    color: var(--bs-success, #22c55e);
+}

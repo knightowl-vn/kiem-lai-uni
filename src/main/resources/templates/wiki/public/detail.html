@@ -29,6 +29,7 @@
 <link rel="stylesheet" th:href="@{/css/shared/comments.css}">
 <link rel="stylesheet" th:href="@{/css/wiki/wiki-comments.css}">
 <link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
+<link th:if="${isAppreciationEligible}" rel="stylesheet" th:href="@{/css/wiki/wiki-appreciation.css}">
 
 </head>
 
@@ -253,6 +254,91 @@
 
 					</div>
 
+					<!-- ================================================= -->
+					<!-- WIKI APPRECIATION (CHARACTER & FACTION ONLY)       -->
+					<!-- ================================================= -->
+					<div th:if="${isAppreciationEligible and appreciationState != null}"
+						class="wiki-appreciation-widget"
+						id="wikiAppreciationWidget"
+						th:attr="data-article-id=${article.id},
+						         data-appreciation-url=@{/api/wiki/articles/{id}/appreciation(id=${article.id})},
+						         data-viewer-value=${appreciationState.viewerValue != null ? appreciationState.viewerValue : ''},
+						         data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
+						         data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug})},
+						         data-csrf-token=${_csrf != null ? _csrf.token : ''},
+						         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
+						<div class="wiki-appreciation-header">
+							<span class="wiki-appreciation-label">Mức độ yêu thích</span>
+							<div class="wiki-appreciation-stats" id="wikiAppreciationStats" aria-live="polite">
+								<span class="wiki-appreciation-average" id="wikiAppreciationAverage"
+									th:hidden="${appreciationState.count == 0 or appreciationState.average == null}"
+									th:text="${appreciationState.count > 0 and appreciationState.average != null ? #numbers.formatDecimal(appreciationState.average, 1, 1) : ''}">4.7</span>
+								<span class="wiki-appreciation-separator"
+									th:hidden="${appreciationState.count == 0 or appreciationState.average == null}">/ 5 •</span>
+								<span class="wiki-appreciation-count" id="wikiAppreciationCount"
+									th:text="${appreciationState.count > 0 ? (appreciationState.count + ' lượt yêu thích') : 'Chưa có lượt yêu thích'}">Chưa có lượt yêu thích</span>
+							</div>
+						</div>
+						<div class="wiki-appreciation-stars" role="group" aria-label="Đánh giá mức độ yêu thích từ 1 đến 5 sao">
+							<button type="button"
+								class="wiki-star-btn"
+								data-star-value="1"
+								th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 1} ? ' is-active' : ''"
+								th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 1 ? 'true' : 'false'}"
+								aria-label="Yêu thích 1 trên 5"
+								title="Ít yêu thích (1 sao)">
+								<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+								</svg>
+							</button>
+							<button type="button"
+								class="wiki-star-btn"
+								data-star-value="2"
+								th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 2} ? ' is-active' : ''"
+								th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 2 ? 'true' : 'false'}"
+								aria-label="Yêu thích 2 trên 5"
+								title="Khá yêu thích (2 sao)">
+								<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+								</svg>
+							</button>
+							<button type="button"
+								class="wiki-star-btn"
+								data-star-value="3"
+								th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 3} ? ' is-active' : ''"
+								th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 3 ? 'true' : 'false'}"
+								aria-label="Yêu thích 3 trên 5"
+								title="Yêu thích (3 sao)">
+								<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+								</svg>
+							</button>
+							<button type="button"
+								class="wiki-star-btn"
+								data-star-value="4"
+								th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 4} ? ' is-active' : ''"
+								th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 4 ? 'true' : 'false'}"
+								aria-label="Yêu thích 4 trên 5"
+								title="Rất yêu thích (4 sao)">
+								<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+								</svg>
+							</button>
+							<button type="button"
+								class="wiki-star-btn"
+								data-star-value="5"
+								th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 5} ? ' is-active' : ''"
+								th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 5 ? 'true' : 'false'}"
+								aria-label="Yêu thích 5 trên 5"
+								title="Cực kỳ yêu thích (5 sao)">
+								<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+									<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+								</svg>
+							</button>
+						</div>
+						<div class="wiki-appreciation-feedback" id="wikiAppreciationFeedback" role="status" aria-live="polite"></div>
+					</div>
+
 				</header>
 
 			</div>
@@ -419,5 +505,6 @@
 	<script th:src="@{/js/shared/comment-report-modal.js}" defer></script>
 	<script th:src="@{/js/shared/comment-presentation.js}" defer></script>
 	<script th:src="@{/js/wiki/wiki-comments.js}" defer></script>
+	<script th:if="${isAppreciationEligible}" th:src="@{/js/wiki/wiki-appreciation.js}" defer></script>
 </body>
-</html>
+</html>

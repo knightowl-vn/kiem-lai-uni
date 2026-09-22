@@ -13,7 +13,8 @@ import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
-
+import com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase;
+import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
 import com.universe.wiki.domain.article.ArticleType;
 
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 @Controller
 @RequestMapping("/wiki")
@@ -46,6 +48,8 @@ public class PublicWikiController {
 
 	private final IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
 
+	private final GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
+
 	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
 
 			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
@@ -54,7 +58,9 @@ public class PublicWikiController {
 
 			WikiMarkdownRenderer wikiMarkdownRenderer,
 
-			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase) {
+			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
+
+			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase) {
 		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
 
 		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
@@ -66,6 +72,11 @@ public class PublicWikiController {
 		this.isWikiArticleSavedUseCase = Objects.requireNonNull(
 				isWikiArticleSavedUseCase,
 				"IsWikiArticleSavedUseCase không được để trống."
+		);
+
+		this.getWikiAppreciationDetailStateUseCase = Objects.requireNonNull(
+				getWikiAppreciationDetailStateUseCase,
+				"GetWikiAppreciationDetailStateUseCase không được để trống."
 		);
 	}
 
@@ -145,6 +156,21 @@ public class PublicWikiController {
 		model.addAttribute("renderedContent", renderedContent);
 
 		model.addAttribute("isSaved", isSaved);
+
+		boolean isAppreciationEligible = resolvedArticleType == ArticleType.CHARACTER
+				|| resolvedArticleType == ArticleType.FACTION;
+
+		WikiAppreciationDetailState appreciationState = null;
+		if (isAppreciationEligible) {
+			UUID viewerUserId = identityOptional
+					.map(AuthenticatedRequestIdentity::userId)
+					.orElse(null);
+			appreciationState = getWikiAppreciationDetailStateUseCase.execute(article.id(), viewerUserId);
+		}
+
+		model.addAttribute("isAppreciationEligible", isAppreciationEligible);
+
+		model.addAttribute("appreciationState", appreciationState);
 
 		return "wiki/public/detail";
 	}
