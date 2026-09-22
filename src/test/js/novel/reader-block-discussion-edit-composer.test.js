@@ -564,6 +564,7 @@ describe('MS-05E5G4B Novel Block Discussion Edit Composer Tests', () => {
         const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
         assert.notStrictEqual(textarea, null);
         assert.strictEqual(textarea.value, 'Bình luận gốc ban đầu');
+        assert.strictEqual(textarea.maxLength, 2000, 'Drawer edit composer textarea must have maxLength=2000');
 
         const rootBody = doc.querySelector('.novel-comment--root .novel-comment-body');
         assert.strictEqual(rootBody.hidden, true);

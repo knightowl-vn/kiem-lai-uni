@@ -1033,6 +1033,7 @@
         textarea.className = EDIT_INPUT_CLASS;
         textarea.setAttribute('aria-label', 'Chỉnh sửa bình luận');
         textarea.setAttribute('placeholder', 'Nhập nội dung chỉnh sửa...');
+        textarea.maxLength = 2000;
         textarea.value = initialText;
 
         textarea.addEventListener('input', function () {

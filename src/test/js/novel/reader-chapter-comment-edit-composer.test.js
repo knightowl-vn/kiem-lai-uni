@@ -687,6 +687,7 @@ describe('Reader Chapter Comment Edit Composer UI (MS-05E5H2F3B)', () => {
         const textarea = composer.querySelector('.' + EDIT_INPUT_CLASS);
         assert.ok(textarea);
         assert.strictEqual(textarea.value, 'Root 1 original body');
+        assert.strictEqual(textarea.maxLength, 2000, 'Edit composer textarea must have maxLength=2000');
         assert.strictEqual(fixture.rootBody1.hidden, true);
         assert.strictEqual(fixture.rootBody1.style.display, 'none');
     });

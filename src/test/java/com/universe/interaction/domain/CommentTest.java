@@ -1233,4 +1233,124 @@ class CommentTest {
             assertThat(comment1).isNotEqualTo(differentComment);
         }
     }
+
+    @Nested
+    @DisplayName("12. Body Length Policy & Legacy Rehydration Tests")
+    class BodyLengthPolicyAndLegacyRehydrationTests {
+
+        @Test
+        @DisplayName("createRoot accepts body with exactly 2000 characters")
+        void shouldAcceptRootCommentWithExactly2000Characters() {
+            String body2000 = "a".repeat(2000);
+            Comment comment = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    body2000,
+                    T1
+            );
+
+            assertThat(comment.getBody()).isEqualTo(body2000);
+            assertThat(comment.getBody().length()).isEqualTo(2000);
+        }
+
+        @Test
+        @DisplayName("createRoot rejects body with 2001 characters")
+        void shouldRejectRootCommentWith2001Characters() {
+            String body2001 = "a".repeat(2001);
+            assertThatThrownBy(() -> Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    body2001,
+                    T1
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment body cannot exceed 2000 characters.");
+        }
+
+        @Test
+        @DisplayName("createReply rejects body with 2001 characters")
+        void shouldRejectReplyCommentWith2001Characters() {
+            Comment root = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    "Valid root body",
+                    T1
+            );
+
+            String replyBody2001 = "r".repeat(2001);
+            assertThatThrownBy(() -> Comment.createReply(
+                    REPLY_ID,
+                    root,
+                    REPLY_AUTHOR_USER_ID,
+                    replyBody2001,
+                    T2
+            ))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment body cannot exceed 2000 characters.");
+        }
+
+        @Test
+        @DisplayName("edit rejects body with 2001 characters")
+        void shouldRejectEditWith2001Characters() {
+            Comment comment = Comment.createRoot(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    "Initial body",
+                    T1
+            );
+
+            String editBody2001 = "e".repeat(2001);
+            assertThatThrownBy(() -> comment.edit(editBody2001, T2))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment body cannot exceed 2000 characters.");
+        }
+
+        @Test
+        @DisplayName("rehydrate preserves historical active comment with >2000 characters without truncation")
+        void shouldPreserveLegacyOversizedCommentOnRehydration() {
+            String legacyBody = "x".repeat(3500);
+            Comment legacyComment = Comment.rehydrate(
+                    ROOT_ID,
+                    NOVEL_CHAPTER_TARGET,
+                    AUTHOR_USER_ID,
+                    null,
+                    null,
+                    legacyBody,
+                    CommentStatus.ACTIVE,
+                    T1,
+                    T1,
+                    null
+            );
+
+            assertThat(legacyComment.getId()).isEqualTo(ROOT_ID);
+            assertThat(legacyComment.getBody()).isEqualTo(legacyBody);
+            assertThat(legacyComment.getBody().length()).isEqualTo(3500);
+            assertThat(legacyComment.getStatus()).isEqualTo(CommentStatus.ACTIVE);
+            assertThat(legacyComment.isActive()).isTrue();
+
+            // Editing to another >2000 body is rejected
+            String anotherOversized = "y".repeat(2500);
+            assertThatThrownBy(() -> legacyComment.edit(anotherOversized, T2))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Comment body cannot exceed 2000 characters.");
+            // Legacy body remains intact after rejected edit
+            assertThat(legacyComment.getBody()).isEqualTo(legacyBody);
+
+            // Editing to valid <=2000 body is accepted
+            String validNewBody = "Valid updated body under 2000 characters.";
+            legacyComment.edit(validNewBody, T3);
+            assertThat(legacyComment.getBody()).isEqualTo(validNewBody);
+            assertThat(legacyComment.getUpdatedAt()).isEqualTo(T3);
+
+            // Deletion of legacy comment remains allowed
+            legacyComment.delete(T4);
+            assertThat(legacyComment.isDeleted()).isTrue();
+            assertThat(legacyComment.getBody()).isNull();
+            assertThat(legacyComment.getDeletedAt()).isEqualTo(T4);
+        }
+    }
 }

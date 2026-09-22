@@ -505,6 +505,57 @@ class WikiArticleCommentControllerIntegrationTest {
 
     @Test
     @WithMockUser
+    @DisplayName("Create root returns 400 Bad Request when body exceeds 2000 characters")
+    void shouldRejectRootCommentWhenBodyExceeds2000Chars() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        String body2001 = "a".repeat(2001);
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"" + body2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(createRootCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Reply returns 400 Bad Request when body exceeds 2000 characters")
+    void shouldRejectReplyWhenBodyExceeds2000Chars() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        String body2001 = "a".repeat(2001);
+
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"" + body2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(replyCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Edit returns 400 Bad Request when body exceeds 2000 characters")
+    void shouldRejectEditWhenBodyExceeds2000Chars() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        String body2001 = "a".repeat(2001);
+
+        mockMvc.perform(patch("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\":\"" + body2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(editCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("Blank body on create root returns 400 Bad Request")
     void shouldRejectBlankBodyOnCreate() throws Exception {
         mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments")
@@ -752,6 +803,24 @@ class WikiArticleCommentControllerIntegrationTest {
                                 }
                                 """))
                 .andExpect(status().isForbidden());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "scholar@universe.local", roles = "USER")
+    @DisplayName("Report submission without CSRF is rejected by security")
+    void shouldRejectReportSubmissionWhenCsrfMissingOnWiki() throws Exception {
+        mockMvc.perform(post("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/access-denied"));
 
         verify(submitCommentReportUseCase, never()).execute(any());
     }

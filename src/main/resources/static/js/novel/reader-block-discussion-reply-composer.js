@@ -938,6 +938,7 @@
         textarea.setAttribute('placeholder', 'Viết phản hồi...');
         textarea.setAttribute('rows', '2');
         textarea.setAttribute('aria-label', 'Nội dung phản hồi');
+        textarea.maxLength = 2000;
 
         // 3. Status container
         const statusDiv = doc.createElement('div');

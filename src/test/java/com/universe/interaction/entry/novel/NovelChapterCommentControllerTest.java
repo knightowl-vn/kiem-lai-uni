@@ -588,6 +588,43 @@ class NovelChapterCommentControllerTest {
 
     @Test
     @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should accept root comment when body is exactly 2000 characters")
+    void shouldAcceptRootCommentWhenBodyIsExactly2000Chars() throws Exception {
+        String body2000 = "a".repeat(2000);
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        Comment created = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, body2000, NOW);
+
+        when(createRootCommentUseCase.execute(any(CreateRootCommentCommand.class))).thenReturn(created);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"" + body2000 + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commentId").value(ROOT_COMMENT_ID.toString()));
+
+        verify(createRootCommentUseCase).execute(any(CreateRootCommentCommand.class));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject root comment with 400 when body exceeds 2000 characters")
+    void shouldRejectRootCommentWhenBodyExceeds2000Chars() throws Exception {
+        String body2001 = "a".repeat(2001);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"" + body2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(createRootCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
     @DisplayName("Should reject root comment when CSRF is missing according to Spring Security behavior")
     void shouldRejectRootCommentWhenCsrfMissing() throws Exception {
         mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments")
@@ -797,6 +834,22 @@ class NovelChapterCommentControllerTest {
 
     @Test
     @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject reply with 400 when body exceeds 2000 characters")
+    void shouldRejectReplyWhenBodyExceeds2000Chars() throws Exception {
+        String replyBody2001 = "r".repeat(2001);
+
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/replies")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_2_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"" + replyBody2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(replyCommentUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
     @DisplayName("Should reply to active nested reply comment with 201 Created and correct ancestry")
     void shouldReplyToNestedReplySuccessfully() throws Exception {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
@@ -872,6 +925,22 @@ class NovelChapterCommentControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"body\": \"Malicious edit\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject edit with 400 when body exceeds 2000 characters")
+    void shouldRejectEditWhenBodyExceeds2000Chars() throws Exception {
+        String editBody2001 = "e".repeat(2001);
+
+        mockMvc.perform(patch("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"body\": \"" + editBody2001 + "\"}"))
+                .andExpect(status().isBadRequest());
+
+        verify(editCommentUseCase, never()).execute(any());
     }
 
     @Test
@@ -1328,6 +1397,28 @@ class NovelChapterCommentControllerTest {
                                   }
                                 }
                                 """))
+                .andExpect(status().isBadRequest());
+
+        verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST inline comment: rejects 400 when body exceeds 2000 characters")
+    void shouldRejectInlineCommentWhenBodyExceeds2000Chars() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/inline")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "body": "%s",
+                                  "anchor": {
+                                    "contentVersion": 1,
+                                    "blockKey": "blk-1"
+                                  }
+                                }
+                                """.formatted("a".repeat(2001))))
                 .andExpect(status().isBadRequest());
 
         verify(novelInlineCommentCreationCoordinator, never()).createInlineComment(any(), any(), any(), any(long.class), any());
@@ -2109,6 +2200,24 @@ class NovelChapterCommentControllerTest {
                                 }
                                 """))
                 .andExpect(status().isForbidden());
+
+        verify(submitCommentReportUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject report submission when CSRF is missing")
+    void shouldRejectReportSubmissionWhenCsrfMissing() throws Exception {
+        mockMvc.perform(post("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/reports")
+                        .with(authenticatedIdentity(USER_1_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                    "reason": "SPAM"
+                                }
+                                """))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
 
         verify(submitCommentReportUseCase, never()).execute(any());
     }

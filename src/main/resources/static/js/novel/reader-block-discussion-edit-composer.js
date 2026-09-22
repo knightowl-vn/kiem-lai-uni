@@ -732,6 +732,7 @@
         textarea.className = EDIT_INPUT_CLASS;
         textarea.setAttribute('rows', '3');
         textarea.setAttribute('aria-label', 'Chỉnh sửa bình luận');
+        textarea.maxLength = 2000;
 
         // Check draft store
         const store = resolveDraftStore();

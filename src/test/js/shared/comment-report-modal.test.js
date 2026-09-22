@@ -939,6 +939,67 @@ describe('MS-05E / E8C2 — CommentReportModal Shared Component Tests', () => {
                 );
             }
         });
+
+        test('expired-session / followed-login HTTP 200 response is treated as error and preserves draft', async () => {
+            let callbackFired = false;
+            let errorCallbackFired = false;
+            let capturedErrorStatus = null;
+
+            const customModal = CommentReportModal.createCommentReportModal({
+                doc: fakeDoc,
+                draftStore: draftStore,
+                fetch: async () => ({
+                    status: 200,
+                    headers: { 'Content-Type': 'text/html' },
+                    text: async () => '<!DOCTYPE html><html><body>Login Page</body></html>',
+                    json: async () => { throw new Error('Unexpected token < in JSON'); }
+                })
+            });
+
+            customModal.open({
+                commentId: COMMENT_A,
+                submitUrl: SUBMIT_URL_A,
+                onSuccess: () => {
+                    callbackFired = true;
+                },
+                onError: (err, context) => {
+                    errorCallbackFired = true;
+                    capturedErrorStatus = context && context.status;
+                }
+            });
+
+            const els = customModal.getElements();
+            els.modal.querySelector('input[value="SPAM"]').checked = true;
+            els.textarea.value = 'My pending report description';
+            customModal.flushDraft();
+
+            els.form.dispatchEvent({ type: 'submit', preventDefault: () => {} });
+            await new Promise(r => setTimeout(r, 10));
+
+            // Must NOT treat as success
+            assert.strictEqual(callbackFired, false);
+            assert.strictEqual(customModal.isOpen(), true);
+            assert.strictEqual(customModal.isSubmitting(), false);
+
+            // Error callback fired with status 200
+            assert.strictEqual(errorCallbackFired, true);
+            assert.strictEqual(capturedErrorStatus, 200);
+
+            // Error message displayed
+            assert.ok(els.status.textContent.includes('Không thể gửi báo cáo lúc này'));
+
+            // Form inputs preserved
+            assert.strictEqual(els.modal.querySelector('input[value="SPAM"]').checked, true);
+            assert.strictEqual(els.textarea.value, 'My pending report description');
+
+            // Draft in storage remains preserved
+            const keyA = CommentReportModal.getReportDraftKey(COMMENT_A);
+            const rawDraft = draftStore.load(keyA);
+            assert.ok(rawDraft);
+            const savedDraft = JSON.parse(rawDraft);
+            assert.strictEqual(savedDraft.reason, 'SPAM');
+            assert.strictEqual(savedDraft.description, 'My pending report description');
+        });
     });
 
     // ========================================================================

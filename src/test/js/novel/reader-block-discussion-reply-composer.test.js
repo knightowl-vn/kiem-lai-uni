@@ -522,6 +522,7 @@ describe('MS-05E5G4A Novel Block Discussion Reply Composer Tests', () => {
         const textarea = composer.querySelector('.' + REPLY_INPUT_CLASS);
         assert.notStrictEqual(textarea, null);
         assert.strictEqual(textarea.isFocused, true);
+        assert.strictEqual(textarea.maxLength, 2000, 'Drawer reply composer textarea must have maxLength=2000');
 
         const activeTarget = getActiveReplyTarget();
         assert.notStrictEqual(activeTarget, null);

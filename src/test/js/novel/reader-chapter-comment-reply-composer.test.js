@@ -647,6 +647,7 @@ describe('Reader Chapter Comment Reply Composer UI (MS-05E5H2F2B)', () => {
         const input = composer.querySelector('.novel-chapter-comment-reply-composer-input');
         assert.ok(input);
         assert.strictEqual(input.isFocused, true, 'Textarea should be focused');
+        assert.strictEqual(input.maxLength, 2000, 'Reply composer input must have maxLength=2000');
     });
 
     test('6. Replying to root sets activeCommentId = rootId and activeRootId = rootId', () => {

@@ -917,6 +917,7 @@
         input.setAttribute('rows', '2');
         input.setAttribute('placeholder', authorName ? 'Viết phản hồi cho @' + authorName + '...' : 'Viết phản hồi...');
         input.setAttribute('aria-label', 'Nội dung phản hồi');
+        input.maxLength = 2000;
 
         // Restore saved draft into textarea if available
         const draftKey = getReplyDraftKey(chapterId, commentId);

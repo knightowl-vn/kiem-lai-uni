@@ -22,6 +22,8 @@ import java.util.UUID;
  */
 public final class Comment {
 
+    public static final int MAX_BODY_LENGTH = 2000;
+
     private final UUID id;
     private final CommentTarget target;
     private final UUID authorUserId;
@@ -88,7 +90,7 @@ public final class Comment {
                 throw new IllegalArgumentException("DeletedAt timestamp cannot be before createdAt timestamp.");
             }
         } else {
-            this.body = validateBody(body);
+            this.body = validatePersistedBody(body);
             if (this.deletedAt != null) {
                 throw new IllegalArgumentException("DeletedAt timestamp must be null for an ACTIVE comment.");
             }
@@ -105,13 +107,14 @@ public final class Comment {
             String body,
             Instant createdAt
     ) {
+        String validatedBody = validateMutationBody(body);
         return new Comment(
                 id,
                 target,
                 authorUserId,
                 null,
                 null,
-                body,
+                validatedBody,
                 CommentStatus.ACTIVE,
                 createdAt,
                 createdAt,
@@ -155,6 +158,7 @@ public final class Comment {
         }
 
         CommentTarget target = parent.getTarget();
+        String validatedBody = validateMutationBody(body);
 
         return new Comment(
                 id,
@@ -162,7 +166,7 @@ public final class Comment {
                 authorUserId,
                 parent.getId(),
                 threadRootCommentId,
-                body,
+                validatedBody,
                 CommentStatus.ACTIVE,
                 createdAt,
                 createdAt,
@@ -216,7 +220,7 @@ public final class Comment {
             throw new IllegalArgumentException("Edit timestamp cannot be before the last updated timestamp.");
         }
 
-        this.body = validateBody(newBody);
+        this.body = validateMutationBody(newBody);
         this.updatedAt = editedAt;
     }
 
@@ -243,13 +247,23 @@ public final class Comment {
         this.body = null;
     }
 
-    private static String validateBody(String body) {
+    private static String validatePersistedBody(String body) {
         if (body == null) {
             throw new IllegalArgumentException("Comment body cannot be null.");
         }
         String trimmed = body.trim();
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("Comment body cannot be blank.");
+        }
+        return trimmed;
+    }
+
+    private static String validateMutationBody(String body) {
+        String trimmed = validatePersistedBody(body);
+        if (trimmed.length() > MAX_BODY_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Comment body cannot exceed " + MAX_BODY_LENGTH + " characters."
+            );
         }
         return trimmed;
     }

@@ -353,6 +353,9 @@ public class WikiArticleCommentController {
         if (body == null || body.trim().isEmpty()) {
             throw new IllegalArgumentException("Comment body cannot be blank.");
         }
+        if (body.trim().length() > Comment.MAX_BODY_LENGTH) {
+            throw new IllegalArgumentException("Comment body cannot exceed " + Comment.MAX_BODY_LENGTH + " characters.");
+        }
     }
 
     @ExceptionHandler({

@@ -28,6 +28,7 @@ public class AdminCommentReportQueueController {
     private static final String VIEW_NAME = "admin/comments/reports";
     private static final String PAGE_TITLE = "Quản lý báo cáo bình luận";
     private static final String ACTIVE_MENU = "comment-reports";
+    private static final int MAX_PAGE_SIZE = 50;
 
     private final AdminCommentReportQueueCoordinator coordinator;
 
@@ -53,6 +54,8 @@ public class AdminCommentReportQueueController {
             disableCaching(response);
         }
 
+        int safeSize = size > 0 ? Math.min(size, MAX_PAGE_SIZE) : size;
+
         ReportQueueLifecycleScope normalizedScope = normalizeScope(scope);
         ReportReason normalizedReason = normalizeReason(reason);
         CommentTargetType normalizedTargetType = normalizeTargetType(targetType);
@@ -64,7 +67,7 @@ public class AdminCommentReportQueueController {
                 normalizedTargetType,
                 normalizedSort,
                 page,
-                size
+                safeSize
         );
 
         AdminCommentReportQueuePageDTO reportPage = coordinator.getReportQueue(filter);
@@ -78,7 +81,7 @@ public class AdminCommentReportQueueController {
         model.addAttribute("selectedReason", normalizedReason);
         model.addAttribute("selectedTargetType", normalizedTargetType);
         model.addAttribute("selectedSort", normalizedSort);
-        model.addAttribute("pageSize", size);
+        model.addAttribute("pageSize", safeSize);
         model.addAttribute("page", page);
 
         model.addAttribute("scopes", ReportQueueLifecycleScope.values());

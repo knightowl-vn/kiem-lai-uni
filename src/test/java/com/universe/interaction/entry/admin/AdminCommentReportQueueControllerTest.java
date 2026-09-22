@@ -361,4 +361,64 @@ class AdminCommentReportQueueControllerTest {
         assertThat(model.getAttribute("page")).isEqualTo(5);
         assertThat(model.getAttribute("pageSize")).isEqualTo(15);
     }
+
+    @Test
+    @DisplayName("Page size exceeding MAX_PAGE_SIZE 50 is clamped to 50")
+    void shouldClampOversizedSizeToMaxPageSize50() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AdminCommentReportQueuePageDTO mockPage = AdminCommentReportQueuePageDTO.empty(0, 50);
+        when(coordinator.getReportQueue(any())).thenReturn(mockPage);
+
+        controller.reportQueue(
+                null,
+                null,
+                null,
+                null,
+                0,
+                999,
+                model,
+                response
+        );
+
+        ArgumentCaptor<InteractionReportQueueFilter> filterCaptor =
+                ArgumentCaptor.forClass(InteractionReportQueueFilter.class);
+        verify(coordinator).getReportQueue(filterCaptor.capture());
+        InteractionReportQueueFilter filter = filterCaptor.getValue();
+
+        assertThat(filter.page()).isEqualTo(0);
+        assertThat(filter.size()).isEqualTo(50);
+        assertThat(model.getAttribute("page")).isEqualTo(0);
+        assertThat(model.getAttribute("pageSize")).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("Page size of exactly 50 is accepted without alteration")
+    void shouldAcceptSize50WithoutClamping() {
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        AdminCommentReportQueuePageDTO mockPage = AdminCommentReportQueuePageDTO.empty(0, 50);
+        when(coordinator.getReportQueue(any())).thenReturn(mockPage);
+
+        controller.reportQueue(
+                null,
+                null,
+                null,
+                null,
+                0,
+                50,
+                model,
+                response
+        );
+
+        ArgumentCaptor<InteractionReportQueueFilter> filterCaptor =
+                ArgumentCaptor.forClass(InteractionReportQueueFilter.class);
+        verify(coordinator).getReportQueue(filterCaptor.capture());
+        InteractionReportQueueFilter filter = filterCaptor.getValue();
+
+        assertThat(filter.size()).isEqualTo(50);
+        assertThat(model.getAttribute("pageSize")).isEqualTo(50);
+    }
 }
