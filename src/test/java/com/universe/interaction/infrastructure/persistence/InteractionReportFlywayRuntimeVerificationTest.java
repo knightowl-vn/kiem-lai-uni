@@ -94,6 +94,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
                 "description",
                 "reported_body_snapshot",
                 "status",
+                "moderation_action",
                 "created_at",
                 "resolved_by_user_id",
                 "resolved_at",
@@ -196,7 +197,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
         UUID resolverId = UUID.randomUUID();
         Instant resolvedAt1 = now.plus(1, ChronoUnit.HOURS);
         jdbc.update(
-                "UPDATE interaction_reports SET status = 'RESOLVED_ACTION_TAKEN', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
+                "UPDATE interaction_reports SET status = 'RESOLVED_ACTION_TAKEN', moderation_action = 'DELETE_COMMENT', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
                 resolverId.toString(), Timestamp.from(resolvedAt1), reportA1.toString()
         );
 
@@ -220,7 +221,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
         // Under pending_slot (NULL for resolved) this MUST SUCCEED.
         Instant resolvedAt2 = now.plus(2, ChronoUnit.HOURS);
         jdbc.update(
-                "UPDATE interaction_reports SET status = 'RESOLVED_ACTION_TAKEN', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
+                "UPDATE interaction_reports SET status = 'RESOLVED_ACTION_TAKEN', moderation_action = 'DELETE_COMMENT', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
                 resolverId.toString(), Timestamp.from(resolvedAt2), reportA2.toString()
         );
 
@@ -240,7 +241,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
                 reportA3.toString(), commentId.toString(), reporterA.toString(), Timestamp.from(now)
         );
         jdbc.update(
-                "UPDATE interaction_reports SET status = 'RESOLVED_NO_ACTION', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
+                "UPDATE interaction_reports SET status = 'RESOLVED_NO_ACTION', moderation_action = 'NO_ACTION', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
                 resolverId.toString(), Timestamp.from(resolvedAt2), reportA3.toString()
         );
 
@@ -251,7 +252,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
                 reportA4.toString(), commentId.toString(), reporterA.toString(), Timestamp.from(now)
         );
         jdbc.update(
-                "UPDATE interaction_reports SET status = 'RESOLVED_NO_ACTION', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
+                "UPDATE interaction_reports SET status = 'RESOLVED_NO_ACTION', moderation_action = 'NO_ACTION', resolved_by_user_id = ?, resolved_at = ? WHERE id = ?",
                 resolverId.toString(), Timestamp.from(resolvedAt2), reportA4.toString()
         );
 
@@ -295,13 +296,24 @@ class InteractionReportFlywayRuntimeVerificationTest {
         UUID reporterId = UUID.randomUUID();
         Instant now = Instant.now();
 
-        // Reject invalid status
+        // A. Prove the named status CHECK exists and has the expected allowed-status definition using information_schema
+        String checkClause = jdbc.queryForObject(
+                "SELECT check_clause FROM information_schema.check_constraints " +
+                        "WHERE constraint_schema = ? AND constraint_name = 'chk_interaction_reports_status'",
+                String.class,
+                DB_NAME
+        );
+        assertThat(checkClause).isNotNull();
+        assertThat(checkClause).contains("PENDING", "RESOLVED_ACTION_TAKEN", "RESOLVED_NO_ACTION");
+
+        // B. Prove an unsupported status such as DISMISSED is rejected by the final schema
         UUID invalidStatusReportId = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update(
                 "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
                         "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'DISMISSED', ?, NULL, NULL)",
                 invalidStatusReportId.toString(), commentId.toString(), reporterId.toString(), Timestamp.from(now)
-        )).hasMessageContaining("chk_interaction_reports_status");
+        )).isInstanceOf(Exception.class)
+                .hasMessageMatching("(?s).*chk_interaction_reports_.*");
     }
 
     @Test
@@ -388,8 +400,8 @@ class InteractionReportFlywayRuntimeVerificationTest {
         // 3. Reject RESOLVED_ACTION_TAKEN with null resolved_by_user_id
         UUID resolvedWithoutResolverId = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', ?, NULL, ?)",
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', 'DELETE_COMMENT', ?, NULL, ?)",
                 resolvedWithoutResolverId.toString(), commentId.toString(), reporterId.toString(), Timestamp.from(now), Timestamp.from(now)
         )).hasMessageContaining("chk_interaction_reports_resolution");
 
@@ -397,8 +409,8 @@ class InteractionReportFlywayRuntimeVerificationTest {
         UUID resolvedEarlierId = UUID.randomUUID();
         Instant earlier = now.minus(1, ChronoUnit.HOURS);
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', 'DELETE_COMMENT', ?, ?, ?)",
                 resolvedEarlierId.toString(), commentId.toString(), reporterId.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(earlier)
         )).hasMessageContaining("chk_interaction_reports_resolution");
 
@@ -406,8 +418,8 @@ class InteractionReportFlywayRuntimeVerificationTest {
         UUID validResolvedId = UUID.randomUUID();
         Instant later = now.plus(1, ChronoUnit.HOURS);
         jdbc.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', 'NO_ACTION', ?, ?, ?)",
                 validResolvedId.toString(), commentId.toString(), reporterId.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
         );
 
@@ -434,5 +446,82 @@ class InteractionReportFlywayRuntimeVerificationTest {
                 "idx_interaction_reports_status_created_id",
                 "idx_interaction_reports_comment_id"
         );
+    }
+
+    @Test
+    @DisplayName("11. Moderation action CHECK constraint: enforce V54 status-moderation action invariants")
+    void shouldEnforceModerationActionCheckConstraint() {
+        UUID commentId = insertParentComment();
+        UUID reporterId = UUID.randomUUID();
+        UUID resolverId = UUID.randomUUID();
+        Instant now = Instant.now();
+        Instant later = now.plus(1, ChronoUnit.HOURS);
+
+        // 1. Valid: PENDING with NULL moderation_action
+        UUID validPendingId = UUID.randomUUID();
+        jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'PENDING', NULL, ?, NULL, NULL)",
+                validPendingId.toString(), commentId.toString(), reporterId.toString(), Timestamp.from(now)
+        );
+
+        // 2. Valid: RESOLVED_ACTION_TAKEN with DELETE_COMMENT
+        UUID validActionTakenId = UUID.randomUUID();
+        UUID reporter2 = UUID.randomUUID();
+        jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', 'DELETE_COMMENT', ?, ?, ?)",
+                validActionTakenId.toString(), commentId.toString(), reporter2.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        );
+
+        // 3. Valid: RESOLVED_NO_ACTION with NO_ACTION
+        UUID validNoActionId = UUID.randomUUID();
+        UUID reporter3 = UUID.randomUUID();
+        jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', 'NO_ACTION', ?, ?, ?)",
+                validNoActionId.toString(), commentId.toString(), reporter3.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        );
+
+        // 4. Invalid: PENDING with DELETE_COMMENT
+        UUID invalidPendingId = UUID.randomUUID();
+        UUID reporter4 = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?, NULL, NULL)",
+                invalidPendingId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now)
+        )).hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // 5. Invalid: RESOLVED_ACTION_TAKEN with NULL moderation_action
+        UUID invalidActionTakenNullId = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
+                invalidActionTakenNullId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        )).hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // 6. Invalid: RESOLVED_ACTION_TAKEN with NO_ACTION
+        UUID invalidActionTakenNoActionId = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_ACTION_TAKEN', 'NO_ACTION', ?, ?, ?)",
+                invalidActionTakenNoActionId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        )).hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // 7. Invalid: RESOLVED_NO_ACTION with NULL moderation_action
+        UUID invalidNoActionNullId = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', NULL, ?, ?, ?)",
+                invalidNoActionNullId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        )).hasMessageContaining("chk_interaction_reports_moderation_action");
+
+        // 8. Invalid: RESOLVED_NO_ACTION with DELETE_COMMENT
+        UUID invalidNoActionDeleteId = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
+                invalidNoActionDeleteId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
+        )).hasMessageContaining("chk_interaction_reports_moderation_action");
     }
 }

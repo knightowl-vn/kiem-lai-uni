@@ -397,13 +397,18 @@ describe('MS-05E5G5E Reader Comment Revision History UI Suite', () => {
         });
         await new Promise(r => setTimeout(r, 25));
 
-        // Verify marker rendered as button with data-action="view-revisions"
+        // A. Verify edited indicator is a non-interactive SPAN label
         const marker = listEl.querySelector('.novel-comment-edited');
         assert.notStrictEqual(marker, null, 'Marker must be present');
-        assert.strictEqual(marker.tagName, 'BUTTON', 'Marker must be a button');
-        assert.strictEqual(marker.getAttribute('data-action'), 'view-revisions');
-        assert.strictEqual(marker.getAttribute('data-comment-id'), 'c-10');
+        assert.strictEqual(marker.tagName, 'SPAN', 'Marker must be a SPAN');
+        assert.strictEqual(marker.getAttribute('data-action'), null, 'Marker must not have data-action trigger');
         assert.strictEqual(marker.textContent, 'đã chỉnh sửa');
+
+        // B. Verify revision-history action is present in overflow menu
+        const historyAction = listEl.querySelector('[data-action="view-revisions"]');
+        assert.notStrictEqual(historyAction, null, 'Revision-history action must exist');
+        assert.strictEqual(historyAction.getAttribute('data-comment-id'), 'c-10');
+        assert.strictEqual(historyAction.textContent.trim(), 'Xem lịch sử chỉnh sửa');
     });
 
     test('2. unedited comment does NOT render history affordance', async () => {
