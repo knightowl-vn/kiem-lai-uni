@@ -5,6 +5,7 @@ import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentit
 import com.universe.wiki.application.appreciation.SetWikiAppreciationCommand;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationResult;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationUseCase;
+import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
 import com.universe.wiki.entry.dto.appreciation.SetWikiAppreciationRequest;
@@ -89,6 +90,11 @@ public class WikiArticleAppreciationController {
     @ExceptionHandler(WikiAppreciationTargetNotFoundException.class)
     public ResponseEntity<Void> handleTargetNotFound(WikiAppreciationTargetNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+    }
+
+    @ExceptionHandler(DuplicateWikiAppreciationException.class)
+    public ResponseEntity<Void> handleDuplicateConflict(DuplicateWikiAppreciationException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 
     @ExceptionHandler({

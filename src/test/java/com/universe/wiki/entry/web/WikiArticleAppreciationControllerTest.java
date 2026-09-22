@@ -7,6 +7,7 @@ import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentit
 import com.universe.wiki.application.appreciation.SetWikiAppreciationCommand;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationResult;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationUseCase;
+import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -316,6 +317,19 @@ class WikiArticleAppreciationControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.value").value(5))
                     .andExpect(jsonPath("$.changed").value(false));
+        }
+
+        @Test
+        @DisplayName("L. Tranh chấp trùng lặp không thể phục hồi (DuplicateWikiAppreciationException) -> 409 Conflict")
+        void shouldReturn409WhenDuplicateWikiAppreciationExceptionOccurs() throws Exception {
+            when(setWikiAppreciationUseCase.execute(any(SetWikiAppreciationCommand.class)))
+                    .thenThrow(new DuplicateWikiAppreciationException(ARTICLE_ID, USER_ID, new RuntimeException("duplicate")));
+
+            mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\": 5}"))
+                    .andExpect(status().isConflict());
         }
     }
 }

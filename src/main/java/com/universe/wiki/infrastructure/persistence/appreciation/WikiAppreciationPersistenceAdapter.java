@@ -1,7 +1,9 @@
 package com.universe.wiki.infrastructure.persistence.appreciation;
 
+import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,8 +56,39 @@ public class WikiAppreciationPersistenceAdapter implements WikiAppreciationRepos
                 .orElseGet(WikiAppreciationJpaEntity::new);
 
         mapToEntity(rating, entity);
-        WikiAppreciationJpaEntity saved = repository.saveAndFlush(entity);
-        return toDomain(saved);
+        try {
+            WikiAppreciationJpaEntity saved = repository.saveAndFlush(entity);
+            return toDomain(saved);
+        } catch (DataIntegrityViolationException ex) {
+            if (isDuplicateRatingConstraintViolation(ex)) {
+                throw new DuplicateWikiAppreciationException(
+                        rating.getWikiArticleId(),
+                        rating.getUserId(),
+                        ex
+                );
+            }
+            throw ex;
+        }
+    }
+
+    private static final String TARGET_UNIQUE_CONSTRAINT = "uq_wiki_appreciation_ratings_article_user";
+
+    private boolean isDuplicateRatingConstraintViolation(DataIntegrityViolationException ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                if (cve.getConstraintName() != null
+                        && cve.getConstraintName().toLowerCase().contains(TARGET_UNIQUE_CONSTRAINT)) {
+                    return true;
+                }
+            }
+            if (current.getMessage() != null
+                    && current.getMessage().toLowerCase().contains(TARGET_UNIQUE_CONSTRAINT)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private WikiAppreciationRating toDomain(WikiAppreciationJpaEntity entity) {
