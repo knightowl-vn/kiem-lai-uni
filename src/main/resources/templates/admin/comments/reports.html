@@ -145,17 +145,31 @@
                                 </span>
                             </div>
                             <div class="comment-report-header-right">
-                                <time class="comment-report-time"
-                                      th:if="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}"
-                                      th:title="${'Báo cáo lúc: ' + #temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}"
-                                      th:text="${'Đã xử lý: ' + #temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}">
-                                    01/01/2026 12:00
-                                </time>
-                                <time class="comment-report-time"
-                                      th:unless="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}"
-                                      th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
-                                    01/01/2026 12:00
-                                </time>
+                                <th:block th:if="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}">
+                                    <time class="comment-report-time admin-time-pair__exact"
+                                          th:title="${'Báo cáo lúc: ' + #temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}"
+                                          th:datetime="${report.resolvedAt}"
+                                          th:text="${'Đã xử lý: ' + #temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}">
+                                        01/01/2026 12:00
+                                    </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                        · <time data-relative-time
+                                               th:datetime="${report.resolvedAt}"
+                                               th:text="${#temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}">
+                                            01/01/2026 12:00
+                                        </time></span>
+                                </th:block>
+                                <th:block th:unless="${selectedScope.name() == 'PROCESSED' and report.resolvedAt != null}">
+                                    <time class="comment-report-time admin-time-pair__exact"
+                                          th:datetime="${report.createdAt}"
+                                          th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                        01/01/2026 12:00
+                                    </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                        · <time data-relative-time
+                                               th:datetime="${report.createdAt}"
+                                               th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                            01/01/2026 12:00
+                                        </time></span>
+                                </th:block>
                                 <span class="comment-report-id" th:text="${'ID: ' + report.reportId}">ID</span>
                                 <a th:href="@{/admin/comments/reports/{id}(id=${report.reportId})}"
                                    class="admin-view-button comment-report-detail-link">

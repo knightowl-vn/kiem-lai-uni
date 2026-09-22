@@ -125,22 +125,42 @@
 
 							<div>
 								<dt>Ngày tạo</dt>
-								<dd
+								<dd><time
+									class="admin-time-pair__exact"
+									th:datetime="${user.createdAt}"
 									th:text="${#temporals.format(
                                         user.createdAt,
                                         'dd/MM/yyyy HH:mm'
                                     )}">
-								</dd>
+								</time><span class="admin-time-pair__relative" aria-hidden="true">
+									· <time
+									data-relative-time
+									th:datetime="${user.createdAt}"
+									th:text="${#temporals.format(
+                                        user.createdAt,
+                                        'dd/MM/yyyy HH:mm'
+                                    )}">
+								</time></span></dd>
 							</div>
 
 							<div>
 								<dt>Cập nhật gần nhất</dt>
-								<dd
+								<dd><time
+									class="admin-time-pair__exact"
+									th:datetime="${user.updatedAt}"
 									th:text="${#temporals.format(
                                         user.updatedAt,
                                         'dd/MM/yyyy HH:mm'
                                     )}">
-								</dd>
+								</time><span class="admin-time-pair__relative" aria-hidden="true">
+									· <time
+									data-relative-time
+									th:datetime="${user.updatedAt}"
+									th:text="${#temporals.format(
+                                        user.updatedAt,
+                                        'dd/MM/yyyy HH:mm'
+                                    )}">
+								</time></span></dd>
 							</div>
 
 						</dl>

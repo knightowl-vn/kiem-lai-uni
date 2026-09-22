@@ -206,12 +206,22 @@
                                             : (${user.status == 'BLOCKED'}
                                                 ? ' status-blocked'
                                                 : ' status-pending')"
-										th:text="${user.status}"> ACTIVE </span> <small
+										th:text="${user.status}"> ACTIVE </span> <small><time
+										class="admin-time-pair__exact"
+										th:datetime="${user.createdAt}"
 										th:text="${#temporals.format(
                                             user.createdAt,
                                             'dd/MM/yyyy HH:mm'
                                         )}">
-										01/08/2026 </small>
+										01/08/2026 </time><span class="admin-time-pair__relative" aria-hidden="true">
+										· <time
+										data-relative-time
+										th:datetime="${user.createdAt}"
+										th:text="${#temporals.format(
+                                            user.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+										01/08/2026 </time></span></small>
 
 								</div>
 

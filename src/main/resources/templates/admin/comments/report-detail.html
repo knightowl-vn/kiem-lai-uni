@@ -73,10 +73,16 @@
                         </div>
                         <div class="comment-report-detail-timestamp-item">
                             <span class="comment-report-detail-meta-label">Thời gian báo cáo:</span>
-                            <time class="comment-report-detail-meta-value"
+                            <time class="comment-report-detail-meta-value admin-time-pair__exact"
+                                  th:datetime="${report.createdAt}"
                                   th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm:ss')}">
                                 01/01/2026 12:00:00
-                            </time>
+                            </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                · <time data-relative-time
+                                       th:datetime="${report.createdAt}"
+                                       th:text="${#temporals.format(report.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                    01/01/2026 12:00
+                                </time></span>
                         </div>
                     </div>
 
@@ -158,24 +164,42 @@
                         <div class="comment-report-detail-timestamp-grid">
                             <div th:if="${report.commentCreatedAt != null}" class="comment-report-detail-timestamp-item">
                                 <span class="comment-report-detail-meta-label">Thời gian đăng:</span>
-                                <time class="comment-report-detail-meta-value"
+                                <time class="comment-report-detail-meta-value admin-time-pair__exact"
+                                      th:datetime="${report.commentCreatedAt}"
                                       th:text="${#temporals.format(report.commentCreatedAt, 'dd/MM/yyyy HH:mm:ss')}">
                                     01/01/2026 12:00:00
-                                </time>
+                                </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                    · <time data-relative-time
+                                           th:datetime="${report.commentCreatedAt}"
+                                           th:text="${#temporals.format(report.commentCreatedAt, 'dd/MM/yyyy HH:mm')}">
+                                        01/01/2026 12:00
+                                    </time></span>
                             </div>
                             <div th:if="${report.commentUpdatedAt != null}" class="comment-report-detail-timestamp-item">
                                 <span class="comment-report-detail-meta-label">Cập nhật lần cuối:</span>
-                                <time class="comment-report-detail-meta-value"
+                                <time class="comment-report-detail-meta-value admin-time-pair__exact"
+                                      th:datetime="${report.commentUpdatedAt}"
                                       th:text="${#temporals.format(report.commentUpdatedAt, 'dd/MM/yyyy HH:mm:ss')}">
                                     01/01/2026 12:00:00
-                                </time>
+                                </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                    · <time data-relative-time
+                                           th:datetime="${report.commentUpdatedAt}"
+                                           th:text="${#temporals.format(report.commentUpdatedAt, 'dd/MM/yyyy HH:mm')}">
+                                        01/01/2026 12:00
+                                    </time></span>
                             </div>
                             <div th:if="${report.commentDeletedAt != null}" class="comment-report-detail-timestamp-item">
                                 <span class="comment-report-detail-meta-label">Thời gian xóa:</span>
-                                <time class="comment-report-detail-meta-value comment-report-detail-deleted-highlight"
+                                <time class="comment-report-detail-meta-value comment-report-detail-deleted-highlight admin-time-pair__exact"
+                                      th:datetime="${report.commentDeletedAt}"
                                       th:text="${#temporals.format(report.commentDeletedAt, 'dd/MM/yyyy HH:mm:ss')}">
                                     01/01/2026 12:00:00
-                                </time>
+                                </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                    · <time data-relative-time
+                                           th:datetime="${report.commentDeletedAt}"
+                                           th:text="${#temporals.format(report.commentDeletedAt, 'dd/MM/yyyy HH:mm')}">
+                                        01/01/2026 12:00
+                                    </time></span>
                             </div>
                         </div>
                     </div>
@@ -457,10 +481,16 @@
                         </div>
                         <div th:if="${report.resolvedAt != null}" class="comment-report-detail-meta-item">
                             <span class="comment-report-detail-meta-label">Thời gian xử lý:</span>
-                            <time class="comment-report-detail-meta-value"
+                            <time class="comment-report-detail-meta-value admin-time-pair__exact"
+                                  th:datetime="${report.resolvedAt}"
                                   th:text="${#temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm:ss')}">
                                 01/01/2026 12:00:00
-                            </time>
+                            </time><span class="admin-time-pair__relative" aria-hidden="true">
+                                · <time data-relative-time
+                                       th:datetime="${report.resolvedAt}"
+                                       th:text="${#temporals.format(report.resolvedAt, 'dd/MM/yyyy HH:mm')}">
+                                    01/01/2026 12:00
+                                </time></span>
                         </div>
                         <div th:if="${report.resolver != null and report.resolver.resolved}" class="comment-report-detail-meta-item">
                             <span class="comment-report-detail-meta-label">Người xử lý:</span>
