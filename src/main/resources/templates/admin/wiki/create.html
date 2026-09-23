@@ -55,6 +55,7 @@
 				<section class="wiki-admin-form-panel">
 
 					<form id="wikiArticleForm" method="post"
+						enctype="multipart/form-data"
 						th:action="@{/admin/wiki/articles}" th:object="${form}"
 						class="wiki-admin-create-form" data-wiki-autosave-mode="create">
 
@@ -120,6 +121,101 @@
 
 								</select> <small> Loại bài ảnh hưởng tới URL và cách phân loại
 									trong Wiki. </small>
+
+							</div>
+
+						</div>
+
+						<!-- ================================================= -->
+						<!-- ================================================= -->
+						<!-- COVER IMAGE UPLOAD (MS-05G7 MODAL COMPOSITION)    -->
+						<!-- ================================================= -->
+
+						<div class="wiki-admin-form-group">
+
+							<label for="wikiCoverImage"> Ảnh bìa </label>
+
+							<input type="hidden" id="wikiCoverPositionX" th:field="*{coverPositionX}">
+							<input type="hidden" id="wikiCoverPositionY" th:field="*{coverPositionY}">
+							<!-- Temporary Source Picker (OS file chooser only, never submitted) -->
+							<input id="wikiCoverPickerInput" type="file"
+								accept="image/jpeg,image/png,image/webp" hidden>
+							<!-- Actual Form Submission Input -->
+							<input id="wikiCoverImage" type="file" th:field="*{coverImageFile}"
+								accept="image/jpeg,image/png,image/webp" hidden>
+
+							<div class="wiki-admin-cover-upload-card" id="wikiCoverCard" data-has-persisted-cover="false">
+
+								<div class="wiki-admin-cover-preview-wrapper wiki-admin-cover-compact-wrapper">
+									<div class="wiki-cover-compact-frame" id="wikiCoverCompactFrame">
+										<img class="wiki-cover-compact-img" id="wikiCoverCompactImg" alt="Xem trước ảnh bìa" hidden>
+										<div class="wiki-admin-cover-placeholder" id="wikiCoverCompactPlaceholder">
+											<span class="wiki-admin-cover-placeholder-icon" aria-hidden="true">🖼️</span>
+											<span class="wiki-admin-cover-placeholder-text">Chưa có ảnh bìa</span>
+										</div>
+
+										<!-- Pencil Action Button & Menu (MS-05G7.1) -->
+										<div class="wiki-cover-menu-wrapper" id="wikiCoverMenuWrapper" style="display: none;">
+											<button type="button" class="wiki-cover-edit-button" id="wikiCoverEditBtn"
+												aria-label="Chỉnh sửa ảnh bìa" aria-expanded="false" data-action="toggle-menu" title="Chỉnh sửa ảnh bìa">
+												<svg class="wiki-cover-edit-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+													<path d="M12 20h9"/>
+													<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+												</svg>
+											</button>
+
+											<ul class="wiki-cover-action-menu dropdown-menu" id="wikiCoverActionMenu" role="menu" hidden>
+												<li>
+													<button type="button" class="wiki-cover-menu-item dropdown-item" data-action="update-cover" role="menuitem">
+														<svg class="wiki-cover-menu-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+															<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+															<circle cx="8.5" cy="8.5" r="1.5"/>
+															<polyline points="21 15 16 10 5 21"/>
+														</svg>
+														<span>Cập nhật ảnh</span>
+													</button>
+												</li>
+												<li>
+													<button type="button" class="wiki-cover-menu-item dropdown-item" data-action="reposition-cover" role="menuitem">
+														<svg class="wiki-cover-menu-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+															<polyline points="5 9 2 12 5 15"/>
+															<polyline points="9 5 12 2 15 5"/>
+															<polyline points="15 19 12 22 9 19"/>
+															<polyline points="19 9 22 12 19 15"/>
+															<line x1="2" y1="12" x2="22" y2="12"/>
+															<line x1="12" y1="2" x2="12" y2="22"/>
+														</svg>
+														<span>Chỉnh vị trí</span>
+													</button>
+												</li>
+												<li class="wiki-cover-menu-divider-li">
+													<hr class="wiki-cover-menu-divider dropdown-divider">
+												</li>
+												<li>
+													<button type="button" class="wiki-cover-menu-item dropdown-item text-danger wiki-cover-menu-item-danger" data-action="remove-cover" role="menuitem">
+														<svg class="wiki-cover-menu-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+															<polyline points="3 6 5 6 21 6"/>
+															<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+														</svg>
+														<span>Bỏ ảnh đã chọn</span>
+													</button>
+												</li>
+											</ul>
+										</div>
+									</div>
+								</div>
+
+								<div class="wiki-admin-cover-compact-controls">
+									<div class="wiki-cover-actions" id="wikiCoverNoImageActions">
+										<button type="button" class="wiki-admin-secondary-button wiki-cover-btn" data-action="choose-cover">
+											Chọn ảnh bìa
+										</button>
+									</div>
+									<small class="wiki-admin-cover-hint">
+										Định dạng hỗ trợ: JPG, PNG, WebP. Tối đa 5MB. Khung tỷ lệ chuẩn 4:5.
+									</small>
+									<div class="wiki-cover-error wiki-admin-form-error" id="wikiCoverRestingError" hidden></div>
+								</div>
 
 							</div>
 
@@ -734,6 +830,45 @@
 
 					</div>
 
+					<!-- ========================================================= -->
+					<!-- WIKI COVER MODAL COMPOSITION (MS-05G7)                    -->
+					<!-- ========================================================= -->
+					<div class="wiki-cover-modal modal fade" id="wikiCoverModal" role="dialog" aria-modal="true" aria-labelledby="wikiCoverModalTitle" hidden>
+						<div class="wiki-cover-modal-backdrop" data-action="close-modal"></div>
+						<section class="wiki-cover-modal-dialog" role="document">
+							<div class="wiki-cover-modal-content">
+								<div class="wiki-cover-modal-header">
+									<h3 class="wiki-cover-modal-title" id="wikiCoverModalTitle">Chọn vùng ảnh bìa</h3>
+									<button type="button" class="wiki-cover-modal-close" data-action="close-modal" aria-label="Đóng">×</button>
+								</div>
+
+								<div class="wiki-cover-modal-body">
+									<div class="wiki-cover-workspace" id="wikiCoverWorkspace">
+										<div class="wiki-cover-frame" id="wikiCoverModalFrame" role="region" aria-label="Khung điều chỉnh tâm ảnh bìa" tabindex="0">
+											<img class="wiki-cover-img" id="wikiCoverModalImg" alt="Xem trước ảnh bìa" draggable="false">
+											<div class="wiki-cover-focal-badge" id="wikiCoverModalBadge">Tâm: 50% · 50%</div>
+											<div class="wiki-cover-drag-hint" id="wikiCoverModalDragHint">Kéo để căn chỉnh tâm ảnh</div>
+										</div>
+									</div>
+
+									<div class="wiki-cover-modal-toolbar">
+										<div class="wiki-cover-modal-tools">
+											<button type="button" class="wiki-admin-secondary-button wiki-cover-btn" id="wikiCoverModalResetBtn" data-action="modal-reset" disabled>
+												Đặt lại
+											</button>
+										</div>
+										<div class="wiki-cover-error wiki-admin-form-error" id="wikiCoverModalError" hidden></div>
+									</div>
+								</div>
+
+								<div class="wiki-cover-modal-footer">
+									<button type="button" class="wiki-admin-secondary-button" data-action="close-modal">Hủy</button>
+									<button type="button" class="wiki-admin-primary-button" id="wikiCoverApplyBtn" data-action="modal-apply">Áp dụng</button>
+								</div>
+							</div>
+						</section>
+					</div>
+
 				</section>
 
 			</section>
@@ -744,6 +879,14 @@
 
 	<script th:src="@{/js/wiki/admin-content-template.js}"></script>
 	<script th:src="@{/js/wiki/admin-markdown-editor.js}"></script>
+	<script th:src="@{/js/wiki/wiki-cover-editor.js}"></script>
+	<script>
+		document.addEventListener('DOMContentLoaded', function() {
+			if (typeof WikiCoverEditor !== 'undefined') {
+				WikiCoverEditor.autoInit();
+			}
+		});
+	</script>
 
 </body>
 </html>

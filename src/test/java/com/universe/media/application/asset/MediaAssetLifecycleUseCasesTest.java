@@ -228,7 +228,7 @@ class MediaAssetLifecycleUseCasesTest {
         @DisplayName("successful delete mutates asset status to DELETED and saves")
         void shouldDeleteSuccessfully() {
             MediaAsset asset = createActiveAsset();
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.of(asset));
 
             deleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID));
@@ -242,9 +242,22 @@ class MediaAssetLifecycleUseCasesTest {
         }
 
         @Test
+        @DisplayName("deleting an already DELETED asset is an idempotent no-op and does not save")
+        void shouldBeIdempotentNoopWhenAlreadyDeleted() {
+            MediaAsset asset = createActiveAsset();
+            asset.markDeleted(T0);
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
+                    .thenReturn(Optional.of(asset));
+
+            deleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID));
+
+            verify(mediaAssetRepositoryPort, never()).save(any());
+        }
+
+        @Test
         @DisplayName("asset not found throws MediaAssetNotFoundException")
         void shouldThrowWhenAssetNotFound() {
-            when(mediaAssetRepositoryPort.findById(ASSET_ID))
+            when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID))
                     .thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> deleteUseCase.execute(new DeleteMediaAssetCommand(ASSET_ID)))

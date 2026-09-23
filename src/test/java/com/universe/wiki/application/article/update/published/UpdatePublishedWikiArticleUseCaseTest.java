@@ -528,6 +528,135 @@ class UpdatePublishedWikiArticleUseCaseTest {
                 );
     }
 
+    /*
+     * =====================================================
+     * COVER TRI-STATE SEMANTICS
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName("Tri-state: Legacy update published command (without cover info) preserves existing cover")
+    void shouldPreserveExistingCoverWhenLegacyCommandUsed() {
+        UUID existingCoverId = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(existingCoverId, ADMIN_ID, PUBLISHED_AT.plusSeconds(10));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        // Legacy 5-arg constructor (updateCover = false)
+        UpdatePublishedWikiArticleCommand legacyCmd = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt mới", "Nội dung cập nhật mới", "Sửa tóm tắt", ADMIN_ID
+        );
+
+        WikiArticleDTO result = updatePublishedUseCase.execute(legacyCmd);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(existingCoverId);
+        assertThat(article.getCoverMediaAssetId()).isEqualTo(existingCoverId);
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit same UUID preserves cover without fake cover mutation")
+    void shouldPreserveCoverWithoutMutationWhenSameUuidProvided() {
+        UUID existingCoverId = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(existingCoverId, ADMIN_ID, PUBLISHED_AT.plusSeconds(10));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // 7-arg constructor with same UUID, updateCover = true, and identical content
+        UpdatePublishedWikiArticleCommand sameCmd = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID,
+                article.getSummary(),
+                article.getContent(),
+                "Không thay đổi gì",
+                ADMIN_ID,
+                existingCoverId,
+                true
+        );
+
+        WikiArticleDTO result = updatePublishedUseCase.execute(sameCmd);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(existingCoverId);
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit new UUID changes cover, increments aggregateVersion, keeps contentVersion")
+    void shouldChangeCoverWhenNewUuidProvided() {
+        UUID oldCoverId = UUID.randomUUID();
+        UUID newCoverId = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(oldCoverId, ADMIN_ID, PUBLISHED_AT.plusSeconds(10));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // Identical summary and content, but new cover UUID with updateCover = true
+        UpdatePublishedWikiArticleCommand newCoverCmd = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID,
+                article.getSummary(),
+                article.getContent(),
+                "Đổi ảnh bìa bài xuất bản",
+                ADMIN_ID,
+                newCoverId,
+                true
+        );
+
+        WikiArticleDTO result = updatePublishedUseCase.execute(newCoverCmd);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(newCoverId);
+        assertThat(article.getCoverMediaAssetId()).isEqualTo(newCoverId);
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore + 1);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort).save(article);
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit null removes cover, increments aggregateVersion, keeps contentVersion")
+    void shouldRemoveCoverWhenNullProvidedWithUpdateFlagTrue() {
+        UUID oldCoverId = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(oldCoverId, ADMIN_ID, PUBLISHED_AT.plusSeconds(10));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // Identical summary and content, explicit null with updateCover = true
+        UpdatePublishedWikiArticleCommand removeCoverCmd = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID,
+                article.getSummary(),
+                article.getContent(),
+                "Gỡ ảnh bìa bài xuất bản",
+                ADMIN_ID,
+                null,
+                true
+        );
+
+        WikiArticleDTO result = updatePublishedUseCase.execute(removeCoverCmd);
+
+        assertThat(result.coverMediaAssetId()).isNull();
+        assertThat(article.getCoverMediaAssetId()).isNull();
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore + 1);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort).save(article);
+    }
+
     private UpdatePublishedWikiArticleCommand
             createCommand() {
 

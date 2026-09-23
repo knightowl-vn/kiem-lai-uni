@@ -60,6 +60,12 @@ public class MediaAssetJpaEntity {
     )
     private Instant updatedAt;
 
+    @Column(
+            name = "client_tag",
+            length = 64
+    )
+    private String clientTag;
+
     @Version
     @Column(
             name = "persistence_version",
@@ -124,6 +130,14 @@ public class MediaAssetJpaEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getClientTag() {
+        return clientTag;
+    }
+
+    public void setClientTag(String clientTag) {
+        this.clientTag = clientTag;
     }
 
     public Long getPersistenceVersion() {

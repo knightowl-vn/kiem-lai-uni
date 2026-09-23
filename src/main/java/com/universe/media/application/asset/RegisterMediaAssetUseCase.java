@@ -81,6 +81,7 @@ public class RegisterMediaAssetUseCase {
                         assetId,
                         command.mediaType(),
                         command.visibility(),
+                        command.clientTag(),
                         now
                 );
 

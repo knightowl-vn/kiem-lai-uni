@@ -3,6 +3,7 @@ package com.universe.media.application.asset;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaAssetStatus;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,10 +51,14 @@ public class DeleteMediaAssetUseCase {
 
         MediaAsset asset =
                 mediaAssetRepositoryPort
-                        .findById(assetId)
+                        .findByIdForUpdate(assetId)
                         .orElseThrow(() ->
                                 new MediaAssetNotFoundException(assetId)
                         );
+
+        if (asset.getStatus() == MediaAssetStatus.DELETED) {
+            return;
+        }
 
         Instant now = clockPort.now();
 

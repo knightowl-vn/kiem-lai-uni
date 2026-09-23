@@ -2,6 +2,8 @@ package com.universe.media.application.facade;
 
 import com.universe.media.application.asset.ArchiveMediaAssetCommand;
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagCommand;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityCommand;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetCommand;
@@ -76,6 +78,7 @@ public class MediaFacade implements MediaContract {
     private final GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
     private final GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase;
     private final OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
+    private final AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
@@ -88,7 +91,8 @@ public class MediaFacade implements MediaContract {
             UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
             GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
             GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
-            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
+            AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -134,6 +138,10 @@ public class MediaFacade implements MediaContract {
                 openMediaAssetVersionContentUseCase,
                 "OpenMediaAssetVersionContentUseCase cannot be null."
         );
+        this.assignMediaAssetClientTagUseCase = Objects.requireNonNull(
+                assignMediaAssetClientTagUseCase,
+                "AssignMediaAssetClientTagUseCase cannot be null."
+        );
     }
 
     @Override
@@ -148,7 +156,8 @@ public class MediaFacade implements MediaContract {
                 request.mimeType(),
                 toDomainMediaType(request.mediaType()),
                 toDomainVisibility(request.visibility()),
-                request.originalFilename()
+                request.originalFilename(),
+                request.clientTag()
         );
         UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
         return new UploadMediaAssetResponseDTO(result.assetId());
@@ -311,6 +320,21 @@ public class MediaFacade implements MediaContract {
         );
         deleteMediaAssetUseCase.execute(
                 new DeleteMediaAssetCommand(assetId)
+        );
+    }
+
+    @Override
+    public void assignClientTagIfAbsent(UUID assetId, String clientTag) {
+        Objects.requireNonNull(
+                assetId,
+                "Asset ID cannot be null."
+        );
+        Objects.requireNonNull(
+                clientTag,
+                "Client tag cannot be null."
+        );
+        assignMediaAssetClientTagUseCase.execute(
+                new AssignMediaAssetClientTagCommand(assetId, clientTag)
         );
     }
 

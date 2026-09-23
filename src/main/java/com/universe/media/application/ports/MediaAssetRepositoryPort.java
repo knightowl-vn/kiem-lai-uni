@@ -13,6 +13,10 @@ public interface MediaAssetRepositoryPort {
             UUID id
     );
 
+    Optional<MediaAsset> findByIdForUpdate(
+            UUID id
+    );
+
     MediaAsset save(
             MediaAsset asset
     );

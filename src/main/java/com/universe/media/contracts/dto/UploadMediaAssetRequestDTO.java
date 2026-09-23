@@ -15,6 +15,20 @@ public record UploadMediaAssetRequestDTO(
         String mimeType,
         MediaTypeDTO mediaType,
         MediaVisibilityDTO visibility,
-        String originalFilename
+        String originalFilename,
+        String clientTag
 ) {
+    /**
+     * Backward-compatible constructor defaulting {@code clientTag} to {@code null}.
+     */
+    public UploadMediaAssetRequestDTO(
+            InputStream content,
+            long sizeBytes,
+            String mimeType,
+            MediaTypeDTO mediaType,
+            MediaVisibilityDTO visibility,
+            String originalFilename
+    ) {
+        this(content, sizeBytes, mimeType, mediaType, visibility, originalFilename, null);
+    }
 }

@@ -138,4 +138,18 @@ public interface MediaContract {
     void delete(
             UUID assetId
     );
+
+    /**
+     * Assigns an opaque client tag to an existing media asset if currently absent (null).
+     *
+     * <p>If the asset already has the identical tag, the operation is an idempotent noop.
+     * If the asset already has a different non-null tag, a {@link com.universe.media.domain.ClientTagConflictException} is thrown.
+     *
+     * @param assetId ID of the media asset
+     * @param clientTag the opaque client tag to assign
+     */
+    void assignClientTagIfAbsent(
+            UUID assetId,
+            String clientTag
+    );
 }

@@ -114,6 +114,9 @@ public class CreateAndPublishWikiArticleUseCase {
                         command.articleType(),
                         command.summary(),
                         command.content(),
+                        command.coverMediaAssetId(),
+                        command.coverPositionX(),
+                        command.coverPositionY(),
                         command.actorId(),
                         now
                 );

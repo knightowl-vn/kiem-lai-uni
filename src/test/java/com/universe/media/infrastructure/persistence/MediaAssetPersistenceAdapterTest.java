@@ -162,4 +162,81 @@ class MediaAssetPersistenceAdapterTest {
         assertThat(result.getVisibility()).isEqualTo(MediaVisibility.PRIVATE);
         assertThat(result.getStatus()).isEqualTo(MediaAssetStatus.ARCHIVED);
     }
+
+    @Test
+    @DisplayName("findById maps clientTag from JPA entity to domain MediaAsset")
+    void shouldMapClientTagFromEntityToDomain() {
+        MediaAssetJpaEntity entity = new MediaAssetJpaEntity();
+        entity.setId(assetId.toString());
+        entity.setMediaType("IMAGE");
+        entity.setVisibility("PUBLIC");
+        entity.setStatus("ACTIVE");
+        entity.setCurrentVersionNumber(1);
+        entity.setCreatedAt(createdAt);
+        entity.setUpdatedAt(updatedAt);
+        entity.setClientTag("wiki.article.cover");
+
+        when(repository.findById(assetId.toString())).thenReturn(Optional.of(entity));
+
+        Optional<MediaAsset> optAsset = adapter.findById(assetId);
+
+        assertThat(optAsset).isPresent();
+        assertThat(optAsset.get().getClientTag()).isEqualTo("wiki.article.cover");
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate acquires pessimistic lock and maps entity to domain")
+    void shouldFindByIdForUpdateAndMapToDomain() {
+        MediaAssetJpaEntity entity = new MediaAssetJpaEntity();
+        entity.setId(assetId.toString());
+        entity.setMediaType("IMAGE");
+        entity.setVisibility("PUBLIC");
+        entity.setStatus("ACTIVE");
+        entity.setCurrentVersionNumber(1);
+        entity.setCreatedAt(createdAt);
+        entity.setUpdatedAt(updatedAt);
+        entity.setClientTag("wiki.article.cover");
+
+        when(repository.findByIdForUpdate(assetId.toString())).thenReturn(Optional.of(entity));
+
+        Optional<MediaAsset> optAsset = adapter.findByIdForUpdate(assetId);
+
+        assertThat(optAsset).isPresent();
+        assertThat(optAsset.get().getId()).isEqualTo(assetId);
+        assertThat(optAsset.get().getClientTag()).isEqualTo("wiki.article.cover");
+        verify(repository).findByIdForUpdate(assetId.toString());
+    }
+
+    @Test
+    @DisplayName("findByIdForUpdate throws on null ID")
+    void shouldThrowOnNullIdForUpdate() {
+        assertThatThrownBy(() -> adapter.findByIdForUpdate(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Media asset ID cannot be null.");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("save maps clientTag to JPA entity for new asset")
+    void shouldSaveNewAssetWithClientTag() {
+        MediaAsset domainAsset = MediaAsset.registerInitial(
+                assetId,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                createdAt,
+                "wiki.article.cover"
+        );
+
+        when(repository.findById(assetId.toString())).thenReturn(Optional.empty());
+        when(repository.save(any(MediaAssetJpaEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MediaAsset result = adapter.save(domainAsset);
+
+        ArgumentCaptor<MediaAssetJpaEntity> captor = ArgumentCaptor.forClass(MediaAssetJpaEntity.class);
+        verify(repository).save(captor.capture());
+
+        MediaAssetJpaEntity captured = captor.getValue();
+        assertThat(captured.getClientTag()).isEqualTo("wiki.article.cover");
+        assertThat(result.getClientTag()).isEqualTo("wiki.article.cover");
+    }
 }

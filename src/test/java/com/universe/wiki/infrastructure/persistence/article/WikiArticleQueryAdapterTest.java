@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -976,5 +977,104 @@ class WikiArticleQueryAdapterTest {
         assertThat(item2.createdAt()).isEqualTo(CREATED_AT.plusSeconds(3600));
         assertThat(item2.updatedAt()).isEqualTo(UPDATED_AT.plusSeconds(3600));
         assertThat(item2.contentVersion()).isEqualTo(2L);
+    }
+
+    /*
+     * =====================================================
+     * COVER MEDIA ASSET ID QUERY MAPPING
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName("findPublishedById: maps coverMediaAssetId accurately when present and when null")
+    void shouldMapCoverMediaAssetIdInPublishedDetail() {
+        UUID coverId = UUID.randomUUID();
+        WikiArticleJpaEntity entityWithCover = createPublishedEntity();
+        entityWithCover.setCoverMediaAssetId(coverId.toString());
+
+        when(repository.findByIdAndStatus(ARTICLE_ID.toString(), "PUBLISHED"))
+                .thenReturn(Optional.of(entityWithCover));
+
+        Optional<PublishedWikiArticleDTO> dtoWithCover = queryAdapter.findPublishedById(ARTICLE_ID);
+
+        assertThat(dtoWithCover).isPresent();
+        assertThat(dtoWithCover.get().coverMediaAssetId()).isEqualTo(coverId);
+        // Verify no URL prefix is stored in the persistence entity
+        assertThat(entityWithCover.getCoverMediaAssetId()).doesNotContain("http://")
+                .doesNotContain("https://")
+                .doesNotContain("/media/assets/");
+
+        WikiArticleJpaEntity entityWithoutCover = createPublishedEntity();
+        entityWithoutCover.setCoverMediaAssetId(null);
+
+        when(repository.findByIdAndStatus(ARTICLE_ID.toString(), "PUBLISHED"))
+                .thenReturn(Optional.of(entityWithoutCover));
+
+        Optional<PublishedWikiArticleDTO> dtoWithoutCover = queryAdapter.findPublishedById(ARTICLE_ID);
+
+        assertThat(dtoWithoutCover).isPresent();
+        assertThat(dtoWithoutCover.get().coverMediaAssetId()).isNull();
+    }
+
+    @Test
+    @DisplayName("findPublishedPage: maps coverMediaAssetId accurately in list items and preserves null")
+    void shouldMapCoverMediaAssetIdInPublishedPageList() {
+        UUID coverId1 = UUID.randomUUID();
+        WikiArticleJpaEntity entity1 = createPublishedEntity();
+        entity1.setId(UUID.randomUUID().toString());
+        entity1.setCoverMediaAssetId(coverId1.toString());
+
+        WikiArticleJpaEntity entity2 = createPublishedEntity();
+        entity2.setId(UUID.randomUUID().toString());
+        entity2.setCoverMediaAssetId(null);
+
+        Pageable pageable =
+                PageRequest.of(
+                        0,
+                        10,
+                        Sort.by(
+                                Sort.Direction.DESC,
+                                "updatedAt"
+                        ).and(
+                                Sort.by(
+                                        Sort.Direction.DESC,
+                                        "publishedAt"
+                                )
+                        )
+                );
+
+        Page<WikiArticleJpaEntity> page = new PageImpl<>(List.of(entity1, entity2), pageable, 2L);
+        when(repository.findPublishedPage(null, null, "PUBLISHED", pageable))
+                .thenReturn(page);
+
+        PublishedWikiArticlePageDTO pageDTO = queryAdapter.findPublishedPage(null, null, 0, 10);
+
+        assertThat(pageDTO.items()).hasSize(2);
+        assertThat(pageDTO.items().get(0).coverMediaAssetId()).isEqualTo(coverId1);
+        assertThat(pageDTO.items().get(1).coverMediaAssetId()).isNull();
+
+        // Verify entity storage format is raw 36-char UUID string
+        assertThat(entity1.getCoverMediaAssetId()).hasSize(36);
+        assertThat(entity1.getCoverMediaAssetId()).isEqualTo(coverId1.toString());
+    }
+
+    @Test
+    @DisplayName("findPublishedById: maps coverPositionX and coverPositionY accurately")
+    void shouldMapCoverFocalPositionsInPublishedDetail() {
+        UUID coverId = UUID.randomUUID();
+        WikiArticleJpaEntity entity = createPublishedEntity();
+        entity.setCoverMediaAssetId(coverId.toString());
+        entity.setCoverPositionX((byte) 25);
+        entity.setCoverPositionY((byte) 75);
+
+        when(repository.findByIdAndStatus(ARTICLE_ID.toString(), "PUBLISHED"))
+                .thenReturn(Optional.of(entity));
+
+        Optional<PublishedWikiArticleDTO> dto = queryAdapter.findPublishedById(ARTICLE_ID);
+
+        assertThat(dto).isPresent();
+        assertThat(dto.get().coverPositionX()).isEqualTo(25);
+        assertThat(dto.get().coverPositionY()).isEqualTo(75);
+        assertThat(dto.get().coverObjectPosition()).isEqualTo("25% 75%");
     }
 }

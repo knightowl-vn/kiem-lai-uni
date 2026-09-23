@@ -28,6 +28,8 @@ public final class MediaAsset {
 
     private int currentVersionNumber;
 
+    private String clientTag;
+
     private final Instant createdAt;
 
     private Instant updatedAt;
@@ -38,6 +40,7 @@ public final class MediaAsset {
             MediaVisibility visibility,
             MediaAssetStatus status,
             int currentVersionNumber,
+            String clientTag,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -73,6 +76,20 @@ public final class MediaAsset {
         this.currentVersionNumber =
                 currentVersionNumber;
 
+        if (clientTag != null) {
+            if (clientTag.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Client tag cannot be blank."
+                );
+            }
+            if (clientTag.length() > 64) {
+                throw new IllegalArgumentException(
+                        "Client tag cannot exceed 64 characters."
+                );
+            }
+        }
+        this.clientTag = clientTag;
+
         this.createdAt =
                 Objects.requireNonNull(
                         createdAt,
@@ -93,13 +110,14 @@ public final class MediaAsset {
     }
 
     /**
-     * Registers a new initial media asset.
+     * Registers a new initial media asset with an optional client tag.
      * Starts in ACTIVE status with currentVersionNumber = 1.
      */
     public static MediaAsset registerInitial(
             UUID id,
             MediaType mediaType,
             MediaVisibility visibility,
+            String clientTag,
             Instant now
     ) {
         Objects.requireNonNull(
@@ -113,7 +131,46 @@ public final class MediaAsset {
                 visibility,
                 MediaAssetStatus.ACTIVE,
                 1,
+                clientTag,
                 now,
+                now
+        );
+    }
+
+    /**
+     * Registers a new initial media asset without client tag (backward-compatible).
+     * Starts in ACTIVE status with currentVersionNumber = 1.
+     */
+    public static MediaAsset registerInitial(
+            UUID id,
+            MediaType mediaType,
+            MediaVisibility visibility,
+            Instant now
+    ) {
+        return registerInitial(
+                id,
+                mediaType,
+                visibility,
+                null,
+                now
+        );
+    }
+
+    /**
+     * Registers a new initial media asset with client tag (alternative parameter order).
+     */
+    public static MediaAsset registerInitial(
+            UUID id,
+            MediaType mediaType,
+            MediaVisibility visibility,
+            Instant now,
+            String clientTag
+    ) {
+        return registerInitial(
+                id,
+                mediaType,
+                visibility,
+                clientTag,
                 now
         );
     }
@@ -127,6 +184,7 @@ public final class MediaAsset {
             MediaVisibility visibility,
             MediaAssetStatus status,
             int currentVersionNumber,
+            String clientTag,
             Instant createdAt,
             Instant updatedAt
     ) {
@@ -136,6 +194,56 @@ public final class MediaAsset {
                 visibility,
                 status,
                 currentVersionNumber,
+                clientTag,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    /**
+     * Rehydrates an aggregate with alternative parameter order for clientTag.
+     */
+    public static MediaAsset rehydrate(
+            UUID id,
+            MediaType mediaType,
+            MediaVisibility visibility,
+            MediaAssetStatus status,
+            int currentVersionNumber,
+            Instant createdAt,
+            Instant updatedAt,
+            String clientTag
+    ) {
+        return rehydrate(
+                id,
+                mediaType,
+                visibility,
+                status,
+                currentVersionNumber,
+                clientTag,
+                createdAt,
+                updatedAt
+        );
+    }
+
+    /**
+     * Backward-compatible rehydrate overload without client tag.
+     */
+    public static MediaAsset rehydrate(
+            UUID id,
+            MediaType mediaType,
+            MediaVisibility visibility,
+            MediaAssetStatus status,
+            int currentVersionNumber,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        return rehydrate(
+                id,
+                mediaType,
+                visibility,
+                status,
+                currentVersionNumber,
+                null,
                 createdAt,
                 updatedAt
         );
@@ -268,6 +376,54 @@ public final class MediaAsset {
         this.updatedAt = now;
     }
 
+    /**
+     * Assigns an opaque client tag if currently absent (null).
+     *
+     * <p>If the asset already has the identical tag, the operation is an idempotent noop.
+     * If the asset already has a different non-null tag, a {@link ClientTagConflictException} is thrown.
+     *
+     * @param tag The client tag to assign (non-blank, max 64 characters)
+     * @param now Current mutation timestamp
+     * @throws ClientTagConflictException if asset already has a different client tag
+     */
+    public void assignClientTagIfAbsent(
+            String tag,
+            Instant now
+    ) {
+        Objects.requireNonNull(
+                tag,
+                "Client tag cannot be null."
+        );
+
+        if (tag.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Client tag cannot be blank."
+            );
+        }
+
+        if (tag.length() > 64) {
+            throw new IllegalArgumentException(
+                    "Client tag cannot exceed 64 characters."
+            );
+        }
+
+        if (this.clientTag != null) {
+            if (this.clientTag.equals(tag)) {
+                return;
+            }
+            throw new ClientTagConflictException(
+                    this.id,
+                    this.clientTag,
+                    tag
+            );
+        }
+
+        validateMutationTimestamp(now);
+
+        this.clientTag = tag;
+        this.updatedAt = now;
+    }
+
     private void validateMutationTimestamp(
             Instant now
     ) {
@@ -301,6 +457,10 @@ public final class MediaAsset {
 
     public int getCurrentVersionNumber() {
         return currentVersionNumber;
+    }
+
+    public String getClientTag() {
+        return clientTag;
     }
 
     public Instant getCreatedAt() {
@@ -362,6 +522,7 @@ public final class MediaAsset {
                 ", visibility=" + visibility +
                 ", status=" + status +
                 ", currentVersionNumber=" + currentVersionNumber +
+                ", clientTag='" + clientTag + '\'' +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
                 '}';

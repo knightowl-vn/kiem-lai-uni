@@ -83,10 +83,25 @@ public class UpdatePublishedWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
+        UUID targetCoverMediaAssetId = command.updateCover()
+                ? command.coverMediaAssetId()
+                : article.getCoverMediaAssetId();
+
+        Integer targetCoverPositionX = command.updateCover()
+                ? command.coverPositionX()
+                : article.getCoverPositionX();
+
+        Integer targetCoverPositionY = command.updateCover()
+                ? command.coverPositionY()
+                : article.getCoverPositionY();
+
         boolean changed =
                 article.updatePublishedContent(
                         command.summary(),
                         command.content(),
+                        targetCoverMediaAssetId,
+                        targetCoverPositionX,
+                        targetCoverPositionY,
                         command.actorId(),
                         now
                 );

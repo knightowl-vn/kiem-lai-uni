@@ -219,6 +219,26 @@ public class WikiArticlePersistenceAdapter
         entity.setArchivedAt(
                 article.getArchivedAt()
         );
+
+        entity.setCoverMediaAssetId(
+                toNullableString(
+                        article.getCoverMediaAssetId()
+                )
+        );
+
+        entity.setCoverPositionX(
+                toPersistenceByte(
+                        article.getCoverPositionX(),
+                        "coverPositionX"
+                )
+        );
+
+        entity.setCoverPositionY(
+                toPersistenceByte(
+                        article.getCoverPositionY(),
+                        "coverPositionY"
+                )
+        );
     }
 
     private WikiArticle toDomain(
@@ -237,6 +257,15 @@ public class WikiArticlePersistenceAdapter
                 ),
                 entity.getSummary(),
                 entity.getContent(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                toDomainInt(
+                        entity.getCoverPositionX()
+                ),
+                toDomainInt(
+                        entity.getCoverPositionY()
+                ),
                 ArticleStatus.valueOf(
                         entity.getStatus()
                 ),
@@ -276,5 +305,29 @@ public class WikiArticlePersistenceAdapter
                 || value.isBlank()
                 ? null
                 : UUID.fromString(value);
+    }
+
+    private byte toPersistenceByte(
+            int value,
+            String fieldName
+    ) {
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(
+                    fieldName + " phải nằm trong khoảng 0 đến 100: " + value
+            );
+        }
+        return (byte) value;
+    }
+
+    private int toDomainInt(
+            byte value
+    ) {
+        int intVal = Byte.toUnsignedInt(value);
+        if (intVal < 0 || intVal > 100) {
+            throw new IllegalStateException(
+                    "Dữ liệu cover focal position không hợp lệ từ persistence: " + intVal
+            );
+        }
+        return intVal;
     }
 }

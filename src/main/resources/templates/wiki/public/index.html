@@ -184,9 +184,18 @@
                 slug=${article.slug}
             )}">
 
-					<!-- 1. LEFT: DECORATIVE VISUAL PLACEHOLDER -->
+					<!-- 1. LEFT: 4:5 PORTRAIT THUMBNAIL OR COVER IMAGE -->
 					<div class="wiki-public-index-card-media" aria-hidden="true">
-						<div class="wiki-public-index-card-placeholder">
+						<img th:if="${article.coverMediaAssetId != null}"
+							class="wiki-public-index-card-image"
+							th:src="${article.displayCoverImageUrl()}"
+							th:data-fallback-src="${article.fallbackCoverImageUrl()}"
+							th:alt="${article.title}"
+							loading="lazy"
+							th:style="'object-position: ' + ${article.coverObjectPosition()}"
+							onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+						<div class="wiki-public-index-card-placeholder"
+							th:style="${article.coverMediaAssetId != null ? 'display: none;' : ''}">
 							<svg class="wiki-public-index-card-placeholder-icon"
 								xmlns="http://www.w3.org/2000/svg"
 								viewBox="0 0 24 24"
@@ -205,7 +214,7 @@
 
 					<!-- 2. MIDDLE: CONTENT -->
 					<div class="wiki-public-index-card-content">
-						<!-- TYPE BADGE -->
+						<!-- TOP META ROW: TYPE BADGE -->
 						<div class="wiki-public-index-card-top">
 							<span class="wiki-public-index-card-type"
 								th:text="${#strings.replace(
@@ -236,17 +245,17 @@
                         )}">
 							Chưa có phần tóm tắt.</p>
 
-						<!-- META -->
+						<!-- BOTTOM META: TIMESTAMP (MS-05G7) -->
 						<div class="wiki-public-index-card-meta">
-							<span>Cập nhật</span> <strong th:if="${article.updatedAt != null}"><time
+							<span class="wiki-public-index-card-time-label">Cập nhật</span>
+							<strong th:if="${article.updatedAt != null}"><time
 								data-relative-time
 								th:datetime="${article.updatedAt}"
 								th:text="${#temporals.format(
                             article.updatedAt,
                             'dd/MM/yyyy HH:mm'
-                        )}">15/08/2026 15:24</time></strong> <strong
-								th:unless="${article.updatedAt != null}"> Chưa có thông
-								tin </strong>
+                        )}">15/08/2026 15:24</time></strong>
+							<strong th:unless="${article.updatedAt != null}"> Chưa có thông tin </strong>
 						</div>
 					</div>
 

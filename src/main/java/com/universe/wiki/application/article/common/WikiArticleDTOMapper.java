@@ -35,7 +35,10 @@ public final class WikiArticleDTOMapper {
                 article.getPublishedAt(),
                 article.getArchivedAt(),
                 article.getAggregateVersion(),
-                article.getContentVersion()
+                article.getContentVersion(),
+                article.getCoverMediaAssetId(),
+                article.getCoverPositionX(),
+                article.getCoverPositionY()
         );
     }
 }

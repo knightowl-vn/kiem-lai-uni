@@ -122,6 +122,18 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
          * dữ liệu giữ nguyên,
          * chỉ chuyển DRAFT -> PUBLISHED.
          */
+        UUID targetCoverMediaAssetId = command.updateCover()
+                ? command.coverMediaAssetId()
+                : article.getCoverMediaAssetId();
+
+        Integer targetCoverPositionX = command.updateCover()
+                ? command.coverPositionX()
+                : article.getCoverPositionX();
+
+        Integer targetCoverPositionY = command.updateCover()
+                ? command.coverPositionY()
+                : article.getCoverPositionY();
+
         boolean contentChanged =
                 article.updateDraftAndPublish(
                         command.title(),
@@ -129,6 +141,9 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
                         command.articleType(),
                         command.summary(),
                         command.content(),
+                        targetCoverMediaAssetId,
+                        targetCoverPositionX,
+                        targetCoverPositionY,
                         command.actorId(),
                         now
                 );

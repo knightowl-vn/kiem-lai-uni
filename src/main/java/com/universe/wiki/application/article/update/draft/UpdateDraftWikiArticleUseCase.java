@@ -61,8 +61,21 @@ public class UpdateDraftWikiArticleUseCase {
 
 		Instant now = clockPort.now();
 
+		UUID targetCoverMediaAssetId = command.updateCover()
+				? command.coverMediaAssetId()
+				: article.getCoverMediaAssetId();
+
+		Integer targetCoverPositionX = command.updateCover()
+				? command.coverPositionX()
+				: article.getCoverPositionX();
+
+		Integer targetCoverPositionY = command.updateCover()
+				? command.coverPositionY()
+				: article.getCoverPositionY();
+
 		boolean changed = article.updateDraft(command.title(), newSlug, command.articleType(), command.summary(),
-				command.content(), command.actorId(), now);
+				command.content(), targetCoverMediaAssetId, targetCoverPositionX, targetCoverPositionY,
+				command.actorId(), now);
 
 		if (!changed) {
 			return WikiArticleDTOMapper.toDTO(article);

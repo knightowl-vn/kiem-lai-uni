@@ -1,6 +1,7 @@
 package com.universe.media;
 
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
@@ -95,6 +96,7 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
+        AssignMediaAssetClientTagUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
         RasterContentSignatureValidator.class,

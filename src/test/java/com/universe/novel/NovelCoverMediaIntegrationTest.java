@@ -17,6 +17,7 @@ import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.facade.MediaFacade;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
@@ -101,6 +102,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
+        AssignMediaAssetClientTagUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
         GetMediaAssetContentUseCase.class,

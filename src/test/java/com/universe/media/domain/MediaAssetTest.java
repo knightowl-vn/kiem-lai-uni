@@ -566,4 +566,235 @@ class MediaAssetTest {
                     .hasMessageContaining("Cutoff timestamp cannot be null");
         }
     }
+
+    @Nested
+    @DisplayName("Client Tag")
+    class ClientTagTests {
+
+        @Test
+        @DisplayName("registerInitial allows null client tag")
+        void shouldAllowNullClientTagOnRegisterInitial() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    null
+            );
+
+            assertThat(asset.getClientTag()).isNull();
+        }
+
+        @Test
+        @DisplayName("registerInitial sets valid client tag")
+        void shouldSetValidClientTagOnRegisterInitial() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    "wiki.article.cover"
+            );
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+        }
+
+        @Test
+        @DisplayName("registerInitial rejects blank client tag")
+        void shouldRejectBlankClientTag() {
+            assertThatThrownBy(() -> MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    "   "
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Client tag cannot be blank");
+        }
+
+        @Test
+        @DisplayName("registerInitial rejects client tag longer than 64 chars")
+        void shouldRejectClientTagExceedingLength() {
+            String longTag = "a".repeat(65);
+            assertThatThrownBy(() -> MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    longTag
+            )).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Client tag cannot exceed 64 characters");
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent sets tag when currently null and updates updatedAt")
+        void shouldAssignTagWhenAbsent() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    null
+            );
+
+            asset.assignClientTagIfAbsent("wiki.article.cover", T2);
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+            assertThat(asset.getUpdatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent is idempotent no-op when tag is identical and preserves updatedAt")
+        void shouldBeIdempotentNoopWhenAssigningSameTag() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    "wiki.article.cover"
+            );
+
+            asset.assignClientTagIfAbsent("wiki.article.cover", T2);
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+            assertThat(asset.getUpdatedAt()).isEqualTo(T1);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent throws ClientTagConflictException when different tag is present")
+        void shouldThrowConflictWhenAssigningDifferentTag() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    "wiki.article.cover"
+            );
+
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent("novel.chapter.illustration", T2))
+                    .isInstanceOf(ClientTagConflictException.class)
+                    .hasMessageContaining("wiki.article.cover")
+                    .hasMessageContaining("novel.chapter.illustration");
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+            assertThat(asset.getUpdatedAt()).isEqualTo(T1);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent with identical tag succeeds as no-op even if mutation timestamp is older than updatedAt (CASE A)")
+        void shouldBeIdempotentNoopWhenAssigningSameTagWithOlderTimestamp() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T2,
+                    "wiki.article.cover"
+            );
+
+            // T1 is before T2 (updatedAt)
+            asset.assignClientTagIfAbsent("wiki.article.cover", T1);
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+            assertThat(asset.getUpdatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent with conflicting tag throws ClientTagConflictException even if mutation timestamp is older than updatedAt (CASE B)")
+        void shouldThrowConflictWhenAssigningDifferentTagWithOlderTimestamp() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T2,
+                    "wiki.article.cover"
+            );
+
+            // T1 is before T2 (updatedAt)
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent("novel.cover", T1))
+                    .isInstanceOf(ClientTagConflictException.class)
+                    .hasMessageContaining("wiki.article.cover")
+                    .hasMessageContaining("novel.cover");
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+            assertThat(asset.getUpdatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent on null tag enforces mutation timestamp invariant and rejects older timestamp (CASE C)")
+        void shouldRejectOlderTimestampWhenAssigningTagToNullAsset() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T2,
+                    null
+            );
+
+            // T1 is before T2 (updatedAt)
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent("wiki.article.cover", T1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Mutation timestamp cannot be before the last updated timestamp");
+
+            assertThat(asset.getClientTag()).isNull();
+            assertThat(asset.getUpdatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("assignClientTagIfAbsent fails fast on null or blank tag")
+        void shouldFailFastOnInvalidTag() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    null
+            );
+
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent(null, T2))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("Client tag cannot be null");
+
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent("  ", T2))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Client tag cannot be blank");
+
+            assertThatThrownBy(() -> asset.assignClientTagIfAbsent("a".repeat(65), T2))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Client tag cannot exceed 64 characters");
+        }
+
+        @Test
+        @DisplayName("registerNextVersion preserves existing client tag")
+        void shouldPreserveClientTagAcrossVersions() {
+            MediaAsset asset = MediaAsset.registerInitial(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    T1,
+                    "wiki.article.cover"
+            );
+
+            asset.registerNextVersion(T2);
+
+            assertThat(asset.getCurrentVersionNumber()).isEqualTo(2);
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+        }
+
+        @Test
+        @DisplayName("rehydrate preserves clientTag")
+        void shouldRehydrateWithClientTag() {
+            MediaAsset asset = MediaAsset.rehydrate(
+                    ASSET_ID,
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    MediaAssetStatus.ACTIVE,
+                    1,
+                    T1,
+                    T2,
+                    "wiki.article.cover"
+            );
+
+            assertThat(asset.getClientTag()).isEqualTo("wiki.article.cover");
+        }
+    }
 }

@@ -60,8 +60,16 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.universe.wiki.application.article.cover.WikiArticleCoverOrchestrator;
+import com.universe.wiki.application.article.cover.WikiCoverUpload;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Controller
@@ -77,25 +85,20 @@ public class AdminWikiArticleCommandController {
 		return "kiemlai:wiki:autosave:edit:" + articleId;
 	}
 
+	private static final long MAX_COVER_IMAGE_SIZE_BYTES = 5L * 1024 * 1024; // 5 MB
+
+	private static final Set<String> ALLOWED_COVER_CONTENT_TYPES = Set.of(
+			"image/jpeg",
+			"image/png",
+			"image/webp"
+	);
+
 	/*
-	 * ===================================================== CREATE
+	 * ===================================================== ORCHESTRATOR
 	 * =====================================================
 	 */
 
-	private final CreateWikiArticleUseCase createWikiArticleUseCase;
-
-	private final CreateAndPublishWikiArticleUseCase createAndPublishWikiArticleUseCase;
-
-	/*
-	 * ===================================================== UPDATE
-	 * =====================================================
-	 */
-
-	private final UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase;
-
-	private final UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase;
-
-	private final UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase;
+	private final WikiArticleCoverOrchestrator wikiArticleCoverOrchestrator;
 
 	/*
 	 * ===================================================== QUERY
@@ -117,8 +120,6 @@ public class AdminWikiArticleCommandController {
 
 	private final ArchiveWikiArticleUseCase archiveWikiArticleUseCase;
 
-	private final DeleteWikiArticleUseCase deleteWikiArticleUseCase;
-
 	private final RestoreWikiArticleUseCase restoreWikiArticleUseCase;
 
 	private final AddWikiArticleAliasUseCase addWikiArticleAliasUseCase;
@@ -139,51 +140,25 @@ public class AdminWikiArticleCommandController {
 	 * =====================================================
 	 */
 
-	public AdminWikiArticleCommandController(CreateWikiArticleUseCase createWikiArticleUseCase,
-			CreateAndPublishWikiArticleUseCase createAndPublishWikiArticleUseCase,
-
-			UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase,
-			UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase,
-			UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase,
-
+	public AdminWikiArticleCommandController(
+			WikiArticleCoverOrchestrator wikiArticleCoverOrchestrator,
 			GetWikiArticleDetailUseCase getWikiArticleDetailUseCase,
-
 			PublishWikiArticleUseCase publishWikiArticleUseCase,
 			UnpublishWikiArticleUseCase unpublishWikiArticleUseCase,
-			ArchiveWikiArticleUseCase archiveWikiArticleUseCase, RestoreWikiArticleUseCase restoreWikiArticleUseCase,
-			DeleteWikiArticleUseCase deleteWikiArticleUseCase,
-
+			ArchiveWikiArticleUseCase archiveWikiArticleUseCase,
+			RestoreWikiArticleUseCase restoreWikiArticleUseCase,
 			AddWikiArticleAliasUseCase addWikiArticleAliasUseCase,
 			RemoveWikiArticleAliasUseCase removeWikiArticleAliasUseCase,
-
 			AuthenticatedEmailResolver authenticatedEmailResolver,
 			UserIdentityContract userIdentityContract) {
-		this.createWikiArticleUseCase = createWikiArticleUseCase;
-
-		this.createAndPublishWikiArticleUseCase = createAndPublishWikiArticleUseCase;
-
-		this.updateDraftWikiArticleUseCase = updateDraftWikiArticleUseCase;
-
-		this.updateDraftAndPublishWikiArticleUseCase = updateDraftAndPublishWikiArticleUseCase;
-
-		this.updatePublishedWikiArticleUseCase = updatePublishedWikiArticleUseCase;
-
+		this.wikiArticleCoverOrchestrator = wikiArticleCoverOrchestrator;
 		this.getWikiArticleDetailUseCase = getWikiArticleDetailUseCase;
-
 		this.publishWikiArticleUseCase = publishWikiArticleUseCase;
-
 		this.unpublishWikiArticleUseCase = unpublishWikiArticleUseCase;
-
 		this.archiveWikiArticleUseCase = archiveWikiArticleUseCase;
-
-		this.deleteWikiArticleUseCase = deleteWikiArticleUseCase;
-
 		this.restoreWikiArticleUseCase = restoreWikiArticleUseCase;
-
 		this.addWikiArticleAliasUseCase = addWikiArticleAliasUseCase;
-
 		this.removeWikiArticleAliasUseCase = removeWikiArticleAliasUseCase;
-
 		this.authenticatedEmailResolver = authenticatedEmailResolver;
 		this.userIdentityContract = userIdentityContract;
 	}
@@ -202,29 +177,34 @@ public class AdminWikiArticleCommandController {
 
 			RedirectAttributes redirectAttributes) {
 		validateCreateForm(form);
+		validateCoverFile(form.getCoverImageFile());
+		validateCoverPosition(form.getCoverPositionX(), "Vị trí tâm ảnh theo trục X");
+		validateCoverPosition(form.getCoverPositionY(), "Vị trí tâm ảnh theo trục Y");
 
 		UUID actorId = resolveActorId(authentication);
 
 		WikiArticleDTO article;
 
 		try {
+			article = withCoverUpload(form.getCoverImageFile(), upload -> {
+				return switch (action) {
+				case SAVE_DRAFT -> wikiArticleCoverOrchestrator.createDraft(
+						new CreateWikiArticleCommand(form.getTitle().trim(), form.getArticleType(),
+								normalizeText(form.getSummary()), normalizeText(form.getContent()),
+								normalizeEditSummary(form.getEditSummary()), actorId, null,
+								form.getCoverPositionX(), form.getCoverPositionY()),
+						upload);
 
-			switch (action) {
+				case PUBLISH -> wikiArticleCoverOrchestrator.createAndPublish(
+						new CreateAndPublishWikiArticleCommand(form.getTitle().trim(), form.getArticleType(),
+								normalizeText(form.getSummary()), normalizeText(form.getContent()),
+								normalizePublishEditSummary(form.getEditSummary()), actorId, null,
+								form.getCoverPositionX(), form.getCoverPositionY()),
+						upload);
 
-			case SAVE_DRAFT ->
-
-				article = createWikiArticleUseCase.execute(new CreateWikiArticleCommand(form.getTitle().trim(),
-						form.getArticleType(), normalizeText(form.getSummary()), normalizeText(form.getContent()),
-						normalizeEditSummary(form.getEditSummary()), actorId));
-
-			case PUBLISH ->
-
-				article = createAndPublishWikiArticleUseCase.execute(new CreateAndPublishWikiArticleCommand(
-						form.getTitle().trim(), form.getArticleType(), normalizeText(form.getSummary()),
-						normalizeText(form.getContent()), normalizePublishEditSummary(form.getEditSummary()), actorId));
-
-			default -> throw new IllegalArgumentException("Hành động tạo bài Wiki không hợp lệ.");
-			}
+				default -> throw new IllegalArgumentException("Hành động tạo bài Wiki không hợp lệ.");
+				};
+			});
 
 		} catch (ArticleSlugAlreadyExistsException | IllegalStateException exception) {
 
@@ -282,6 +262,12 @@ public class AdminWikiArticleCommandController {
 
 			RedirectAttributes redirectAttributes) {
 		validateEditForm(form);
+		if (form.isRemoveCover() && form.getCoverImageFile() != null && !form.getCoverImageFile().isEmpty()) {
+			throw new IllegalArgumentException("Không thể đồng thời vừa xóa ảnh bìa vừa tải lên ảnh bìa mới.");
+		}
+		validateCoverFile(form.getCoverImageFile());
+		validateCoverPosition(form.getCoverPositionX(), "Vị trí tâm ảnh theo trục X");
+		validateCoverPosition(form.getCoverPositionY(), "Vị trí tâm ảnh theo trục Y");
 
 		UUID actorId = resolveActorId(authentication);
 
@@ -296,101 +282,94 @@ public class AdminWikiArticleCommandController {
 
 		WikiArticleDTO updatedArticle;
 
-		boolean publishedNow = false;
+		boolean[] publishedNowHolder = new boolean[] { false };
 
 		try {
-
-			switch (status) {
-
-			/*
-			 * ================================================= DRAFT
-			 * =================================================
-			 */
-			case DRAFT -> {
-
-				validateDraftEditForm(form);
-
-				switch (action) {
+			updatedArticle = withCoverUpload(form.getCoverImageFile(), upload -> {
+				return switch (status) {
 
 				/*
-				 * Chỉ lưu thay đổi, giữ article ở DRAFT.
+				 * ================================================= DRAFT
+				 * =================================================
 				 */
-				case SAVE_CHANGES ->
+				case DRAFT -> {
+					validateDraftEditForm(form);
 
-					updatedArticle = updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(articleId,
+					yield switch (action) {
 
-							form.getTitle().trim(),
-
-							form.getArticleType(),
-
-							normalizeText(form.getSummary()),
-
-							normalizeText(form.getContent()),
-
-							normalizeDraftUpdateEditSummary(form.getEditSummary()),
-
-							actorId));
-
-				/*
-				 * Lưu dữ liệu hiện tại và publish trong cùng transaction.
-				 */
-				case SAVE_AND_PUBLISH -> {
-
-					updatedArticle = updateDraftAndPublishWikiArticleUseCase
-							.execute(new UpdateDraftAndPublishWikiArticleCommand(articleId,
-
+					/*
+					 * Chỉ lưu thay đổi, giữ article ở DRAFT.
+					 */
+					case SAVE_CHANGES -> wikiArticleCoverOrchestrator.updateDraft(
+							new UpdateDraftWikiArticleCommand(articleId,
 									form.getTitle().trim(),
-
 									form.getArticleType(),
-
 									normalizeText(form.getSummary()),
-
 									normalizeText(form.getContent()),
+									normalizeDraftUpdateEditSummary(form.getEditSummary()),
+									actorId,
+									form.getCoverPositionX(),
+									form.getCoverPositionY()),
+							upload,
+							form.isRemoveCover());
 
-									normalizeNullableText(form.getEditSummary()),
+					/*
+					 * Lưu dữ liệu hiện tại và publish trong cùng transaction.
+					 */
+					case SAVE_AND_PUBLISH -> {
+						WikiArticleDTO dto = wikiArticleCoverOrchestrator.updateDraftAndPublish(
+								new UpdateDraftAndPublishWikiArticleCommand(articleId,
+										form.getTitle().trim(),
+										form.getArticleType(),
+										normalizeText(form.getSummary()),
+										normalizeText(form.getContent()),
+										normalizeNullableText(form.getEditSummary()),
+										actorId,
+										form.getCoverPositionX(),
+										form.getCoverPositionY()),
+								upload,
+								form.isRemoveCover());
 
-									actorId));
+						publishedNowHolder[0] = true;
+						yield dto;
+					}
 
-					publishedNow = true;
+					default -> throw new IllegalArgumentException("Hành động chỉnh sửa bài Wiki không hợp lệ.");
+					};
 				}
 
-				default -> throw new IllegalArgumentException("Hành động chỉnh sửa bài Wiki không hợp lệ.");
+				/*
+				 * ================================================= PUBLISHED
+				 *
+				 * Article đã publish không được nhận SAVE_AND_PUBLISH từ browser.
+				 * =================================================
+				 */
+				case PUBLISHED -> {
+					if (action != EditWikiArticleAction.SAVE_CHANGES) {
+						throw new IllegalStateException("Bài Wiki đã được xuất bản.");
+					}
+
+					yield wikiArticleCoverOrchestrator.updatePublished(
+							new UpdatePublishedWikiArticleCommand(articleId,
+									normalizeText(form.getSummary()),
+									normalizeText(form.getContent()),
+									normalizePublishedUpdateEditSummary(form.getEditSummary()),
+									actorId,
+									form.getCoverPositionX(),
+									form.getCoverPositionY()),
+							upload,
+							form.isRemoveCover());
 				}
-			}
 
-			/*
-			 * ================================================= PUBLISHED
-			 *
-			 * Article đã publish không được nhận SAVE_AND_PUBLISH từ browser.
-			 * =================================================
-			 */
-			case PUBLISHED -> {
+				/*
+				 * ================================================= ARCHIVED
+				 * =================================================
+				 */
+				case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
 
-				if (action != EditWikiArticleAction.SAVE_CHANGES) {
-
-					throw new IllegalStateException("Bài Wiki đã được xuất bản.");
-				}
-
-				updatedArticle = updatePublishedWikiArticleUseCase
-						.execute(new UpdatePublishedWikiArticleCommand(articleId,
-
-								normalizeText(form.getSummary()),
-
-								normalizeText(form.getContent()),
-
-								normalizePublishedUpdateEditSummary(form.getEditSummary()),
-
-								actorId));
-			}
-
-			/*
-			 * ================================================= ARCHIVED
-			 * =================================================
-			 */
-			case ARCHIVED -> throw new IllegalStateException("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
-
-			default -> throw new IllegalStateException("Trạng thái bài Wiki không hỗ trợ chỉnh sửa: " + status.name());
-			}
+				default -> throw new IllegalStateException("Trạng thái bài Wiki không hỗ trợ chỉnh sửa: " + status.name());
+				};
+			});
 
 		} catch (ArticleSlugAlreadyExistsException | IllegalStateException exception) {
 
@@ -403,6 +382,8 @@ public class AdminWikiArticleCommandController {
 
 			return "redirect:/admin/wiki/articles/" + articleId + "/edit";
 		}
+
+		boolean publishedNow = publishedNowHolder[0];
 
 		String successMessage = publishedNow
 				? "Đã lưu thay đổi và xuất bản bài Wiki \"" + updatedArticle.title() + "\"."
@@ -555,7 +536,7 @@ public class AdminWikiArticleCommandController {
 	public String deleteArticle(@PathVariable UUID articleId,
 
 			RedirectAttributes redirectAttributes) {
-		deleteWikiArticleUseCase.execute(new DeleteWikiArticleCommand(articleId));
+		wikiArticleCoverOrchestrator.deleteArticle(articleId);
 
 		redirectAttributes.addFlashAttribute("successMessage", "Đã xóa bài Wiki.");
 
@@ -661,6 +642,53 @@ public class AdminWikiArticleCommandController {
 		if (form.getArticleType() == null) {
 
 			throw new IllegalArgumentException("Loại bài Wiki không được để trống.");
+		}
+	}
+
+	/*
+	 * ===================================================== COVER MEDIA
+	 * =====================================================
+	 */
+
+	@FunctionalInterface
+	private interface CoverActionCallback<T> {
+		T execute(WikiCoverUpload upload);
+	}
+
+	private <T> T withCoverUpload(MultipartFile coverFile, CoverActionCallback<T> callback) {
+		if (coverFile != null && !coverFile.isEmpty()) {
+			try (InputStream is = coverFile.getInputStream()) {
+				WikiCoverUpload upload = new WikiCoverUpload(
+						is,
+						coverFile.getSize(),
+						coverFile.getContentType(),
+						coverFile.getOriginalFilename() != null && !coverFile.getOriginalFilename().isBlank()
+								? coverFile.getOriginalFilename() : "cover.jpg"
+				);
+				return callback.execute(upload);
+			} catch (IOException ex) {
+				throw new IllegalStateException("Không thể đọc tệp ảnh bìa đã tải lên.", ex);
+			}
+		}
+		return callback.execute(null);
+	}
+
+	private void validateCoverFile(MultipartFile file) {
+		if (file == null || file.isEmpty()) {
+			return;
+		}
+		if (file.getSize() > MAX_COVER_IMAGE_SIZE_BYTES) {
+			throw new IllegalArgumentException("Kích thước ảnh bìa không được vượt quá 5MB.");
+		}
+		String contentType = file.getContentType();
+		if (contentType == null || !ALLOWED_COVER_CONTENT_TYPES.contains(contentType.toLowerCase(Locale.ROOT))) {
+			throw new IllegalArgumentException("Định dạng ảnh bìa không được hỗ trợ. Chỉ chấp nhận JPG, PNG hoặc WebP.");
+		}
+	}
+
+	private void validateCoverPosition(Integer position, String fieldName) {
+		if (position != null && (position < 0 || position > 100)) {
+			throw new IllegalArgumentException(fieldName + " phải nằm trong khoảng từ 0 đến 100.");
 		}
 	}
 

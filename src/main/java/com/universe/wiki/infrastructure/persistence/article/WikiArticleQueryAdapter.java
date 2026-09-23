@@ -300,7 +300,12 @@ public class WikiArticleQueryAdapter
                 entity.getSummary(),
                 entity.getContent(),
                 entity.getPublishedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
         );
     }
     private PublishedWikiArticleListItemDTO
@@ -308,18 +313,23 @@ public class WikiArticleQueryAdapter
             WikiArticleJpaEntity entity
     ) {
 
-return new PublishedWikiArticleListItemDTO(
-        UUID.fromString(
-                entity.getId()
-        ),
-        entity.getTitle(),
-        entity.getSlug(),
-        entity.getArticleType(),
-        entity.getSummary(),
-        entity.getPublishedAt(),
-        entity.getUpdatedAt()
-);
-}
+        return new PublishedWikiArticleListItemDTO(
+                UUID.fromString(
+                        entity.getId()
+                ),
+                entity.getTitle(),
+                entity.getSlug(),
+                entity.getArticleType(),
+                entity.getSummary(),
+                entity.getPublishedAt(),
+                entity.getUpdatedAt(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
+        );
+    }
 
     private WikiArticleDTO toDTO(
             WikiArticleJpaEntity entity
@@ -351,7 +361,12 @@ return new PublishedWikiArticleListItemDTO(
                 entity.getPublishedAt(),
                 entity.getArchivedAt(),
                 entity.getAggregateVersion(),
-                entity.getContentVersion()
+                entity.getContentVersion(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
         );
     }
 

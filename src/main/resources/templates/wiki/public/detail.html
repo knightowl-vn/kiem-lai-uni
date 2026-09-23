@@ -192,219 +192,218 @@
 
 			<div class="card-body wiki-public-article-inner">
 
-				<header class="wiki-public-article-header">
+				<header class="wiki-public-article-header wiki-public-profile-header">
 
-
-					<!-- TYPE -->
-
-					<span class="wiki-public-type-badge"
-						th:text="${#strings.replace(
-                        article.articleType,
-                        '_',
-                        ' '
-                    )}">
-
-						CHARACTER </span>
-
-
-					<!-- TITLE -->
-
-					<h1 class="wiki-public-title" th:text="${article.title}">Trần
-						Bình An</h1>
-
-
-					<!-- SUMMARY -->
-
-					<p
-						th:if="${article.summary != null
-                        and !#strings.isEmpty(
-                            #strings.trim(article.summary)
-                        )}"
-						class="wiki-public-summary" th:text="${article.summary}">Nhân
-						vật chính của Kiếm Lai.</p>
-
-
-					<!-- METADATA -->
-
-					<div class="wiki-public-meta">
-
-						<span th:if="${article.publishedAt != null}"> <span
-							class="wiki-public-meta-label"> Xuất bản </span> <strong><time
-							data-relative-time
-							th:datetime="${article.publishedAt}"
-							th:text="${#temporals.format(
-                                article.publishedAt,
-                                'dd/MM/yyyy HH:mm'
-                            )}">14/08/2026 18:38</time></strong>
-
-						</span> <span
-							th:if="${article.publishedAt != null
-        and article.updatedAt != null}"
-							class="wiki-public-meta-separator" aria-hidden="true"> • </span>
-						<span th:if="${article.updatedAt != null}"> <span
-							class="wiki-public-meta-label"> Cập nhật </span> <strong><time
-							data-relative-time
-							th:datetime="${article.updatedAt}"
-							th:text="${#temporals.format(
-                                article.updatedAt,
-                                'dd/MM/yyyy HH:mm'
-                            )}">14/08/2026 19:38</time></strong>
-
+					<!-- TOPBAR: TYPE BADGE (LEFT) & TIMESTAMPS (RIGHT) -->
+					<div class="wiki-public-profile-topbar">
+						<span class="wiki-public-type-badge"
+							th:text="${#strings.replace(
+	                        article.articleType,
+	                        '_',
+	                        ' '
+	                    )}">
+							CHARACTER
 						</span>
 
-					</div>
-
-					<!-- ================================================= -->
-					<!-- WIKI APPRECIATION (CHARACTER & FACTION ONLY)       -->
-					<!-- ================================================= -->
-					<div th:if="${isAppreciationEligible and appreciationState != null}"
-						class="wiki-appreciation-widget"
-						id="wikiAppreciationWidget"
-						th:attr="data-article-id=${article.id},
-						         data-appreciation-url=@{/api/wiki/articles/{id}/appreciation(id=${article.id})},
-						         data-viewer-value=${appreciationState.viewerValue != null ? appreciationState.viewerValue : ''},
-						         data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
-						         data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug})},
-						         data-csrf-token=${_csrf != null ? _csrf.token : ''},
-						         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
-						<div class="wiki-appreciation-label">Mức độ yêu thích</div>
-						<div class="wiki-appreciation-body">
-							<div class="wiki-appreciation-stars" role="group" aria-label="Đánh giá mức độ yêu thích từ 1 đến 5 sao">
-							<!-- Star 1: 1.0 (Full star semantic target) -->
-							<div class="wiki-star-slot">
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--full"
-									data-star-value="1.0"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 1.0} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 1.0 ? 'true' : 'false'}"
-									aria-label="Yêu thích 1 trên 5"
-									title="1 sao">
-									<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
-										<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-									</svg>
-								</button>
-							</div>
-
-							<!-- Star 2: Split 1.5 (Left) and 2.0 (Right) -->
-							<div class="wiki-star-slot wiki-star-slot--split">
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-left"
-									data-star-value="1.5"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 1.5} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 1.5 ? 'true' : 'false'}"
-									aria-label="Yêu thích 1.5 trên 5"
-									title="1.5 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
-									</svg>
-								</button>
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-right"
-									data-star-value="2.0"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 2.0} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 2.0 ? 'true' : 'false'}"
-									aria-label="Yêu thích 2 trên 5"
-									title="2 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
-									</svg>
-								</button>
-							</div>
-
-							<!-- Star 3: Split 2.5 (Left) and 3.0 (Right) -->
-							<div class="wiki-star-slot wiki-star-slot--split">
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-left"
-									data-star-value="2.5"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 2.5} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 2.5 ? 'true' : 'false'}"
-									aria-label="Yêu thích 2.5 trên 5"
-									title="2.5 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
-									</svg>
-								</button>
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-right"
-									data-star-value="3.0"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 3.0} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 3.0 ? 'true' : 'false'}"
-									aria-label="Yêu thích 3 trên 5"
-									title="3 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
-									</svg>
-								</button>
-							</div>
-
-							<!-- Star 4: Split 3.5 (Left) and 4.0 (Right) -->
-							<div class="wiki-star-slot wiki-star-slot--split">
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-left"
-									data-star-value="3.5"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 3.5} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 3.5 ? 'true' : 'false'}"
-									aria-label="Yêu thích 3.5 trên 5"
-									title="3.5 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
-									</svg>
-								</button>
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-right"
-									data-star-value="4.0"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 4.0} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 4.0 ? 'true' : 'false'}"
-									aria-label="Yêu thích 4 trên 5"
-									title="4 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
-									</svg>
-								</button>
-							</div>
-
-							<!-- Star 5: Split 4.5 (Left) and 5.0 (Right) -->
-							<div class="wiki-star-slot wiki-star-slot--split">
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-left"
-									data-star-value="4.5"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 4.5} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 4.5 ? 'true' : 'false'}"
-									aria-label="Yêu thích 4.5 trên 5"
-									title="4.5 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
-									</svg>
-								</button>
-								<button type="button"
-									class="wiki-star-btn wiki-star-btn--half-right"
-									data-star-value="5.0"
-									th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 5.0} ? ' is-active' : ''"
-									th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 5.0 ? 'true' : 'false'}"
-									aria-label="Yêu thích 5 trên 5"
-									title="5 sao">
-									<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
-										<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
-									</svg>
-								</button>
-							</div>
-						</div>
-						<div class="wiki-appreciation-stats" id="wikiAppreciationStats" aria-live="polite">
-							<div class="wiki-appreciation-score-line">
-								<span class="wiki-appreciation-average" id="wikiAppreciationAverage"
-									th:hidden="${appreciationState.count == 0 or appreciationState.average == null}"
-									th:text="${appreciationState.count > 0 and appreciationState.average != null ? appreciationState.displayAverage() : ''}">4.7</span>
-								<span class="wiki-appreciation-separator"
-									th:hidden="${appreciationState.count == 0 or appreciationState.average == null}">/ 5</span>
-							</div>
-							<span class="wiki-appreciation-dot"
-								th:hidden="${appreciationState.count == 0 or appreciationState.average == null}"
-								aria-hidden="true">·</span>
-							<span class="wiki-appreciation-count" id="wikiAppreciationCount"
-								th:text="${appreciationState.count > 0 ? (appreciationState.count + ' lượt đánh giá') : 'Chưa có đánh giá'}">Chưa có đánh giá</span>
+						<div class="wiki-public-meta wiki-public-profile-meta">
+							<span th:if="${article.publishedAt != null}">
+								<span class="wiki-public-meta-label"> Xuất bản </span>
+								<strong><time
+									data-relative-time
+									th:datetime="${article.publishedAt}"
+									th:text="${#temporals.format(
+	                                article.publishedAt,
+	                                'dd/MM/yyyy HH:mm'
+	                            )}">14/08/2026 18:38</time></strong>
+							</span>
+							<span th:if="${article.publishedAt != null and article.updatedAt != null}"
+								class="wiki-public-meta-separator" aria-hidden="true"> • </span>
+							<span th:if="${article.updatedAt != null}">
+								<span class="wiki-public-meta-label"> Cập nhật </span>
+								<strong><time
+									data-relative-time
+									th:datetime="${article.updatedAt}"
+									th:text="${#temporals.format(
+	                                article.updatedAt,
+	                                'dd/MM/yyyy HH:mm'
+	                            )}">14/08/2026 19:38</time></strong>
+							</span>
 						</div>
 					</div>
-					<div class="wiki-appreciation-feedback" id="wikiAppreciationFeedback" role="status" aria-live="polite"></div>
+
+					<!-- PROFILE BODY: 4:5 HERO PORTRAIT (LEFT) + INFO & APPRECIATION (RIGHT) -->
+					<div class="wiki-public-profile-body" th:classappend="${article.coverMediaAssetId == null ? ' has-no-cover' : ''}">
+
+						<!-- COVER IMAGE -->
+						<div th:if="${article.coverMediaAssetId != null}" class="wiki-public-cover-wrapper">
+							<img class="wiki-public-cover-image"
+								th:src="${article.displayCoverImageUrl()}"
+								th:data-fallback-src="${article.fallbackCoverImageUrl()}"
+								th:alt="${article.title}"
+								th:style="'object-position: ' + ${article.coverObjectPosition()}"
+								onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.parentElement.style.display='none'; }">
+						</div>
+
+						<div class="wiki-public-profile-info">
+							<!-- TITLE -->
+							<h1 class="wiki-public-title" th:text="${article.title}">Trần Bình An</h1>
+
+							<!-- SUMMARY -->
+							<p th:if="${article.summary != null and !#strings.isEmpty(#strings.trim(article.summary))}"
+								class="wiki-public-summary" th:text="${article.summary}">Nhân vật chính của Kiếm Lai.</p>
+
+							<!-- ================================================= -->
+							<!-- WIKI APPRECIATION (CHARACTER & FACTION ONLY)       -->
+							<!-- ================================================= -->
+							<div th:if="${isAppreciationEligible and appreciationState != null}"
+								class="wiki-appreciation-widget"
+								id="wikiAppreciationWidget"
+								th:attr="data-article-id=${article.id},
+								         data-appreciation-url=@{/api/wiki/articles/{id}/appreciation(id=${article.id})},
+								         data-viewer-value=${appreciationState.viewerValue != null ? appreciationState.viewerValue : ''},
+								         data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},
+								         data-login-url=@{/login(returnTo=${'/wiki/' + articleTypePath + '/' + article.slug})},
+								         data-csrf-token=${_csrf != null ? _csrf.token : ''},
+								         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
+								<div class="wiki-appreciation-label">Mức độ yêu thích</div>
+								<div class="wiki-appreciation-body">
+									<div class="wiki-appreciation-stars" role="group" aria-label="Đánh giá mức độ yêu thích từ 1 đến 5 sao">
+									<!-- Star 1: 1.0 (Full star semantic target) -->
+									<div class="wiki-star-slot">
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--full"
+											data-star-value="1.0"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 1.0} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 1.0 ? 'true' : 'false'}"
+											aria-label="Yêu thích 1 trên 5"
+											title="1 sao">
+											<svg class="wiki-star-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">
+												<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+											</svg>
+										</button>
+									</div>
+
+									<!-- Star 2: Split 1.5 (Left) and 2.0 (Right) -->
+									<div class="wiki-star-slot wiki-star-slot--split">
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-left"
+											data-star-value="1.5"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 1.5} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 1.5 ? 'true' : 'false'}"
+											aria-label="Yêu thích 1.5 trên 5"
+											title="1.5 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
+											</svg>
+										</button>
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-right"
+											data-star-value="2.0"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 2.0} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 2.0 ? 'true' : 'false'}"
+											aria-label="Yêu thích 2 trên 5"
+											title="2 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
+											</svg>
+										</button>
+									</div>
+
+									<!-- Star 3: Split 2.5 (Left) and 3.0 (Right) -->
+									<div class="wiki-star-slot wiki-star-slot--split">
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-left"
+											data-star-value="2.5"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 2.5} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 2.5 ? 'true' : 'false'}"
+											aria-label="Yêu thích 2.5 trên 5"
+											title="2.5 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
+											</svg>
+										</button>
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-right"
+											data-star-value="3.0"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 3.0} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 3.0 ? 'true' : 'false'}"
+											aria-label="Yêu thích 3 trên 5"
+											title="3 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
+											</svg>
+										</button>
+									</div>
+
+									<!-- Star 4: Split 3.5 (Left) and 4.0 (Right) -->
+									<div class="wiki-star-slot wiki-star-slot--split">
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-left"
+											data-star-value="3.5"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 3.5} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 3.5 ? 'true' : 'false'}"
+											aria-label="Yêu thích 3.5 trên 5"
+											title="3.5 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
+											</svg>
+										</button>
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-right"
+											data-star-value="4.0"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 4.0} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 4.0 ? 'true' : 'false'}"
+											aria-label="Yêu thích 4 trên 5"
+											title="4 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
+											</svg>
+										</button>
+									</div>
+
+									<!-- Star 5: Split 4.5 (Left) and 5.0 (Right) -->
+									<div class="wiki-star-slot wiki-star-slot--split">
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-left"
+											data-star-value="4.5"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 4.5} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 4.5 ? 'true' : 'false'}"
+											aria-label="Yêu thích 4.5 trên 5"
+											title="4.5 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-left" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L12 17.77 L5.82 21.02 L7 14.14 L2 9.27 L8.91 8.26 Z"/>
+											</svg>
+										</button>
+										<button type="button"
+											class="wiki-star-btn wiki-star-btn--half-right"
+											data-star-value="5.0"
+											th:classappend="${appreciationState.viewerValue != null and appreciationState.viewerValue >= 5.0} ? ' is-active' : ''"
+											th:aria-pressed="${appreciationState.viewerValue != null and appreciationState.viewerValue == 5.0 ? 'true' : 'false'}"
+											aria-label="Yêu thích 5 trên 5"
+											title="5 sao">
+											<svg class="wiki-star-icon wiki-star-icon--half-right" xmlns="http://www.w3.org/2000/svg" viewBox="12 0 12 24" width="11" height="22" fill="currentColor" aria-hidden="true">
+												<path d="M12 2 L15.09 8.26 L22 9.27 L17 14.14 L18.18 21.02 L12 17.77 Z"/>
+											</svg>
+										</button>
+									</div>
+								</div>
+								<div class="wiki-appreciation-stats" id="wikiAppreciationStats" aria-live="polite">
+									<div class="wiki-appreciation-score-line">
+										<span class="wiki-appreciation-average" id="wikiAppreciationAverage"
+											th:hidden="${appreciationState.count == 0 or appreciationState.average == null}"
+											th:text="${appreciationState.count > 0 and appreciationState.average != null ? appreciationState.displayAverage() : ''}">4.7</span>
+										<span class="wiki-appreciation-separator"
+											th:hidden="${appreciationState.count == 0 or appreciationState.average == null}">/ 5</span>
+									</div>
+									<span class="wiki-appreciation-dot"
+										th:hidden="${appreciationState.count == 0 or appreciationState.average == null}"
+										aria-hidden="true">·</span>
+									<span class="wiki-appreciation-count" id="wikiAppreciationCount"
+										th:text="${appreciationState.count > 0 ? (appreciationState.count + ' lượt đánh giá') : 'Chưa có đánh giá'}">Chưa có đánh giá</span>
+								</div>
+							</div>
+							<div class="wiki-appreciation-feedback" id="wikiAppreciationFeedback" role="status" aria-live="polite"></div>
+						</div>
 					</div>
 
 				</header>

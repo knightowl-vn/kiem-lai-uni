@@ -85,6 +85,7 @@ class MediaFlywayRuntimeVerificationTest {
                 "id",
                 "media_type",
                 "visibility",
+                "client_tag",
                 "status",
                 "current_version_number",
                 "created_at",

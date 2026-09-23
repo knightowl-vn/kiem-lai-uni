@@ -18,6 +18,7 @@ import com.universe.identity.infrastructure.persistence.UserPersistenceMapper;
 import com.universe.identity.infrastructure.persistence.UserRepositoryAdapter;
 import com.universe.identity.infrastructure.storage.CloudinaryAvatarStorageAdapter;
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
@@ -107,6 +108,7 @@ import static org.mockito.Mockito.mock;
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
+        AssignMediaAssetClientTagUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
         GetMediaAssetContentUseCase.class,

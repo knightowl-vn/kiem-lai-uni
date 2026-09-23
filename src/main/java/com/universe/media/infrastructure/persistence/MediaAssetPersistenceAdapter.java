@@ -38,6 +38,18 @@ public class MediaAssetPersistenceAdapter implements MediaAssetRepositoryPort {
     }
 
     @Override
+    public Optional<MediaAsset> findByIdForUpdate(
+            UUID id
+    ) {
+        Objects.requireNonNull(
+                id,
+                "Media asset ID cannot be null."
+        );
+
+        return repository.findByIdForUpdate(id.toString()).map(this::toDomain);
+    }
+
+    @Override
     public MediaAsset save(
             MediaAsset asset
     ) {
@@ -56,6 +68,7 @@ public class MediaAssetPersistenceAdapter implements MediaAssetRepositoryPort {
             entity.setStatus(asset.getStatus().name());
             entity.setCurrentVersionNumber(asset.getCurrentVersionNumber());
             entity.setUpdatedAt(asset.getUpdatedAt());
+            entity.setClientTag(asset.getClientTag());
         } else {
             entity = new MediaAssetJpaEntity();
             entity.setId(assetId);
@@ -65,6 +78,7 @@ public class MediaAssetPersistenceAdapter implements MediaAssetRepositoryPort {
             entity.setCurrentVersionNumber(asset.getCurrentVersionNumber());
             entity.setCreatedAt(asset.getCreatedAt());
             entity.setUpdatedAt(asset.getUpdatedAt());
+            entity.setClientTag(asset.getClientTag());
         }
 
         MediaAssetJpaEntity savedEntity = repository.save(entity);
@@ -112,6 +126,7 @@ public class MediaAssetPersistenceAdapter implements MediaAssetRepositoryPort {
                 MediaVisibility.valueOf(entity.getVisibility()),
                 MediaAssetStatus.valueOf(entity.getStatus()),
                 entity.getCurrentVersionNumber(),
+                entity.getClientTag(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );
