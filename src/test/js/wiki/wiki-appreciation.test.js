@@ -134,16 +134,17 @@ function createMockDocument({
     statsEl.appendChild(sepEl);
 
     const countEl = createMockElement('wikiAppreciationCount', 'span');
-    countEl.textContent = hasRatings ? (count + ' lượt yêu thích') : 'Chưa có lượt yêu thích';
+    countEl.textContent = hasRatings ? (count + ' lượt đánh giá') : 'Chưa có đánh giá';
     statsEl.appendChild(countEl);
     doc.elements['wikiAppreciationCount'] = countEl;
 
-    // 3. Five Star Buttons
+    // 3. Nine Half-Star Buttons (1.0 to 5.0 with 0.5 step)
+    const starValues = ['1.0', '1.5', '2.0', '2.5', '3.0', '3.5', '4.0', '4.5', '5.0'];
     const starButtons = [];
-    for (let i = 1; i <= 5; i++) {
+    for (const val of starValues) {
         const btn = createMockElement('', 'button', {
-            'data-star-value': String(i),
-            'aria-label': `Yêu thích ${i} trên 5`
+            'data-star-value': val,
+            'aria-label': `Yêu thích ${val} trên 5`
         });
         btn.classList.add('wiki-star-btn');
         btn.ownerDocument = doc;
@@ -159,19 +160,44 @@ function createMockDocument({
     return { doc, widgetEl, statsEl, averageEl, sepEl, countEl, feedbackEl, starButtons };
 }
 
-describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
+describe('MS-05F9 wiki-appreciation.js Frontend Tests (Half-Star Support)', () => {
 
-    test('1. Initial render updates visual active state for rated viewer', () => {
-        const env = createMockDocument({ viewerValue: '3' });
+    test('1. Initial render updates visual active state for integer rated viewer (3.0 stars)', () => {
+        const env = createMockDocument({ viewerValue: '3.0' });
         WikiAppreciation.init(env.doc);
 
-        assert.strictEqual(env.starButtons[0].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), false);
-        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), false);
-        assert.strictEqual(env.starButtons[2].getAttribute('aria-pressed'), 'true');
-        assert.strictEqual(env.starButtons[1].getAttribute('aria-pressed'), 'false');
+        // 1.0, 1.5, 2.0, 2.5, 3.0 should be active
+        assert.strictEqual(env.starButtons[0].classList.contains('is-active'), true); // 1.0
+        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true); // 1.5
+        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true); // 2.0
+        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), true); // 2.5
+        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), true); // 3.0
+        assert.strictEqual(env.starButtons[5].classList.contains('is-active'), false); // 3.5
+        assert.strictEqual(env.starButtons[6].classList.contains('is-active'), false); // 4.0
+        assert.strictEqual(env.starButtons[7].classList.contains('is-active'), false); // 4.5
+        assert.strictEqual(env.starButtons[8].classList.contains('is-active'), false); // 5.0
+
+        assert.strictEqual(env.starButtons[4].getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(env.starButtons[3].getAttribute('aria-pressed'), 'false');
+    });
+
+    test('1b. Initial render updates visual active state for half-star rated viewer (3.5 stars)', () => {
+        const env = createMockDocument({ viewerValue: '3.5' });
+        WikiAppreciation.init(env.doc);
+
+        // 1.0, 1.5, 2.0, 2.5, 3.0, 3.5 should be active
+        assert.strictEqual(env.starButtons[0].classList.contains('is-active'), true); // 1.0
+        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true); // 1.5
+        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true); // 2.0
+        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), true); // 2.5
+        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), true); // 3.0
+        assert.strictEqual(env.starButtons[5].classList.contains('is-active'), true); // 3.5
+        assert.strictEqual(env.starButtons[6].classList.contains('is-active'), false); // 4.0
+        assert.strictEqual(env.starButtons[7].classList.contains('is-active'), false); // 4.5
+        assert.strictEqual(env.starButtons[8].classList.contains('is-active'), false); // 5.0
+
+        assert.strictEqual(env.starButtons[5].getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(env.starButtons[4].getAttribute('aria-pressed'), 'false');
     });
 
     test('2. Initial render for unrated viewer has no active stars', () => {
@@ -184,7 +210,7 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
         }
     });
 
-    test('3. Star click sends PUT request with CSRF token and selected value', async () => {
+    test('3. Half-star click (4.5) sends PUT request with CSRF token and selected float value', async () => {
         let sentUrl = '';
         let sentOptions = null;
 
@@ -195,33 +221,36 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
                 status: 200,
                 json: async () => ({
                     wikiArticleId: '11111111-1111-1111-1111-111111111111',
-                    value: 5,
-                    average: 4.80,
+                    value: 4.5,
+                    average: 4.75,
+                    displayAverage: '4.8',
                     count: 15,
                     changed: true
                 })
             };
         };
 
-        const env = createMockDocument({ viewerValue: '3' });
+        const env = createMockDocument({ viewerValue: '3.0' });
         WikiAppreciation.init(env.doc, { fetchImpl });
 
-        // Click star 5
-        await env.starButtons[4].dispatchEvent('click');
+        // Click star 4.5 (index 7)
+        await env.starButtons[7].dispatchEvent('click');
 
         assert.strictEqual(sentUrl, '/api/wiki/articles/11111111-1111-1111-1111-111111111111/appreciation');
         assert.strictEqual(sentOptions.method, 'PUT');
         assert.strictEqual(sentOptions.headers['Content-Type'], 'application/json');
         assert.strictEqual(sentOptions.headers['X-CSRF-TOKEN'], 'test-csrf-token-123');
-        assert.strictEqual(sentOptions.body, JSON.stringify({ value: 5 }));
+        assert.strictEqual(sentOptions.body, JSON.stringify({ value: 4.5 }));
 
         // UI state updated from server response
-        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '5');
-        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[4].getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '4.5');
+        assert.strictEqual(env.starButtons[7].classList.contains('is-active'), true);
+        assert.strictEqual(env.starButtons[7].getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(env.starButtons[8].classList.contains('is-active'), false);
+        // Authoritative displayAverage used directly without JS rounding calculation
         assert.strictEqual(env.averageEl.textContent, '4.8');
-        assert.strictEqual(env.countEl.textContent, '15 lượt yêu thích');
-        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu mức độ yêu thích.');
+        assert.strictEqual(env.countEl.textContent, '15 lượt đánh giá');
+        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu đánh giá của bạn.');
         assert.strictEqual(env.starButtons[0].disabled, false);
     });
 
@@ -230,24 +259,25 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
             status: 200,
             json: async () => ({
                 wikiArticleId: '11111111-1111-1111-1111-111111111111',
-                value: 4,
-                average: 4.50,
+                value: 4.0,
+                average: 4.25,
+                displayAverage: '4.3',
                 count: 10,
                 changed: false
             })
         });
 
-        const env = createMockDocument({ viewerValue: '4' });
+        const env = createMockDocument({ viewerValue: '4.0' });
         WikiAppreciation.init(env.doc, { fetchImpl });
 
-        // Click same star 4
-        await env.starButtons[3].dispatchEvent('click');
+        // Click same star 4.0 (index 6)
+        await env.starButtons[6].dispatchEvent('click');
 
         assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '4');
-        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), true);
-        assert.strictEqual(env.averageEl.textContent, '4.5');
-        assert.strictEqual(env.countEl.textContent, '10 lượt yêu thích');
-        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu mức độ yêu thích.');
+        assert.strictEqual(env.starButtons[6].classList.contains('is-active'), true);
+        assert.strictEqual(env.averageEl.textContent, '4.3');
+        assert.strictEqual(env.countEl.textContent, '10 lượt đánh giá');
+        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu đánh giá của bạn.');
     });
 
     test('5. Anonymous user clicking star redirects to login without sending PUT', async () => {
@@ -268,7 +298,7 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
             onRedirect: (url) => { redirectedUrl = url; }
         });
 
-        await env.starButtons[2].dispatchEvent('click');
+        await env.starButtons[5].dispatchEvent('click');
 
         assert.strictEqual(fetchCalled, false);
         assert.strictEqual(redirectedUrl, '/login?returnTo=%2Fwiki%2Fcharacter%2Ftran-binh-an');
@@ -279,17 +309,18 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
             status: 500
         });
 
-        const env = createMockDocument({ viewerValue: '2' });
+        const env = createMockDocument({ viewerValue: '2.0' });
         WikiAppreciation.init(env.doc, { fetchImpl });
 
-        // Click star 5
-        await env.starButtons[4].dispatchEvent('click');
+        // Click star 5.0 (index 8)
+        await env.starButtons[8].dispatchEvent('click');
 
-        // Reverted to 2
-        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '2');
-        assert.strictEqual(env.starButtons[0].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), false);
+        // Reverted to 2.0 (indices 0, 1, 2 active)
+        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '2.0');
+        assert.strictEqual(env.starButtons[0].classList.contains('is-active'), true); // 1.0
+        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true); // 1.5
+        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true); // 2.0
+        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), false); // 2.5
         assert.strictEqual(env.feedbackEl.textContent, 'Có lỗi xảy ra khi lưu đánh giá. Vui lòng thử lại sau.');
         assert.strictEqual(env.starButtons[0].disabled, false);
     });
@@ -317,7 +348,7 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
         assert.strictEqual(env.averageEl.hidden, true);
         assert.strictEqual(env.averageEl.textContent, '');
         assert.strictEqual(env.sepEl.hidden, true);
-        assert.strictEqual(env.countEl.textContent, 'Chưa có lượt yêu thích');
+        assert.strictEqual(env.countEl.textContent, 'Chưa có đánh giá');
         assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '');
 
         const fetchImpl = async () => ({
@@ -325,8 +356,9 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
             headers: { get: (h) => h.toLowerCase() === 'content-type' ? 'application/json' : null },
             json: async () => ({
                 wikiArticleId: '11111111-1111-1111-1111-111111111111',
-                value: 5,
+                value: 5.0,
                 average: 5.0,
+                displayAverage: '5.0',
                 count: 1,
                 changed: true
             })
@@ -334,16 +366,16 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
 
         WikiAppreciation.init(env.doc, { fetchImpl });
 
-        await env.starButtons[4].dispatchEvent('click');
+        await env.starButtons[8].dispatchEvent('click');
 
         assert.strictEqual(env.averageEl.hidden, false);
         assert.strictEqual(env.averageEl.textContent, '5.0');
         assert.strictEqual(env.sepEl.hidden, false);
-        assert.strictEqual(env.countEl.textContent, '1 lượt yêu thích');
+        assert.strictEqual(env.countEl.textContent, '1 lượt đánh giá');
         assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '5');
-        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[4].getAttribute('aria-pressed'), 'true');
-        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu mức độ yêu thích.');
+        assert.strictEqual(env.starButtons[8].classList.contains('is-active'), true);
+        assert.strictEqual(env.starButtons[8].getAttribute('aria-pressed'), 'true');
+        assert.strictEqual(env.feedbackEl.textContent, 'Đã lưu đánh giá của bạn.');
     });
 
     test('9. Bug B Regression A: Session-expired / login redirect does not consume JSON and redirects to login', async () => {
@@ -357,7 +389,7 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
         });
 
         const env = createMockDocument({
-            viewerValue: '3',
+            viewerValue: '3.0',
             count: '10',
             average: '4.50'
         });
@@ -367,13 +399,13 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
             onRedirect: (url) => { redirectTarget = url; }
         });
 
-        await env.starButtons[4].dispatchEvent('click');
+        await env.starButtons[8].dispatchEvent('click');
 
-        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '3');
-        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), false);
+        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '3.0');
+        assert.strictEqual(env.starButtons[4].classList.contains('is-active'), true);
+        assert.strictEqual(env.starButtons[8].classList.contains('is-active'), false);
         assert.strictEqual(env.averageEl.textContent, '4.5');
-        assert.strictEqual(env.countEl.textContent, '10 lượt yêu thích');
+        assert.strictEqual(env.countEl.textContent, '10 lượt đánh giá');
         assert.strictEqual(env.starButtons[0].disabled, false);
         assert.strictEqual(redirectTarget, env.widgetEl.getAttribute('data-login-url'));
     });
@@ -388,21 +420,55 @@ describe('MS-05F5 wiki-appreciation.js Frontend Tests', () => {
         });
 
         const env = createMockDocument({
-            viewerValue: '2',
+            viewerValue: '2.0',
             count: '5',
             average: '4.00'
         });
 
         WikiAppreciation.init(env.doc, { fetchImpl });
 
-        await env.starButtons[3].dispatchEvent('click');
+        await env.starButtons[6].dispatchEvent('click');
 
-        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '2');
-        assert.strictEqual(env.starButtons[1].classList.contains('is-active'), true);
-        assert.strictEqual(env.starButtons[3].classList.contains('is-active'), false);
+        assert.strictEqual(env.widgetEl.getAttribute('data-viewer-value'), '2.0');
+        assert.strictEqual(env.starButtons[2].classList.contains('is-active'), true);
+        assert.strictEqual(env.starButtons[6].classList.contains('is-active'), false);
         assert.strictEqual(env.averageEl.textContent, '4.0');
-        assert.strictEqual(env.countEl.textContent, '5 lượt yêu thích');
+        assert.strictEqual(env.countEl.textContent, '5 lượt đánh giá');
         assert.strictEqual(env.starButtons[0].disabled, false);
         assert.strictEqual(env.feedbackEl.textContent, 'Yêu cầu bị từ chối hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+    });
+
+    test('11. Server-owned displayAverage strings ("4.8", "4.7", "5.0") are rendered directly without client math', () => {
+        const env = createMockDocument({ count: '10', average: '4.75' });
+        const els = WikiAppreciation.getElements(env.doc);
+
+        // Case A: 4.75 average, server displayAverage "4.8"
+        WikiAppreciation.updateCommunityStats(els, 4.75, 10, '4.8');
+        assert.strictEqual(els.averageEl.textContent, '4.8');
+
+        // Case B: 4.65 average, server displayAverage "4.7"
+        WikiAppreciation.updateCommunityStats(els, 4.65, 10, '4.7');
+        assert.strictEqual(els.averageEl.textContent, '4.7');
+
+        // Case C: 5.0 average, server displayAverage "5.0"
+        WikiAppreciation.updateCommunityStats(els, 5.0, 10, '5.0');
+        assert.strictEqual(els.averageEl.textContent, '5.0');
+    });
+
+    test('12. Client source file does not contain toFixed or Math.round for average display', () => {
+        const fs = require('fs');
+        const scriptSource = fs.readFileSync(SCRIPT_PATH, 'utf8');
+
+        assert.strictEqual(scriptSource.includes('.toFixed('), false, 'Must not use .toFixed() in wiki-appreciation.js');
+        assert.strictEqual(scriptSource.includes('Math.round('), false, 'Must not use Math.round() in wiki-appreciation.js');
+        assert.strictEqual(scriptSource.includes('EPSILON'), false, 'Must not use EPSILON in wiki-appreciation.js');
+    });
+
+    test('13. Zero occurrences of "lượt yêu thích" remain in wiki-appreciation.js', () => {
+        const fs = require('fs');
+        const scriptSource = fs.readFileSync(SCRIPT_PATH, 'utf8');
+
+        assert.strictEqual(scriptSource.includes('lượt yêu thích'), false, 'Must not use "lượt yêu thích" in wiki-appreciation.js');
+        assert.strictEqual(scriptSource.includes('Đã lưu mức độ yêu thích'), false, 'Must not use old success feedback in wiki-appreciation.js');
     });
 });

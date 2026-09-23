@@ -23,8 +23,8 @@ import java.util.UUID;
  * Adapter persistence thực thi WikiAppreciationQueryPort cho các truy vấn tổng hợp đánh giá.
  *
  * Đảm bảo:
- * 1. Tính toán COUNT(*) và AVG(value) trực tiếp trong SQL, không hydrate thực thể JPA;
- * 2. Giữ nguyên độ chính xác BigDecimal từ database, không chuyển đổi qua double/float;
+ * 1. Tính toán COUNT(*) và AVG(value) / 2.0 trực tiếp trong SQL, không hydrate thực thể JPA;
+ * 2. Giữ nguyên độ chính xác BigDecimal từ database, không làm tròn trong SQL hay Java;
  * 3. Trả về count=0, average=null đối với bài viết chưa có lượt đánh giá nào;
  * 4. Truy vấn hàng loạt (bulk) thực thi duy nhất 1 câu SQL (GROUP BY), điền sẵn các phần tử rỗng, không N+1;
  * 5. Tự động loại bỏ trùng lặp trong input và từ chối các phần tử null.
@@ -34,14 +34,14 @@ import java.util.UUID;
 public class WikiAppreciationQueryPersistenceAdapter implements WikiAppreciationQueryPort {
 
     private static final String SQL_SINGLE_SUMMARY = """
-            SELECT wiki_article_id, COUNT(*) AS rating_count, AVG(value) AS rating_average
+            SELECT wiki_article_id, COUNT(*) AS rating_count, AVG(value) / 2.0 AS rating_average
             FROM wiki_appreciation_ratings
             WHERE wiki_article_id = ?
             GROUP BY wiki_article_id
             """;
 
     private static final String SQL_BULK_SUMMARY = """
-            SELECT wiki_article_id, COUNT(*) AS rating_count, AVG(value) AS rating_average
+            SELECT wiki_article_id, COUNT(*) AS rating_count, AVG(value) / 2.0 AS rating_average
             FROM wiki_appreciation_ratings
             WHERE wiki_article_id IN (:articleIds)
             GROUP BY wiki_article_id
@@ -99,23 +99,24 @@ public class WikiAppreciationQueryPersistenceAdapter implements WikiAppreciation
             resultMap.put(id, WikiAppreciationSummary.empty(id));
         }
 
-        List<String> stringIds = uniqueIds.stream()
+        List<String> idStrings = uniqueIds.stream()
                 .map(UUID::toString)
                 .toList();
 
-        MapSqlParameterSource parameters = new MapSqlParameterSource("articleIds", stringIds);
+        MapSqlParameterSource params = new MapSqlParameterSource("articleIds", idStrings);
 
         namedParameterJdbcTemplate.query(
                 SQL_BULK_SUMMARY,
-                parameters,
+                params,
                 rs -> {
                     UUID articleId = UUID.fromString(rs.getString("wiki_article_id"));
                     long count = rs.getLong("rating_count");
                     BigDecimal average = rs.getBigDecimal("rating_average");
+
                     resultMap.put(articleId, new WikiAppreciationSummary(articleId, average, count));
                 }
         );
 
-        return Collections.unmodifiableMap(resultMap);
+        return resultMap;
     }
 }

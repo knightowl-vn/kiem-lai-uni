@@ -7,7 +7,7 @@ import com.universe.wiki.application.appreciation.SetWikiAppreciationResult;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationUseCase;
 import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
-import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.entry.dto.appreciation.SetWikiAppreciationRequest;
 import com.universe.wiki.entry.dto.appreciation.SetWikiAppreciationResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,7 +36,7 @@ import java.util.UUID;
  *       tuyệt đối không chấp nhận tham số định danh từ request body hay query params;</li>
  *   <li>Bài viết không tồn tại, chưa xuất bản (DRAFT, ARCHIVED) hoặc không đủ điều kiện (loại bài khác CHARACTER, FACTION)
  *       trả về HTTP 404 Not Found mà không làm lộ chi tiết nội bộ;</li>
- *   <li>Tham số điểm đánh giá (value) ngoài khoảng 1..5 hoặc bị thiếu/malformed trả về HTTP 400 Bad Request;</li>
+ *   <li>Tham số điểm đánh giá (value) ngoài khoảng 1.0..5.0 (bước 0.5) hoặc bị thiếu/malformed trả về HTTP 400 Bad Request;</li>
  *   <li>Thành công trả về HTTP 200 OK kèm payload tổng hợp cộng đồng mới nhất;</li>
  *   <li>Thao tác cùng giá trị (same-value) đảm bảo idempotent và trả về HTTP 200 OK với changed=false.</li>
  * </ul>
@@ -64,7 +64,10 @@ public class WikiArticleAppreciationController {
             return ResponseEntity.badRequest().build();
         }
 
-        if (requestBody.value() < WikiAppreciationRating.MIN_VALUE || requestBody.value() > WikiAppreciationRating.MAX_VALUE) {
+        WikiAppreciationScore score;
+        try {
+            score = WikiAppreciationScore.fromStars(requestBody.value());
+        } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().build();
         }
 
@@ -80,7 +83,7 @@ public class WikiArticleAppreciationController {
                 new SetWikiAppreciationCommand(
                         articleId,
                         actorUserId,
-                        requestBody.value()
+                        score
                 )
         );
 

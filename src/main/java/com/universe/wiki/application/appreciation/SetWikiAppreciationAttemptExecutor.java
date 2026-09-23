@@ -4,6 +4,7 @@ import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,9 +21,9 @@ import java.util.UUID;
  * <p>Quy tắc bất biến:
  * <ul>
  *   <li>Tra cứu bản ghi hiện hành của người dùng trên bài viết Wiki;</li>
- *   <li>Nếu gửi cùng giá trị điểm (same-value no-op): KHÔNG gọi ClockPort, KHÔNG gọi IdGeneratorPort,
- *       KHÔNG gọi save, giữ nguyên updatedAt, trả về changed=false;</li>
- *   <li>Nếu là cập nhật điểm khác: gọi ClockPort một lần, cập nhật aggregate, lưu bản ghi, trả về changed=true;</li>
+ *   <li>Nếu gửi cùng giá trị điểm (same-value no-op qua WikiAppreciationScore equality): KHÔNG gọi ClockPort,
+ *       KHÔNG gọi IdGeneratorPort, KHÔNG gọi save, giữ nguyên updatedAt, trả về changed=false;</li>
+ *   <li>Nếu là cập nhật điểm khác: gọi ClockPort một lần, cập nhật aggregate score, lưu bản ghi, trả về changed=true;</li>
  *   <li>Nếu là đánh giá mới: gọi ClockPort một lần, gọi IdGeneratorPort một lần, tạo aggregate, lưu bản ghi, trả về changed=true;</li>
  *   <li>Thực thi trong transaction độc lập (REQUIRES_NEW) để khi xảy ra xung đột unique constraint,
  *       transaction này được rollback sạch sẽ mà không làm hỏng Hibernate session hay gán cờ rollback-only lên caller.</li>
@@ -60,12 +61,12 @@ public class SetWikiAppreciationAttemptExecutor {
 
         UUID articleId = command.wikiArticleId();
         UUID userId = command.actorUserId();
-        int requestedValue = command.value();
+        WikiAppreciationScore requestedScore = command.score();
 
         Optional<WikiAppreciationRating> currentRatingOpt =
                 appreciationRepositoryPort.findByWikiArticleIdAndUserId(articleId, userId);
 
-        if (currentRatingOpt.isPresent() && currentRatingOpt.get().getValue() == requestedValue) {
+        if (currentRatingOpt.isPresent() && Objects.equals(currentRatingOpt.get().getScore(), requestedScore)) {
             return new AppreciationMutationAttemptResult(false);
         }
 
@@ -73,7 +74,7 @@ public class SetWikiAppreciationAttemptExecutor {
 
         if (currentRatingOpt.isPresent()) {
             WikiAppreciationRating rating = currentRatingOpt.get();
-            rating.updateValue(requestedValue, now);
+            rating.updateScore(requestedScore, now);
             appreciationRepositoryPort.save(rating);
         } else {
             UUID ratingId = idGeneratorPort.generate();
@@ -81,7 +82,7 @@ public class SetWikiAppreciationAttemptExecutor {
                     ratingId,
                     articleId,
                     userId,
-                    requestedValue,
+                    requestedScore,
                     now
             );
             appreciationRepositoryPort.save(newRating);

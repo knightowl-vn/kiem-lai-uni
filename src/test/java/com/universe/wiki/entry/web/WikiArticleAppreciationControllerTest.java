@@ -9,6 +9,7 @@ import com.universe.wiki.application.appreciation.SetWikiAppreciationResult;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationUseCase;
 import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -95,7 +96,7 @@ class WikiArticleAppreciationControllerTest {
         void shouldReturn200WhenAuthenticatedUserRatesCharacter() throws Exception {
             SetWikiAppreciationResult result = new SetWikiAppreciationResult(
                     ARTICLE_ID,
-                    5,
+                    WikiAppreciationScore.fromStars(new BigDecimal("5.0")),
                     new BigDecimal("4.80"),
                     10L,
                     true
@@ -105,11 +106,12 @@ class WikiArticleAppreciationControllerTest {
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                             .with(attachRequestIdentity(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"value\": 5}"))
+                            .content("{\"value\": 5.0}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.wikiArticleId").value(ARTICLE_ID.toString()))
-                    .andExpect(jsonPath("$.value").value(5))
+                    .andExpect(jsonPath("$.value").value(5.0))
                     .andExpect(jsonPath("$.average").value(4.80))
+                    .andExpect(jsonPath("$.displayAverage").value("4.8"))
                     .andExpect(jsonPath("$.count").value(10))
                     .andExpect(jsonPath("$.changed").value(true));
 
@@ -120,7 +122,7 @@ class WikiArticleAppreciationControllerTest {
             SetWikiAppreciationCommand command = commandCaptor.getValue();
             assertThat(command.wikiArticleId()).isEqualTo(ARTICLE_ID);
             assertThat(command.actorUserId()).isEqualTo(USER_ID);
-            assertThat(command.value()).isEqualTo(5);
+            assertThat(command.score()).isEqualTo(WikiAppreciationScore.fromStars(new BigDecimal("5.0")));
         }
 
         @Test
@@ -128,7 +130,7 @@ class WikiArticleAppreciationControllerTest {
         void shouldReturn200WhenAuthenticatedUserRatesFaction() throws Exception {
             SetWikiAppreciationResult result = new SetWikiAppreciationResult(
                     ARTICLE_ID,
-                    4,
+                    WikiAppreciationScore.fromStars(new BigDecimal("4.5")),
                     new BigDecimal("4.25"),
                     4L,
                     true
@@ -138,10 +140,12 @@ class WikiArticleAppreciationControllerTest {
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                             .with(attachRequestIdentity(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"value\": 4}"))
+                            .content("{\"value\": 4.5}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.wikiArticleId").value(ARTICLE_ID.toString()))
-                    .andExpect(jsonPath("$.value").value(4))
+                    .andExpect(jsonPath("$.value").value(4.5))
+                    .andExpect(jsonPath("$.average").value(4.25))
+                    .andExpect(jsonPath("$.displayAverage").value("4.3"))
                     .andExpect(jsonPath("$.count").value(4))
                     .andExpect(jsonPath("$.changed").value(true));
         }
@@ -152,7 +156,7 @@ class WikiArticleAppreciationControllerTest {
             UUID spoofedUserId = UUID.randomUUID();
             SetWikiAppreciationResult result = new SetWikiAppreciationResult(
                     ARTICLE_ID,
-                    3,
+                    WikiAppreciationScore.fromStars(new BigDecimal("3.0")),
                     new BigDecimal("3.00"),
                     1L,
                     true
@@ -162,7 +166,7 @@ class WikiArticleAppreciationControllerTest {
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                             .with(attachRequestIdentity(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"value\": 3, \"userId\": \"" + spoofedUserId + "\"}"))
+                            .content("{\"value\": 3.0, \"userId\": \"" + spoofedUserId + "\"}"))
                     .andExpect(status().isOk());
 
             ArgumentCaptor<SetWikiAppreciationCommand> commandCaptor =
@@ -170,6 +174,7 @@ class WikiArticleAppreciationControllerTest {
             verify(setWikiAppreciationUseCase).execute(commandCaptor.capture());
             assertThat(commandCaptor.getValue().actorUserId()).isEqualTo(USER_ID);
             assertThat(commandCaptor.getValue().actorUserId()).isNotEqualTo(spoofedUserId);
+            assertThat(commandCaptor.getValue().score()).isEqualTo(WikiAppreciationScore.fromStars(new BigDecimal("3.0")));
         }
 
         @Test
@@ -232,12 +237,18 @@ class WikiArticleAppreciationControllerTest {
         }
 
         @Test
-        @DisplayName("Điểm đánh giá số thập phân (ví dụ 2.5, 4.9) -> 400 Bad Request và use case không bao giờ được gọi")
-        void shouldReturn400WhenValueIsFractional() throws Exception {
+        @DisplayName("Điểm đánh giá số thập phân không hợp lệ (như 0.5, 4.7, 4.9) -> 400 Bad Request và use case không bao giờ được gọi")
+        void shouldReturn400WhenValueIsInvalidDecimal() throws Exception {
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                             .with(attachRequestIdentity(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"value\": 2.5}"))
+                            .content("{\"value\": 0.5}"))
+                    .andExpect(status().isBadRequest());
+
+            mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\": 4.7}"))
                     .andExpect(status().isBadRequest());
 
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
@@ -303,7 +314,7 @@ class WikiArticleAppreciationControllerTest {
         void shouldReturn200WithChangedFalseOnSameValue() throws Exception {
             SetWikiAppreciationResult result = new SetWikiAppreciationResult(
                     ARTICLE_ID,
-                    5,
+                    WikiAppreciationScore.fromStars(new BigDecimal("5.0")),
                     new BigDecimal("4.80"),
                     10L,
                     false
@@ -313,9 +324,9 @@ class WikiArticleAppreciationControllerTest {
             mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                             .with(attachRequestIdentity(USER_ID))
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"value\": 5}"))
+                            .content("{\"value\": 5.0}"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.value").value(5))
+                    .andExpect(jsonPath("$.value").value(5.0))
                     .andExpect(jsonPath("$.changed").value(false));
         }
 
@@ -330,6 +341,64 @@ class WikiArticleAppreciationControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"value\": 5}"))
                     .andExpect(status().isConflict());
+        }
+
+        @Test
+        @DisplayName("M. Phản hồi định dạng displayAverage chuỗi làm tròn HALF_UP (4.75 -> '4.8', 4.65 -> '4.7', 5.0 -> '5.0') và giữ nguyên BigDecimal average")
+        void shouldFormatDisplayAverageCorrectlyPreservingOriginalAverage() throws Exception {
+            // 4.75 -> "4.8"
+            SetWikiAppreciationResult result475 = new SetWikiAppreciationResult(
+                    ARTICLE_ID,
+                    WikiAppreciationScore.fromStars(new BigDecimal("5.0")),
+                    new BigDecimal("4.75"),
+                    2L,
+                    true
+            );
+            when(setWikiAppreciationUseCase.execute(any(SetWikiAppreciationCommand.class))).thenReturn(result475);
+
+            mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\": 5.0}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.average").value(4.75))
+                    .andExpect(jsonPath("$.displayAverage").value("4.8"));
+
+            // 4.65 -> "4.7"
+            SetWikiAppreciationResult result465 = new SetWikiAppreciationResult(
+                    ARTICLE_ID,
+                    WikiAppreciationScore.fromStars(new BigDecimal("4.5")),
+                    new BigDecimal("4.65"),
+                    2L,
+                    true
+            );
+            when(setWikiAppreciationUseCase.execute(any(SetWikiAppreciationCommand.class))).thenReturn(result465);
+
+            mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\": 4.5}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.average").value(4.65))
+                    .andExpect(jsonPath("$.displayAverage").value("4.7"));
+
+            // 5.0 -> "5.0"
+            SetWikiAppreciationResult result50 = new SetWikiAppreciationResult(
+                    ARTICLE_ID,
+                    WikiAppreciationScore.fromStars(new BigDecimal("5.0")),
+                    new BigDecimal("5.0"),
+                    1L,
+                    true
+            );
+            when(setWikiAppreciationUseCase.execute(any(SetWikiAppreciationCommand.class))).thenReturn(result50);
+
+            mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\": 5.0}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.average").value(5.0))
+                    .andExpect(jsonPath("$.displayAverage").value("5.0"));
         }
     }
 }

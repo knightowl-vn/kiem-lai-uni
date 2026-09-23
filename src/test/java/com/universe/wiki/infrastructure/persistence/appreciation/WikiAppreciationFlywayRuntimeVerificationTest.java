@@ -148,29 +148,29 @@ class WikiAppreciationFlywayRuntimeVerificationTest {
         UUID user1 = UUID.randomUUID();
         UUID rating1 = UUID.randomUUID();
 
-        // Ghi hợp lệ value = 1
+        // Ghi hợp lệ value = 2 (1.0 sao trong hệ half-star units 2..10)
         jdbc.update("""
                 INSERT INTO wiki_appreciation_ratings (id, wiki_article_id, user_id, value, created_at, updated_at)
-                VALUES (?, ?, ?, 1, ?, ?)
+                VALUES (?, ?, ?, 2, ?, ?)
                 """,
                 rating1.toString(), articleId.toString(), user1.toString(), now, now
         );
 
-        // Từ chối ghi value = 0 (CHECK constraint)
+        // Từ chối ghi value = 1 (CHECK constraint < 2)
         UUID user2 = UUID.randomUUID();
         UUID rating2 = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO wiki_appreciation_ratings (id, wiki_article_id, user_id, value, created_at, updated_at)
-                VALUES (?, ?, ?, 0, ?, ?)
+                VALUES (?, ?, ?, 1, ?, ?)
                 """,
                 rating2.toString(), articleId.toString(), user2.toString(), now, now
         )).hasMessageContaining("chk_wiki_appreciation_ratings_value");
 
-        // Từ chối ghi value = 6 (CHECK constraint)
+        // Từ chối ghi value = 11 (CHECK constraint > 10)
         UUID rating3 = UUID.randomUUID();
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO wiki_appreciation_ratings (id, wiki_article_id, user_id, value, created_at, updated_at)
-                VALUES (?, ?, ?, 6, ?, ?)
+                VALUES (?, ?, ?, 11, ?, ?)
                 """,
                 rating3.toString(), articleId.toString(), user2.toString(), now, now
         )).hasMessageContaining("chk_wiki_appreciation_ratings_value");

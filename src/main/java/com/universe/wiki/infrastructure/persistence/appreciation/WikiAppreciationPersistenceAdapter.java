@@ -3,6 +3,7 @@ package com.universe.wiki.infrastructure.persistence.appreciation;
 import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,7 +16,7 @@ import java.util.UUID;
  * Adapter persistence thực thi WikiAppreciationRepositoryPort.
  *
  * Chịu trách nhiệm:
- * 1. Chuyển đổi hai chiều giữa domain aggregate WikiAppreciationRating và JPA Entity;
+ * 1. Chuyển đổi hai chiều giữa domain aggregate WikiAppreciationRating và JPA Entity (lưu đơn vị nửa sao 2..10);
  * 2. Lưu mới hoặc cập nhật bản ghi đánh giá vào MySQL;
  * 3. Tra cứu bản ghi đánh giá hiện hành theo wikiArticleId và userId.
  */
@@ -95,11 +96,12 @@ public class WikiAppreciationPersistenceAdapter implements WikiAppreciationRepos
         if (entity == null) {
             return null;
         }
+        WikiAppreciationScore score = WikiAppreciationScore.fromHalfStarUnits(entity.getValue());
         return WikiAppreciationRating.rehydrate(
                 UUID.fromString(entity.getId()),
                 UUID.fromString(entity.getWikiArticleId()),
                 UUID.fromString(entity.getUserId()),
-                entity.getValue(),
+                score,
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
         );
@@ -109,7 +111,7 @@ public class WikiAppreciationPersistenceAdapter implements WikiAppreciationRepos
         entity.setId(domain.getId().toString());
         entity.setWikiArticleId(domain.getWikiArticleId().toString());
         entity.setUserId(domain.getUserId().toString());
-        entity.setValue(domain.getValue());
+        entity.setValue(domain.getScore().halfStarUnits());
         entity.setCreatedAt(domain.getCreatedAt());
         entity.setUpdatedAt(domain.getUpdatedAt());
     }

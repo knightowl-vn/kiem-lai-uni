@@ -23,7 +23,7 @@ import java.util.UUID;
  *   <li>2. Ủy quyền thực thi ghi nhận persistence cho {@link SetWikiAppreciationAttemptExecutor} chạy trong transaction độc lập (REQUIRES_NEW);</li>
  *   <li>3. Phục hồi tối đa một lần (bounded retry, MAX_ATTEMPTS=2) khi xảy ra ngoại lệ xung đột đồng thời {@link DuplicateWikiAppreciationException};</li>
  *   <li>4. Sau khi transaction của attempt đã commit thành công, truy vấn dữ liệu summary cộng đồng trực tiếp từ SQL;</li>
- *   <li>5. Trả về {@link SetWikiAppreciationResult} hoàn chỉnh.</li>
+ *   <li>5. Trả về {@link SetWikiAppreciationResult} hoàn chỉnh mang kiểu WikiAppreciationScore.</li>
  * </ul>
  */
 @Service
@@ -84,7 +84,7 @@ public class SetWikiAppreciationUseCase {
 
         return new SetWikiAppreciationResult(
                 articleId,
-                command.value(),
+                command.score(),
                 summary.average(),
                 summary.count(),
                 attemptResult.changed()

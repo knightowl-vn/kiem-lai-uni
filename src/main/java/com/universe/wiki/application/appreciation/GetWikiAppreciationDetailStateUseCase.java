@@ -3,10 +3,10 @@ package com.universe.wiki.application.appreciation;
 import com.universe.wiki.application.ports.WikiAppreciationQueryPort;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
-import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -15,7 +15,7 @@ import java.util.UUID;
  *
  * Quy tắc:
  * - Luôn truy vấn summary cộng đồng từ F3;
- * - Nếu người xem đã xác thực (viewerUserId != null): truy vấn đánh giá hiện hành của viewer;
+ * - Nếu người xem đã xác thực (viewerUserId != null): truy vấn đánh giá hiện hành của viewer và chuyển sang toStars();
  * - Nếu người xem ẩn danh (viewerUserId == null): không truy vấn per-user rating;
  * - Điểm trung bình và tổng số lượt đánh giá được giữ nguyên từ summary, không tính toán lại trong Java.
  */
@@ -44,10 +44,10 @@ public class GetWikiAppreciationDetailStateUseCase {
 
         WikiAppreciationSummary summary = queryPort.findSummaryByWikiArticleId(articleId);
 
-        Integer viewerValue = null;
+        BigDecimal viewerValue = null;
         if (viewerUserId != null) {
             viewerValue = repositoryPort.findByWikiArticleIdAndUserId(articleId, viewerUserId)
-                    .map(WikiAppreciationRating::getValue)
+                    .map(rating -> rating.getScore().toStars())
                     .orElse(null);
         }
 

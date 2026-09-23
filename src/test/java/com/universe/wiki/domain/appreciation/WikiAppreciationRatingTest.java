@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -20,14 +21,15 @@ class WikiAppreciationRatingTest {
     private static final Instant CREATED_AT = Instant.parse("2026-09-22T10:00:00Z");
 
     @ParameterizedTest
-    @ValueSource(ints = {1, 2, 3, 4, 5})
-    @DisplayName("Khởi tạo thành công với giá trị hợp lệ 1 đến 5 sao")
-    void shouldCreateWithValidValues(int validValue) {
+    @ValueSource(ints = {2, 3, 4, 5, 6, 7, 8, 9, 10})
+    @DisplayName("Khởi tạo thành công với các đơn vị nửa sao hợp lệ 2 đến 10")
+    void shouldCreateWithValidValues(int validUnits) {
+        WikiAppreciationScore score = WikiAppreciationScore.fromHalfStarUnits(validUnits);
         WikiAppreciationRating rating = WikiAppreciationRating.create(
                 ID,
                 ARTICLE_ID,
                 USER_ID,
-                validValue,
+                score,
                 CREATED_AT
         );
 
@@ -35,42 +37,34 @@ class WikiAppreciationRatingTest {
         assertThat(rating.getId()).isEqualTo(ID);
         assertThat(rating.getWikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(rating.getUserId()).isEqualTo(USER_ID);
-        assertThat(rating.getValue()).isEqualTo(validValue);
+        assertThat(rating.getScore()).isEqualTo(score);
+        assertThat(rating.getValue()).isEqualTo(validUnits);
         assertThat(rating.getCreatedAt()).isEqualTo(CREATED_AT);
         assertThat(rating.getUpdatedAt()).isEqualTo(CREATED_AT);
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {0, 6, -1, 100})
-    @DisplayName("Từ chối khởi tạo với giá trị ngoài khoảng [1..5]")
-    void shouldRejectInvalidValuesOnCreate(int invalidValue) {
-        assertThatThrownBy(() -> WikiAppreciationRating.create(
-                ID,
-                ARTICLE_ID,
-                USER_ID,
-                invalidValue,
-                CREATED_AT
-        ))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Giá trị đánh giá phải nằm trong khoảng từ 1 đến 5");
-    }
-
     @Test
-    @DisplayName("Từ chối khởi tạo khi có trường định danh hoặc thời gian bị null")
-    void shouldRejectNullIdentifiersOnCreate() {
-        assertThatThrownBy(() -> WikiAppreciationRating.create(null, ARTICLE_ID, USER_ID, 5, CREATED_AT))
+    @DisplayName("Từ chối khởi tạo khi có trường định danh, score hoặc thời gian bị null")
+    void shouldRejectNullFieldsOnCreate() {
+        WikiAppreciationScore score = WikiAppreciationScore.fromHalfStarUnits(10);
+
+        assertThatThrownBy(() -> WikiAppreciationRating.create(null, ARTICLE_ID, USER_ID, score, CREATED_AT))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID đánh giá không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, null, USER_ID, 5, CREATED_AT))
+        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, null, USER_ID, score, CREATED_AT))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID bài viết Wiki không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, ARTICLE_ID, null, 5, CREATED_AT))
+        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, ARTICLE_ID, null, score, CREATED_AT))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID người dùng không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, ARTICLE_ID, USER_ID, 5, null))
+        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, ARTICLE_ID, USER_ID, null, CREATED_AT))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("WikiAppreciationScore không được để trống.");
+
+        assertThatThrownBy(() -> WikiAppreciationRating.create(ID, ARTICLE_ID, USER_ID, score, null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Thời gian tạo không được để trống.");
     }
@@ -79,11 +73,12 @@ class WikiAppreciationRatingTest {
     @DisplayName("Khôi phục (rehydrate) hợp lệ từ tầng lưu trữ")
     void shouldRehydrateValidState() {
         Instant updatedAt = CREATED_AT.plusSeconds(300);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
         WikiAppreciationRating rehydrated = WikiAppreciationRating.rehydrate(
                 ID,
                 ARTICLE_ID,
                 USER_ID,
-                4,
+                score,
                 CREATED_AT,
                 updatedAt
         );
@@ -92,128 +87,106 @@ class WikiAppreciationRatingTest {
         assertThat(rehydrated.getId()).isEqualTo(ID);
         assertThat(rehydrated.getWikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(rehydrated.getUserId()).isEqualTo(USER_ID);
-        assertThat(rehydrated.getValue()).isEqualTo(4);
+        assertThat(rehydrated.getScore()).isEqualTo(score);
+        assertThat(rehydrated.getValue()).isEqualTo(9);
         assertThat(rehydrated.getCreatedAt()).isEqualTo(CREATED_AT);
         assertThat(rehydrated.getUpdatedAt()).isEqualTo(updatedAt);
-    }
-
-    @ParameterizedTest
-    @ValueSource(ints = {0, 6, -5, 99})
-    @DisplayName("Từ chối rehydrate với giá trị không hợp lệ từ DB, không tự động sửa sai")
-    void shouldRejectInvalidValueOnRehydrate(int invalidValue) {
-        Instant updatedAt = CREATED_AT.plusSeconds(300);
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(
-                ID,
-                ARTICLE_ID,
-                USER_ID,
-                invalidValue,
-                CREATED_AT,
-                updatedAt
-        ))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Giá trị đánh giá phải nằm trong khoảng từ 1 đến 5");
     }
 
     @Test
     @DisplayName("Từ chối rehydrate khi thiếu trường bắt buộc")
     void shouldRejectNullFieldsOnRehydrate() {
         Instant updatedAt = CREATED_AT.plusSeconds(300);
+        WikiAppreciationScore score = WikiAppreciationScore.fromHalfStarUnits(10);
 
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(null, ARTICLE_ID, USER_ID, 5, CREATED_AT, updatedAt))
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(null, ARTICLE_ID, USER_ID, score, CREATED_AT, updatedAt))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID đánh giá không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, null, USER_ID, 5, CREATED_AT, updatedAt))
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, null, USER_ID, score, CREATED_AT, updatedAt))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID bài viết Wiki không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, null, 5, CREATED_AT, updatedAt))
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, null, score, CREATED_AT, updatedAt))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID người dùng không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, 5, null, updatedAt))
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, null, CREATED_AT, updatedAt))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("WikiAppreciationScore không được để trống.");
+
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, score, null, updatedAt))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Thời gian tạo không được để trống.");
 
-        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, 5, CREATED_AT, null))
+        assertThatThrownBy(() -> WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, score, CREATED_AT, null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Thời gian cập nhật không được để trống.");
     }
 
     @Test
-    @DisplayName("Cập nhật giá trị khác (3 -> 5): value đổi, createdAt giữ nguyên, updatedAt cập nhật, trả về true")
-    void shouldUpdateValueWhenDifferent() {
+    @DisplayName("Cập nhật điểm khác (3.5 -> 4.5): score đổi, createdAt giữ nguyên, updatedAt cập nhật, trả về true")
+    void shouldUpdateScoreWhenDifferent() {
+        WikiAppreciationScore initialScore = WikiAppreciationScore.fromStars(new BigDecimal("3.5"));
         WikiAppreciationRating rating = WikiAppreciationRating.create(
                 ID,
                 ARTICLE_ID,
                 USER_ID,
-                3,
+                initialScore,
                 CREATED_AT
         );
 
         Instant updateTime = CREATED_AT.plusSeconds(600);
-        boolean changed = rating.updateValue(5, updateTime);
+        WikiAppreciationScore newScore = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
+        boolean changed = rating.updateScore(newScore, updateTime);
 
         assertThat(changed).isTrue();
-        assertThat(rating.getValue()).isEqualTo(5);
+        assertThat(rating.getScore()).isEqualTo(newScore);
+        assertThat(rating.getValue()).isEqualTo(9);
         assertThat(rating.getCreatedAt()).isEqualTo(CREATED_AT);
         assertThat(rating.getUpdatedAt()).isEqualTo(updateTime);
     }
 
     @Test
-    @DisplayName("Cập nhật cùng giá trị (5 -> 5): no-op, value giữ nguyên, updatedAt giữ nguyên, trả về false")
-    void shouldNotUpdateWhenSameValue() {
+    @DisplayName("Cập nhật cùng điểm (4.5 -> 4.5): no-op, score giữ nguyên, updatedAt giữ nguyên, trả về false")
+    void shouldNotUpdateWhenSameScore() {
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
         WikiAppreciationRating rating = WikiAppreciationRating.create(
                 ID,
                 ARTICLE_ID,
                 USER_ID,
-                5,
+                score,
                 CREATED_AT
         );
 
         Instant updateTime = CREATED_AT.plusSeconds(600);
-        boolean changed = rating.updateValue(5, updateTime);
+        WikiAppreciationScore sameScore = WikiAppreciationScore.fromHalfStarUnits(9);
+        boolean changed = rating.updateScore(sameScore, updateTime);
 
         assertThat(changed).isFalse();
-        assertThat(rating.getValue()).isEqualTo(5);
+        assertThat(rating.getScore()).isEqualTo(score);
         assertThat(rating.getCreatedAt()).isEqualTo(CREATED_AT);
         assertThat(rating.getUpdatedAt()).isEqualTo(CREATED_AT);
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {0, 6, -1, 10})
-    @DisplayName("Từ chối cập nhật với giá trị không hợp lệ")
-    void shouldRejectInvalidValueOnUpdate(int invalidValue) {
+    @Test
+    @DisplayName("Từ chối cập nhật khi score hoặc updateTime bị null")
+    void shouldRejectNullArgumentsOnUpdate() {
+        WikiAppreciationScore initialScore = WikiAppreciationScore.fromHalfStarUnits(6);
         WikiAppreciationRating rating = WikiAppreciationRating.create(
                 ID,
                 ARTICLE_ID,
                 USER_ID,
-                3,
+                initialScore,
                 CREATED_AT
         );
 
         Instant updateTime = CREATED_AT.plusSeconds(600);
-        assertThatThrownBy(() -> rating.updateValue(invalidValue, updateTime))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Giá trị đánh giá phải nằm trong khoảng từ 1 đến 5");
+        assertThatThrownBy(() -> rating.updateScore(null, updateTime))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("WikiAppreciationScore không được để trống.");
 
-        // Trạng thái không bị thay đổi
-        assertThat(rating.getValue()).isEqualTo(3);
-        assertThat(rating.getUpdatedAt()).isEqualTo(CREATED_AT);
-    }
-
-    @Test
-    @DisplayName("Từ chối cập nhật khi updateTime bị null")
-    void shouldRejectNullUpdateTimeOnUpdate() {
-        WikiAppreciationRating rating = WikiAppreciationRating.create(
-                ID,
-                ARTICLE_ID,
-                USER_ID,
-                3,
-                CREATED_AT
-        );
-
-        assertThatThrownBy(() -> rating.updateValue(4, null))
+        assertThatThrownBy(() -> rating.updateScore(WikiAppreciationScore.fromHalfStarUnits(8), null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Thời gian cập nhật không được để trống.");
     }
@@ -221,9 +194,12 @@ class WikiAppreciationRatingTest {
     @Test
     @DisplayName("Kiểm tra equals và hashCode dựa trên id")
     void shouldImplementEqualsAndHashCodeBasedOnId() {
-        WikiAppreciationRating rating1 = WikiAppreciationRating.create(ID, ARTICLE_ID, USER_ID, 3, CREATED_AT);
-        WikiAppreciationRating rating2 = WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, 5, CREATED_AT, CREATED_AT.plusSeconds(10));
-        WikiAppreciationRating rating3 = WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_ID, USER_ID, 3, CREATED_AT);
+        WikiAppreciationScore score1 = WikiAppreciationScore.fromHalfStarUnits(6);
+        WikiAppreciationScore score2 = WikiAppreciationScore.fromHalfStarUnits(10);
+
+        WikiAppreciationRating rating1 = WikiAppreciationRating.create(ID, ARTICLE_ID, USER_ID, score1, CREATED_AT);
+        WikiAppreciationRating rating2 = WikiAppreciationRating.rehydrate(ID, ARTICLE_ID, USER_ID, score2, CREATED_AT, CREATED_AT.plusSeconds(10));
+        WikiAppreciationRating rating3 = WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_ID, USER_ID, score1, CREATED_AT);
 
         assertThat(rating1).isEqualTo(rating2);
         assertThat(rating1.hashCode()).isEqualTo(rating2.hashCode());

@@ -4,6 +4,7 @@ import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,7 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("SetWikiAppreciationAttemptExecutor Unit Tests (MS-05F7)")
+@DisplayName("SetWikiAppreciationAttemptExecutor Unit Tests (MS-05F7 & F9)")
 class SetWikiAppreciationAttemptExecutorTest {
 
     private static final UUID ARTICLE_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -60,7 +62,8 @@ class SetWikiAppreciationAttemptExecutorTest {
         when(clockPort.now()).thenReturn(FROZEN_NOW);
         when(idGeneratorPort.generate()).thenReturn(GENERATED_RATING_ID);
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 4);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
         AppreciationMutationAttemptResult result = attemptExecutor.executeAttempt(command);
 
         assertThat(result).isNotNull();
@@ -72,7 +75,8 @@ class SetWikiAppreciationAttemptExecutorTest {
         assertThat(saved.getId()).isEqualTo(GENERATED_RATING_ID);
         assertThat(saved.getWikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(saved.getUserId()).isEqualTo(USER_ID);
-        assertThat(saved.getValue()).isEqualTo(4);
+        assertThat(saved.getScore()).isEqualTo(score);
+        assertThat(saved.getValue()).isEqualTo(8);
         assertThat(saved.getCreatedAt()).isEqualTo(FROZEN_NOW);
         assertThat(saved.getUpdatedAt()).isEqualTo(FROZEN_NOW);
 
@@ -81,7 +85,7 @@ class SetWikiAppreciationAttemptExecutorTest {
     }
 
     @Test
-    @DisplayName("B. Cập nhật khác điểm (existing row, different value): gọi ClockPort 1 lần, KHÔNG gọi IdGenerator, giữ nguyên ID, save, changed=true")
+    @DisplayName("B. Cập nhật khác điểm (existing row, different score): gọi ClockPort 1 lần, KHÔNG gọi IdGenerator, giữ nguyên ID, save, changed=true")
     void shouldUpdateExistingRatingWhenValueDiffers() {
         UUID existingRatingId = UUID.fromString("77777777-7777-7777-7777-777777777777");
         Instant originalCreatedAt = Instant.parse("2026-09-20T08:00:00Z");
@@ -89,7 +93,7 @@ class SetWikiAppreciationAttemptExecutorTest {
                 existingRatingId,
                 ARTICLE_ID,
                 USER_ID,
-                3,
+                WikiAppreciationScore.fromStars(new BigDecimal("3.0")),
                 originalCreatedAt
         );
 
@@ -97,7 +101,8 @@ class SetWikiAppreciationAttemptExecutorTest {
                 .thenReturn(Optional.of(existingRating));
         when(clockPort.now()).thenReturn(FROZEN_NOW);
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore newScore = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, newScore);
         AppreciationMutationAttemptResult result = attemptExecutor.executeAttempt(command);
 
         assertThat(result).isNotNull();
@@ -109,14 +114,15 @@ class SetWikiAppreciationAttemptExecutorTest {
         assertThat(saved.getId()).isEqualTo(existingRatingId);
         assertThat(saved.getCreatedAt()).isEqualTo(originalCreatedAt);
         assertThat(saved.getUpdatedAt()).isEqualTo(FROZEN_NOW);
-        assertThat(saved.getValue()).isEqualTo(5);
+        assertThat(saved.getScore()).isEqualTo(newScore);
+        assertThat(saved.getValue()).isEqualTo(9);
 
         verify(clockPort).now();
         verify(idGeneratorPort, never()).generate();
     }
 
     @Test
-    @DisplayName("C. Đánh giá cùng điểm (existing row, same value): KHÔNG gọi ClockPort, KHÔNG gọi IdGenerator, KHÔNG gọi save, updatedAt giữ nguyên, changed=false")
+    @DisplayName("C. Đánh giá cùng điểm (existing row, same score): KHÔNG gọi ClockPort, KHÔNG gọi IdGenerator, KHÔNG gọi save, updatedAt giữ nguyên, changed=false")
     void shouldNoOpWhenSameValueSubmitted() {
         UUID existingRatingId = UUID.fromString("77777777-7777-7777-7777-777777777777");
         Instant originalCreatedAt = Instant.parse("2026-09-20T08:00:00Z");
@@ -124,14 +130,15 @@ class SetWikiAppreciationAttemptExecutorTest {
                 existingRatingId,
                 ARTICLE_ID,
                 USER_ID,
-                5,
+                WikiAppreciationScore.fromStars(new BigDecimal("4.5")),
                 originalCreatedAt
         );
 
         when(appreciationRepositoryPort.findByWikiArticleIdAndUserId(ARTICLE_ID, USER_ID))
                 .thenReturn(Optional.of(existingRating));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore sameScore = WikiAppreciationScore.fromHalfStarUnits(9);
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, sameScore);
         AppreciationMutationAttemptResult result = attemptExecutor.executeAttempt(command);
 
         assertThat(result).isNotNull();

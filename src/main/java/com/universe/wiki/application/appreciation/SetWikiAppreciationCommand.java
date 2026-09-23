@@ -1,6 +1,6 @@
 package com.universe.wiki.application.appreciation;
 
-import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -10,21 +10,16 @@ import java.util.UUID;
  *
  * @param wikiArticleId định danh bài viết Wiki
  * @param actorUserId định danh người dùng đã xác thực
- * @param value điểm đánh giá (1 đến 5 sao)
+ * @param score đối tượng điểm đánh giá (WikiAppreciationScore)
  */
 public record SetWikiAppreciationCommand(
         UUID wikiArticleId,
         UUID actorUserId,
-        int value
+        WikiAppreciationScore score
 ) {
     public SetWikiAppreciationCommand {
         Objects.requireNonNull(wikiArticleId, "ID bài viết Wiki không được để trống.");
         Objects.requireNonNull(actorUserId, "ID người dùng không được để trống.");
-        if (value < WikiAppreciationRating.MIN_VALUE || value > WikiAppreciationRating.MAX_VALUE) {
-            throw new IllegalArgumentException(
-                    "Giá trị đánh giá phải nằm trong khoảng từ " + WikiAppreciationRating.MIN_VALUE
-                            + " đến " + WikiAppreciationRating.MAX_VALUE + " sao, nhận được: " + value
-            );
-        }
+        Objects.requireNonNull(score, "WikiAppreciationScore không được để trống.");
     }
 }

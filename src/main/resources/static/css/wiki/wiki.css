@@ -1639,6 +1639,32 @@ a.is-parent-active:not(.is-active) {
    RESPONSIVE BREAKPOINTS
    ========================================================= */
 @media (max-width: 767.98px) {
+	.wiki-public-index-toolbar {
+		flex-direction: column;
+		align-items: stretch;
+		gap: 16px;
+	}
+
+	.wiki-public-index-result {
+		width: 100%;
+	}
+
+	.wiki-public-index-tools {
+		width: 100%;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 10px;
+	}
+
+	.wiki-public-index-tools .wiki-type-filter-form {
+		width: 100%;
+	}
+
+	.wiki-public-clear-search {
+		width: 100%;
+		justify-content: center;
+	}
+
 	.wiki-public-card-grid {
 		gap: 12px;
 	}

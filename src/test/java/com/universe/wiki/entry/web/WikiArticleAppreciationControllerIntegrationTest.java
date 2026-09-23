@@ -14,6 +14,7 @@ import com.universe.wiki.application.appreciation.SetWikiAppreciationCommand;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationResult;
 import com.universe.wiki.application.appreciation.SetWikiAppreciationUseCase;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -116,7 +117,7 @@ class WikiArticleAppreciationControllerIntegrationTest {
     void shouldSetAppreciationSuccessfullyWithCsrf() throws Exception {
         SetWikiAppreciationResult result = new SetWikiAppreciationResult(
                 ARTICLE_ID,
-                5,
+                WikiAppreciationScore.fromStars(new BigDecimal("4.5")),
                 new BigDecimal("4.80"),
                 10L,
                 true
@@ -127,11 +128,12 @@ class WikiArticleAppreciationControllerIntegrationTest {
                         .with(csrf())
                         .with(authenticatedIdentity(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"value\": 5}"))
+                        .content("{\"value\": 4.5}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.wikiArticleId").value(ARTICLE_ID.toString()))
-                .andExpect(jsonPath("$.value").value(5))
+                .andExpect(jsonPath("$.value").value(4.5))
                 .andExpect(jsonPath("$.average").value(4.80))
+                .andExpect(jsonPath("$.displayAverage").value("4.8"))
                 .andExpect(jsonPath("$.count").value(10))
                 .andExpect(jsonPath("$.changed").value(true));
 
@@ -140,7 +142,7 @@ class WikiArticleAppreciationControllerIntegrationTest {
         verify(setWikiAppreciationUseCase).execute(commandCaptor.capture());
         assertThat(commandCaptor.getValue().wikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(commandCaptor.getValue().actorUserId()).isEqualTo(USER_ID);
-        assertThat(commandCaptor.getValue().value()).isEqualTo(5);
+        assertThat(commandCaptor.getValue().score()).isEqualTo(WikiAppreciationScore.fromStars(new BigDecimal("4.5")));
     }
 
     @Test
@@ -187,13 +189,13 @@ class WikiArticleAppreciationControllerIntegrationTest {
 
     @Test
     @WithMockUser
-    @DisplayName("Điểm đánh giá số thập phân (2.5) -> 400 Bad Request và không gọi use case")
-    void shouldRejectFractionalValueWithBadRequest() throws Exception {
+    @DisplayName("Điểm đánh giá số thập phân không theo bước 0.5 (2.7) -> 400 Bad Request và không gọi use case")
+    void shouldRejectInvalidStepValueWithBadRequest() throws Exception {
         mockMvc.perform(put("/api/wiki/articles/" + ARTICLE_ID + "/appreciation")
                         .with(csrf())
                         .with(authenticatedIdentity(USER_ID))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"value\": 2.5}"))
+                        .content("{\"value\": 2.7}"))
                 .andExpect(status().isBadRequest());
 
         verify(setWikiAppreciationUseCase, never()).execute(any());

@@ -5,6 +5,7 @@ import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundEx
 import com.universe.wiki.application.ports.WikiAppreciationQueryPort;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -12,8 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -23,15 +22,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("SetWikiAppreciationUseCase Unit Tests (MS-05F7)")
+@DisplayName("SetWikiAppreciationUseCase Unit Tests (MS-05F7 & F9)")
 class SetWikiAppreciationUseCaseTest {
 
     private static final UUID ARTICLE_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -71,7 +68,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot snapshot = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(snapshot));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 4);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
         when(attemptExecutor.executeAttempt(command)).thenReturn(new AppreciationMutationAttemptResult(true));
 
         WikiAppreciationSummary expectedSummary = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.0"), 1L);
@@ -81,7 +79,7 @@ class SetWikiAppreciationUseCaseTest {
 
         assertThat(result).isNotNull();
         assertThat(result.wikiArticleId()).isEqualTo(ARTICLE_ID);
-        assertThat(result.value()).isEqualTo(4);
+        assertThat(result.score()).isEqualTo(score);
         assertThat(result.count()).isEqualTo(1L);
         assertThat(result.average()).isEqualByComparingTo(new BigDecimal("4.0"));
         assertThat(result.changed()).isTrue();
@@ -97,7 +95,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot snapshot = createEligibilitySnapshot(ArticleType.FACTION, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(snapshot));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
         when(attemptExecutor.executeAttempt(command)).thenReturn(new AppreciationMutationAttemptResult(false));
 
         WikiAppreciationSummary expectedSummary = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.8"), 5L);
@@ -107,7 +106,7 @@ class SetWikiAppreciationUseCaseTest {
 
         assertThat(result).isNotNull();
         assertThat(result.changed()).isFalse();
-        assertThat(result.value()).isEqualTo(5);
+        assertThat(result.score()).isEqualTo(score);
         assertThat(result.count()).isEqualTo(5L);
         assertThat(result.average()).isEqualByComparingTo(new BigDecimal("4.8"));
 
@@ -121,21 +120,22 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot snapshot = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(snapshot));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         // Attempt 1 ném DuplicateWikiAppreciationException; Attempt 2 thành công
         when(attemptExecutor.executeAttempt(command))
                 .thenThrow(new DuplicateWikiAppreciationException(ARTICLE_ID, USER_ID, new RuntimeException("duplicate")))
                 .thenReturn(new AppreciationMutationAttemptResult(true));
 
-        WikiAppreciationSummary expectedSummary = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("5.0"), 1L);
+        WikiAppreciationSummary expectedSummary = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.75"), 2L);
         when(appreciationQueryPort.findSummaryByWikiArticleId(ARTICLE_ID)).thenReturn(expectedSummary);
 
         SetWikiAppreciationResult result = useCase.execute(command);
 
         assertThat(result).isNotNull();
         assertThat(result.changed()).isTrue();
-        assertThat(result.value()).isEqualTo(5);
+        assertThat(result.score()).isEqualTo(score);
 
         // Eligibility chỉ được check duy nhất 1 lần (không re-check khi retry)
         verify(wikiArticleQueryPort, times(1)).findEligibilityById(ARTICLE_ID);
@@ -151,7 +151,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot snapshot = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(snapshot));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         when(attemptExecutor.executeAttempt(command))
                 .thenThrow(new DuplicateWikiAppreciationException(ARTICLE_ID, USER_ID, new RuntimeException("dup1")))
@@ -171,7 +172,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot snapshot = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(snapshot));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
         when(attemptExecutor.executeAttempt(command))
                 .thenThrow(new IllegalStateException("Lỗi cơ sở dữ liệu hoặc kết nối khác"));
 
@@ -188,7 +190,8 @@ class SetWikiAppreciationUseCaseTest {
     void shouldThrowWhenArticleDoesNotExist() {
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.empty());
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(WikiAppreciationTargetNotFoundException.class)
@@ -204,7 +207,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot draftArticle = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.DRAFT);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(draftArticle));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
@@ -219,7 +223,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot archivedArticle = createEligibilitySnapshot(ArticleType.CHARACTER, ArticleStatus.ARCHIVED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(archivedArticle));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
@@ -234,7 +239,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot itemArticle = createEligibilitySnapshot(ArticleType.ITEM, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(itemArticle));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
@@ -249,7 +255,8 @@ class SetWikiAppreciationUseCaseTest {
         WikiArticleEligibilitySnapshot realmArticle = createEligibilitySnapshot(ArticleType.REALM, ArticleStatus.PUBLISHED);
         when(wikiArticleQueryPort.findEligibilityById(ARTICLE_ID)).thenReturn(Optional.of(realmArticle));
 
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, 5);
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, score);
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
@@ -258,32 +265,25 @@ class SetWikiAppreciationUseCaseTest {
         verifyNoInteractions(appreciationQueryPort);
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {-5, -1, 0, 6, 10})
-    @DisplayName("Giá trị đánh giá không hợp lệ: bị từ chối ngay tại Command")
-    void shouldRejectInvalidRatingValue(int invalidValue) {
-        assertThatThrownBy(() -> new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, invalidValue))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Giá trị đánh giá phải nằm trong khoảng từ 1 đến 5 sao");
-
-        verifyNoInteractions(wikiArticleQueryPort);
-        verifyNoInteractions(attemptExecutor);
-        verifyNoInteractions(appreciationQueryPort);
-    }
-
     @Test
     @DisplayName("Từ chối lệnh hoặc tham số null")
     void shouldRejectNullArguments() {
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("5.0"));
+
         assertThatThrownBy(() -> useCase.execute(null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("SetWikiAppreciationCommand không được để trống.");
 
-        assertThatThrownBy(() -> new SetWikiAppreciationCommand(null, USER_ID, 5))
+        assertThatThrownBy(() -> new SetWikiAppreciationCommand(null, USER_ID, score))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID bài viết Wiki không được để trống.");
 
-        assertThatThrownBy(() -> new SetWikiAppreciationCommand(ARTICLE_ID, null, 5))
+        assertThatThrownBy(() -> new SetWikiAppreciationCommand(ARTICLE_ID, null, score))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("ID người dùng không được để trống.");
+
+        assertThatThrownBy(() -> new SetWikiAppreciationCommand(ARTICLE_ID, USER_ID, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("WikiAppreciationScore không được để trống.");
     }
 }

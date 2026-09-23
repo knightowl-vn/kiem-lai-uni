@@ -4,6 +4,7 @@ import com.universe.wiki.application.ports.WikiAppreciationQueryPort;
 import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.contracts.dto.appreciation.WikiAppreciationDetailState;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -103,17 +104,18 @@ class GetWikiAppreciationDetailStateUseCaseTest {
     }
 
     @Test
-    @DisplayName("Người xem đã xác thực và đã đánh giá: trả về đúng viewerValue từ bản ghi rating")
+    @DisplayName("Người xem đã xác thực và đã đánh giá: trả về đúng viewerValue dạng BigDecimal từ bản ghi rating")
     void shouldReturnSummaryAndCorrectViewerValueWhenAuthenticatedViewerHasRated() {
         BigDecimal average = new BigDecimal("4.80");
         WikiAppreciationSummary summary = new WikiAppreciationSummary(ARTICLE_ID, average, 15L);
         when(queryPort.findSummaryByWikiArticleId(ARTICLE_ID)).thenReturn(summary);
 
+        WikiAppreciationScore score = WikiAppreciationScore.fromStars(new BigDecimal("4.5"));
         WikiAppreciationRating rating = WikiAppreciationRating.create(
                 UUID.randomUUID(),
                 ARTICLE_ID,
                 USER_ID,
-                5,
+                score,
                 Instant.now()
         );
         when(repositoryPort.findByWikiArticleIdAndUserId(ARTICLE_ID, USER_ID)).thenReturn(Optional.of(rating));
@@ -122,7 +124,7 @@ class GetWikiAppreciationDetailStateUseCaseTest {
 
         assertThat(state.average()).isEqualTo(average);
         assertThat(state.count()).isEqualTo(15L);
-        assertThat(state.viewerValue()).isEqualTo(5);
+        assertThat(state.viewerValue()).isEqualByComparingTo(new BigDecimal("4.5"));
 
         verify(queryPort).findSummaryByWikiArticleId(ARTICLE_ID);
         verify(repositoryPort).findByWikiArticleIdAndUserId(ARTICLE_ID, USER_ID);
@@ -140,5 +142,6 @@ class GetWikiAppreciationDetailStateUseCaseTest {
         assertThat(state.average()).isNull();
         assertThat(state.count()).isEqualTo(0L);
         assertThat(state.viewerValue()).isNull();
+        assertThat(state.displayAverage()).isNull();
     }
 }

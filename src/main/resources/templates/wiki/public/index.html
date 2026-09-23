@@ -265,15 +265,15 @@
 										<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
 									</svg>
 									<strong class="wiki-public-index-card-rating-avg"
-										th:text="${#numbers.formatDecimal(summary.average, 1, 1)}">4.7</strong>
+										th:text="${summary.displayAverage()}">4.8</strong>
 									<span class="wiki-public-index-card-rating-scale">/ 5</span>
 								</div>
 								<span class="wiki-public-index-card-rating-count"
-									th:text="${summary.count + ' lượt yêu thích'}">128 lượt yêu thích</span>
+									th:text="${summary.count + ' lượt đánh giá'}">128 lượt đánh giá</span>
 							</div>
 							<div th:if="${summary.count == 0 or summary.average == null}"
 								class="wiki-public-index-card-appreciation-empty">
-								<span>Chưa có lượt yêu thích</span>
+								<span>Chưa có đánh giá</span>
 							</div>
 						</div>
 					</th:block>

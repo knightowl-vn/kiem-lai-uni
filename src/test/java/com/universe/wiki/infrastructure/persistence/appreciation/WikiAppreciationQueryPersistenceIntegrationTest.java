@@ -2,6 +2,7 @@ package com.universe.wiki.infrastructure.persistence.appreciation;
 
 import com.universe.test.TestDatabaseSupport;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -119,10 +120,12 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("B. Single query: 1 đánh giá (5 sao) -> count=1, average=5.0 chính xác kiểu BigDecimal")
+    @DisplayName("B. Single query: 1 đánh giá (5.0 sao) -> count=1, average=5.0 chính xác kiểu BigDecimal")
     void shouldReturnCorrectSummaryForSingleRating() {
         Instant now = Instant.now();
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
 
         WikiAppreciationSummary summary = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
 
@@ -131,15 +134,22 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
         assertThat(summary.count()).isEqualTo(1L);
         assertThat(summary.average()).isNotNull();
         assertThat(summary.average()).isEqualByComparingTo(new BigDecimal("5.0"));
+        assertThat(summary.displayAverage()).isEqualByComparingTo(new BigDecimal("5.0"));
     }
 
     @Test
-    @DisplayName("C. Single query: nhiều đánh giá (5, 4, 5) -> count=3, average mathematically 14/3 (khoảng 4.6667)")
+    @DisplayName("C. Single query: nhiều đánh giá (5.0, 4.0, 5.0) -> count=3, average mathematically 14/3 (khoảng 4.6667)")
     void shouldReturnCorrectSummaryForMultipleRatings() {
         Instant now = Instant.now();
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_B, 4, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_C, 5, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("4.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_C, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
 
         WikiAppreciationSummary summary = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
 
@@ -148,35 +158,63 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
         assertThat(summary.count()).isEqualTo(3L);
         assertThat(summary.average()).isNotNull();
 
-        // 14 / 3 = 4.666666...
+        // (10 + 8 + 10) / 3 / 2.0 = 28 / 6 = 14 / 3 = 4.666666...
         BigDecimal expected = new BigDecimal("14").divide(new BigDecimal("3"), 4, RoundingMode.HALF_UP);
         assertThat(summary.average().setScale(4, RoundingMode.HALF_UP)).isEqualByComparingTo(expected);
+        assertThat(summary.displayAverage()).isEqualByComparingTo(new BigDecimal("4.7"));
     }
 
     @Test
-    @DisplayName("D. Single query: cập nhật đánh giá (User A từ 3 -> 5) giữ nguyên count=2, average đổi từ 4.0 thành 5.0")
+    @DisplayName("C2. Single query: đánh giá nửa sao (4.5 và 5.0) -> count=2, average nguyên bản 4.75, displayAverage=4.8")
+    void shouldCalculateCorrectHalfStarAverageAndDisplayAverage() {
+        Instant now = Instant.now();
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("4.5")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+
+        WikiAppreciationSummary summary = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.count()).isEqualTo(2L);
+        assertThat(summary.average()).isNotNull();
+        // (9 + 10) / 2 / 2.0 = 19 / 4 = 4.75
+        assertThat(summary.average()).isEqualByComparingTo(new BigDecimal("4.75"));
+        assertThat(summary.displayAverage()).isEqualByComparingTo(new BigDecimal("4.8"));
+    }
+
+    @Test
+    @DisplayName("D. Single query: cập nhật đánh giá (User A từ 3.5 -> 5.0) giữ nguyên count=2, average đổi từ 4.25 thành 5.0")
     void shouldReflectUpdatedRatingWithoutHistoricalCountInflation() {
         Instant t1 = Instant.parse("2026-09-22T10:00:00Z");
         UUID ratingAId = UUID.randomUUID();
-        WikiAppreciationRating ratingA = WikiAppreciationRating.create(ratingAId, ARTICLE_A, USER_A, 3, t1);
+        WikiAppreciationRating ratingA = WikiAppreciationRating.create(
+                ratingAId, ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("3.5")), t1
+        );
         persistenceAdapter.save(ratingA);
 
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_B, 5, t1));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), t1
+        ));
 
-        // Ban đầu: User A = 3, User B = 5 -> count = 2, average = 4.0
+        // Ban đầu: User A = 3.5 (7 units), User B = 5.0 (10 units) -> count = 2, average = 17 / 4 = 4.25
         WikiAppreciationSummary beforeUpdate = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
         assertThat(beforeUpdate.count()).isEqualTo(2L);
-        assertThat(beforeUpdate.average()).isEqualByComparingTo(new BigDecimal("4.0"));
+        assertThat(beforeUpdate.average()).isEqualByComparingTo(new BigDecimal("4.25"));
+        assertThat(beforeUpdate.displayAverage()).isEqualByComparingTo(new BigDecimal("4.3"));
 
-        // User A cập nhật đánh giá: 3 -> 5
+        // User A cập nhật đánh giá: 3.5 -> 5.0
         Instant t2 = Instant.parse("2026-09-22T10:15:00Z");
-        ratingA.updateValue(5, t2);
+        ratingA.updateScore(WikiAppreciationScore.fromStars(new BigDecimal("5.0")), t2);
         persistenceAdapter.save(ratingA);
 
-        // Sau cập nhật: User A = 5, User B = 5 -> count = 2 (không bị tăng thành 3), average = 5.0
+        // Sau cập nhật: User A = 5.0, User B = 5.0 -> count = 2, average = 5.0
         WikiAppreciationSummary afterUpdate = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
         assertThat(afterUpdate.count()).isEqualTo(2L);
         assertThat(afterUpdate.average()).isEqualByComparingTo(new BigDecimal("5.0"));
+        assertThat(afterUpdate.displayAverage()).isEqualByComparingTo(new BigDecimal("5.0"));
 
         // Xác nhận số bản ghi trong database của User A trên ARTICLE_A vẫn duy nhất = 1
         Integer rowCount = jdbcTemplate.queryForObject(
@@ -191,8 +229,12 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
     @DisplayName("E. Single query: cô lập dữ liệu giữa các bài viết (đánh giá bài A không ảnh hưởng bài B)")
     void shouldIsolateAggregatesBetweenArticles() {
         Instant now = Instant.now();
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_B, USER_B, 2, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_B, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("2.5")), now
+        ));
 
         WikiAppreciationSummary summaryA = queryAdapter.findSummaryByWikiArticleId(ARTICLE_A);
         WikiAppreciationSummary summaryB = queryAdapter.findSummaryByWikiArticleId(ARTICLE_B);
@@ -201,7 +243,7 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
         assertThat(summaryA.average()).isEqualByComparingTo(new BigDecimal("5.0"));
 
         assertThat(summaryB.count()).isEqualTo(1L);
-        assertThat(summaryB.average()).isEqualByComparingTo(new BigDecimal("2.0"));
+        assertThat(summaryB.average()).isEqualByComparingTo(new BigDecimal("2.5"));
     }
 
     @Test
@@ -240,14 +282,20 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
     @DisplayName("C. Bulk query: batch hỗn hợp (A có ratings, B có 0 ratings, C có ratings) -> trả về đủ cả 3 ID")
     void shouldReturnFullMapForMixedBatch() {
         Instant now = Instant.now();
-        // A: 2 ratings (5 và 4) -> average = 4.5
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_B, 4, now));
+        // A: 2 ratings (5.0 và 4.0) -> average = 4.5
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("4.0")), now
+        ));
 
         // B: 0 ratings
 
-        // C: 1 rating (3) -> average = 3.0
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_C, USER_C, 3, now));
+        // C: 1 rating (3.0) -> average = 3.0
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_C, USER_C, WikiAppreciationScore.fromStars(new BigDecimal("3.0")), now
+        ));
 
         Map<UUID, WikiAppreciationSummary> map = queryAdapter.findSummariesByWikiArticleIds(
                 List.of(ARTICLE_A, ARTICLE_B, ARTICLE_C)
@@ -275,7 +323,9 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
     @DisplayName("D. Bulk query: input chứa trùng lặp ID -> tự động deduplicate, trả về 1 entry per unique ID")
     void shouldDeduplicateRequestedIds() {
         Instant now = Instant.now();
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
 
         List<UUID> duplicateIds = List.of(ARTICLE_A, ARTICLE_A, ARTICLE_B, ARTICLE_B, ARTICLE_A);
         Map<UUID, WikiAppreciationSummary> map = queryAdapter.findSummariesByWikiArticleIds(duplicateIds);
@@ -288,8 +338,12 @@ class WikiAppreciationQueryPersistenceIntegrationTest {
     @DisplayName("E. Bulk query: cô lập các bài viết trong batch")
     void shouldIsolateAggregatesInBulkQuery() {
         Instant now = Instant.now();
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_A, USER_A, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(UUID.randomUUID(), ARTICLE_B, USER_B, 3, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_A, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                UUID.randomUUID(), ARTICLE_B, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("3.0")), now
+        ));
 
         Map<UUID, WikiAppreciationSummary> map = queryAdapter.findSummariesByWikiArticleIds(List.of(ARTICLE_A, ARTICLE_B));
 

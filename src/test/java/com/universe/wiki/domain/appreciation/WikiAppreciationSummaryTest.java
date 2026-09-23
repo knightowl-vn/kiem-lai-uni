@@ -15,7 +15,7 @@ class WikiAppreciationSummaryTest {
     private static final UUID ARTICLE_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
     @Test
-    @DisplayName("Khởi tạo empty summary hợp lệ: count=0, average=null")
+    @DisplayName("Khởi tạo empty summary hợp lệ: count=0, average=null, displayAverage=null")
     void shouldCreateEmptySummary() {
         WikiAppreciationSummary empty = WikiAppreciationSummary.empty(ARTICLE_ID);
 
@@ -23,6 +23,7 @@ class WikiAppreciationSummaryTest {
         assertThat(empty.wikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(empty.count()).isEqualTo(0L);
         assertThat(empty.average()).isNull();
+        assertThat(empty.displayAverage()).isNull();
     }
 
     @Test
@@ -35,6 +36,27 @@ class WikiAppreciationSummaryTest {
         assertThat(summary.wikiArticleId()).isEqualTo(ARTICLE_ID);
         assertThat(summary.count()).isEqualTo(42L);
         assertThat(summary.average()).isEqualByComparingTo(average);
+    }
+
+    @Test
+    @DisplayName("Kiểm chứng displayAverage làm tròn 1 chữ số thập phân HALF_UP chính xác")
+    void shouldFormatDisplayAverageWithHalfUp() {
+        // Case 1: 4.75 -> 4.8
+        WikiAppreciationSummary summary1 = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.75"), 2L);
+        assertThat(summary1.displayAverage()).isEqualByComparingTo(new BigDecimal("4.8"));
+        assertThat(summary1.displayAverage().scale()).isEqualTo(1);
+        assertThat(summary1.average()).isEqualByComparingTo(new BigDecimal("4.75")); // Không phá hủy giá trị gốc
+
+        // Case 2: 4.65 -> 4.7 (Kiểm chứng phân biệt rõ HALF_UP vs HALF_EVEN)
+        WikiAppreciationSummary summary2 = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.65"), 10L);
+        assertThat(summary2.displayAverage()).isEqualByComparingTo(new BigDecimal("4.7"));
+        assertThat(summary2.displayAverage().scale()).isEqualTo(1);
+        assertThat(summary2.average()).isEqualByComparingTo(new BigDecimal("4.65")); // Không phá hủy giá trị gốc
+
+        // Case 3: 4.64 -> 4.6
+        WikiAppreciationSummary summary3 = new WikiAppreciationSummary(ARTICLE_ID, new BigDecimal("4.64"), 10L);
+        assertThat(summary3.displayAverage()).isEqualByComparingTo(new BigDecimal("4.6"));
+        assertThat(summary3.average()).isEqualByComparingTo(new BigDecimal("4.64"));
     }
 
     @Test

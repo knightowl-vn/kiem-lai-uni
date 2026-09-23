@@ -5,21 +5,15 @@
 
 .wiki-appreciation-widget {
     margin-top: 1.25rem;
-    padding: 0.85rem 1.1rem;
+    padding: 0.85rem 1.15rem;
     background: var(--bg-surface-elevated, rgba(255, 255, 255, 0.04));
     border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
     border-radius: 8px;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-}
-
-.wiki-appreciation-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    width: fit-content;
+    max-width: 100%;
 }
 
 .wiki-appreciation-label {
@@ -28,58 +22,122 @@
     color: var(--bs-body-color, #e2e8f0);
 }
 
-.wiki-appreciation-stats {
-    display: inline-flex;
+.wiki-appreciation-body {
+    display: flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.84rem;
-    color: var(--bs-secondary-color, #94a3b8);
-}
-
-.wiki-appreciation-average {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: #f59e0b;
-    line-height: 1;
-}
-
-.wiki-appreciation-separator {
-    opacity: 0.6;
-}
-
-.wiki-appreciation-count {
-    font-size: 0.82rem;
+    gap: 1.25rem;
 }
 
 .wiki-appreciation-stars {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.wiki-appreciation-stats {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 0.15rem;
+    font-size: 0.84rem;
+    color: var(--bs-secondary-color, #94a3b8);
+}
+
+.wiki-appreciation-score-line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    line-height: 1.2;
+}
+
+.wiki-appreciation-average {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #f59e0b;
+    line-height: 1;
+}
+
+.wiki-appreciation-separator {
+    font-size: 0.85rem;
+    opacity: 0.65;
+}
+
+.wiki-appreciation-dot {
+    display: none;
+}
+
+.wiki-appreciation-count {
+    font-size: 0.82rem;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.wiki-star-slot {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    width: 44px;
+    height: 44px;
+}
+
+.wiki-star-slot--split {
+    display: inline-flex;
+    align-items: center;
+    width: 44px;
+    height: 44px;
 }
 
 .wiki-star-btn {
     background: transparent;
     border: none;
-    padding: 0.25rem;
+    padding: 0;
     margin: 0;
     cursor: pointer;
     color: var(--border-color, #475569);
-    border-radius: 4px;
     line-height: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    min-height: 44px;
+    height: 44px;
     transition: transform 0.15s ease, color 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+}
+
+.wiki-star-btn--full {
+    width: 44px;
+    min-width: 44px;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.wiki-star-btn--half-left {
+    width: 22px;
+    min-width: 22px;
+    justify-content: flex-end;
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+.wiki-star-btn--half-right {
+    width: 22px;
+    min-width: 22px;
+    justify-content: flex-start;
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
 }
 
 .wiki-star-btn:hover:not(:disabled) {
-    transform: scale(1.18);
     color: #fbbf24;
 }
 
 .wiki-star-btn:focus-visible {
     outline: 2px solid #f59e0b;
-    outline-offset: 2px;
+    outline-offset: 1px;
+    z-index: 2;
 }
 
 .wiki-star-btn.is-active {
@@ -97,9 +155,20 @@
 
 .wiki-star-icon {
     pointer-events: none;
+    fill: currentColor;
     width: 22px;
     height: 22px;
-    fill: currentColor;
+    flex-shrink: 0;
+}
+
+.wiki-star-icon--half-left {
+    width: 11px;
+    height: 22px;
+}
+
+.wiki-star-icon--half-right {
+    width: 11px;
+    height: 22px;
 }
 
 .wiki-appreciation-feedback {
@@ -111,4 +180,29 @@
 
 .wiki-appreciation-feedback.is-success {
     color: var(--bs-success, #22c55e);
+}
+
+@media (max-width: 767.98px) {
+    .wiki-appreciation-widget {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .wiki-appreciation-body {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .wiki-appreciation-stats {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.35rem;
+    }
+
+    .wiki-appreciation-dot {
+        display: inline;
+        opacity: 0.6;
+    }
 }

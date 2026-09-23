@@ -4,6 +4,7 @@ import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
 import com.universe.wiki.application.exceptions.WikiAppreciationTargetNotFoundException;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.infrastructure.persistence.appreciation.WikiAppreciationPersistenceAdapter;
 import com.universe.wiki.infrastructure.persistence.appreciation.WikiAppreciationQueryPersistenceAdapter;
 import com.universe.wiki.infrastructure.persistence.article.WikiArticleQueryAdapter;
@@ -144,11 +145,13 @@ class SetWikiAppreciationIntegrationTest {
     @Test
     @DisplayName("A. Đánh giá lần đầu lưu chính xác một bản ghi trong MySQL với đầy đủ thông tin")
     void shouldPersistExactlyOneRowOnFirstRating() {
-        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 4);
+        SetWikiAppreciationCommand command = new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("4.0"))
+        );
         SetWikiAppreciationResult result = useCase.execute(command);
 
         assertThat(result.changed()).isTrue();
-        assertThat(result.value()).isEqualTo(4);
+        assertThat(result.score().toStars()).isEqualByComparingTo(new BigDecimal("4.0"));
         assertThat(result.count()).isEqualTo(1L);
         assertThat(result.average()).isEqualByComparingTo(new BigDecimal("4.0"));
 
@@ -166,18 +169,22 @@ class SetWikiAppreciationIntegrationTest {
                 ARTICLE_CHARACTER.toString(),
                 USER_1.toString()
         );
-        assertThat(storedValue).isEqualTo(4);
+        assertThat(storedValue).isEqualTo(8);
     }
 
     @Test
     @DisplayName("B & C & D & E. Cập nhật cùng người dùng/bài viết: cập nhật cùng bản ghi, bảo toàn ID, aggregate phản ánh giá trị mới")
     void shouldUpdateSameRowPreservingRowIdAndUpdatingAggregate() {
-        // User 1 đánh giá 3 sao
+        // User 1 đánh giá 3.5 sao
         clockConfig.setInstant(Instant.parse("2026-09-22T10:00:00Z"));
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 3));
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("3.5"))
+        ));
 
-        // User 2 đánh giá 5 sao
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_2, 5));
+        // User 2 đánh giá 5.0 sao
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_2, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ));
 
         // Lấy ID bản ghi ban đầu của User 1
         String originalRatingId = jdbcTemplate.queryForObject(
@@ -188,15 +195,17 @@ class SetWikiAppreciationIntegrationTest {
         );
         assertThat(originalRatingId).isNotNull();
 
-        // User 1 cập nhật đánh giá từ 3 -> 5
+        // User 1 cập nhật đánh giá từ 3.5 -> 5.0
         Instant updateInstant = Instant.parse("2026-09-22T10:30:00Z");
         clockConfig.setInstant(updateInstant);
         SetWikiAppreciationResult updateResult = useCase.execute(
-                new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 5)
+                new SetWikiAppreciationCommand(
+                        ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+                )
         );
 
         assertThat(updateResult.changed()).isTrue();
-        assertThat(updateResult.value()).isEqualTo(5);
+        assertThat(updateResult.score().toStars()).isEqualByComparingTo(new BigDecimal("5.0"));
         assertThat(updateResult.count()).isEqualTo(2L);
         assertThat(updateResult.average()).isEqualByComparingTo(new BigDecimal("5.0"));
 
@@ -233,8 +242,10 @@ class SetWikiAppreciationIntegrationTest {
         Instant initialInstant = Instant.parse("2026-09-22T10:00:00Z");
         clockConfig.setInstant(initialInstant);
 
-        // Ban đầu gửi 5 sao
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 5));
+        // Ban đầu gửi 5.0 sao
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ));
 
         Timestamp initialUpdatedAt = jdbcTemplate.queryForObject(
                 "SELECT updated_at FROM wiki_appreciation_ratings WHERE wiki_article_id = ? AND user_id = ?",
@@ -244,16 +255,18 @@ class SetWikiAppreciationIntegrationTest {
         );
         assertThat(initialUpdatedAt).isNotNull();
 
-        // Tiến đồng hồ thêm 1 giờ và gửi lại cùng điểm 5 sao
+        // Tiến đồng hồ thêm 1 giờ và gửi lại cùng điểm 5.0 sao
         Instant laterInstant = Instant.parse("2026-09-22T11:00:00Z");
         clockConfig.setInstant(laterInstant);
 
         SetWikiAppreciationResult noOpResult = useCase.execute(
-                new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 5)
+                new SetWikiAppreciationCommand(
+                        ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+                )
         );
 
         assertThat(noOpResult.changed()).isFalse();
-        assertThat(noOpResult.value()).isEqualTo(5);
+        assertThat(noOpResult.score().toStars()).isEqualByComparingTo(new BigDecimal("5.0"));
         assertThat(noOpResult.count()).isEqualTo(1L);
         assertThat(noOpResult.average()).isEqualByComparingTo(new BigDecimal("5.0"));
 
@@ -271,8 +284,12 @@ class SetWikiAppreciationIntegrationTest {
     @Test
     @DisplayName("G. Các người dùng khác nhau độc lập hoàn toàn trong lưu trữ")
     void shouldKeepDifferentUsersIndependent() {
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_1, 4));
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_CHARACTER, USER_2, 2));
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("4.0"))
+        ));
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_CHARACTER, USER_2, WikiAppreciationScore.fromStars(new BigDecimal("2.5"))
+        ));
 
         Integer val1 = jdbcTemplate.queryForObject(
                 "SELECT value FROM wiki_appreciation_ratings WHERE wiki_article_id = ? AND user_id = ?",
@@ -287,29 +304,33 @@ class SetWikiAppreciationIntegrationTest {
                 USER_2.toString()
         );
 
-        assertThat(val1).isEqualTo(4);
-        assertThat(val2).isEqualTo(2);
+        assertThat(val1).isEqualTo(8);
+        assertThat(val2).isEqualTo(5);
     }
 
     @Test
     @DisplayName("H. Bài viết không đủ điều kiện (DRAFT, ARCHIVED, ITEM, nonexistent) không tạo bản ghi nào trong database")
     void shouldNotPersistAnyRowForIneligibleArticles() {
         // DRAFT
-        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(ARTICLE_DRAFT, USER_1, 5)))
-                .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
+        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_DRAFT, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ))).isInstanceOf(WikiAppreciationTargetNotFoundException.class);
 
         // ARCHIVED
-        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ARCHIVED, USER_1, 5)))
-                .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
+        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_ARCHIVED, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ))).isInstanceOf(WikiAppreciationTargetNotFoundException.class);
 
         // ITEM (loại không được hỗ trợ)
-        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ITEM, USER_1, 5)))
-                .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
+        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_ITEM, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ))).isInstanceOf(WikiAppreciationTargetNotFoundException.class);
 
         // Nonexistent
         UUID nonExistent = UUID.randomUUID();
-        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(nonExistent, USER_1, 5)))
-                .isInstanceOf(WikiAppreciationTargetNotFoundException.class);
+        assertThatThrownBy(() -> useCase.execute(new SetWikiAppreciationCommand(
+                nonExistent, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        ))).isInstanceOf(WikiAppreciationTargetNotFoundException.class);
 
         // Không có bản ghi nào được tạo
         Integer count = jdbcTemplate.queryForObject(

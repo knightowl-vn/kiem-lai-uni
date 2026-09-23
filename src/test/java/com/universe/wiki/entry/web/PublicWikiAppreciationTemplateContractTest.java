@@ -40,23 +40,33 @@ class PublicWikiAppreciationTemplateContractTest {
         assertThat(detailPage).contains("th:hidden=\"${appreciationState.count == 0 or appreciationState.average == null}\"");
         assertThat(detailPage).contains("class=\"wiki-appreciation-separator\"");
         assertThat(detailPage).contains("id=\"wikiAppreciationCount\"");
-        assertThat(detailPage).contains("#numbers.formatDecimal(appreciationState.average, 1, 1)");
-        assertThat(detailPage).contains("lượt yêu thích");
-        assertThat(detailPage).contains("Chưa có lượt yêu thích");
+        assertThat(detailPage).contains("class=\"wiki-appreciation-label\"");
+        assertThat(detailPage).contains("class=\"wiki-appreciation-body\"");
+        assertThat(detailPage).contains("appreciationState.displayAverage()");
+        assertThat(detailPage).contains("lượt đánh giá");
+        assertThat(detailPage).contains("Chưa có đánh giá");
         assertThat(detailPage).doesNotContain("th:if=\"${appreciationState.count > 0 and appreciationState.average != null}\"");
 
-        // 4. Accessible 5-star buttons
+        // 4. Accessible half-star buttons (9 selectable half-star increments: 1.0 to 5.0)
         assertThat(detailPage).contains("class=\"wiki-appreciation-stars\"");
         assertThat(detailPage).contains("aria-label=\"Đánh giá mức độ yêu thích từ 1 đến 5 sao\"");
-        assertThat(detailPage).contains("data-star-value=\"1\"");
-        assertThat(detailPage).contains("data-star-value=\"2\"");
-        assertThat(detailPage).contains("data-star-value=\"3\"");
-        assertThat(detailPage).contains("data-star-value=\"4\"");
-        assertThat(detailPage).contains("data-star-value=\"5\"");
+        assertThat(detailPage).contains("data-star-value=\"1.0\"");
+        assertThat(detailPage).contains("data-star-value=\"1.5\"");
+        assertThat(detailPage).contains("data-star-value=\"2.0\"");
+        assertThat(detailPage).contains("data-star-value=\"2.5\"");
+        assertThat(detailPage).contains("data-star-value=\"3.0\"");
+        assertThat(detailPage).contains("data-star-value=\"3.5\"");
+        assertThat(detailPage).contains("data-star-value=\"4.0\"");
+        assertThat(detailPage).contains("data-star-value=\"4.5\"");
+        assertThat(detailPage).contains("data-star-value=\"5.0\"");
         assertThat(detailPage).contains("aria-label=\"Yêu thích 1 trên 5\"");
+        assertThat(detailPage).contains("aria-label=\"Yêu thích 1.5 trên 5\"");
         assertThat(detailPage).contains("aria-label=\"Yêu thích 2 trên 5\"");
+        assertThat(detailPage).contains("aria-label=\"Yêu thích 2.5 trên 5\"");
         assertThat(detailPage).contains("aria-label=\"Yêu thích 3 trên 5\"");
+        assertThat(detailPage).contains("aria-label=\"Yêu thích 3.5 trên 5\"");
         assertThat(detailPage).contains("aria-label=\"Yêu thích 4 trên 5\"");
+        assertThat(detailPage).contains("aria-label=\"Yêu thích 4.5 trên 5\"");
         assertThat(detailPage).contains("aria-label=\"Yêu thích 5 trên 5\"");
         assertThat(detailPage).contains("th:aria-pressed=");
 
@@ -72,7 +82,7 @@ class PublicWikiAppreciationTemplateContractTest {
     }
 
     @Test
-    @DisplayName("wiki-appreciation.css defines required styles, active/hover states, and accessible focus")
+    @DisplayName("wiki-appreciation.css defines required styles, enlarged 44px touch targets, active/hover states, and accessible focus")
     void cssStylesheetDefinesRequiredStyles() throws Exception {
         String css = read("src/main/resources/static/css/wiki/wiki-appreciation.css");
 
@@ -82,6 +92,20 @@ class PublicWikiAppreciationTemplateContractTest {
         assertThat(css).contains(".wiki-star-btn.is-hover");
         assertThat(css).contains(":focus-visible");
         assertThat(css).contains(".wiki-star-icon");
+
+        // Touch target sizing contract (WCAG / mobile hit area >= 44px height, 22px half / 44px full widths)
+        assertThat(css).contains("min-height: 44px;");
+        assertThat(css).contains("width: 44px;");
+        assertThat(css).contains("width: 22px;");
+        assertThat(css).contains(".wiki-star-btn--half-left {\n    width: 22px;\n    min-width: 22px;\n    justify-content: flex-end;");
+        assertThat(css).contains(".wiki-star-btn--half-right {\n    width: 22px;\n    min-width: 22px;\n    justify-content: flex-start;");
+
+        // MS-05F9 UX polish: compact side-by-side layout (no full-width space-between), bounded width, and mobile stacking
+        assertThat(css).doesNotContain("justify-content: space-between;");
+        assertThat(css).contains("width: fit-content;");
+        assertThat(css).contains(".wiki-appreciation-body {\n    display: flex;\n    align-items: center;\n    gap: 1.25rem;\n}");
+        assertThat(css).contains("@media (max-width: 767.98px)");
+        assertThat(css).contains(".wiki-appreciation-body {\n        flex-direction: column;");
     }
 
     @Test
@@ -113,8 +137,10 @@ class PublicWikiAppreciationTemplateContractTest {
         assertThat(js).contains("aria-pressed");
         assertThat(js).contains("wikiAppreciationAverage");
         assertThat(js).contains("wikiAppreciationCount");
-        assertThat(js).contains("Chưa có lượt yêu thích");
-        assertThat(js).contains("lượt yêu thích");
+        assertThat(js).contains("Chưa có đánh giá");
+        assertThat(js).contains("lượt đánh giá");
+        assertThat(js).contains("Đã lưu đánh giá của bạn.");
+        assertThat(js).doesNotContain("lượt yêu thích");
     }
 
     @Test
@@ -144,12 +170,13 @@ class PublicWikiAppreciationTemplateContractTest {
         // 4. Score/count formatting and branch conditions
         assertThat(indexPage).contains("th:if=\"${summary.count > 0 and summary.average != null}\"");
         assertThat(indexPage).contains("th:if=\"${summary.count == 0 or summary.average == null}\"");
-        assertThat(indexPage).contains("#numbers.formatDecimal(summary.average, 1, 1)");
+        assertThat(indexPage).contains("summary.displayAverage()");
         assertThat(indexPage).contains("/ 5");
-        assertThat(indexPage).contains("lượt yêu thích");
+        assertThat(indexPage).contains("lượt đánh giá");
 
         // 5. Empty state copy
-        assertThat(indexPage).contains("Chưa có lượt yêu thích");
+        assertThat(indexPage).contains("Chưa có đánh giá");
+        assertThat(indexPage).doesNotContain("lượt yêu thích");
 
         // 6. Read-only accessibility: decorative star is aria-hidden, no buttons, no interactive F5 star class
         assertThat(indexPage).contains("class=\"wiki-public-index-card-star-icon\"");
@@ -171,6 +198,10 @@ class PublicWikiAppreciationTemplateContractTest {
         assertThat(css).contains(".wiki-public-index-card-appreciation");
         assertThat(css).contains(".wiki-public-index-card-star-icon");
         assertThat(css).contains("@media (max-width: 767.98px)");
+
+        // Mobile /wiki header toolbar responsive vertical stacking
+        assertThat(css).contains(".wiki-public-index-toolbar {\n\t\tflex-direction: column;\n\t\talign-items: stretch;");
+        assertThat(css).contains(".wiki-public-index-tools {\n\t\twidth: 100%;\n\t\tflex-direction: column;");
     }
 
     private String read(String relativePath) throws Exception {

@@ -3,6 +3,7 @@ package com.universe.wiki.infrastructure.persistence.appreciation;
 import com.universe.test.TestDatabaseSupport;
 import com.universe.wiki.application.exceptions.DuplicateWikiAppreciationException;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -98,43 +100,49 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("A. Lưu thành công bản ghi đánh giá 1 sao (boundary value)")
+    @DisplayName("A. Lưu thành công bản ghi đánh giá 1.0 sao (boundary value min = 2 units)")
     void shouldPersistValidRowWithOneStar() {
         UUID ratingId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        WikiAppreciationRating rating = WikiAppreciationRating.create(ratingId, ARTICLE_1, USER_1, 1, now);
+        WikiAppreciationRating rating = WikiAppreciationRating.create(
+                ratingId, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("1.0")), now
+        );
 
         WikiAppreciationRating saved = persistenceAdapter.save(rating);
 
         assertThat(saved).isNotNull();
-        assertThat(saved.getValue()).isEqualTo(1);
+        assertThat(saved.getValue()).isEqualTo(2);
+        assertThat(saved.getScore().toStars()).isEqualByComparingTo(new BigDecimal("1.0"));
 
         Integer dbValue = jdbcTemplate.queryForObject(
                 "SELECT value FROM wiki_appreciation_ratings WHERE id = ?",
                 Integer.class,
                 ratingId.toString()
         );
-        assertThat(dbValue).isEqualTo(1);
+        assertThat(dbValue).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("B. Lưu thành công bản ghi đánh giá 5 sao (boundary value)")
+    @DisplayName("B. Lưu thành công bản ghi đánh giá 5.0 sao (boundary value max = 10 units)")
     void shouldPersistValidRowWithFiveStars() {
         UUID ratingId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        WikiAppreciationRating rating = WikiAppreciationRating.create(ratingId, ARTICLE_1, USER_1, 5, now);
+        WikiAppreciationRating rating = WikiAppreciationRating.create(
+                ratingId, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        );
 
         WikiAppreciationRating saved = persistenceAdapter.save(rating);
 
         assertThat(saved).isNotNull();
-        assertThat(saved.getValue()).isEqualTo(5);
+        assertThat(saved.getValue()).isEqualTo(10);
+        assertThat(saved.getScore().toStars()).isEqualByComparingTo(new BigDecimal("5.0"));
 
         Integer dbValue = jdbcTemplate.queryForObject(
                 "SELECT value FROM wiki_appreciation_ratings WHERE id = ?",
                 Integer.class,
                 ratingId.toString()
         );
-        assertThat(dbValue).isEqualTo(5);
+        assertThat(dbValue).isEqualTo(10);
     }
 
     @Test
@@ -144,10 +152,14 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         UUID id2 = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        WikiAppreciationRating first = WikiAppreciationRating.create(id1, ARTICLE_1, USER_1, 4, now);
+        WikiAppreciationRating first = WikiAppreciationRating.create(
+                id1, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("4.0")), now
+        );
         persistenceAdapter.save(first);
 
-        WikiAppreciationRating duplicate = WikiAppreciationRating.create(id2, ARTICLE_1, USER_1, 5, now.plusSeconds(10));
+        WikiAppreciationRating duplicate = WikiAppreciationRating.create(
+                id2, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now.plusSeconds(10)
+        );
 
         assertThatThrownBy(() -> persistenceAdapter.save(duplicate))
                 .isInstanceOf(DuplicateWikiAppreciationException.class)
@@ -162,16 +174,20 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         UUID id2 = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        persistenceAdapter.save(WikiAppreciationRating.create(id1, ARTICLE_1, USER_1, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(id2, ARTICLE_2, USER_1, 4, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                id1, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                id2, ARTICLE_2, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("4.0")), now
+        ));
 
         Optional<WikiAppreciationRating> r1 = persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_1);
         Optional<WikiAppreciationRating> r2 = persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_2, USER_1);
 
         assertThat(r1).isPresent();
-        assertThat(r1.get().getValue()).isEqualTo(5);
+        assertThat(r1.get().getValue()).isEqualTo(10);
         assertThat(r2).isPresent();
-        assertThat(r2.get().getValue()).isEqualTo(4);
+        assertThat(r2.get().getValue()).isEqualTo(8);
     }
 
     @Test
@@ -181,41 +197,45 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         UUID id2 = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        persistenceAdapter.save(WikiAppreciationRating.create(id1, ARTICLE_1, USER_1, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(id2, ARTICLE_1, USER_2, 3, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                id1, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                id2, ARTICLE_1, USER_2, WikiAppreciationScore.fromStars(new BigDecimal("3.0")), now
+        ));
 
         Optional<WikiAppreciationRating> r1 = persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_1);
         Optional<WikiAppreciationRating> r2 = persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_2);
 
         assertThat(r1).isPresent();
-        assertThat(r1.get().getValue()).isEqualTo(5);
+        assertThat(r1.get().getValue()).isEqualTo(10);
         assertThat(r2).isPresent();
-        assertThat(r2.get().getValue()).isEqualTo(3);
+        assertThat(r2.get().getValue()).isEqualTo(6);
     }
 
     @Test
-    @DisplayName("F. Database từ chối giá trị value = 0 do vi phạm CHECK constraint")
+    @DisplayName("F. Database từ chối giá trị value = 1 (< 2 units) do vi phạm CHECK constraint")
     void shouldRejectValueZeroAtDatabaseLevel() {
         UUID ratingId = UUID.randomUUID();
         Timestamp now = Timestamp.from(Instant.now());
 
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 INSERT INTO wiki_appreciation_ratings (id, wiki_article_id, user_id, value, created_at, updated_at)
-                VALUES (?, ?, ?, 0, ?, ?)
+                VALUES (?, ?, ?, 1, ?, ?)
                 """,
                 ratingId.toString(), ARTICLE_1.toString(), USER_1.toString(), now, now
         )).hasMessageContaining("chk_wiki_appreciation_ratings_value");
     }
 
     @Test
-    @DisplayName("G. Database từ chối giá trị value = 6 do vi phạm CHECK constraint")
+    @DisplayName("G. Database từ chối giá trị value = 11 (> 10 units) do vi phạm CHECK constraint")
     void shouldRejectValueSixAtDatabaseLevel() {
         UUID ratingId = UUID.randomUUID();
         Timestamp now = Timestamp.from(Instant.now());
 
         assertThatThrownBy(() -> jdbcTemplate.update("""
                 INSERT INTO wiki_appreciation_ratings (id, wiki_article_id, user_id, value, created_at, updated_at)
-                VALUES (?, ?, ?, 6, ?, ?)
+                VALUES (?, ?, ?, 11, ?, ?)
                 """,
                 ratingId.toString(), ARTICLE_1.toString(), USER_1.toString(), now, now
         )).hasMessageContaining("chk_wiki_appreciation_ratings_value");
@@ -228,7 +248,9 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         UUID ratingId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        WikiAppreciationRating rating = WikiAppreciationRating.create(ratingId, nonExistentArticleId, USER_1, 5, now);
+        WikiAppreciationRating rating = WikiAppreciationRating.create(
+                ratingId, nonExistentArticleId, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        );
 
         assertThatThrownBy(() -> persistenceAdapter.save(rating))
                 .isInstanceOf(DataIntegrityViolationException.class);
@@ -241,8 +263,12 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         UUID ratingId2 = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        persistenceAdapter.save(WikiAppreciationRating.create(ratingId1, ARTICLE_1, USER_1, 5, now));
-        persistenceAdapter.save(WikiAppreciationRating.create(ratingId2, ARTICLE_1, USER_2, 4, now));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                ratingId1, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("5.0")), now
+        ));
+        persistenceAdapter.save(WikiAppreciationRating.create(
+                ratingId2, ARTICLE_1, USER_2, WikiAppreciationScore.fromStars(new BigDecimal("4.0")), now
+        ));
 
         assertThat(persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_1)).isPresent();
         assertThat(persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_2)).isPresent();
@@ -273,7 +299,7 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
                 ratingId,
                 ARTICLE_1,
                 USER_1,
-                4,
+                WikiAppreciationScore.fromStars(new BigDecimal("4.5")),
                 createdAt,
                 updatedAt
         );
@@ -287,7 +313,8 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
         assertThat(actual.getId()).isEqualTo(ratingId);
         assertThat(actual.getWikiArticleId()).isEqualTo(ARTICLE_1);
         assertThat(actual.getUserId()).isEqualTo(USER_1);
-        assertThat(actual.getValue()).isEqualTo(4);
+        assertThat(actual.getValue()).isEqualTo(9);
+        assertThat(actual.getScore().toStars()).isEqualByComparingTo(new BigDecimal("4.5"));
         assertThat(actual.getCreatedAt()).isEqualTo(createdAt);
         assertThat(actual.getUpdatedAt()).isEqualTo(updatedAt);
     }
@@ -297,19 +324,22 @@ class WikiAppreciationJpaPersistenceIntegrationTest {
     void shouldFindExactDomainObjectAfterUpdate() {
         UUID ratingId = UUID.randomUUID();
         Instant t1 = Instant.parse("2026-09-22T10:00:00Z");
-        WikiAppreciationRating initial = WikiAppreciationRating.create(ratingId, ARTICLE_1, USER_1, 3, t1);
+        WikiAppreciationRating initial = WikiAppreciationRating.create(
+                ratingId, ARTICLE_1, USER_1, WikiAppreciationScore.fromStars(new BigDecimal("3.5")), t1
+        );
         persistenceAdapter.save(initial);
 
-        // Cập nhật giá trị 3 -> 5
+        // Cập nhật giá trị 3.5 -> 5.0
         Instant t2 = Instant.parse("2026-09-22T10:15:00Z");
-        initial.updateValue(5, t2);
+        initial.updateScore(WikiAppreciationScore.fromStars(new BigDecimal("5.0")), t2);
         persistenceAdapter.save(initial);
 
         Optional<WikiAppreciationRating> updated = persistenceAdapter.findByWikiArticleIdAndUserId(ARTICLE_1, USER_1);
 
         assertThat(updated).isPresent();
         assertThat(updated.get().getId()).isEqualTo(ratingId);
-        assertThat(updated.get().getValue()).isEqualTo(5);
+        assertThat(updated.get().getValue()).isEqualTo(10);
+        assertThat(updated.get().getScore().toStars()).isEqualByComparingTo(new BigDecimal("5.0"));
         assertThat(updated.get().getCreatedAt()).isEqualTo(t1);
         assertThat(updated.get().getUpdatedAt()).isEqualTo(t2);
     }

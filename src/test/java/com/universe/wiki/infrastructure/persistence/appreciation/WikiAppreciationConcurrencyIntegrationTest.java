@@ -12,6 +12,7 @@ import com.universe.wiki.application.ports.WikiAppreciationRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
 import com.universe.wiki.domain.appreciation.WikiAppreciationRating;
+import com.universe.wiki.domain.appreciation.WikiAppreciationScore;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -33,6 +34,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
@@ -132,8 +134,12 @@ class WikiAppreciationConcurrencyIntegrationTest {
         // Kích hoạt test decorator để ép cả 2 luồng quan sát empty trước khi bất kỳ luồng nào thực hiện INSERT
         testDecorator.enableScenarioA(2);
 
-        SetWikiAppreciationCommand command1 = new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 3);
-        SetWikiAppreciationCommand command2 = new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 5);
+        SetWikiAppreciationCommand command1 = new SetWikiAppreciationCommand(
+                ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("3.5"))
+        );
+        SetWikiAppreciationCommand command2 = new SetWikiAppreciationCommand(
+                ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+        );
 
         Future<SetWikiAppreciationResult> future1 = executor.submit(() -> useCase.execute(command1));
         Future<SetWikiAppreciationResult> future2 = executor.submit(() -> useCase.execute(command2));
@@ -158,8 +164,8 @@ class WikiAppreciationConcurrencyIntegrationTest {
         // 1. Chứng minh đường đi phục hồi (retry) đã thực sự được kích hoạt:
         // Attempt 1 của luồng A -> save (1)
         // Attempt 1 của luồng B -> save (2, collision uq_wiki_appreciation_ratings_article_user)
-        // Attempt 2 (retry) của luồng thua -> quan sát bản ghi của luồng thắng với giá trị khác (3 != 5) -> save (3, update)
-        // Vì giá trị 3 và 5 khác nhau, retry không thể rơi vào same-value no-op, do đó chính xác 3 lần gọi save()
+        // Attempt 2 (retry) của luồng thua -> quan sát bản ghi của luồng thắng với giá trị khác (3.5 != 5.0) -> save (3, update)
+        // Vì giá trị 3.5 và 5.0 khác nhau, retry không thể rơi vào same-value no-op, do đó chính xác 3 lần gọi save()
         assertThat(testDecorator.saveCallCount.get())
                 .as("Phải chứng minh được retry đã diễn ra sau xung đột duplicate key và thực hiện lưu giá trị mới")
                 .isEqualTo(3);
@@ -173,19 +179,21 @@ class WikiAppreciationConcurrencyIntegrationTest {
         );
         assertThat(rowCount).isEqualTo(1);
 
-        // 3. Giá trị lưu trữ là một trong hai giá trị hợp lệ được gửi lên (3 hoặc 5)
+        // 3. Giá trị lưu trữ là một trong hai giá trị hợp lệ được gửi lên (7 hoặc 10 units)
         Integer storedValue = jdbcTemplate.queryForObject(
                 "SELECT value FROM wiki_appreciation_ratings WHERE wiki_article_id = ? AND user_id = ?",
                 Integer.class,
                 ARTICLE_ID.toString(),
                 USER_A.toString()
         );
-        assertThat(storedValue).isIn(3, 5);
+        assertThat(storedValue).isIn(7, 10);
 
-        // 4. Bất biến tổng hợp trực tiếp từ SQL: COUNT == 1, AVG == storedValue
+        // 4. Bất biến tổng hợp trực tiếp từ SQL: COUNT == 1, AVG == storedValue / 2.0
         WikiAppreciationSummary summary = appreciationQueryPort.findSummaryByWikiArticleId(ARTICLE_ID);
         assertThat(summary.count()).isEqualTo(1L);
-        assertThat(summary.average()).isEqualByComparingTo(java.math.BigDecimal.valueOf(storedValue).setScale(1));
+        assertThat(summary.average()).isEqualByComparingTo(
+                java.math.BigDecimal.valueOf(storedValue).divide(java.math.BigDecimal.valueOf(2))
+        );
     }
 
     // =========================================================================
@@ -194,8 +202,10 @@ class WikiAppreciationConcurrencyIntegrationTest {
     @Test
     @DisplayName("SCENARIO B: Cùng người dùng + cùng bài viết + đã có bản ghi: cập nhật đồng thời giữ nguyên đúng 1 dòng với giá trị hợp lệ")
     void shouldHandleConcurrentUpdatesOnExistingRating() throws Exception {
-        // Tạo sẵn bản ghi khởi tạo ban đầu với điểm 2
-        useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 2));
+        // Tạo sẵn bản ghi khởi tạo ban đầu với điểm 2.0
+        useCase.execute(new SetWikiAppreciationCommand(
+                ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("2.0"))
+        ));
 
         CountDownLatch readyLatch = new CountDownLatch(2);
         CountDownLatch startLatch = new CountDownLatch(1);
@@ -203,13 +213,17 @@ class WikiAppreciationConcurrencyIntegrationTest {
         Future<SetWikiAppreciationResult> future1 = executor.submit(() -> {
             readyLatch.countDown();
             startLatch.await();
-            return useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 4));
+            return useCase.execute(new SetWikiAppreciationCommand(
+                    ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("4.0"))
+            ));
         });
 
         Future<SetWikiAppreciationResult> future2 = executor.submit(() -> {
             readyLatch.countDown();
             startLatch.await();
-            return useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 5));
+            return useCase.execute(new SetWikiAppreciationCommand(
+                    ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+            ));
         });
 
         boolean bothReady = readyLatch.await(5, TimeUnit.SECONDS);
@@ -224,7 +238,7 @@ class WikiAppreciationConcurrencyIntegrationTest {
         assertThat(result1).isNotNull();
         assertThat(result2).isNotNull();
 
-        // Bất biến: đúng 1 dòng, điểm là 4 hoặc 5
+        // Bất biến: đúng 1 dòng, điểm là 8 hoặc 10 units (4.0 hoặc 5.0)
         Integer rowCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM wiki_appreciation_ratings WHERE wiki_article_id = ? AND user_id = ?",
                 Integer.class,
@@ -239,11 +253,13 @@ class WikiAppreciationConcurrencyIntegrationTest {
                 ARTICLE_ID.toString(),
                 USER_A.toString()
         );
-        assertThat(storedValue).isIn(4, 5);
+        assertThat(storedValue).isIn(8, 10);
 
         WikiAppreciationSummary summary = appreciationQueryPort.findSummaryByWikiArticleId(ARTICLE_ID);
         assertThat(summary.count()).isEqualTo(1L);
-        assertThat(summary.average()).isEqualByComparingTo(java.math.BigDecimal.valueOf(storedValue).setScale(1));
+        assertThat(summary.average()).isEqualByComparingTo(
+                java.math.BigDecimal.valueOf(storedValue).divide(java.math.BigDecimal.valueOf(2))
+        );
     }
 
     // =========================================================================
@@ -258,13 +274,17 @@ class WikiAppreciationConcurrencyIntegrationTest {
         Future<SetWikiAppreciationResult> future1 = executor.submit(() -> {
             readyLatch.countDown();
             startLatch.await();
-            return useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ID, USER_A, 4));
+            return useCase.execute(new SetWikiAppreciationCommand(
+                    ARTICLE_ID, USER_A, WikiAppreciationScore.fromStars(new BigDecimal("4.0"))
+            ));
         });
 
         Future<SetWikiAppreciationResult> future2 = executor.submit(() -> {
             readyLatch.countDown();
             startLatch.await();
-            return useCase.execute(new SetWikiAppreciationCommand(ARTICLE_ID, USER_B, 5));
+            return useCase.execute(new SetWikiAppreciationCommand(
+                    ARTICLE_ID, USER_B, WikiAppreciationScore.fromStars(new BigDecimal("5.0"))
+            ));
         });
 
         boolean bothReady = readyLatch.await(5, TimeUnit.SECONDS);

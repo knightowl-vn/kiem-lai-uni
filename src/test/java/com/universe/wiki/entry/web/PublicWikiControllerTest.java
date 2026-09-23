@@ -627,7 +627,7 @@ class PublicWikiControllerTest {
                 new WikiAppreciationDetailState(
                         new java.math.BigDecimal("4.80"),
                         10L,
-                        5
+                        new java.math.BigDecimal("5.0")
                 )
         );
 
@@ -805,7 +805,7 @@ class PublicWikiControllerTest {
                 .thenReturn(new RenderedWikiContent("<p>Giới thiệu</p>", List.of()));
 
         WikiAppreciationDetailState appreciationState =
-                new WikiAppreciationDetailState(new java.math.BigDecimal("4.90"), 20L, 5);
+                new WikiAppreciationDetailState(new java.math.BigDecimal("4.90"), 20L, new java.math.BigDecimal("5.0"));
         when(getWikiAppreciationDetailStateUseCase.execute(ARTICLE_ID, null))
                 .thenReturn(appreciationState);
 

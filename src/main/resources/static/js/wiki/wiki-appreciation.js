@@ -41,6 +41,7 @@
             widgetEl: widget,
             averageEl: d.getElementById(AVERAGE_ID),
             separatorEl: stats ? stats.querySelector('.wiki-appreciation-separator') : (d.querySelector ? d.querySelector('.wiki-appreciation-separator') : null),
+            dotEl: stats ? stats.querySelector('.wiki-appreciation-dot') : (d.querySelector ? d.querySelector('.wiki-appreciation-dot') : null),
             countEl: d.getElementById(COUNT_ID),
             statsEl: stats,
             feedbackEl: d.getElementById(FEEDBACK_ID),
@@ -73,26 +74,28 @@
      * Updates the visual and accessible active state of star buttons.
      */
     function updateStarVisuals(starButtons, selectedValue) {
-        const val = Number(selectedValue) || 0;
+        const val = parseFloat(selectedValue) || 0;
         starButtons.forEach(btn => {
-            const btnVal = Number(btn.getAttribute('data-star-value')) || 0;
-            if (btnVal > 0 && btnVal <= val) {
+            const btnVal = parseFloat(btn.getAttribute('data-star-value')) || 0;
+            if (btnVal > 0 && btnVal <= val + 0.001) {
                 btn.classList.add('is-active');
             } else {
                 btn.classList.remove('is-active');
             }
-            btn.setAttribute('aria-pressed', (btnVal === val && val > 0) ? 'true' : 'false');
+            btn.setAttribute('aria-pressed', (Math.abs(btnVal - val) < 0.01 && val > 0) ? 'true' : 'false');
         });
     }
 
     /**
      * Updates community stats display from authoritative server response.
      */
-    function updateCommunityStats(elements, average, count) {
+    function updateCommunityStats(elements, average, count, displayAverage) {
         const numCount = Number(count) || 0;
 
         if (numCount > 0 && average != null) {
-            const formattedAvg = Number(average).toFixed(1);
+            const formattedAvg = (displayAverage != null && displayAverage !== '')
+                ? String(displayAverage)
+                : String(average);
             if (elements.averageEl) {
                 elements.averageEl.textContent = formattedAvg;
                 elements.averageEl.hidden = false;
@@ -101,8 +104,12 @@
             if (sep) {
                 sep.hidden = false;
             }
+            const dot = elements.dotEl || (elements.statsEl ? elements.statsEl.querySelector('.wiki-appreciation-dot') : null);
+            if (dot) {
+                dot.hidden = false;
+            }
             if (elements.countEl) {
-                elements.countEl.textContent = numCount + ' lượt yêu thích';
+                elements.countEl.textContent = numCount + ' lượt đánh giá';
             }
         } else {
             if (elements.averageEl) {
@@ -113,8 +120,12 @@
             if (sep) {
                 sep.hidden = true;
             }
+            const dot = elements.dotEl || (elements.statsEl ? elements.statsEl.querySelector('.wiki-appreciation-dot') : null);
+            if (dot) {
+                dot.hidden = true;
+            }
             if (elements.countEl) {
-                elements.countEl.textContent = 'Chưa có lượt yêu thích';
+                elements.countEl.textContent = 'Chưa có đánh giá';
             }
         }
     }
@@ -178,10 +189,10 @@
         starButtons.forEach(btn => {
             btn.addEventListener('mouseenter', () => {
                 if (isMutating) return;
-                const hoverVal = Number(btn.getAttribute('data-star-value')) || 0;
+                const hoverVal = parseFloat(btn.getAttribute('data-star-value')) || 0;
                 starButtons.forEach(b => {
-                    const bVal = Number(b.getAttribute('data-star-value')) || 0;
-                    if (bVal <= hoverVal) {
+                    const bVal = parseFloat(b.getAttribute('data-star-value')) || 0;
+                    if (bVal <= hoverVal + 0.001) {
                         b.classList.add('is-hover-preview');
                     } else {
                         b.classList.remove('is-hover-preview');
@@ -211,7 +222,7 @@
 
                 if (isMutating) return;
 
-                const starValue = Number(btn.getAttribute('data-star-value'));
+                const starValue = parseFloat(btn.getAttribute('data-star-value'));
                 if (!starValue || starValue < 1 || starValue > 5) return;
 
                 const previousValue = widget.getAttribute('data-viewer-value');
@@ -284,8 +295,8 @@
                         const data = await response.json();
                         widget.setAttribute('data-viewer-value', String(data.value));
                         updateStarVisuals(starButtons, data.value);
-                        updateCommunityStats(els, data.average, data.count);
-                        showFeedback(els.feedbackEl, 'Đã lưu mức độ yêu thích.', true);
+                        updateCommunityStats(els, data.average, data.count, data.displayAverage);
+                        showFeedback(els.feedbackEl, 'Đã lưu đánh giá của bạn.', true);
                     } else if (response.status === 401) {
                         updateStarVisuals(starButtons, previousValue);
                         const navTarget = options.onRedirect ? options.onRedirect(loginUrl) : null;
