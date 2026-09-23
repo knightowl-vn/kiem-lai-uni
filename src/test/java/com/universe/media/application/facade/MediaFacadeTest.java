@@ -120,6 +120,9 @@ class MediaFacadeTest {
     @Mock
     private com.universe.media.application.asset.AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
 
+    @Mock
+    private com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
+
     private MediaFacade facade;
 
     @BeforeEach
@@ -136,7 +139,8 @@ class MediaFacadeTest {
                 generateMediaImageVariantUseCase,
                 getCurrentMediaAssetVersionSnapshotUseCase,
                 openMediaAssetVersionContentUseCase,
-                assignMediaAssetClientTagUseCase
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase
         );
     }
 
@@ -612,6 +616,51 @@ class MediaFacadeTest {
 
         assertThat(captor.getValue().assetId()).isEqualTo(ASSET_ID);
         assertThat(captor.getValue().clientTag()).isEqualTo("wiki.article.cover");
+    }
+
+    @Test
+    @DisplayName("findActiveAssetsByClientTagKeyset maps public contract DTO to application query and maps candidates to DTOs")
+    void shouldMapPublicDtoToApplicationQueryAndReturnCandidateDtos() {
+        com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery publicQuery =
+                com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery.nextPage(
+                        "wiki.article.cover",
+                        T2,
+                        T1,
+                        ASSET_ID,
+                        20
+                );
+        com.universe.media.application.ports.MediaAssetCandidate candidate =
+                new com.universe.media.application.ports.MediaAssetCandidate(ASSET_ID, T1);
+        when(findActiveMediaAssetsByClientTagKeysetUseCase.execute(any(com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery.class)))
+                .thenReturn(java.util.List.of(candidate));
+
+        java.util.List<com.universe.media.contracts.dto.MediaAssetCandidateDTO> result =
+                facade.findActiveAssetsByClientTagKeyset(publicQuery);
+
+        ArgumentCaptor<com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery> captor =
+                ArgumentCaptor.forClass(com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery.class);
+        verify(findActiveMediaAssetsByClientTagKeysetUseCase).execute(captor.capture());
+
+        com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery appQuery = captor.getValue();
+        assertThat(appQuery.clientTag()).isEqualTo("wiki.article.cover");
+        assertThat(appQuery.createdBeforeUpperBound()).isEqualTo(T2);
+        assertThat(appQuery.lastCreatedAt()).isEqualTo(T1);
+        assertThat(appQuery.lastAssetId()).isEqualTo(ASSET_ID);
+        assertThat(appQuery.pageSize()).isEqualTo(20);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).assetId()).isEqualTo(ASSET_ID);
+        assertThat(result.get(0).createdAt()).isEqualTo(T1);
+    }
+
+    @Test
+    @DisplayName("findActiveAssetsByClientTagKeyset fails fast on null query")
+    void shouldFailFastOnNullQueryInFindActiveAssetsByClientTagKeyset() {
+        assertThatThrownBy(() -> facade.findActiveAssetsByClientTagKeyset(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("FindActiveMediaAssetsKeysetQuery cannot be null.");
+
+        verifyNoInteractions(findActiveMediaAssetsByClientTagKeysetUseCase);
     }
 
     @Test

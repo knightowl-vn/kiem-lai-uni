@@ -1,7 +1,9 @@
 package com.universe.media.contracts.interfaces;
 
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
+import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
@@ -12,6 +14,7 @@ import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -151,5 +154,15 @@ public interface MediaContract {
     void assignClientTagIfAbsent(
             UUID assetId,
             String clientTag
+    );
+
+    /**
+     * Discovers active media assets matching an opaque client tag using starvation-safe keyset pagination.
+     *
+     * @param query keyset query parameters
+     * @return bounded list of active asset candidates ordered by (created_at ASC, id ASC)
+     */
+    List<MediaAssetCandidateDTO> findActiveAssetsByClientTagKeyset(
+            FindActiveMediaAssetsKeysetQuery query
     );
 }

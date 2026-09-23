@@ -23,4 +23,38 @@ public interface SpringDataMediaAssetJpaRepository
             @Param("cutoff") Instant cutoff,
             Pageable pageable
     );
+
+    @Query("""
+            SELECT a.id AS id, a.createdAt AS createdAt
+            FROM MediaAssetJpaEntity a
+            WHERE a.clientTag = :clientTag
+              AND a.status = 'ACTIVE'
+              AND a.createdAt <= :upperBound
+            ORDER BY a.createdAt ASC, a.id ASC
+            """)
+    List<MediaAssetCandidateProjection> findActiveByClientTagFirstPage(
+            @Param("clientTag") String clientTag,
+            @Param("upperBound") Instant upperBound,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT a.id AS id, a.createdAt AS createdAt
+            FROM MediaAssetJpaEntity a
+            WHERE a.clientTag = :clientTag
+              AND a.status = 'ACTIVE'
+              AND a.createdAt <= :upperBound
+              AND (
+                  a.createdAt > :lastCreatedAt
+                  OR (a.createdAt = :lastCreatedAt AND a.id > :lastAssetId)
+              )
+            ORDER BY a.createdAt ASC, a.id ASC
+            """)
+    List<MediaAssetCandidateProjection> findActiveByClientTagSubsequentPage(
+            @Param("clientTag") String clientTag,
+            @Param("upperBound") Instant upperBound,
+            @Param("lastCreatedAt") Instant lastCreatedAt,
+            @Param("lastAssetId") String lastAssetId,
+            Pageable pageable
+    );
 }

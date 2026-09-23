@@ -29,4 +29,12 @@ public interface MediaAssetRepositoryPort {
             Instant cutoff,
             int limit
     );
+
+    List<MediaAssetCandidate> findActiveByClientTagKeyset(
+            String clientTag,
+            Instant upperBound,
+            Instant lastCreatedAt,
+            UUID lastAssetId,
+            int limit
+    );
 }
