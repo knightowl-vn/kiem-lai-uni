@@ -1,7 +1,9 @@
 package com.universe.wiki.infrastructure.persistence.orphan;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,6 +18,10 @@ public interface SpringDataWikiCoverOrphanJpaRepository
         extends JpaRepository<WikiCoverOrphanJpaEntity, String> {
 
     Optional<WikiCoverOrphanJpaEntity> findByMediaAssetId(String mediaAssetId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT o FROM WikiCoverOrphanJpaEntity o WHERE o.mediaAssetId = :mediaAssetId")
+    Optional<WikiCoverOrphanJpaEntity> findByMediaAssetIdForUpdate(@Param("mediaAssetId") String mediaAssetId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(
@@ -52,6 +58,17 @@ public interface SpringDataWikiCoverOrphanJpaRepository
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM WikiCoverOrphanJpaEntity o WHERE o.mediaAssetId = :mediaAssetId")
     int deleteByMediaAssetId(@Param("mediaAssetId") String mediaAssetId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            DELETE FROM WikiCoverOrphanJpaEntity o
+            WHERE o.mediaAssetId = :mediaAssetId
+              AND o.status IN (
+                  com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.PENDING,
+                  com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.PROCESSING
+              )
+            """)
+    int deleteNonDeletingByMediaAssetId(@Param("mediaAssetId") String mediaAssetId);
 
     @Query("""
             SELECT o FROM WikiCoverOrphanJpaEntity o
@@ -107,6 +124,18 @@ public interface SpringDataWikiCoverOrphanJpaRepository
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
+            DELETE FROM WikiCoverOrphanJpaEntity o
+            WHERE o.mediaAssetId = :mediaAssetId
+              AND o.status = com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.DELETING
+              AND o.claimToken = :claimToken
+            """)
+    int deleteClaimedDeletingEpoch(
+            @Param("mediaAssetId") String mediaAssetId,
+            @Param("claimToken") String claimToken
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
             UPDATE WikiCoverOrphanJpaEntity o
             SET o.status = com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.PENDING,
                 o.retryCount = o.retryCount + 1,
@@ -122,6 +151,53 @@ public interface SpringDataWikiCoverOrphanJpaRepository
             @Param("mediaAssetId") String mediaAssetId,
             @Param("claimToken") String claimToken,
             @Param("lastError") String lastError,
+            @Param("now") Instant now
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE WikiCoverOrphanJpaEntity o
+            SET o.claimToken = NULL,
+                o.lockedAt = NULL,
+                o.retryCount = o.retryCount + 1,
+                o.lastError = :lastError,
+                o.updatedAt = :now
+            WHERE o.mediaAssetId = :mediaAssetId
+              AND o.status = com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.DELETING
+              AND o.claimToken = :claimToken
+            """)
+    int releaseDeletingClaimForRetry(
+            @Param("mediaAssetId") String mediaAssetId,
+            @Param("claimToken") String claimToken,
+            @Param("lastError") String lastError,
+            @Param("now") Instant now
+    );
+
+    @Query("""
+            SELECT o FROM WikiCoverOrphanJpaEntity o
+            WHERE o.status = com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.DELETING
+              AND (o.claimToken IS NULL OR o.lockedAt <= :leaseCutoff)
+            ORDER BY o.updatedAt ASC, o.mediaAssetId ASC
+            """)
+    List<WikiCoverOrphanJpaEntity> findStaleDeletingCandidates(
+            @Param("leaseCutoff") Instant leaseCutoff,
+            Pageable pageable
+    );
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE WikiCoverOrphanJpaEntity o
+            SET o.claimToken = :claimToken,
+                o.lockedAt = :now,
+                o.updatedAt = :now
+            WHERE o.mediaAssetId = :mediaAssetId
+              AND o.status = com.universe.wiki.domain.orphan.WikiCoverOrphanStatus.DELETING
+              AND (o.claimToken IS NULL OR o.lockedAt <= :leaseCutoff)
+            """)
+    int claimDeletingForRetry(
+            @Param("mediaAssetId") String mediaAssetId,
+            @Param("leaseCutoff") Instant leaseCutoff,
+            @Param("claimToken") String claimToken,
             @Param("now") Instant now
     );
 

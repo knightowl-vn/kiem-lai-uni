@@ -130,6 +130,9 @@ public class CreateAndPublishWikiArticleUseCase {
                 );
 
         if (command.coverMediaAssetId() != null) {
+            orphanRepositoryPort.coordinateCoverAttachment(
+                    command.coverMediaAssetId()
+            );
             articleRepositoryPort.lockCoverReferenceKey(
                     command.coverMediaAssetId()
             );

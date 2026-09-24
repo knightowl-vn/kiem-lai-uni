@@ -3,7 +3,9 @@ package com.universe.wiki.application.article.update.published;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
+import com.universe.wiki.application.article.cover.WikiCoverIntent;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiCoverStaleMutationException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
 import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
@@ -96,17 +98,58 @@ public class UpdatePublishedWikiArticleUseCase {
         UUID previousCoverId =
                 article.getCoverMediaAssetId();
 
-        UUID targetCoverMediaAssetId = command.updateCover()
-                ? command.coverMediaAssetId()
-                : article.getCoverMediaAssetId();
+        UUID targetCoverMediaAssetId;
+        Integer targetCoverPositionX;
+        Integer targetCoverPositionY;
 
-        Integer targetCoverPositionX = command.updateCover()
-                ? command.coverPositionX()
-                : article.getCoverPositionX();
+        WikiCoverIntent intent = command.coverIntent() != null
+                ? command.coverIntent()
+                : (!command.updateCover()
+                        ? WikiCoverIntent.PRESERVE
+                        : (command.coverMediaAssetId() == null ? WikiCoverIntent.REMOVE : WikiCoverIntent.ATTACH_NEW_ASSET));
 
-        Integer targetCoverPositionY = command.updateCover()
-                ? command.coverPositionY()
-                : article.getCoverPositionY();
+        switch (intent) {
+            case PRESERVE -> {
+                targetCoverMediaAssetId = article.getCoverMediaAssetId();
+                targetCoverPositionX = article.getCoverPositionX();
+                targetCoverPositionY = article.getCoverPositionY();
+            }
+            case REMOVE -> {
+                targetCoverMediaAssetId = null;
+                targetCoverPositionX = 50;
+                targetCoverPositionY = 50;
+            }
+            case FOCAL_ONLY -> {
+                targetCoverMediaAssetId = article.getCoverMediaAssetId();
+                if (targetCoverMediaAssetId == null) {
+                    targetCoverPositionX = 50;
+                    targetCoverPositionY = 50;
+                } else {
+                    targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : article.getCoverPositionX();
+                    targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : article.getCoverPositionY();
+                }
+            }
+            case REPLACE_EXISTING_BINARY -> {
+                UUID expectedCoverId = command.expectedCoverMediaAssetId();
+                if (!Objects.equals(article.getCoverMediaAssetId(), expectedCoverId)) {
+                    throw new WikiCoverStaleMutationException(
+                            "Ảnh bìa của bài viết đã bị thay đổi đồng thời trong lúc tải ảnh mới: " + article.getId());
+                }
+                targetCoverMediaAssetId = command.coverMediaAssetId();
+                targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : article.getCoverPositionX();
+                targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : article.getCoverPositionY();
+            }
+            case ATTACH_NEW_ASSET -> {
+                targetCoverMediaAssetId = command.coverMediaAssetId();
+                targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : 50;
+                targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : 50;
+            }
+            default -> throw new IllegalStateException("Unknown cover intent: " + intent);
+        }
+
+        if (targetCoverMediaAssetId != null && !Objects.equals(previousCoverId, targetCoverMediaAssetId)) {
+            orphanRepositoryPort.coordinateCoverAttachment(targetCoverMediaAssetId);
+        }
 
         boolean changed =
                 article.updatePublishedContent(

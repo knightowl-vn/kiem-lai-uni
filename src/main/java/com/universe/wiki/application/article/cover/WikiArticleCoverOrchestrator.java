@@ -135,29 +135,58 @@ public class WikiArticleCoverOrchestrator {
         );
         UUID existingCoverId = existing.coverMediaAssetId();
 
-        UUID targetCoverId = existingCoverId;
+        UUID targetCoverId;
+        Integer targetPositionX;
+        Integer targetPositionY;
+        boolean updateCover;
+        WikiCoverIntent intent;
+        UUID expectedCoverId = null;
         boolean isInitialUpload = false;
         UUID newlyCreatedAssetId = null;
 
         if (removeCover) {
+            intent = WikiCoverIntent.REMOVE;
             targetCoverId = null;
+            targetPositionX = 50;
+            targetPositionY = 50;
+            updateCover = true;
         } else if (upload != null) {
             if (existingCoverId == null) {
                 newlyCreatedAssetId = mediaCoordinator.uploadInitialCover(upload);
+                intent = WikiCoverIntent.ATTACH_NEW_ASSET;
                 targetCoverId = newlyCreatedAssetId;
                 isInitialUpload = true;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : 50;
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : 50;
+                updateCover = true;
             } else {
                 mediaCoordinator.replaceCoverVersion(existingCoverId, upload);
+                intent = WikiCoverIntent.REPLACE_EXISTING_BINARY;
                 targetCoverId = existingCoverId;
+                expectedCoverId = existingCoverId;
+                isInitialUpload = false;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            }
+        } else {
+            boolean focalChanged = (command.coverPositionX() != null && !Objects.equals(command.coverPositionX(), existing.coverPositionX()))
+                    || (command.coverPositionY() != null && !Objects.equals(command.coverPositionY(), existing.coverPositionY()));
+
+            if (focalChanged && existingCoverId != null) {
+                intent = WikiCoverIntent.FOCAL_ONLY;
+                targetCoverId = null;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            } else {
+                intent = WikiCoverIntent.PRESERVE;
+                targetCoverId = null;
+                targetPositionX = existing.coverPositionX();
+                targetPositionY = existing.coverPositionY();
+                updateCover = false;
             }
         }
-
-        Integer targetPositionX = removeCover
-                ? 50
-                : (command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX());
-        Integer targetPositionY = removeCover
-                ? 50
-                : (command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY());
 
         UpdateDraftWikiArticleCommand updateCmd = new UpdateDraftWikiArticleCommand(
                 command.articleId(),
@@ -170,7 +199,9 @@ public class WikiArticleCoverOrchestrator {
                 targetCoverId,
                 targetPositionX,
                 targetPositionY,
-                true
+                updateCover,
+                intent,
+                expectedCoverId
         );
 
         WikiArticleDTO updated;
@@ -198,29 +229,58 @@ public class WikiArticleCoverOrchestrator {
         );
         UUID existingCoverId = existing.coverMediaAssetId();
 
-        UUID targetCoverId = existingCoverId;
+        UUID targetCoverId;
+        Integer targetPositionX;
+        Integer targetPositionY;
+        boolean updateCover;
+        WikiCoverIntent intent;
+        UUID expectedCoverId = null;
         boolean isInitialUpload = false;
         UUID newlyCreatedAssetId = null;
 
         if (removeCover) {
+            intent = WikiCoverIntent.REMOVE;
             targetCoverId = null;
+            targetPositionX = 50;
+            targetPositionY = 50;
+            updateCover = true;
         } else if (upload != null) {
             if (existingCoverId == null) {
                 newlyCreatedAssetId = mediaCoordinator.uploadInitialCover(upload);
+                intent = WikiCoverIntent.ATTACH_NEW_ASSET;
                 targetCoverId = newlyCreatedAssetId;
                 isInitialUpload = true;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : 50;
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : 50;
+                updateCover = true;
             } else {
                 mediaCoordinator.replaceCoverVersion(existingCoverId, upload);
+                intent = WikiCoverIntent.REPLACE_EXISTING_BINARY;
                 targetCoverId = existingCoverId;
+                expectedCoverId = existingCoverId;
+                isInitialUpload = false;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            }
+        } else {
+            boolean focalChanged = (command.coverPositionX() != null && !Objects.equals(command.coverPositionX(), existing.coverPositionX()))
+                    || (command.coverPositionY() != null && !Objects.equals(command.coverPositionY(), existing.coverPositionY()));
+
+            if (focalChanged && existingCoverId != null) {
+                intent = WikiCoverIntent.FOCAL_ONLY;
+                targetCoverId = null;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            } else {
+                intent = WikiCoverIntent.PRESERVE;
+                targetCoverId = null;
+                targetPositionX = existing.coverPositionX();
+                targetPositionY = existing.coverPositionY();
+                updateCover = false;
             }
         }
-
-        Integer targetPositionX = removeCover
-                ? 50
-                : (command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX());
-        Integer targetPositionY = removeCover
-                ? 50
-                : (command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY());
 
         UpdateDraftAndPublishWikiArticleCommand updateCmd = new UpdateDraftAndPublishWikiArticleCommand(
                 command.articleId(),
@@ -233,7 +293,9 @@ public class WikiArticleCoverOrchestrator {
                 targetCoverId,
                 targetPositionX,
                 targetPositionY,
-                true
+                updateCover,
+                intent,
+                expectedCoverId
         );
 
         WikiArticleDTO updated;
@@ -261,29 +323,58 @@ public class WikiArticleCoverOrchestrator {
         );
         UUID existingCoverId = existing.coverMediaAssetId();
 
-        UUID targetCoverId = existingCoverId;
+        UUID targetCoverId;
+        Integer targetPositionX;
+        Integer targetPositionY;
+        boolean updateCover;
+        WikiCoverIntent intent;
+        UUID expectedCoverId = null;
         boolean isInitialUpload = false;
         UUID newlyCreatedAssetId = null;
 
         if (removeCover) {
+            intent = WikiCoverIntent.REMOVE;
             targetCoverId = null;
+            targetPositionX = 50;
+            targetPositionY = 50;
+            updateCover = true;
         } else if (upload != null) {
             if (existingCoverId == null) {
                 newlyCreatedAssetId = mediaCoordinator.uploadInitialCover(upload);
+                intent = WikiCoverIntent.ATTACH_NEW_ASSET;
                 targetCoverId = newlyCreatedAssetId;
                 isInitialUpload = true;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : 50;
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : 50;
+                updateCover = true;
             } else {
                 mediaCoordinator.replaceCoverVersion(existingCoverId, upload);
+                intent = WikiCoverIntent.REPLACE_EXISTING_BINARY;
                 targetCoverId = existingCoverId;
+                expectedCoverId = existingCoverId;
+                isInitialUpload = false;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            }
+        } else {
+            boolean focalChanged = (command.coverPositionX() != null && !Objects.equals(command.coverPositionX(), existing.coverPositionX()))
+                    || (command.coverPositionY() != null && !Objects.equals(command.coverPositionY(), existing.coverPositionY()));
+
+            if (focalChanged && existingCoverId != null) {
+                intent = WikiCoverIntent.FOCAL_ONLY;
+                targetCoverId = null;
+                targetPositionX = command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX();
+                targetPositionY = command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY();
+                updateCover = true;
+            } else {
+                intent = WikiCoverIntent.PRESERVE;
+                targetCoverId = null;
+                targetPositionX = existing.coverPositionX();
+                targetPositionY = existing.coverPositionY();
+                updateCover = false;
             }
         }
-
-        Integer targetPositionX = removeCover
-                ? 50
-                : (command.coverPositionX() != null ? command.coverPositionX() : existing.coverPositionX());
-        Integer targetPositionY = removeCover
-                ? 50
-                : (command.coverPositionY() != null ? command.coverPositionY() : existing.coverPositionY());
 
         UpdatePublishedWikiArticleCommand updateCmd = new UpdatePublishedWikiArticleCommand(
                 command.articleId(),
@@ -294,7 +385,9 @@ public class WikiArticleCoverOrchestrator {
                 targetCoverId,
                 targetPositionX,
                 targetPositionY,
-                true
+                updateCover,
+                intent,
+                expectedCoverId
         );
 
         WikiArticleDTO updated;

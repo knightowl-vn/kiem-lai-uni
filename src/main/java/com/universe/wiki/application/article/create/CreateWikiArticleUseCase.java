@@ -123,6 +123,9 @@ public class CreateWikiArticleUseCase {
                 );
 
         if (command.coverMediaAssetId() != null) {
+            orphanRepositoryPort.coordinateCoverAttachment(
+                    command.coverMediaAssetId()
+            );
             articleRepositoryPort.lockCoverReferenceKey(
                     command.coverMediaAssetId()
             );
