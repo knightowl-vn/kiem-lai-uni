@@ -9,7 +9,9 @@ import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
+import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageLocation;
+import com.universe.media.domain.StorageProviderId;
 import com.universe.shared.time.ClockPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -194,6 +196,130 @@ class RegisterMediaAssetVersionUseCaseTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ARCHIVED");
 
+        verify(mediaAssetRepositoryPort, never()).save(any(MediaAsset.class));
+        verify(mediaAssetVersionRepositoryPort, never()).save(any(MediaAssetVersion.class));
+    }
+
+    @Test
+    @DisplayName("probeAuthoritativeDuplicate returns duplicate when hash matches current version under row lock")
+    void probeAuthoritativeDuplicate_shouldReturnDuplicateWhenHashMatches() {
+        MediaAsset asset = MediaAsset.registerInitial(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                T0
+        );
+        MediaAssetVersion version = MediaAssetVersion.create(
+                UUID.randomUUID(),
+                ASSET_ID,
+                1,
+                StorageLocation.of(StorageProviderId.of("cloudinary"), StorageKey.of("covers/c.webp")),
+                null,
+                com.universe.media.domain.ContentHash.of(VALID_HASH),
+                com.universe.media.domain.MimeType.of("image/webp"),
+                1024L,
+                "c.webp",
+                T0
+        );
+
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+
+        AuthoritativeDuplicateProbeResult result = useCase.probeAuthoritativeDuplicate(ASSET_ID, VALID_HASH);
+
+        assertThat(result.isDuplicate()).isTrue();
+        assertThat(result.currentVersionNumber()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("probeAuthoritativeDuplicate returns different when hash does not match current version")
+    void probeAuthoritativeDuplicate_shouldReturnDifferentWhenHashDiffers() {
+        MediaAsset asset = MediaAsset.registerInitial(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                T0
+        );
+        MediaAssetVersion version = MediaAssetVersion.create(
+                UUID.randomUUID(),
+                ASSET_ID,
+                1,
+                StorageLocation.of(StorageProviderId.of("cloudinary"), StorageKey.of("covers/c.webp")),
+                null,
+                com.universe.media.domain.ContentHash.of(VALID_HASH),
+                com.universe.media.domain.MimeType.of("image/webp"),
+                1024L,
+                "c.webp",
+                T0
+        );
+
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+
+        AuthoritativeDuplicateProbeResult result = useCase.probeAuthoritativeDuplicate(ASSET_ID, "differenthash1234567890abcdef");
+
+        assertThat(result.isDuplicate()).isFalse();
+        assertThat(result.currentVersionNumber()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("probeAuthoritativeDuplicate throws MediaAssetNotFoundException when asset missing")
+    void probeAuthoritativeDuplicate_shouldThrowWhenAssetNotFound() {
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.probeAuthoritativeDuplicate(ASSET_ID, VALID_HASH))
+                .isInstanceOf(MediaAssetNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("probeAuthoritativeDuplicate throws IllegalStateException when asset is not ACTIVE")
+    void probeAuthoritativeDuplicate_shouldThrowWhenAssetNotActive() {
+        MediaAsset asset = MediaAsset.registerInitial(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                T0
+        );
+        asset.archive(T0);
+
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> useCase.probeAuthoritativeDuplicate(ASSET_ID, VALID_HASH))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ARCHIVED");
+    }
+
+    @Test
+    @DisplayName("registerConditionalVersion returns UNCHANGED without writes when current version has same hash")
+    void registerConditionalVersion_shouldReturnUnchangedWhenHashMatches() {
+        MediaAsset asset = MediaAsset.registerInitial(
+                ASSET_ID,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                T0
+        );
+        MediaAssetVersion version = MediaAssetVersion.create(
+                UUID.randomUUID(),
+                ASSET_ID,
+                1,
+                StorageLocation.of(StorageProviderId.of("cloudinary"), StorageKey.of("covers/c.webp")),
+                null,
+                com.universe.media.domain.ContentHash.of(VALID_HASH),
+                com.universe.media.domain.MimeType.of("image/webp"),
+                1024L,
+                "c.webp",
+                T0
+        );
+
+        when(mediaAssetRepositoryPort.findByIdForUpdate(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+
+        RegisterMediaAssetVersionCommand command = createValidCommand(ASSET_ID);
+        RegisterMediaAssetVersionConditionalResult result = useCase.registerConditionalVersion(command);
+
+        assertThat(result.outcome()).isEqualTo(com.universe.media.contracts.dto.MediaVersionUploadOutcome.UNCHANGED);
+        assertThat(result.assetId()).isEqualTo(ASSET_ID);
+        assertThat(result.versionNumber()).isEqualTo(1);
         verify(mediaAssetRepositoryPort, never()).save(any(MediaAsset.class));
         verify(mediaAssetVersionRepositoryPort, never()).save(any(MediaAssetVersion.class));
     }

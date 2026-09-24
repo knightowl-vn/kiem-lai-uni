@@ -28,6 +28,8 @@ import com.universe.media.application.asset.UploadMediaAssetCommand;
 import com.universe.media.application.asset.UploadMediaAssetResult;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
@@ -49,6 +51,7 @@ import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
@@ -85,6 +88,7 @@ public class MediaFacade implements MediaContract {
     private final OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
     private final AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
     private final FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
+    private final UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
@@ -99,7 +103,8 @@ public class MediaFacade implements MediaContract {
             GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
             OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
             AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
-            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase
+            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -153,6 +158,10 @@ public class MediaFacade implements MediaContract {
                 findActiveMediaAssetsByClientTagKeysetUseCase,
                 "FindActiveMediaAssetsByClientTagKeysetUseCase cannot be null."
         );
+        this.uploadMediaAssetVersionConditionalUseCase = Objects.requireNonNull(
+                uploadMediaAssetVersionConditionalUseCase,
+                "UploadMediaAssetVersionConditionalUseCase cannot be null."
+        );
     }
 
     @Override
@@ -191,6 +200,27 @@ public class MediaFacade implements MediaContract {
         return new UploadMediaAssetVersionResponseDTO(
                 result.assetId(),
                 result.versionNumber()
+        );
+    }
+
+    @Override
+    public UploadMediaAssetVersionConditionalResponseDTO uploadVersionIfContentChanged(UploadMediaAssetVersionRequestDTO request) {
+        Objects.requireNonNull(
+                request,
+                "UploadMediaAssetVersionRequestDTO cannot be null."
+        );
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                request.assetId(),
+                request.content(),
+                request.sizeBytes(),
+                request.mimeType(),
+                request.originalFilename()
+        );
+        UploadMediaAssetVersionConditionalResult result = uploadMediaAssetVersionConditionalUseCase.execute(command);
+        return new UploadMediaAssetVersionConditionalResponseDTO(
+                result.assetId(),
+                result.versionNumber(),
+                result.outcome()
         );
     }
 

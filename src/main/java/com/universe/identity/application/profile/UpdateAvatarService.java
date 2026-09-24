@@ -140,7 +140,7 @@ public class UpdateAvatarService {
                             normalizedContentType,
                             normalizedFilename
                     );
-                    mediaContract.uploadVersion(request);
+                    mediaContract.uploadVersionIfContentChanged(request);
                 } catch (IOException exception) {
                     throw new IllegalStateException("Không thể đọc file tạm để upload version lên Media.", exception);
                 }

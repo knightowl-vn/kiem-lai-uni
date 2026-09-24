@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.orphan;
 
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.id.UuidGeneratorAdapter;
@@ -165,9 +166,9 @@ class WikiCoverExistingReplacementRaceIntegrationTest {
         UUID articleId = created.id();
         createdArticleIds.add(articleId);
 
-        // 2. Configure mediaContract.uploadVersion so that when User 1 uploads version 2 for cover A,
+        // 2. Configure mediaContract.uploadVersionIfContentChanged so that when User 1 uploads version 2 for cover A,
         // User 2 concurrently removes the cover on the live article (detaching cover A)
-        when(mediaContract.uploadVersion(any())).thenAnswer(invocation -> {
+        when(mediaContract.uploadVersionIfContentChanged(any())).thenAnswer(invocation -> {
             updateDraftWikiArticleUseCase.execute(new UpdateDraftWikiArticleCommand(
                     articleId,
                     "Bài viết có cover ban đầu",
@@ -181,7 +182,7 @@ class WikiCoverExistingReplacementRaceIntegrationTest {
                     50,
                     true
             ));
-            return new UploadMediaAssetVersionResponseDTO(coverA, 2);
+            return UploadMediaAssetVersionConditionalResponseDTO.versionCreated(coverA, 2);
         });
 
         // 3. User 1 submits a version replacement upload for cover A

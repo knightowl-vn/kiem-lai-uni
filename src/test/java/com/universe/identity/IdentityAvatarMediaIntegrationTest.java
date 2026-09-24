@@ -109,8 +109,10 @@ import static org.mockito.Mockito.mock;
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
         AssignMediaAssetClientTagUseCase.class,
+        com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
+        com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
@@ -295,7 +297,31 @@ class IdentityAvatarMediaIntegrationTest {
         assertThat(mediaDetail.get().status()).isEqualTo(MediaAssetStatusDTO.ACTIVE);
         assertThat(mediaDetail.get().currentVersionNumber()).isEqualTo(1);
 
-        // 6. Replace avatar via new Media version
+        // 6a. Upload identical avatar binary (MS-05G9 dedupe): Media version unchanged, 0 new versions
+        long userAggregateVersionBeforeSameUpload = userAfterUpload.getAggregateVersion();
+        updateAvatarService.execute(
+                emailStr,
+                new ByteArrayInputStream(AVATAR_IMAGE_BYTES_V1),
+                AVATAR_IMAGE_BYTES_V1.length,
+                "image/png",
+                "avatar-same.png"
+        );
+
+        User userAfterSameUpload = userRepositoryAdapter.findByEmail(new Email(emailStr)).orElseThrow();
+        assertThat(userAfterSameUpload.getAvatarMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(userAfterSameUpload.getAvatarUrl()).isEqualTo(expectedUrl);
+        assertThat(userAfterSameUpload.getAggregateVersion()).isEqualTo(userAggregateVersionBeforeSameUpload);
+
+        MediaAssetDetailDTO mediaDetailAfterSame = mediaContract.getAssetDetail(mediaAssetId).orElseThrow();
+        assertThat(mediaDetailAfterSame.currentVersionNumber()).isEqualTo(1);
+        Integer versionCount = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM media_asset_versions WHERE asset_id = ?",
+                Integer.class,
+                mediaAssetId.toString()
+        );
+        assertThat(versionCount).isEqualTo(1);
+
+        // 6b. Replace avatar via new Media version (different bytes)
         updateAvatarService.execute(
                 emailStr,
                 new ByteArrayInputStream(AVATAR_IMAGE_BYTES_V2),

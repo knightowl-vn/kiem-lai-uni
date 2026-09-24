@@ -3,8 +3,10 @@ package com.universe.wiki.application.article.cover;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
+import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
 
@@ -57,7 +59,7 @@ public class WikiCoverMediaCoordinator {
         return assetId;
     }
 
-    public void replaceCoverVersion(UUID assetId, WikiCoverUpload upload) {
+    public MediaVersionUploadOutcome replaceCoverVersion(UUID assetId, WikiCoverUpload upload) {
         Objects.requireNonNull(assetId, "Asset ID cannot be null.");
         Objects.requireNonNull(upload, "WikiCoverUpload cannot be null.");
 
@@ -69,9 +71,14 @@ public class WikiCoverMediaCoordinator {
                 upload.originalFilename()
         );
 
-        mediaContract.uploadVersion(uploadVersionRequest);
+        UploadMediaAssetVersionConditionalResponseDTO response =
+                mediaContract.uploadVersionIfContentChanged(uploadVersionRequest);
 
-        generateCoverVariantBestEffort(assetId);
+        if (response.outcome() == MediaVersionUploadOutcome.VERSION_CREATED) {
+            generateCoverVariantBestEffort(assetId);
+        }
+
+        return response.outcome();
     }
 
     public void generateCoverVariantBestEffort(UUID assetId) {

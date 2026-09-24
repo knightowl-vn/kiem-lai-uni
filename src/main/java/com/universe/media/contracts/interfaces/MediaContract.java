@@ -11,6 +11,7 @@ import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 
@@ -51,6 +52,25 @@ public interface MediaContract {
      * @return upload version response containing the asset ID and newly registered version number
      */
     UploadMediaAssetVersionResponseDTO uploadVersion(
+            UploadMediaAssetVersionRequestDTO request
+    );
+
+    /**
+     * Conditionally uploads a new binary version for an existing media asset only if the uploaded
+     * binary's SHA-256 digest differs from the current authoritative version's content hash (MS-05G9).
+     *
+     * <p>If the uploaded binary is identical to the current authoritative version, no new version
+     * is created, no storage write occurs, and {@link com.universe.media.contracts.dto.MediaVersionUploadOutcome#UNCHANGED}
+     * is returned. If the binary differs, a new immutable version is stored and persisted, returning
+     * {@link com.universe.media.contracts.dto.MediaVersionUploadOutcome#VERSION_CREATED}.
+     *
+     * <p><strong>Stream Ownership:</strong> The caller retains ownership of the request
+     * {@link java.io.InputStream}. The caller is responsible for closing the stream after execution.
+     *
+     * @param request upload version request
+     * @return conditional response containing the asset ID, version number, and outcome
+     */
+    UploadMediaAssetVersionConditionalResponseDTO uploadVersionIfContentChanged(
             UploadMediaAssetVersionRequestDTO request
     );
 

@@ -1,10 +1,12 @@
 package com.universe.wiki.application.article.cover;
 
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
+import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
@@ -25,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,20 +75,23 @@ class WikiCoverMediaCoordinatorTest {
     }
 
     @Test
-    @DisplayName("Thay thế ảnh bìa version mới: gọi uploadVersion và generateImageVariant w300")
+    @DisplayName("Thay thế ảnh bìa version mới: gọi uploadVersionIfContentChanged và generateImageVariant w300 khi VERSION_CREATED")
     void shouldReplaceCoverVersionAndRequestVariant() {
         UUID assetId = UUID.randomUUID();
         InputStream stream = new ByteArrayInputStream(new byte[]{4, 5, 6, 7});
         WikiCoverUpload upload = new WikiCoverUpload(stream, 4, "image/png", "cover-v2.png");
 
-        UploadMediaAssetVersionResponseDTO versionResponseDTO = new UploadMediaAssetVersionResponseDTO(assetId, 2);
+        UploadMediaAssetVersionConditionalResponseDTO versionResponseDTO =
+                UploadMediaAssetVersionConditionalResponseDTO.versionCreated(assetId, 2);
 
-        when(mediaContract.uploadVersion(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(versionResponseDTO);
+        when(mediaContract.uploadVersionIfContentChanged(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(versionResponseDTO);
 
-        coordinator.replaceCoverVersion(assetId, upload);
+        MediaVersionUploadOutcome outcome = coordinator.replaceCoverVersion(assetId, upload);
+
+        assertThat(outcome).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
 
         ArgumentCaptor<UploadMediaAssetVersionRequestDTO> versionCaptor = ArgumentCaptor.forClass(UploadMediaAssetVersionRequestDTO.class);
-        verify(mediaContract).uploadVersion(versionCaptor.capture());
+        verify(mediaContract).uploadVersionIfContentChanged(versionCaptor.capture());
         assertThat(versionCaptor.getValue().assetId()).isEqualTo(assetId);
         assertThat(versionCaptor.getValue().mimeType()).isEqualTo("image/png");
         assertThat(versionCaptor.getValue().originalFilename()).isEqualTo("cover-v2.png");
@@ -94,6 +100,25 @@ class WikiCoverMediaCoordinatorTest {
         verify(mediaContract).generateImageVariant(variantCaptor.capture());
         assertThat(variantCaptor.getValue().mediaAssetId()).isEqualTo(assetId);
         assertThat(variantCaptor.getValue().targetWidth()).isEqualTo(300);
+    }
+
+    @Test
+    @DisplayName("Thay thế ảnh bìa trùng nội dung (UNCHANGED): không tạo biến thể w300")
+    void shouldNotGenerateVariantWhenCoverUnchanged() {
+        UUID assetId = UUID.randomUUID();
+        InputStream stream = new ByteArrayInputStream(new byte[]{1, 2, 3});
+        WikiCoverUpload upload = new WikiCoverUpload(stream, 3, "image/jpeg", "cover-same.jpg");
+
+        UploadMediaAssetVersionConditionalResponseDTO unchangedResponse =
+                UploadMediaAssetVersionConditionalResponseDTO.unchanged(assetId, 1);
+
+        when(mediaContract.uploadVersionIfContentChanged(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(unchangedResponse);
+
+        MediaVersionUploadOutcome outcome = coordinator.replaceCoverVersion(assetId, upload);
+
+        assertThat(outcome).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+        verify(mediaContract).uploadVersionIfContentChanged(any(UploadMediaAssetVersionRequestDTO.class));
+        verify(mediaContract, never()).generateImageVariant(any());
     }
 
     @Test
