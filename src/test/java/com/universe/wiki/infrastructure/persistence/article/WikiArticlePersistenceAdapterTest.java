@@ -281,6 +281,53 @@ class WikiArticlePersistenceAdapterTest {
 		verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
 	}
 
+	@Test
+	@DisplayName("Tìm kiếm ID ảnh bìa lớn nhất qua JPA repository")
+	void shouldFindMaxCoverMediaAssetId() {
+		when(repository.findMaxCoverMediaAssetId()).thenReturn(Optional.of("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+
+		Optional<String> result = persistenceAdapter.findMaxCoverMediaAssetId();
+
+		assertThat(result).contains("ffffffff-ffff-ffff-ffff-ffffffffffff");
+		verify(repository).findMaxCoverMediaAssetId();
+	}
+
+	@Test
+	@DisplayName("Duyệt keyset trang đầu tiên của ID ảnh bìa không null")
+	void shouldFindDistinctCoverMediaAssetIdsFirstPage() {
+		com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery query =
+				com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery.firstPage(
+						"ffffffff-ffff-ffff-ffff-ffffffffffff", 10
+				);
+		org.springframework.data.domain.Pageable expectedPageable = org.springframework.data.domain.PageRequest.of(0, 10);
+		when(repository.findDistinctCoverMediaAssetIdsFirstPage("ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable))
+				.thenReturn(java.util.List.of("11111111-1111-1111-1111-111111111111"));
+
+		java.util.List<String> result = persistenceAdapter.findDistinctCoverMediaAssetIdsKeyset(query);
+
+		assertThat(result).containsExactly("11111111-1111-1111-1111-111111111111");
+		verify(repository).findDistinctCoverMediaAssetIdsFirstPage("ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable);
+	}
+
+	@Test
+	@DisplayName("Duyệt keyset trang tiếp theo của ID ảnh bìa không null")
+	void shouldFindDistinctCoverMediaAssetIdsSubsequentPage() {
+		com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery query =
+				com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery.nextPage(
+						"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", 10
+				);
+		org.springframework.data.domain.Pageable expectedPageable = org.springframework.data.domain.PageRequest.of(0, 10);
+		when(repository.findDistinctCoverMediaAssetIdsSubsequentPage(
+				"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable))
+				.thenReturn(java.util.List.of("22222222-2222-2222-2222-222222222222"));
+
+		java.util.List<String> result = persistenceAdapter.findDistinctCoverMediaAssetIdsKeyset(query);
+
+		assertThat(result).containsExactly("22222222-2222-2222-2222-222222222222");
+		verify(repository).findDistinctCoverMediaAssetIdsSubsequentPage(
+				"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable);
+	}
+
 	private WikiArticleJpaEntity createDraftEntity() {
 
 		WikiArticleJpaEntity entity = new WikiArticleJpaEntity();

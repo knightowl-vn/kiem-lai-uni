@@ -1,9 +1,11 @@
 package com.universe.wiki.application.ports;
 
+import com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +38,12 @@ public interface WikiArticleRepositoryPort {
 
     void lockCoverReferenceKey(
             UUID mediaAssetId
+    );
+
+    Optional<String> findMaxCoverMediaAssetId();
+
+    List<String> findDistinctCoverMediaAssetIdsKeyset(
+            WikiReferencedCoverKeysetQuery query
     );
 
     void flush();

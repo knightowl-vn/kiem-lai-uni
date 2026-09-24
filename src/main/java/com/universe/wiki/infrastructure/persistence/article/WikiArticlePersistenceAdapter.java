@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.article;
 
+import com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -7,9 +8,12 @@ import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
 import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -169,6 +173,29 @@ public class WikiArticlePersistenceAdapter
         List<String> existing = repository.findCoverReferenceIds(assetIdStr);
         if (!existing.isEmpty()) {
             repository.lockArticleIds(existing);
+        }
+    }
+
+    @Override
+    public Optional<String> findMaxCoverMediaAssetId() {
+        return repository.findMaxCoverMediaAssetId();
+    }
+
+    @Override
+    public List<String> findDistinctCoverMediaAssetIdsKeyset(WikiReferencedCoverKeysetQuery query) {
+        Objects.requireNonNull(query, "WikiReferencedCoverKeysetQuery cannot be null.");
+        Pageable pageable = PageRequest.of(0, query.pageSize());
+        if (query.lastAssetId() == null) {
+            return repository.findDistinctCoverMediaAssetIdsFirstPage(
+                    query.runUpperBound(),
+                    pageable
+            );
+        } else {
+            return repository.findDistinctCoverMediaAssetIdsSubsequentPage(
+                    query.lastAssetId(),
+                    query.runUpperBound(),
+                    pageable
+            );
         }
     }
 

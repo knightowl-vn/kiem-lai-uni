@@ -199,4 +199,37 @@ public interface SpringDataWikiArticleJpaRepository
             WHERE article.id = :id
             """)
     Optional<WikiArticleEligibilityProjection> findEligibilityById(@Param("id") String id);
+
+    @Query("""
+            SELECT MAX(a.coverMediaAssetId)
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+            """)
+    Optional<String> findMaxCoverMediaAssetId();
+
+    @Query("""
+            SELECT DISTINCT a.coverMediaAssetId
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+              AND a.coverMediaAssetId <= :upperBound
+            ORDER BY a.coverMediaAssetId ASC
+            """)
+    List<String> findDistinctCoverMediaAssetIdsFirstPage(
+            @Param("upperBound") String upperBound,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT DISTINCT a.coverMediaAssetId
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+              AND a.coverMediaAssetId > :lastAssetId
+              AND a.coverMediaAssetId <= :upperBound
+            ORDER BY a.coverMediaAssetId ASC
+            """)
+    List<String> findDistinctCoverMediaAssetIdsSubsequentPage(
+            @Param("lastAssetId") String lastAssetId,
+            @Param("upperBound") String upperBound,
+            Pageable pageable
+    );
 }
