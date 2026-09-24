@@ -8,6 +8,7 @@ import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
@@ -18,9 +19,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Service
 public class UpdateDraftWikiArticleUseCase {
@@ -29,6 +32,8 @@ public class UpdateDraftWikiArticleUseCase {
 
 	private final WikiArticleRevisionRepositoryPort revisionRepositoryPort;
 
+	private final WikiCoverOrphanRepositoryPort orphanRepositoryPort;
+
 	private final SlugGeneratorPort slugGeneratorPort;
 
 	private final IdGeneratorPort idGeneratorPort;
@@ -36,16 +41,15 @@ public class UpdateDraftWikiArticleUseCase {
 	private final ClockPort clockPort;
 
 	public UpdateDraftWikiArticleUseCase(WikiArticleRepositoryPort articleRepositoryPort,
-			WikiArticleRevisionRepositoryPort revisionRepositoryPort, SlugGeneratorPort slugGeneratorPort,
+			WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+			WikiCoverOrphanRepositoryPort orphanRepositoryPort,
+			SlugGeneratorPort slugGeneratorPort,
 			IdGeneratorPort idGeneratorPort, ClockPort clockPort) {
 		this.articleRepositoryPort = articleRepositoryPort;
-
 		this.revisionRepositoryPort = revisionRepositoryPort;
-
+		this.orphanRepositoryPort = orphanRepositoryPort;
 		this.slugGeneratorPort = slugGeneratorPort;
-
 		this.idGeneratorPort = idGeneratorPort;
-
 		this.clockPort = clockPort;
 	}
 
@@ -60,6 +64,8 @@ public class UpdateDraftWikiArticleUseCase {
 		ensureSlugAvailable(article, command.articleType(), newSlug);
 
 		Instant now = clockPort.now();
+
+		UUID previousCoverId = article.getCoverMediaAssetId();
 
 		UUID targetCoverMediaAssetId = command.updateCover()
 				? command.coverMediaAssetId()
@@ -77,13 +83,19 @@ public class UpdateDraftWikiArticleUseCase {
 				command.content(), targetCoverMediaAssetId, targetCoverPositionX, targetCoverPositionY,
 				command.actorId(), now);
 
-		if (!changed) {
-			return WikiArticleDTOMapper.toDTO(article);
+		UUID finalCoverId = article.getCoverMediaAssetId();
+
+		if (!Objects.equals(previousCoverId, finalCoverId)) {
+			lockCoverReferenceKeys(previousCoverId, finalCoverId);
 		}
 
-		articleRepositoryPort.save(article);
+		if (changed) {
+			articleRepositoryPort.save(article);
+			articleRepositoryPort.flush();
+			saveRevision(article, command.editSummary());
+		}
 
-		saveRevision(article, command.editSummary());
+		reconcileCoverOrphanState(previousCoverId, finalCoverId);
 
 		return WikiArticleDTOMapper.toDTO(article);
 	}
@@ -112,5 +124,26 @@ public class UpdateDraftWikiArticleUseCase {
 				RevisionChangeType.UPDATE_DRAFT, editSummary);
 
 		revisionRepositoryPort.save(revision);
+	}
+
+	private void lockCoverReferenceKeys(UUID... assetIds) {
+		Stream.of(assetIds)
+				.filter(Objects::nonNull)
+				.distinct()
+				.sorted(Comparator.comparing(UUID::toString))
+				.forEach(articleRepositoryPort::lockCoverReferenceKey);
+	}
+
+	private void reconcileCoverOrphanState(UUID previousCoverId, UUID finalCoverId) {
+		if (previousCoverId != null && !previousCoverId.equals(finalCoverId)) {
+			if (!articleRepositoryPort.hasCoverReference(previousCoverId)) {
+				orphanRepositoryPort.recordOrphanObservation(previousCoverId, clockPort.now());
+			} else {
+				orphanRepositoryPort.deleteByMediaAssetId(previousCoverId);
+			}
+		}
+		if (finalCoverId != null) {
+			orphanRepositoryPort.deleteByMediaAssetId(finalCoverId);
+		}
 	}
 }

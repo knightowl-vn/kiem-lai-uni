@@ -1,5 +1,6 @@
 package com.universe.wiki.application.article.delete;
 
+import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions
         .WikiArticleNotFoundException;
 
@@ -8,6 +9,9 @@ import com.universe.wiki.application.ports
 
 import com.universe.wiki.application.ports
         .WikiArticleRevisionRepositoryPort;
+
+import com.universe.wiki.application.ports
+        .WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.domain.article
         .ArticleType;
@@ -33,6 +37,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -69,6 +75,14 @@ class DeleteWikiArticleUseCaseTest {
     private WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    @Mock
+    private WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    @Mock
+    private ClockPort
+            clockPort;
+
     private DeleteWikiArticleUseCase
             useCase;
 
@@ -77,7 +91,9 @@ class DeleteWikiArticleUseCaseTest {
         useCase =
                 new DeleteWikiArticleUseCase(
                         articleRepositoryPort,
-                        revisionRepositoryPort
+                        revisionRepositoryPort,
+                        orphanRepositoryPort,
+                        clockPort
                 );
     }
 
@@ -293,5 +309,91 @@ class DeleteWikiArticleUseCaseTest {
         );
 
         return article;
+    }
+
+    @Test
+    @DisplayName("Xóa bài có ảnh bìa: xóa revisions và bài viết, sau đó ghi nhận orphan observation nếu không còn bài viết nào tham chiếu")
+    void shouldRecordOrphanObservationWhenDeletingArticleWithCover() {
+        UUID coverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID,
+                "Trần Bình An",
+                new Slug("tran-binh-an"),
+                ArticleType.CHARACTER,
+                "Tóm tắt",
+                "Nội dung",
+                coverId,
+                ADMIN_ID,
+                CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(articleRepositoryPort.hasCoverReference(coverId)).thenReturn(false);
+
+        useCase.execute(new DeleteWikiArticleCommand(ARTICLE_ID));
+
+        InOrder inOrder = inOrder(revisionRepositoryPort, articleRepositoryPort, orphanRepositoryPort);
+        inOrder.verify(revisionRepositoryPort).deleteAllByArticleId(ARTICLE_ID);
+        inOrder.verify(articleRepositoryPort).deleteById(ARTICLE_ID);
+        inOrder.verify(orphanRepositoryPort).recordOrphanObservation(coverId, UPDATED_AT);
+        verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+    }
+
+    @Test
+    @DisplayName("Xóa bài có ảnh bìa nhưng bài khác vẫn tham chiếu: không tạo orphan epoch")
+    void shouldNotCreateOrphanWhenDeletingArticleIfAnotherArticleStillReferencesCover() {
+        UUID coverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID,
+                "Trần Bình An",
+                new Slug("tran-binh-an"),
+                ArticleType.CHARACTER,
+                "Tóm tắt",
+                "Nội dung",
+                coverId,
+                ADMIN_ID,
+                CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(articleRepositoryPort.hasCoverReference(coverId)).thenReturn(true);
+
+        useCase.execute(new DeleteWikiArticleCommand(ARTICLE_ID));
+
+        InOrder inOrder = inOrder(revisionRepositoryPort, articleRepositoryPort, orphanRepositoryPort);
+        inOrder.verify(revisionRepositoryPort).deleteAllByArticleId(ARTICLE_ID);
+        inOrder.verify(articleRepositoryPort).deleteById(ARTICLE_ID);
+        inOrder.verify(orphanRepositoryPort).deleteByMediaAssetId(coverId);
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+    }
+
+    @Test
+    @DisplayName("Ném exception khi ghi nhận orphan observation thất bại trong use case")
+    void shouldThrowWhenOrphanRecordingFailsDuringArticleDelete() {
+        UUID coverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID,
+                "Trần Bình An",
+                new Slug("tran-binh-an"),
+                ArticleType.CHARACTER,
+                "Tóm tắt",
+                "Nội dung",
+                coverId,
+                ADMIN_ID,
+                CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        doThrow(new RuntimeException("Database error recording orphan"))
+                .when(orphanRepositoryPort).recordOrphanObservation(coverId, UPDATED_AT);
+
+        assertThatThrownBy(() -> useCase.execute(new DeleteWikiArticleCommand(ARTICLE_ID)))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("Database error recording orphan");
+
+        verify(revisionRepositoryPort).deleteAllByArticleId(ARTICLE_ID);
+        verify(articleRepositoryPort).deleteById(ARTICLE_ID);
     }
 }

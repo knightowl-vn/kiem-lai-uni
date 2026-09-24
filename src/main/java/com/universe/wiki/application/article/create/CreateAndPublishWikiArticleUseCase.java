@@ -7,6 +7,7 @@ import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsExceptio
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
@@ -33,6 +34,9 @@ public class CreateAndPublishWikiArticleUseCase {
     private final WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    private final WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
     private final SlugGeneratorPort
             slugGeneratorPort;
 
@@ -45,6 +49,7 @@ public class CreateAndPublishWikiArticleUseCase {
     public CreateAndPublishWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+            WikiCoverOrphanRepositoryPort orphanRepositoryPort,
             SlugGeneratorPort slugGeneratorPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
@@ -54,6 +59,9 @@ public class CreateAndPublishWikiArticleUseCase {
 
         this.revisionRepositoryPort =
                 revisionRepositoryPort;
+
+        this.orphanRepositoryPort =
+                orphanRepositoryPort;
 
         this.slugGeneratorPort =
                 slugGeneratorPort;
@@ -121,9 +129,23 @@ public class CreateAndPublishWikiArticleUseCase {
                         now
                 );
 
+        if (command.coverMediaAssetId() != null) {
+            articleRepositoryPort.lockCoverReferenceKey(
+                    command.coverMediaAssetId()
+            );
+        }
+
         articleRepositoryPort.save(
                 article
         );
+
+        articleRepositoryPort.flush();
+
+        if (command.coverMediaAssetId() != null) {
+            orphanRepositoryPort.deleteByMediaAssetId(
+                    command.coverMediaAssetId()
+            );
+        }
 
         saveInitialRevision(
                 article,

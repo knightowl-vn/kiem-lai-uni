@@ -183,19 +183,6 @@ public class WikiArticleCoverOrchestrator {
             throw ex;
         }
 
-        if (removeCover && existingCoverId != null) {
-            try {
-                mediaCoordinator.deleteCover(existingCoverId);
-            } catch (RuntimeException ex) {
-                LOGGER.error(
-                        "Không thể xóa Media Asset [{}] của ảnh bìa đã gỡ sau khi bài viết [{}] đã commit cập nhật.",
-                        existingCoverId,
-                        command.articleId(),
-                        ex
-                );
-            }
-        }
-
         return updated;
     }
 
@@ -259,19 +246,6 @@ public class WikiArticleCoverOrchestrator {
             throw ex;
         }
 
-        if (removeCover && existingCoverId != null) {
-            try {
-                mediaCoordinator.deleteCover(existingCoverId);
-            } catch (RuntimeException ex) {
-                LOGGER.error(
-                        "Không thể xóa Media Asset [{}] của ảnh bìa đã gỡ sau khi bài viết [{}] đã commit xuất bản.",
-                        existingCoverId,
-                        command.articleId(),
-                        ex
-                );
-            }
-        }
-
         return updated;
     }
 
@@ -333,43 +307,12 @@ public class WikiArticleCoverOrchestrator {
             throw ex;
         }
 
-        if (removeCover && existingCoverId != null) {
-            try {
-                mediaCoordinator.deleteCover(existingCoverId);
-            } catch (RuntimeException ex) {
-                LOGGER.error(
-                        "Không thể xóa Media Asset [{}] của ảnh bìa đã gỡ sau khi bài viết [{}] đã commit cập nhật.",
-                        existingCoverId,
-                        command.articleId(),
-                        ex
-                );
-            }
-        }
-
         return updated;
     }
 
     public void deleteArticle(UUID articleId) {
         Objects.requireNonNull(articleId, "Article ID cannot be null.");
 
-        WikiArticleDTO article = getWikiArticleDetailUseCase.execute(
-                new GetWikiArticleDetailQuery(articleId)
-        );
-        UUID coverAssetId = article.coverMediaAssetId();
-
         deleteWikiArticleUseCase.execute(new DeleteWikiArticleCommand(articleId));
-
-        if (coverAssetId != null) {
-            try {
-                mediaCoordinator.deleteCover(coverAssetId);
-            } catch (RuntimeException ex) {
-                LOGGER.error(
-                        "Không thể xóa Media Asset [{}] sau khi bài viết Wiki [{}] đã bị xóa. Asset có thể rơi vào trạng thái ACTIVE mồ côi.",
-                        coverAssetId,
-                        articleId,
-                        ex
-                );
-            }
-        }
     }
 }

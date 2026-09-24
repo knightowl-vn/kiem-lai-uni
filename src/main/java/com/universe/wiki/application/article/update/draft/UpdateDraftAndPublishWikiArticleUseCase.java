@@ -11,6 +11,7 @@ import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 
@@ -24,9 +25,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Service
 public class UpdateDraftAndPublishWikiArticleUseCase {
@@ -46,6 +49,9 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
     private final WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    private final WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
     private final SlugGeneratorPort
             slugGeneratorPort;
 
@@ -59,6 +65,7 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
     public UpdateDraftAndPublishWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+            WikiCoverOrphanRepositoryPort orphanRepositoryPort,
             SlugGeneratorPort slugGeneratorPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
@@ -68,6 +75,9 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
 
         this.revisionRepositoryPort =
                 revisionRepositoryPort;
+
+        this.orphanRepositoryPort =
+                orphanRepositoryPort;
 
         this.slugGeneratorPort =
                 slugGeneratorPort;
@@ -113,6 +123,8 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
+        UUID previousCoverId =
+                article.getCoverMediaAssetId();
 
         /*
          * true:
@@ -148,11 +160,18 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
                         now
                 );
 
+        UUID finalCoverId =
+                article.getCoverMediaAssetId();
+
+        if (!Objects.equals(previousCoverId, finalCoverId)) {
+            lockCoverReferenceKeys(previousCoverId, finalCoverId);
+        }
 
         articleRepositoryPort.save(
                 article
         );
 
+        articleRepositoryPort.flush();
 
         saveRevision(
                 article,
@@ -160,6 +179,10 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
                 command.editSummary()
         );
 
+        reconcileCoverOrphanState(
+                previousCoverId,
+                finalCoverId
+        );
 
         return WikiArticleDTOMapper.toDTO(
                 article
@@ -266,5 +289,32 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
         return contentChanged
                 ? DEFAULT_UPDATE_AND_PUBLISH_SUMMARY
                 : DEFAULT_PUBLISH_SUMMARY;
+    }
+
+    private void lockCoverReferenceKeys(UUID... assetIds) {
+        Stream.of(assetIds)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.comparing(UUID::toString))
+                .forEach(articleRepositoryPort::lockCoverReferenceKey);
+    }
+
+    private void reconcileCoverOrphanState(
+            UUID previousCoverId,
+            UUID finalCoverId
+    ) {
+        if (previousCoverId != null && !previousCoverId.equals(finalCoverId)) {
+            if (!articleRepositoryPort.hasCoverReference(previousCoverId)) {
+                orphanRepositoryPort.recordOrphanObservation(
+                        previousCoverId,
+                        clockPort.now()
+                );
+            } else {
+                orphanRepositoryPort.deleteByMediaAssetId(previousCoverId);
+            }
+        }
+        if (finalCoverId != null) {
+            orphanRepositoryPort.deleteByMediaAssetId(finalCoverId);
+        }
     }
 }

@@ -9,6 +9,7 @@ import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSync
 
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -140,6 +141,40 @@ public class WikiArticlePersistenceAdapter
         repository.deleteById(
                 articleId.toString()
         );
+    }
+
+    @Override
+    public boolean hasCoverReference(
+            UUID mediaAssetId
+    ) {
+        if (mediaAssetId == null) {
+            return false;
+        }
+
+        List<String> referenceIds = repository.findCoverReferenceIdsCurrentRead(
+                mediaAssetId.toString()
+        );
+        return !referenceIds.isEmpty();
+    }
+
+    @Override
+    public void lockCoverReferenceKey(
+            UUID mediaAssetId
+    ) {
+        if (mediaAssetId == null) {
+            return;
+        }
+
+        String assetIdStr = mediaAssetId.toString();
+        List<String> existing = repository.findCoverReferenceIds(assetIdStr);
+        if (!existing.isEmpty()) {
+            repository.lockArticleIds(existing);
+        }
+    }
+
+    @Override
+    public void flush() {
+        repository.flush();
     }
 
     private void mapToEntity(

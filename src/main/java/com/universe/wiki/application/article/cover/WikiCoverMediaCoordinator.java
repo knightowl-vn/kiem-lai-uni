@@ -28,6 +28,8 @@ public class WikiCoverMediaCoordinator {
 
     private static final int COVER_IMAGE_VARIANT_WIDTH = 300;
 
+    public static final String WIKI_ARTICLE_COVER_CLIENT_TAG = "wiki.article.cover";
+
     private final MediaContract mediaContract;
 
     public WikiCoverMediaCoordinator(MediaContract mediaContract) {
@@ -43,7 +45,8 @@ public class WikiCoverMediaCoordinator {
                 upload.contentType(),
                 MediaTypeDTO.IMAGE,
                 MediaVisibilityDTO.PUBLIC,
-                upload.originalFilename()
+                upload.originalFilename(),
+                WIKI_ARTICLE_COVER_CLIENT_TAG
         );
 
         UploadMediaAssetResponseDTO uploadResponse = mediaContract.uploadAsset(uploadRequest);
@@ -89,14 +92,6 @@ public class WikiCoverMediaCoordinator {
                     ex
             );
         }
-    }
-
-    public void deleteCover(UUID assetId) {
-        if (assetId == null) {
-            return;
-        }
-
-        mediaContract.delete(assetId);
     }
 
     public void compensateInitialCover(UUID newAssetId, RuntimeException primaryException) {

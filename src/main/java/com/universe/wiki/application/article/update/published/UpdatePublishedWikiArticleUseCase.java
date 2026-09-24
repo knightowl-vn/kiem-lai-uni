@@ -6,6 +6,7 @@ import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.WikiArticle;
 import com.universe.wiki.domain.revision.RevisionChangeType;
@@ -15,8 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Service
 public class UpdatePublishedWikiArticleUseCase {
@@ -30,6 +33,9 @@ public class UpdatePublishedWikiArticleUseCase {
     private final WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    private final WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
     private final IdGeneratorPort
             idGeneratorPort;
 
@@ -39,6 +45,7 @@ public class UpdatePublishedWikiArticleUseCase {
     public UpdatePublishedWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+            WikiCoverOrphanRepositoryPort orphanRepositoryPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
     ) {
@@ -47,6 +54,9 @@ public class UpdatePublishedWikiArticleUseCase {
 
         this.revisionRepositoryPort =
                 revisionRepositoryPort;
+
+        this.orphanRepositoryPort =
+                orphanRepositoryPort;
 
         this.idGeneratorPort =
                 idGeneratorPort;
@@ -83,6 +93,9 @@ public class UpdatePublishedWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
+        UUID previousCoverId =
+                article.getCoverMediaAssetId();
+
         UUID targetCoverMediaAssetId = command.updateCover()
                 ? command.coverMediaAssetId()
                 : article.getCoverMediaAssetId();
@@ -106,21 +119,31 @@ public class UpdatePublishedWikiArticleUseCase {
                         now
                 );
 
-        if (!changed) {
-            return WikiArticleDTOMapper.toDTO(
+        UUID finalCoverId =
+                article.getCoverMediaAssetId();
+
+        if (!Objects.equals(previousCoverId, finalCoverId)) {
+            lockCoverReferenceKeys(previousCoverId, finalCoverId);
+        }
+
+        if (changed) {
+            articleRepositoryPort.save(
                     article
+            );
+
+            articleRepositoryPort.flush();
+
+            saveRevision(
+                    article,
+                    resolveEditSummary(
+                            command.editSummary()
+                    )
             );
         }
 
-        articleRepositoryPort.save(
-                article
-        );
-
-        saveRevision(
-                article,
-                resolveEditSummary(
-                        command.editSummary()
-                )
+        reconcileCoverOrphanState(
+                previousCoverId,
+                finalCoverId
         );
 
         return WikiArticleDTOMapper.toDTO(
@@ -158,5 +181,32 @@ public class UpdatePublishedWikiArticleUseCase {
         }
 
         return editSummary.trim();
+    }
+
+    private void lockCoverReferenceKeys(UUID... assetIds) {
+        Stream.of(assetIds)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.comparing(UUID::toString))
+                .forEach(articleRepositoryPort::lockCoverReferenceKey);
+    }
+
+    private void reconcileCoverOrphanState(
+            UUID previousCoverId,
+            UUID finalCoverId
+    ) {
+        if (previousCoverId != null && !previousCoverId.equals(finalCoverId)) {
+            if (!articleRepositoryPort.hasCoverReference(previousCoverId)) {
+                orphanRepositoryPort.recordOrphanObservation(
+                        previousCoverId,
+                        clockPort.now()
+                );
+            } else {
+                orphanRepositoryPort.deleteByMediaAssetId(previousCoverId);
+            }
+        }
+        if (finalCoverId != null) {
+            orphanRepositoryPort.deleteByMediaAssetId(finalCoverId);
+        }
     }
 }

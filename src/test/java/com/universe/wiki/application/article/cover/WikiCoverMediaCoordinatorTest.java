@@ -62,6 +62,8 @@ class WikiCoverMediaCoordinatorTest {
         assertThat(uploadCaptor.getValue().mimeType()).isEqualTo("image/jpeg");
         assertThat(uploadCaptor.getValue().mediaType()).isEqualTo(MediaTypeDTO.IMAGE);
         assertThat(uploadCaptor.getValue().visibility()).isEqualTo(MediaVisibilityDTO.PUBLIC);
+        assertThat(uploadCaptor.getValue().clientTag()).isEqualTo(WikiCoverMediaCoordinator.WIKI_ARTICLE_COVER_CLIENT_TAG);
+        assertThat(uploadCaptor.getValue().clientTag()).isEqualTo("wiki.article.cover");
 
         ArgumentCaptor<GenerateImageVariantRequestDTO> variantCaptor = ArgumentCaptor.forClass(GenerateImageVariantRequestDTO.class);
         verify(mediaContract).generateImageVariant(variantCaptor.capture());
@@ -103,16 +105,6 @@ class WikiCoverMediaCoordinatorTest {
 
         assertThatCode(() -> coordinator.generateCoverVariantBestEffort(assetId))
                 .doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("Xóa ảnh bìa: gọi mediaContract.delete với UUID")
-    void shouldDeleteCover() {
-        UUID assetId = UUID.randomUUID();
-
-        coordinator.deleteCover(assetId);
-
-        verify(mediaContract).delete(assetId);
     }
 
     @Test

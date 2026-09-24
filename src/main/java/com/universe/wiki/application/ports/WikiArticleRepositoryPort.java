@@ -29,4 +29,14 @@ public interface WikiArticleRepositoryPort {
     void deleteById(
             UUID articleId
     );
+
+    boolean hasCoverReference(
+            UUID mediaAssetId
+    );
+
+    void lockCoverReferenceKey(
+            UUID mediaAssetId
+    );
+
+    void flush();
 }

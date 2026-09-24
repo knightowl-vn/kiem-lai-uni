@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -211,7 +212,7 @@ class WikiArticleCoverOrchestratorTest {
     }
 
     @Test
-    @DisplayName("updateDraft gỡ ảnh bìa: cập nhật null trong DB, gọi deleteCover SAU KHI commit")
+    @DisplayName("updateDraft gỡ ảnh bìa: cập nhật null trong DB, KHÔNG gọi mediaCoordinator.deleteCover")
     void shouldRemoveCoverInDraft() {
         UUID existingCoverId = UUID.randomUUID();
         UpdateDraftWikiArticleCommand command = new UpdateDraftWikiArticleCommand(
@@ -230,31 +231,15 @@ class WikiArticleCoverOrchestratorTest {
         assertThat(captor.getValue().coverMediaAssetId()).isNull();
         assertThat(captor.getValue().updateCover()).isTrue();
 
-        verify(mediaCoordinator).deleteCover(existingCoverId);
+        verifyNoInteractions(mediaCoordinator);
     }
 
     @Test
-    @DisplayName("deleteArticle: xóa bài viết Wiki trước, xóa Media Asset sau")
-    void shouldDeleteArticleAndThenDeleteCover() {
-        UUID coverId = UUID.randomUUID();
-        when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
-                .thenReturn(createSampleDTO(coverId));
-
+    @DisplayName("deleteArticle: ủy quyền cho deleteWikiArticleUseCase, KHÔNG gọi mediaCoordinator")
+    void shouldDeleteArticleAndNotCallMediaDeleteCover() {
         orchestrator.deleteArticle(ARTICLE_ID);
 
         verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
-        verify(mediaCoordinator).deleteCover(coverId);
-    }
-
-    @Test
-    @DisplayName("deleteArticle cho bài không có ảnh bìa: chỉ xóa bài viết Wiki")
-    void shouldDeleteArticleWithoutCover() {
-        when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
-                .thenReturn(createSampleDTO(null));
-
-        orchestrator.deleteArticle(ARTICLE_ID);
-
-        verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
-        verify(mediaCoordinator, never()).deleteCover(any());
+        verifyNoInteractions(mediaCoordinator);
     }
 }

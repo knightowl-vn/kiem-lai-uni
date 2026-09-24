@@ -5,12 +5,10 @@ import com.universe.shared.time.ClockPort;
 
 import com.universe.wiki.application.exceptions
         .ArticleSlugAlreadyExistsException;
-import com.universe.wiki.application.ports
-        .SlugGeneratorPort;
-import com.universe.wiki.application.ports
-        .WikiArticleRepositoryPort;
-import com.universe.wiki.application.ports
-        .WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.SlugGeneratorPort;
+import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
+import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.contracts.dto
         .WikiArticleDTO;
@@ -99,6 +97,10 @@ class CreateWikiArticleUseCaseTest {
             revisionRepositoryPort;
 
     @Mock
+    private WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    @Mock
     private SlugGeneratorPort
             slugGeneratorPort;
 
@@ -119,6 +121,7 @@ class CreateWikiArticleUseCaseTest {
                 new CreateWikiArticleUseCase(
                         articleRepositoryPort,
                         revisionRepositoryPort,
+                        orphanRepositoryPort,
                         slugGeneratorPort,
                         idGeneratorPort,
                         clockPort
@@ -702,5 +705,37 @@ class CreateWikiArticleUseCaseTest {
         ).isEqualTo(
                 NOW
         );
+    }
+
+    @Test
+    @DisplayName("Tạo bài có ảnh bìa: xóa stale orphan epoch cho ảnh bìa đó")
+    void shouldClearStaleOrphanWhenCreatingArticleWithCover() {
+        prepareSuccessfulCreation();
+        UUID coverId = UUID.randomUUID();
+
+        CreateWikiArticleCommand command = new CreateWikiArticleCommand(
+                TITLE, ArticleType.CHARACTER, SUMMARY, CONTENT, EDIT_SUMMARY, ADMIN_ID,
+                coverId, 50, 50
+        );
+
+        createWikiArticleUseCase.execute(command);
+
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverId);
+    }
+
+    @Test
+    @DisplayName("Tạo bài không có ảnh bìa: không gọi orphanRepositoryPort")
+    void shouldNotTouchOrphanStateWhenCreatingArticleWithoutCover() {
+        prepareSuccessfulCreation();
+
+        CreateWikiArticleCommand command = new CreateWikiArticleCommand(
+                TITLE, ArticleType.CHARACTER, SUMMARY, CONTENT, EDIT_SUMMARY, ADMIN_ID,
+                null, 50, 50
+        );
+
+        createWikiArticleUseCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
     }
 }

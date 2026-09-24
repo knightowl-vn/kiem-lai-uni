@@ -5,6 +5,7 @@ import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -82,6 +83,10 @@ class UpdatePublishedWikiArticleUseCaseTest {
             revisionRepositoryPort;
 
     @Mock
+    private WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    @Mock
     private IdGeneratorPort
             idGeneratorPort;
 
@@ -98,6 +103,7 @@ class UpdatePublishedWikiArticleUseCaseTest {
                 new UpdatePublishedWikiArticleUseCase(
                         articleRepositoryPort,
                         revisionRepositoryPort,
+                        orphanRepositoryPort,
                         idGeneratorPort,
                         clockPort
                 );
@@ -700,5 +706,93 @@ class UpdatePublishedWikiArticleUseCaseTest {
         );
 
         return article;
+    }
+
+    @Test
+    @DisplayName("Case A: Gỡ ảnh bìa bài đã xuất bản (previous=A, final=null) -> Ghi nhận orphan observation cho A")
+    void shouldRecordOrphanObservationWhenCoverRemovedOnPublishedArticle() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(coverA, ADMIN_ID, PUBLISHED_AT.plusSeconds(5));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdatePublishedWikiArticleCommand command = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt mới", "Nội dung mới",
+                "Remove cover", ADMIN_ID, null, 50, 50, true
+        );
+
+        updatePublishedUseCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, CONTENT_UPDATED_AT);
+        verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+    }
+
+    @Test
+    @DisplayName("Case B: Giữ nguyên ảnh bìa bài đã xuất bản (previous=A, final=A) -> Không ghi nhận orphan, xóa stale orphan cho A")
+    void shouldClearStaleOrphanWhenCoverUnchangedOnPublishedArticle() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(coverA, ADMIN_ID, PUBLISHED_AT.plusSeconds(5));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdatePublishedWikiArticleCommand command = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt mới", "Nội dung mới",
+                "Keep cover", ADMIN_ID, coverA, 50, 50, true
+        );
+
+        updatePublishedUseCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverA);
+    }
+
+    @Test
+    @DisplayName("Case C: Gán ảnh bìa cho bài đã xuất bản chưa có cover (previous=null, final=B) -> Xóa stale orphan cho B")
+    void shouldClearStaleOrphanWhenCoverAddedToCoverlessPublishedArticle() {
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdatePublishedWikiArticleCommand command = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt mới", "Nội dung mới",
+                "Add cover", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        updatePublishedUseCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
+    }
+
+    @Test
+    @DisplayName("Case D: Thay thế ảnh bìa bài đã xuất bản (previous=A, final=B) -> Ghi nhận orphan cho A, xóa stale orphan cho B")
+    void shouldRecordOrphanForPreviousAndClearStaleOrphanForFinalOnPublishedArticle() {
+        UUID coverA = UUID.randomUUID();
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = createPublishedArticle();
+        article.changeCoverMediaAssetId(coverA, ADMIN_ID, PUBLISHED_AT.plusSeconds(5));
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(clockPort.now()).thenReturn(CONTENT_UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdatePublishedWikiArticleCommand command = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt mới", "Nội dung mới",
+                "Replace cover", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        updatePublishedUseCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, CONTENT_UPDATED_AT);
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
     }
 }

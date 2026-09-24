@@ -7,6 +7,7 @@ import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsExceptio
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 
@@ -34,6 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,6 +83,10 @@ class UpdateDraftAndPublishWikiArticleUseCaseTest {
             revisionRepositoryPort;
 
     @Mock
+    private WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    @Mock
     private SlugGeneratorPort
             slugGeneratorPort;
 
@@ -104,6 +110,7 @@ class UpdateDraftAndPublishWikiArticleUseCaseTest {
                 new UpdateDraftAndPublishWikiArticleUseCase(
                         articleRepositoryPort,
                         revisionRepositoryPort,
+                        orphanRepositoryPort,
                         slugGeneratorPort,
                         idGeneratorPort,
                         clockPort
@@ -765,5 +772,103 @@ class UpdateDraftAndPublishWikiArticleUseCaseTest {
                 ADMIN_ID,
                 CREATED_AT
         );
+    }
+
+    @Test
+    @DisplayName("Case A: Gỡ ảnh bìa khi xuất bản (previous=A, final=null) -> Ghi nhận orphan observation cho A")
+    void shouldRecordOrphanObservationWhenCoverRemovedOnPublish() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftAndPublishWikiArticleCommand command = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Remove cover & publish", ADMIN_ID, null, 50, 50, true
+        );
+
+        useCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, PUBLISHED_AT);
+        verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+    }
+
+    @Test
+    @DisplayName("Case B: Giữ nguyên ảnh bìa khi xuất bản (previous=A, final=A) -> Không ghi nhận orphan, xóa stale orphan cho A")
+    void shouldClearStaleOrphanWhenCoverUnchangedOnPublish() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftAndPublishWikiArticleCommand command = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Keep cover & publish", ADMIN_ID, coverA, 50, 50, true
+        );
+
+        useCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverA);
+    }
+
+    @Test
+    @DisplayName("Case C: Gán ảnh bìa khi xuất bản (previous=null, final=B) -> Xóa stale orphan cho B")
+    void shouldClearStaleOrphanWhenCoverAddedOnPublish() {
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = createDraftArticle();
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftAndPublishWikiArticleCommand command = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Add cover & publish", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        useCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
+    }
+
+    @Test
+    @DisplayName("Case D: Thay thế ảnh bìa khi xuất bản (previous=A, final=B) -> Ghi nhận orphan cho A, xóa stale orphan cho B")
+    void shouldRecordOrphanForPreviousAndClearStaleOrphanForFinalOnPublish() {
+        UUID coverA = UUID.randomUUID();
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(PUBLISHED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftAndPublishWikiArticleCommand command = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Replace cover & publish", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        useCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, PUBLISHED_AT);
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
     }
 }

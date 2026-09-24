@@ -43,6 +43,24 @@ public interface SpringDataWikiArticleJpaRepository
             String status
     );
 
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE cover_media_asset_id = :mediaAssetId ORDER BY id",
+            nativeQuery = true
+    )
+    List<String> findCoverReferenceIds(@Param("mediaAssetId") String mediaAssetId);
+
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE cover_media_asset_id = :mediaAssetId LOCK IN SHARE MODE",
+            nativeQuery = true
+    )
+    List<String> findCoverReferenceIdsCurrentRead(@Param("mediaAssetId") String mediaAssetId);
+
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE id IN (:ids) ORDER BY id FOR UPDATE",
+            nativeQuery = true
+    )
+    List<String> lockArticleIds(@Param("ids") List<String> ids);
+
     /**
      * Truy vấn danh sách bài Wiki dành cho trang quản trị.
      *

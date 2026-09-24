@@ -7,6 +7,7 @@ import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsExceptio
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.ArticleStatus;
@@ -63,6 +64,9 @@ class CreateAndPublishWikiArticleUseCaseTest {
 	private WikiArticleRevisionRepositoryPort revisionRepositoryPort;
 
 	@Mock
+	private WikiCoverOrphanRepositoryPort orphanRepositoryPort;
+
+	@Mock
 	private SlugGeneratorPort slugGeneratorPort;
 
 	@Mock
@@ -76,7 +80,7 @@ class CreateAndPublishWikiArticleUseCaseTest {
 	@BeforeEach
 	void setUp() {
 		useCase = new CreateAndPublishWikiArticleUseCase(articleRepositoryPort, revisionRepositoryPort,
-				slugGeneratorPort, idGeneratorPort, clockPort);
+				orphanRepositoryPort, slugGeneratorPort, idGeneratorPort, clockPort);
 	}
 
 	/*
@@ -224,5 +228,34 @@ class CreateAndPublishWikiArticleUseCaseTest {
 	private CreateAndPublishWikiArticleCommand createCommand() {
 		return new CreateAndPublishWikiArticleCommand(TITLE, ArticleType.CHARACTER, SUMMARY, CONTENT, EDIT_SUMMARY,
 				ADMIN_ID);
+	}
+
+	@Test
+	@DisplayName("Tạo và xuất bản bài có ảnh bìa: xóa stale orphan epoch cho ảnh bìa đó")
+	void shouldClearStaleOrphanWhenCreatingAndPublishingArticleWithCover() {
+		prepareSuccessfulCreation();
+		UUID coverId = UUID.randomUUID();
+
+		CreateAndPublishWikiArticleCommand command = new CreateAndPublishWikiArticleCommand(
+				TITLE, ArticleType.CHARACTER, SUMMARY, CONTENT, EDIT_SUMMARY, ADMIN_ID,
+				coverId, 50, 50
+		);
+
+		useCase.execute(command);
+
+		verify(orphanRepositoryPort).deleteByMediaAssetId(coverId);
+	}
+
+	@Test
+	@DisplayName("Tạo và xuất bản bài không có ảnh bìa: không gọi orphanRepositoryPort")
+	void shouldNotTouchOrphanStateWhenCreatingAndPublishingWithoutCover() {
+		prepareSuccessfulCreation();
+
+		CreateAndPublishWikiArticleCommand command = createCommand();
+
+		useCase.execute(command);
+
+		verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+		verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
 	}
 }
