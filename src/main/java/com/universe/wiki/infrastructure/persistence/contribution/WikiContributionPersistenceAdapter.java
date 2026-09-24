@@ -7,10 +7,13 @@ import com.universe.wiki.domain.contribution.WikiContributionContextType;
 import com.universe.wiki.domain.contribution.WikiContributionStatus;
 import com.universe.wiki.domain.contribution.WikiContributionType;
 import jakarta.persistence.OptimisticLockException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,6 +73,24 @@ public class WikiContributionPersistenceAdapter implements WikiContributionRepos
             return Optional.empty();
         }
         return repository.findById(id.toString()).map(this::toDomain);
+    }
+
+    @Override
+    public List<WikiContribution> findRecentCandidates(
+            UUID submittedByUserId,
+            UUID articleId,
+            Instant cutoff,
+            int limit
+    ) {
+        if (submittedByUserId == null || articleId == null || cutoff == null || limit <= 0) {
+            return List.of();
+        }
+        return repository.findRecentByUserIdAndArticleId(
+                submittedByUserId.toString(),
+                articleId.toString(),
+                cutoff,
+                PageRequest.of(0, limit)
+        ).stream().map(this::toDomain).toList();
     }
 
     private void mapToEntity(WikiContribution source, WikiContributionJpaEntity target) {

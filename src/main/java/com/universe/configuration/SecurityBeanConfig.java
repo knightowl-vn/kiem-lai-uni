@@ -230,6 +230,7 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 "/wiki/articles/*/save",
+                                "/wiki/articles/*/contributions",
                                 "/wiki/saved",
                                 "/wiki/saved/**"
                         )
