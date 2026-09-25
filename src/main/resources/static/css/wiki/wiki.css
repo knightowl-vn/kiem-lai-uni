@@ -2380,3 +2380,113 @@ a.is-parent-active:not(.is-active) {
 		justify-content: flex-start;
 	}
 }
+
+/* =========================================================
+   WIKI PUBLIC CONTRIBUTORS CARD (MS-05H9)
+   ========================================================= */
+.wiki-public-contributors-card {
+	margin-top: 36px;
+	padding: 24px;
+	background: var(--surface-bg, #ffffff);
+	border: 1px solid var(--border-color, #e2e8f0);
+	border-radius: 14px;
+	box-shadow: 0 1px 3px var(--shadow-color, rgba(0, 0, 0, 0.05));
+}
+
+.wiki-public-contributors-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 18px;
+}
+
+.wiki-public-contributors-icon {
+	color: var(--bs-primary, #3b82f6);
+	flex-shrink: 0;
+}
+
+.wiki-public-contributors-title {
+	margin: 0;
+	font-size: 1.15rem;
+	font-weight: 700;
+	color: var(--text-primary, #1e293b);
+}
+
+.wiki-public-contributors-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 16px;
+}
+
+.wiki-public-contributor-item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 14px;
+	background: var(--surface-secondary, #f8fafc);
+	border: 1px solid var(--border-color, #e2e8f0);
+	border-radius: 10px;
+	min-width: 200px;
+}
+
+.wiki-public-contributor-avatar-wrap {
+	width: 40px;
+	height: 40px;
+	flex-shrink: 0;
+}
+
+.wiki-public-contributor-avatar {
+	width: 100%;
+	height: 100%;
+	border-radius: 50%;
+	object-fit: cover;
+	display: block;
+}
+
+.wiki-public-contributor-avatar--initial {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--bs-primary, #3b82f6);
+	color: #ffffff;
+	font-weight: 600;
+	font-size: 0.95rem;
+	text-transform: uppercase;
+}
+
+.wiki-public-contributor-info {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.wiki-public-contributor-name {
+	font-size: 0.95rem;
+	font-weight: 600;
+	color: var(--text-primary, #1e293b);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.wiki-public-contributor-count {
+	font-size: 0.8rem;
+	color: var(--text-muted, #64748b);
+}
+
+@media (max-width: 575.98px) {
+	.wiki-public-contributors-card {
+		padding: 18px;
+	}
+
+	.wiki-public-contributors-list {
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.wiki-public-contributor-item {
+		width: 100%;
+		min-width: 0;
+	}
+}

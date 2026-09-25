@@ -69,4 +69,20 @@ public interface SpringDataWikiContributionJpaRepository
 
     @Query("SELECT COUNT(c) FROM WikiContributionJpaEntity c WHERE c.status = :status")
     long countByStatus(@Param("status") String status);
+
+    @Query("""
+            SELECT
+                c.submittedByUserId AS contributorUserId,
+                COUNT(cr.id) AS activeCreditCount
+            FROM WikiContributionJpaEntity c
+            JOIN WikiContributionCreditJpaEntity cr ON cr.contributionId = c.id
+            WHERE c.articleId = :articleId
+              AND cr.creditStatus = 'ACTIVE'
+            GROUP BY c.submittedByUserId
+            ORDER BY c.submittedByUserId ASC
+            """)
+    List<WikiArticlePublicContributorProjection> findActiveContributorsByArticleId(
+            @Param("articleId") String articleId,
+            Pageable pageable
+    );
 }

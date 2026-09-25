@@ -118,6 +118,10 @@ class PublicWikiControllerTest {
     private com.universe.identity.contracts.interfaces.UserIdentityContract
             userIdentityContract;
 
+    @Mock
+    private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase
+            getWikiArticlePublicContributorsUseCase;
+
     private PublicWikiController
             controller;
 
@@ -132,7 +136,8 @@ class PublicWikiControllerTest {
                         isWikiArticleSavedUseCase,
                         getWikiAppreciationDetailStateUseCase,
                         getWikiAppreciationSummariesUseCase,
-                        userIdentityContract
+                        userIdentityContract,
+                        getWikiArticlePublicContributorsUseCase
                 );
     }
 
@@ -928,6 +933,32 @@ class PublicWikiControllerTest {
         controller.detailPage("character", "tran-binh-an", request, model);
 
         assertThat(model.getAttribute("attributionLine")).isEqualTo("Đăng bởi Tác giả gốc");
+    }
+
+    @Test
+    @DisplayName("Nạp danh sách publicContributors vào Model theo article.id() hiện tại")
+    void shouldPopulatePublicContributorsInModel() {
+        PublishedWikiArticleDTO article = createPublishedDTO();
+        when(articleTypePathMapper.fromPath("character")).thenReturn(ArticleType.CHARACTER);
+        when(getPublishedArticleUseCase.execute(any())).thenReturn(article);
+        when(articleTypePathMapper.toPath(ArticleType.CHARACTER)).thenReturn("character");
+        when(wikiMarkdownRenderer.render(any())).thenReturn(new RenderedWikiContent("<p>Nội dung</p>", List.of()));
+        when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
+                .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
+
+        List<com.universe.wiki.contracts.dto.WikiPublicContributorDTO> contributors = List.of(
+                new com.universe.wiki.contracts.dto.WikiPublicContributorDTO("Độc giả 1", "https://avatar.com/1.png", 2L),
+                new com.universe.wiki.contracts.dto.WikiPublicContributorDTO("Độc giả 2", null, 1L)
+        );
+        when(getWikiArticlePublicContributorsUseCase.execute(ARTICLE_ID)).thenReturn(contributors);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        controller.detailPage("character", "tran-binh-an", request, model);
+
+        assertThat(model.getAttribute("publicContributors")).isEqualTo(contributors);
+        verify(getWikiArticlePublicContributorsUseCase, times(1)).execute(ARTICLE_ID);
     }
 
     private PublishedWikiArticlePageDTO

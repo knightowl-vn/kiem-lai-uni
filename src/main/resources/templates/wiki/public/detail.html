@@ -536,6 +536,56 @@
 		</div>
 
 		<!-- ================================================= -->
+		<!-- PUBLIC CONTRIBUTORS                               -->
+		<!-- ================================================= -->
+		<section th:if="${publicContributors != null and !#lists.isEmpty(publicContributors)}"
+			class="wiki-public-contributors-card"
+			aria-labelledby="wikiContributorsHeading">
+			<div class="wiki-public-contributors-header">
+				<svg class="wiki-public-contributors-icon"
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					width="20"
+					height="20"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true">
+					<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+					<circle cx="9" cy="7" r="4"></circle>
+					<path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+					<path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+				</svg>
+				<h2 id="wikiContributorsHeading" class="wiki-public-contributors-title">
+					Người đóng góp bài viết
+				</h2>
+			</div>
+			<div class="wiki-public-contributors-list">
+				<div th:each="contributor : ${publicContributors}" class="wiki-public-contributor-item">
+					<div class="wiki-public-contributor-avatar-wrap">
+						<img th:if="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+							th:src="${contributor.avatarUrl}"
+							th:alt="${contributor.displayName}"
+							class="wiki-public-contributor-avatar"
+							referrerpolicy="no-referrer"
+							onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+						<span th:unless="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+							class="wiki-public-contributor-avatar wiki-public-contributor-avatar--initial"
+							th:text="${#strings.substring(contributor.displayName, 0, 1)}"
+							aria-hidden="true">U</span>
+					</div>
+					<div class="wiki-public-contributor-info">
+						<span class="wiki-public-contributor-name" th:text="${contributor.displayName}">Tên người dùng</span>
+						<span class="wiki-public-contributor-count"
+							th:text="${contributor.activeCreditCount == 1 ? '1 đóng góp được ghi nhận' : (contributor.activeCreditCount + ' đóng góp được ghi nhận')}">1 đóng góp được ghi nhận</span>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ================================================= -->
 		<!-- ARTICLE DISCUSSION                                -->
 		<!-- ================================================= -->
 		<section id="wikiDiscussion"

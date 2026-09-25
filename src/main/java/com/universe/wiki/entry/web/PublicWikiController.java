@@ -20,6 +20,8 @@ import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleType;
 
+import com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase;
+import com.universe.wiki.contracts.dto.WikiPublicContributorDTO;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
@@ -64,17 +66,7 @@ public class PublicWikiController {
 
 	private final UserIdentityContract userIdentityContract;
 
-	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
-			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
-			ArticleTypePathMapper articleTypePathMapper,
-			WikiMarkdownRenderer wikiMarkdownRenderer,
-			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
-			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
-			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase) {
-		this(listPublishedArticlesUseCase, getPublishedArticleUseCase, articleTypePathMapper,
-				wikiMarkdownRenderer, isWikiArticleSavedUseCase, getWikiAppreciationDetailStateUseCase,
-				getWikiAppreciationSummariesUseCase, null);
-	}
+	private final GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
 
 	@Autowired
 	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
@@ -84,7 +76,8 @@ public class PublicWikiController {
 			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
 			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
 			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase,
-			UserIdentityContract userIdentityContract) {
+			UserIdentityContract userIdentityContract,
+			GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase) {
 		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
 
 		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
@@ -109,6 +102,11 @@ public class PublicWikiController {
 		);
 
 		this.userIdentityContract = userIdentityContract;
+
+		this.getWikiArticlePublicContributorsUseCase = Objects.requireNonNull(
+				getWikiArticlePublicContributorsUseCase,
+				"GetWikiArticlePublicContributorsUseCase không được để trống."
+		);
 	}
 
 	/**
@@ -217,6 +215,10 @@ public class PublicWikiController {
 
 		String attributionLine = resolveAttributionLine(article);
 		model.addAttribute("attributionLine", attributionLine);
+
+		List<WikiPublicContributorDTO> publicContributors =
+				getWikiArticlePublicContributorsUseCase.execute(article.id());
+		model.addAttribute("publicContributors", publicContributors);
 
 		return "wiki/public/detail";
 	}
