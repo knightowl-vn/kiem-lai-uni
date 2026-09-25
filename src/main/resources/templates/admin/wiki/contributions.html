@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quản lý đóng góp Wiki | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/wiki-contributions.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Heading -->
+                <div class="wiki-contributions-heading">
+                    <div>
+                        <span class="admin-eyebrow">WIKI MODULE / CONTRIBUTIONS</span>
+                        <h2>Hàng đợi đóng góp Wiki</h2>
+                        <p>Khám phá và tiếp nhận các đóng góp, chỉnh sửa nội dung bài viết từ độc giả.</p>
+                    </div>
+                </div>
+
+                <!-- Status Tab Navigation -->
+                <nav class="wiki-contributions-tabs" aria-label="Phân loại hàng đợi đóng góp">
+                    <a th:href="@{/admin/wiki/contributions(status='NEW', type=${selectedType != null ? selectedType.name() : ''}, keyword=${keyword})}"
+                       class="wiki-contributions-tab"
+                       th:classappend="${selectedStatus == 'NEW' ? 'active' : ''}">
+                        <span>Cần xử lý (Mới)</span>
+                        <span th:if="${newContributionCount != null and newContributionCount > 0}"
+                              class="wiki-contributions-tab-badge"
+                              th:text="${newContributionCount}">0</span>
+                    </a>
+                    <a th:href="@{/admin/wiki/contributions(status='REVIEWING', type=${selectedType != null ? selectedType.name() : ''}, keyword=${keyword})}"
+                       class="wiki-contributions-tab"
+                       th:classappend="${selectedStatus == 'REVIEWING' ? 'active' : ''}">
+                        <span>Đang xem xét</span>
+                    </a>
+                    <a th:href="@{/admin/wiki/contributions(status='RESOLVED', type=${selectedType != null ? selectedType.name() : ''}, keyword=${keyword})}"
+                       class="wiki-contributions-tab"
+                       th:classappend="${selectedStatus == 'RESOLVED' ? 'active' : ''}">
+                        <span>Đã giải quyết</span>
+                    </a>
+                    <a th:href="@{/admin/wiki/contributions(status='REJECTED', type=${selectedType != null ? selectedType.name() : ''}, keyword=${keyword})}"
+                       class="wiki-contributions-tab"
+                       th:classappend="${selectedStatus == 'REJECTED' ? 'active' : ''}">
+                        <span>Đã từ chối</span>
+                    </a>
+                    <a th:href="@{/admin/wiki/contributions(status='ALL', type=${selectedType != null ? selectedType.name() : ''}, keyword=${keyword})}"
+                       class="wiki-contributions-tab"
+                       th:classappend="${selectedStatus == 'ALL' ? 'active' : ''}">
+                        <span>Tất cả trạng thái</span>
+                    </a>
+                </nav>
+
+                <!-- Filter Form Panel -->
+                <section class="admin-filter-panel">
+                    <form method="get" th:action="@{/admin/wiki/contributions}" class="admin-filter-form wiki-contributions-filter-form">
+
+                        <!-- Hidden Status (Preserves selected tab) -->
+                        <input type="hidden" name="status" th:value="${selectedStatus}">
+
+                        <div class="admin-field keyword-field">
+                            <label for="wikiContributionKeyword">Tìm kiếm bài viết</label>
+                            <input id="wikiContributionKeyword"
+                                   type="search"
+                                   name="keyword"
+                                   placeholder="Tiêu đề hoặc slug bài viết..."
+                                   th:value="${keyword}">
+                        </div>
+
+                        <div class="admin-field">
+                            <label for="wikiContributionType">Loại đóng góp</label>
+                            <select id="wikiContributionType" name="type">
+                                <option value="ALL" th:selected="${selectedType == null}">Tất cả loại</option>
+                                <option th:each="cType : ${contributionTypes}"
+                                        th:value="${cType.name()}"
+                                        th:selected="${selectedType == cType}"
+                                        th:text="${cType.name() == 'INCORRECT_INFORMATION' ? 'Thông tin sai lệch' :
+                                                 cType.name() == 'MISSING_INFORMATION' ? 'Thiếu thông tin' :
+                                                 cType.name() == 'OUTDATED_INFORMATION' ? 'Thông tin lỗi thời' :
+                                                 cType.name() == 'WORDING' ? 'Lỗi diễn đạt / chính tả' :
+                                                 cType.name() == 'SOURCE_REFERENCE' ? 'Bổ sung nguồn tham khảo' :
+                                                 cType.name() == 'OTHER' ? 'Khác' : cType.name()}">
+                                    Loại đóng góp
+                                </option>
+                            </select>
+                        </div>
+
+                        <input type="hidden" name="size" th:value="${pageSize}">
+
+                        <div class="admin-filter-actions">
+                            <button type="submit" class="admin-primary-button">Lọc kết quả</button>
+                            <a th:href="@{/admin/wiki/contributions(status=${selectedStatus})}" class="admin-secondary-button">Đặt lại</a>
+                        </div>
+
+                    </form>
+                </section>
+
+                <!-- Summary Bar -->
+                <div class="admin-result-summary">
+                    <span>Tìm thấy <strong th:text="${contributionPage.totalElements}">0</strong> đóng góp</span>
+                    <span>Trang <strong th:text="${contributionPage.page + 1}">1</strong> / <strong th:text="${contributionPage.totalPages > 0 ? contributionPage.totalPages : 1}">1</strong></span>
+                </div>
+
+                <!-- Empty State -->
+                <section th:if="${#lists.isEmpty(items)}" class="admin-empty-state">
+                    <div class="admin-empty-icon">✓</div>
+                    <h3>Không có đóng góp phù hợp</h3>
+                    <p th:if="${selectedStatus == 'NEW'}">Hiện không có đóng góp mới nào đang chờ xử lý khớp với bộ lọc.</p>
+                    <p th:if="${selectedStatus == 'REVIEWING'}">Hiện không có đóng góp nào đang được xem xét khớp với bộ lọc.</p>
+                    <p th:if="${selectedStatus == 'RESOLVED'}">Hiện không có đóng góp đã giải quyết nào khớp với bộ lọc.</p>
+                    <p th:if="${selectedStatus == 'REJECTED'}">Hiện không có đóng góp đã từ chối nào khớp với bộ lọc.</p>
+                    <p th:if="${selectedStatus == 'ALL'}">Hiện không có đóng góp nào khớp với tiêu chí tìm kiếm.</p>
+                    <a th:href="@{/admin/wiki/contributions(status=${selectedStatus})}" class="admin-secondary-button">Đặt lại bộ lọc</a>
+                </section>
+
+                <!-- Contribution Cards List -->
+                <div th:unless="${#lists.isEmpty(items)}" class="wiki-contributions-list">
+                    <article class="wiki-contribution-card" th:each="row : ${items}">
+
+                        <!-- Card Header -->
+                        <div class="wiki-contribution-card-header">
+                            <div class="wiki-contribution-header-left">
+                                <!-- Status Badge -->
+                                <span class="status-badge"
+                                      th:classappend="${row.item.status.name() == 'NEW' ? ' status-new' :
+                                                       row.item.status.name() == 'REVIEWING' ? ' status-reviewing' :
+                                                       row.item.status.name() == 'RESOLVED' ? ' status-resolved' :
+                                                       ' status-rejected'}"
+                                      th:text="${row.item.status.name() == 'NEW' ? 'Mới tiếp nhận' :
+                                               row.item.status.name() == 'REVIEWING' ? 'Đang xem xét' :
+                                               row.item.status.name() == 'RESOLVED' ? 'Đã giải quyết' :
+                                               'Đã từ chối'}">
+                                    Mới tiếp nhận
+                                </span>
+
+                                <!-- Context Badge -->
+                                <span class="context-badge"
+                                      th:classappend="${row.item.contextType.name() == 'TEXT_SELECTION' ? ' context-text-selection' : ' context-general'}"
+                                      th:text="${row.item.contextType.name() == 'TEXT_SELECTION' ? 'Đoạn trích dẫn' : 'Đóng góp chung'}">
+                                    Đóng góp chung
+                                </span>
+
+                                <!-- Contribution Type Badge -->
+                                <span class="type-badge"
+                                      th:text="${row.item.contributionType.name() == 'INCORRECT_INFORMATION' ? 'Thông tin sai lệch' :
+                                               row.item.contributionType.name() == 'MISSING_INFORMATION' ? 'Thiếu thông tin' :
+                                               row.item.contributionType.name() == 'OUTDATED_INFORMATION' ? 'Thông tin lỗi thời' :
+                                               row.item.contributionType.name() == 'WORDING' ? 'Lỗi diễn đạt / chính tả' :
+                                               row.item.contributionType.name() == 'SOURCE_REFERENCE' ? 'Nguồn tham khảo' :
+                                               'Khác'}">
+                                    Thông tin sai lệch
+                                </span>
+                            </div>
+
+                            <div class="wiki-contribution-header-right">
+                                <time th:datetime="${row.item.createdAt}"
+                                      th:text="${#temporals.format(row.item.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                    01/01/2026 12:00
+                                </time>
+                                <span class="wiki-contribution-id" th:text="${'ID: ' + row.item.contributionId}">UUID</span>
+                            </div>
+                        </div>
+
+                        <!-- Article Snapshot Info -->
+                        <div class="wiki-contribution-article-snapshot">
+                            <span class="wiki-article-type-tag" th:text="${row.item.articleTypeSnapshot}">CHARACTER</span>
+                            <span class="wiki-article-title" th:text="${row.item.articleTitleSnapshot}">Tiêu đề bài viết tại thời điểm gửi</span>
+                            <span class="wiki-article-version" th:text="${'v' + row.item.articleContentVersion}">v1</span>
+                            <a th:href="@{'/wiki/' + ${#strings.toLowerCase(#strings.replace(row.item.articleTypeSnapshot, '_', '-'))} + '/' + ${row.item.articleSlugSnapshot}}"
+                               target="_blank"
+                               rel="noopener"
+                               class="wiki-article-link">
+                                Xem bài viết hiện tại ↗
+                            </a>
+                        </div>
+
+                        <!-- Contextual Indicator for text selection -->
+                        <div th:if="${row.item.hasSelectedText}" class="wiki-contribution-selection-indicator">
+                            <span class="context-badge context-text-selection" style="font-size: 11px;">
+                                ✦ Đóng góp theo đoạn trích
+                            </span>
+                        </div>
+
+                        <!-- Message Preview -->
+                        <div class="wiki-contribution-message" th:text="${row.item.messagePreview}">
+                            Bản xem trước nội dung đóng góp của độc giả.
+                        </div>
+
+                        <!-- Footer: Contributor & Sources -->
+                        <div class="wiki-contribution-footer">
+                            <div class="wiki-contributor-info">
+                                <div class="wiki-contributor-avatar"
+                                     th:classappend="${!row.contributor.resolved ? ' unresolved' : ''}">
+                                    <img th:if="${row.contributor.resolved and row.contributor.avatarUrl != null and !row.contributor.avatarUrl.isBlank()}"
+                                         th:src="${row.contributor.avatarUrl}"
+                                         alt="Avatar"
+                                         referrerpolicy="no-referrer">
+                                    <span th:unless="${row.contributor.resolved and row.contributor.avatarUrl != null and !row.contributor.avatarUrl.isBlank()}"
+                                          th:text="${row.contributor.resolved and row.contributor.displayName != null and !row.contributor.displayName.isBlank() ? #strings.substring(row.contributor.displayName, 0, 1) : '?'}">
+                                        ?
+                                    </span>
+                                </div>
+                                <div class="wiki-contributor-name-col">
+                                    <span class="wiki-contributor-name"
+                                          th:text="${row.contributor.resolved ? row.contributor.displayName : 'Người dùng không khả dụng'}">
+                                        Tên người gửi
+                                    </span>
+                                    <span class="wiki-contributor-uuid" th:text="${row.item.submittedByUserId}">
+                                        UUID
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="wiki-sources-indicator"
+                                 th:classappend="${row.item.hasSources ? ' has-sources' : ' no-sources'}">
+                                <span th:text="${row.item.hasSources ? (row.item.sourceCount + ' nguồn tham khảo') : 'Không có nguồn'}">
+                                    0 nguồn tham khảo
+                                </span>
+                            </div>
+                        </div>
+
+                    </article>
+                </div>
+
+                <!-- Pagination -->
+                <nav th:if="${contributionPage.totalPages > 1}"
+                     class="wiki-admin-pagination"
+                     aria-label="Phân trang đóng góp Wiki"
+                     style="display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px;">
+
+                    <a th:if="${!contributionPage.first}"
+                       class="wiki-admin-page-button"
+                       th:href="@{/admin/wiki/contributions(
+                           status=${selectedStatus},
+                           type=${selectedType != null ? selectedType.name() : ''},
+                           keyword=${keyword},
+                           page=${contributionPage.page - 1},
+                           size=${pageSize}
+                       )}">
+                        ← Trang trước
+                    </a>
+
+                    <span>
+                        Trang <strong th:text="${contributionPage.page + 1}">1</strong> /
+                        <strong th:text="${contributionPage.totalPages}">1</strong>
+                    </span>
+
+                    <a th:if="${!contributionPage.last}"
+                       class="wiki-admin-page-button"
+                       th:href="@{/admin/wiki/contributions(
+                           status=${selectedStatus},
+                           type=${selectedType != null ? selectedType.name() : ''},
+                           keyword=${keyword},
+                           page=${contributionPage.page + 1},
+                           size=${pageSize}
+                       )}">
+                        Trang sau →
+                    </a>
+
+                </nav>
+
+            </section>
+
+        </main>
+
+    </div>
+
+</body>
+</html>

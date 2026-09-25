@@ -111,7 +111,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.wiki.entry.web.PublicWikiContextualLookupController.class,
         com.universe.interaction.entry.admin.AdminCommentReportQueueController.class,
         com.universe.interaction.entry.admin.AdminCommentReportDetailController.class,
-        com.universe.interaction.entry.admin.AdminCommentReportModerationController.class
+        com.universe.interaction.entry.admin.AdminCommentReportModerationController.class,
+        com.universe.wiki.entry.admin.AdminWikiContributionPageController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -261,6 +262,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.interaction.application.mutation.ResolveCommentReportUseCase resolveCommentReportUseCase;
+
+    @MockBean
+    private com.universe.wiki.entry.admin.AdminWikiContributionCoordinator adminWikiContributionCoordinator;
 
     @MockBean
     private ThymeleafViewResolver thymeleafViewResolver;
@@ -1038,5 +1042,47 @@ class SecurityAuthorizationTest {
                 .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
 
         verify(resolveCommentReportUseCase).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chuyển hướng sang /login khi truy cập /admin/wiki/contributions")
+    void shouldRedirectAnonymousUserWhenAccessingAdminWikiContributions() throws Exception {
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng với role USER bị từ chối truy cập /admin/wiki/contributions (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminWikiContributionsForRegularUser() throws Exception {
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập GET /admin/wiki/contributions")
+    void shouldAllowAccessToAdminWikiContributionsForAdmin() throws Exception {
+        when(adminWikiContributionCoordinator.getInboxPage(any()))
+                .thenReturn(com.universe.wiki.entry.admin.dto.AdminWikiContributionQueuePageDTO.empty(0, 20));
+        when(adminWikiContributionCoordinator.getNewContributionCount()).thenReturn(0L);
+
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập GET /admin/wiki/contributions")
+    void shouldAllowAccessToAdminWikiContributionsForSuperAdmin() throws Exception {
+        when(adminWikiContributionCoordinator.getInboxPage(any()))
+                .thenReturn(com.universe.wiki.entry.admin.dto.AdminWikiContributionQueuePageDTO.empty(0, 20));
+        when(adminWikiContributionCoordinator.getNewContributionCount()).thenReturn(0L);
+
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().isOk());
     }
 }

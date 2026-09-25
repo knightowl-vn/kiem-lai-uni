@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.contribution;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -27,4 +28,44 @@ public interface SpringDataWikiContributionJpaRepository
             @Param("cutoff") Instant cutoff,
             Pageable pageable
     );
+
+    @Query(value = """
+            SELECT
+                c.id AS id,
+                c.status AS status,
+                c.contributionType AS contributionType,
+                c.contextType AS contextType,
+                c.articleId AS articleId,
+                c.articleTypeSnapshot AS articleTypeSnapshot,
+                c.articleTitleSnapshot AS articleTitleSnapshot,
+                c.articleSlugSnapshot AS articleSlugSnapshot,
+                c.articleContentVersion AS articleContentVersion,
+                c.submittedByUserId AS submittedByUserId,
+                c.createdAt AS createdAt,
+                (CASE WHEN c.contextType = 'TEXT_SELECTION' AND c.selectedText IS NOT NULL THEN true ELSE false END) AS hasSelectedText,
+                SUBSTRING(c.message, 1, 200) AS messagePreview
+            FROM WikiContributionJpaEntity c
+            WHERE (:status IS NULL OR c.status = :status)
+              AND (:contributionType IS NULL OR c.contributionType = :contributionType)
+              AND (:keyword IS NULL
+                   OR LOWER(c.articleTitleSnapshot) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                   OR LOWER(c.articleSlugSnapshot) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            """,
+            countQuery = """
+            SELECT COUNT(c) FROM WikiContributionJpaEntity c
+            WHERE (:status IS NULL OR c.status = :status)
+              AND (:contributionType IS NULL OR c.contributionType = :contributionType)
+              AND (:keyword IS NULL
+                   OR LOWER(c.articleTitleSnapshot) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                   OR LOWER(c.articleSlugSnapshot) LIKE LOWER(CONCAT('%', :keyword, '%')))
+            """)
+    Page<WikiContributionAdminInboxProjection> findAdminInboxPage(
+            @Param("status") String status,
+            @Param("contributionType") String contributionType,
+            @Param("keyword") String keyword,
+            Pageable pageable
+    );
+
+    @Query("SELECT COUNT(c) FROM WikiContributionJpaEntity c WHERE c.status = :status")
+    long countByStatus(@Param("status") String status);
 }
