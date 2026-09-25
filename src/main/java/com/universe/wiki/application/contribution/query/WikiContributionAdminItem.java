@@ -26,6 +26,7 @@ public record WikiContributionAdminItem(
         String articleSlugSnapshot,
         long articleContentVersion,
         UUID submittedByUserId,
+        UUID assignedToUserId,
         String messagePreview,
         boolean hasSelectedText,
         boolean hasSources,
@@ -41,5 +42,27 @@ public record WikiContributionAdminItem(
         Objects.requireNonNull(submittedByUserId, "submittedByUserId cannot be null");
         Objects.requireNonNull(messagePreview, "messagePreview cannot be null");
         Objects.requireNonNull(createdAt, "createdAt cannot be null");
+    }
+
+    public WikiContributionAdminItem(
+            UUID contributionId,
+            WikiContributionStatus status,
+            WikiContributionType contributionType,
+            WikiContributionContextType contextType,
+            UUID articleId,
+            String articleTypeSnapshot,
+            String articleTitleSnapshot,
+            String articleSlugSnapshot,
+            long articleContentVersion,
+            UUID submittedByUserId,
+            String messagePreview,
+            boolean hasSelectedText,
+            boolean hasSources,
+            int sourceCount,
+            Instant createdAt
+    ) {
+        this(contributionId, status, contributionType, contextType, articleId, articleTypeSnapshot,
+                articleTitleSnapshot, articleSlugSnapshot, articleContentVersion, submittedByUserId,
+                null, messagePreview, hasSelectedText, hasSources, sourceCount, createdAt);
     }
 }

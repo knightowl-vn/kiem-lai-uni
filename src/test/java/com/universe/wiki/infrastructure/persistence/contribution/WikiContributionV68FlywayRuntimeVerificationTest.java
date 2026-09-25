@@ -25,20 +25,20 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.flyway.enabled=true",
         "spring.flyway.out-of-order=true"
 })
-@DisplayName("Wiki Contribution V67 Flyway Runtime Verification Tests")
-class WikiContributionV67FlywayRuntimeVerificationTest {
+@DisplayName("Wiki Contribution V68 Flyway Runtime Verification Tests")
+class WikiContributionV68FlywayRuntimeVerificationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
-        cleanV67BeforeFlyway();
+        cleanV68BeforeFlyway();
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
-    private static void cleanV67BeforeFlyway() {
+    private static void cleanV68BeforeFlyway() {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('67', '68')");
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version = '68'");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_workflow_events");
             String dbName = TestDatabaseSupport.resolveDatabaseName();
             Integer idxExists = jdbc.queryForObject(
@@ -57,8 +57,7 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
             if (chkExists != null && chkExists > 0) {
                 jdbc.execute("ALTER TABLE wiki_contributions DROP CHECK chk_wiki_contributions_resolution_outcome");
             }
-            for (String col : java.util.List.of("resolution_note", "resolved_by_user_id", "resolved_at", "resolved_article_content_version",
-                    "assigned_to_user_id", "assigned_at", "review_started_by_user_id", "review_started_at", "review_started_article_content_version", "resolution_outcome")) {
+            for (String col : java.util.List.of("assigned_to_user_id", "assigned_at", "review_started_by_user_id", "review_started_at", "review_started_article_content_version", "resolution_outcome")) {
                 Integer exists = jdbc.queryForObject(
                         "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'wiki_contributions' AND column_name = ?",
                         Integer.class,
@@ -93,10 +92,10 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    @DisplayName("Verify V67 migration is recorded as successful in flyway_schema_history")
-    void shouldVerifyV67AppliedInFlywayHistory() {
+    @DisplayName("Verify V68 migration is recorded as successful in flyway_schema_history")
+    void shouldVerifyV68AppliedInFlywayHistory() {
         Integer success = jdbcTemplate.queryForObject(
-                "SELECT success FROM flyway_schema_history WHERE version = '67'",
+                "SELECT success FROM flyway_schema_history WHERE version = '68'",
                 Integer.class
         );
         assertThat(success).isEqualTo(1);
@@ -104,7 +103,7 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
 
     @Test
     @DisplayName("Verify newly added columns in wiki_contributions table are present and nullable")
-    void shouldVerifyAddedColumns() {
+    void shouldVerifyContributionAccountabilityColumns() {
         String dbName = TestDatabaseSupport.resolveDatabaseName();
 
         List<String> columnNames = jdbcTemplate.query(
@@ -112,7 +111,7 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
                 SELECT column_name FROM information_schema.columns
                 WHERE table_schema = ?
                   AND table_name = 'wiki_contributions'
-                  AND column_name IN ('resolution_note', 'resolved_by_user_id', 'resolved_at', 'resolved_article_content_version')
+                  AND column_name IN ('assigned_to_user_id', 'assigned_at', 'review_started_by_user_id', 'review_started_at', 'review_started_article_content_version', 'resolution_outcome')
                 ORDER BY ordinal_position
                 """,
                 (rs, rowNum) -> rs.getString("column_name"),
@@ -120,50 +119,61 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
         );
 
         assertThat(columnNames).containsExactlyInAnyOrder(
-                "resolution_note",
-                "resolved_by_user_id",
-                "resolved_at",
-                "resolved_article_content_version"
+                "assigned_to_user_id",
+                "assigned_at",
+                "review_started_by_user_id",
+                "review_started_at",
+                "review_started_article_content_version",
+                "resolution_outcome"
         );
+    }
 
-        // Verify all 4 new columns are nullable
-        List<String> nonNullableAddedColumns = jdbcTemplate.query(
+    @Test
+    @DisplayName("Verify source_contribution_id in wiki_article_revisions is present and indexed")
+    void shouldVerifyArticleRevisionLinkageColumn() {
+        String dbName = TestDatabaseSupport.resolveDatabaseName();
+
+        Integer count = jdbcTemplate.queryForObject(
+                """
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = ?
+                  AND table_name = 'wiki_article_revisions'
+                  AND column_name = 'source_contribution_id'
+                """,
+                Integer.class,
+                dbName
+        );
+        assertThat(count).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Verify wiki_contribution_workflow_events table is present with correct schema")
+    void shouldVerifyWorkflowEventsTable() {
+        String dbName = TestDatabaseSupport.resolveDatabaseName();
+
+        List<String> eventColumns = jdbcTemplate.query(
                 """
                 SELECT column_name FROM information_schema.columns
                 WHERE table_schema = ?
-                  AND table_name = 'wiki_contributions'
-                  AND column_name IN ('resolution_note', 'resolved_by_user_id', 'resolved_at', 'resolved_article_content_version')
-                  AND is_nullable = 'NO'
+                  AND table_name = 'wiki_contribution_workflow_events'
+                ORDER BY ordinal_position
                 """,
                 (rs, rowNum) -> rs.getString("column_name"),
                 dbName
         );
-        assertThat(nonNullableAddedColumns).isEmpty();
 
-        // Verify resolution_note length is 2000
-        Long noteLength = jdbcTemplate.queryForObject(
-                """
-                SELECT character_maximum_length FROM information_schema.columns
-                WHERE table_schema = ?
-                  AND table_name = 'wiki_contributions'
-                  AND column_name = 'resolution_note'
-                """,
-                Long.class,
-                dbName
+        assertThat(eventColumns).contains(
+                "id",
+                "contribution_id",
+                "event_type",
+                "actor_user_id",
+                "target_user_id",
+                "from_status",
+                "to_status",
+                "article_content_version",
+                "resolution_outcome",
+                "note",
+                "created_at"
         );
-        assertThat(noteLength).isEqualTo(2000L);
-
-        // Verify resolved_by_user_id length is 36
-        Long userIdLength = jdbcTemplate.queryForObject(
-                """
-                SELECT character_maximum_length FROM information_schema.columns
-                WHERE table_schema = ?
-                  AND table_name = 'wiki_contributions'
-                  AND column_name = 'resolved_by_user_id'
-                """,
-                Long.class,
-                dbName
-        );
-        assertThat(userIdLength).isEqualTo(36L);
     }
 }

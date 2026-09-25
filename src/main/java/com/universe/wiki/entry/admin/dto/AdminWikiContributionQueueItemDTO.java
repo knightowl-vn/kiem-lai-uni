@@ -9,10 +9,18 @@ import java.util.Objects;
  */
 public record AdminWikiContributionQueueItemDTO(
         WikiContributionAdminItem item,
-        AdminWikiContributionContributorDTO contributor
+        AdminWikiContributionContributorDTO contributor,
+        AdminWikiContributionContributorDTO assignee
 ) {
     public AdminWikiContributionQueueItemDTO {
         Objects.requireNonNull(item, "item cannot be null");
         Objects.requireNonNull(contributor, "contributor cannot be null");
+    }
+
+    public AdminWikiContributionQueueItemDTO(
+            WikiContributionAdminItem item,
+            AdminWikiContributionContributorDTO contributor
+    ) {
+        this(item, contributor, null);
     }
 }

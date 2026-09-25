@@ -112,4 +112,14 @@ public class EditWikiArticleForm {
     ) {
         this.coverPositionY = coverPositionY;
     }
+
+    private java.util.UUID sourceContributionId;
+
+    public java.util.UUID getSourceContributionId() {
+        return sourceContributionId;
+    }
+
+    public void setSourceContributionId(java.util.UUID sourceContributionId) {
+        this.sourceContributionId = sourceContributionId;
+    }
 }

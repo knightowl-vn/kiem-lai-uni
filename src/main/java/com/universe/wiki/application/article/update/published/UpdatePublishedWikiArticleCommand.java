@@ -20,7 +20,8 @@ public record UpdatePublishedWikiArticleCommand(
         Integer coverPositionY,
         boolean updateCover,
         WikiCoverIntent coverIntent,
-        UUID expectedCoverMediaAssetId
+        UUID expectedCoverMediaAssetId,
+        UUID sourceContributionId
 ) {
     public UpdatePublishedWikiArticleCommand {
         if (coverPositionX == null) {
@@ -49,10 +50,42 @@ public record UpdatePublishedWikiArticleCommand(
             UUID coverMediaAssetId,
             Integer coverPositionX,
             Integer coverPositionY,
+            boolean updateCover,
+            WikiCoverIntent coverIntent,
+            UUID expectedCoverMediaAssetId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId,
+                coverPositionX, coverPositionY, updateCover, coverIntent, expectedCoverMediaAssetId, null);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId,
+            Integer coverPositionX,
+            Integer coverPositionY,
             boolean updateCover
     ) {
         this(articleId, summary, content, editSummary, actorId, coverMediaAssetId,
-                coverPositionX, coverPositionY, updateCover, null, null);
+                coverPositionX, coverPositionY, updateCover, null, null, null);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            Integer coverPositionX,
+            Integer coverPositionY,
+            UUID sourceContributionId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, null,
+                coverPositionX != null ? coverPositionX : 50,
+                coverPositionY != null ? coverPositionY : 50, false, null, null, sourceContributionId);
     }
 
     public UpdatePublishedWikiArticleCommand(
@@ -64,9 +97,7 @@ public record UpdatePublishedWikiArticleCommand(
             Integer coverPositionX,
             Integer coverPositionY
     ) {
-        this(articleId, summary, content, editSummary, actorId, null,
-                coverPositionX != null ? coverPositionX : 50,
-                coverPositionY != null ? coverPositionY : 50, false);
+        this(articleId, summary, content, editSummary, actorId, coverPositionX, coverPositionY, null);
     }
 
     public UpdatePublishedWikiArticleCommand(

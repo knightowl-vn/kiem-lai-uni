@@ -150,6 +150,14 @@ public class WikiArticleRevisionJpaEntity {
 
 
     @Column(
+            name = "source_contribution_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String sourceContributionId;
+
+
+    @Column(
             name = "created_at",
             nullable = false
     )
@@ -157,6 +165,16 @@ public class WikiArticleRevisionJpaEntity {
 
 
     public WikiArticleRevisionJpaEntity() {
+    }
+
+
+    public String getSourceContributionId() {
+        return sourceContributionId;
+    }
+
+
+    public void setSourceContributionId(String sourceContributionId) {
+        this.sourceContributionId = sourceContributionId;
     }
 
 

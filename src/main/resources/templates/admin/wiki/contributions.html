@@ -145,6 +145,13 @@
                                     Mới tiếp nhận
                                 </span>
 
+                                <span th:if="${row.item.status.name() == 'REVIEWING' and row.assignee != null and row.assignee.resolved}"
+                                      class="assignee-badge"
+                                      style="font-size: 12px; font-weight: 500; color: #3b82f6; background: rgba(59, 130, 246, 0.1); padding: 2px 8px; border-radius: 4px;"
+                                      th:text="${'Đang xử lý: ' + row.assignee.displayName}">
+                                    Đang xử lý: Admin
+                                </span>
+
                                 <!-- Context Badge -->
                                 <span class="context-badge"
                                       th:classappend="${row.item.contextType.name() == 'TEXT_SELECTION' ? ' context-text-selection' : ' context-general'}"

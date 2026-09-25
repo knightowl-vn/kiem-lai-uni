@@ -31,6 +31,10 @@ import java.util.Objects;
                 @Index(
                         name = "idx_wiki_contributions_user_created_id",
                         columnList = "submitted_by_user_id, created_at, id"
+                ),
+                @Index(
+                        name = "idx_wiki_contributions_assignee",
+                        columnList = "assigned_to_user_id, status"
                 )
         }
 )
@@ -181,6 +185,41 @@ public class WikiContributionJpaEntity {
             name = "resolved_article_content_version"
     )
     private Long resolvedArticleContentVersion;
+
+    @Column(
+            name = "assigned_to_user_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String assignedToUserId;
+
+    @Column(
+            name = "assigned_at"
+    )
+    private Instant assignedAt;
+
+    @Column(
+            name = "review_started_by_user_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String reviewStartedByUserId;
+
+    @Column(
+            name = "review_started_at"
+    )
+    private Instant reviewStartedAt;
+
+    @Column(
+            name = "review_started_article_content_version"
+    )
+    private Long reviewStartedArticleContentVersion;
+
+    @Column(
+            name = "resolution_outcome",
+            length = 30
+    )
+    private String resolutionOutcome;
 
     public WikiContributionJpaEntity() {
     }
@@ -359,6 +398,54 @@ public class WikiContributionJpaEntity {
 
     public void setResolvedArticleContentVersion(Long resolvedArticleContentVersion) {
         this.resolvedArticleContentVersion = resolvedArticleContentVersion;
+    }
+
+    public String getAssignedToUserId() {
+        return assignedToUserId;
+    }
+
+    public void setAssignedToUserId(String assignedToUserId) {
+        this.assignedToUserId = assignedToUserId;
+    }
+
+    public Instant getAssignedAt() {
+        return assignedAt;
+    }
+
+    public void setAssignedAt(Instant assignedAt) {
+        this.assignedAt = assignedAt;
+    }
+
+    public String getReviewStartedByUserId() {
+        return reviewStartedByUserId;
+    }
+
+    public void setReviewStartedByUserId(String reviewStartedByUserId) {
+        this.reviewStartedByUserId = reviewStartedByUserId;
+    }
+
+    public Instant getReviewStartedAt() {
+        return reviewStartedAt;
+    }
+
+    public void setReviewStartedAt(Instant reviewStartedAt) {
+        this.reviewStartedAt = reviewStartedAt;
+    }
+
+    public Long getReviewStartedArticleContentVersion() {
+        return reviewStartedArticleContentVersion;
+    }
+
+    public void setReviewStartedArticleContentVersion(Long reviewStartedArticleContentVersion) {
+        this.reviewStartedArticleContentVersion = reviewStartedArticleContentVersion;
+    }
+
+    public String getResolutionOutcome() {
+        return resolutionOutcome;
+    }
+
+    public void setResolutionOutcome(String resolutionOutcome) {
+        this.resolutionOutcome = resolutionOutcome;
     }
 
     @Override

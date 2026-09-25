@@ -4,6 +4,7 @@ import com.universe.wiki.application.exceptions.WikiContributionStaleMutationExc
 import com.universe.wiki.application.ports.WikiContributionRepositoryPort;
 import com.universe.wiki.domain.contribution.WikiContribution;
 import com.universe.wiki.domain.contribution.WikiContributionContextType;
+import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import com.universe.wiki.domain.contribution.WikiContributionStatus;
 import com.universe.wiki.domain.contribution.WikiContributionType;
 import jakarta.persistence.OptimisticLockException;
@@ -114,6 +115,12 @@ public class WikiContributionPersistenceAdapter implements WikiContributionRepos
         target.setResolvedByUserId(source.getResolvedByUserId() != null ? source.getResolvedByUserId().toString() : null);
         target.setResolvedAt(source.getResolvedAt());
         target.setResolvedArticleContentVersion(source.getResolvedArticleContentVersion());
+        target.setAssignedToUserId(source.getAssignedToUserId() != null ? source.getAssignedToUserId().toString() : null);
+        target.setAssignedAt(source.getAssignedAt());
+        target.setReviewStartedByUserId(source.getReviewStartedByUserId() != null ? source.getReviewStartedByUserId().toString() : null);
+        target.setReviewStartedAt(source.getReviewStartedAt());
+        target.setReviewStartedArticleContentVersion(source.getReviewStartedArticleContentVersion());
+        target.setResolutionOutcome(source.getResolutionOutcome() != null ? source.getResolutionOutcome().name() : null);
     }
 
     private WikiContribution toDomain(WikiContributionJpaEntity entity) {
@@ -139,7 +146,13 @@ public class WikiContributionPersistenceAdapter implements WikiContributionRepos
                 entity.getResolutionNote(),
                 entity.getResolvedByUserId() != null ? UUID.fromString(entity.getResolvedByUserId()) : null,
                 entity.getResolvedAt(),
-                entity.getResolvedArticleContentVersion()
+                entity.getResolvedArticleContentVersion(),
+                entity.getAssignedToUserId() != null ? UUID.fromString(entity.getAssignedToUserId()) : null,
+                entity.getAssignedAt(),
+                entity.getReviewStartedByUserId() != null ? UUID.fromString(entity.getReviewStartedByUserId()) : null,
+                entity.getReviewStartedAt(),
+                entity.getReviewStartedArticleContentVersion(),
+                entity.getResolutionOutcome() != null ? WikiContributionResolutionOutcome.valueOf(entity.getResolutionOutcome()) : null
         );
     }
 }

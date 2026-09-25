@@ -23,48 +23,42 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import com.universe.wiki.application.ports.WikiContributionRepositoryPort;
+import com.universe.wiki.application.ports.WikiContributionWorkflowEventRepositoryPort;
+import com.universe.wiki.domain.contribution.WikiContribution;
+import com.universe.wiki.domain.contribution.WikiContributionStatus;
+import com.universe.wiki.domain.contribution.WikiContributionWorkflowEvent;
+
 @Service
 public class UpdatePublishedWikiArticleUseCase {
 
     private static final String DEFAULT_EDIT_SUMMARY =
             "Cập nhật nội dung bài viết đã xuất bản";
 
-    private final WikiArticleRepositoryPort
-            articleRepositoryPort;
-
-    private final WikiArticleRevisionRepositoryPort
-            revisionRepositoryPort;
-
-    private final WikiCoverOrphanRepositoryPort
-            orphanRepositoryPort;
-
-    private final IdGeneratorPort
-            idGeneratorPort;
-
-    private final ClockPort
-            clockPort;
+    private final WikiArticleRepositoryPort articleRepositoryPort;
+    private final WikiArticleRevisionRepositoryPort revisionRepositoryPort;
+    private final WikiCoverOrphanRepositoryPort orphanRepositoryPort;
+    private final WikiContributionRepositoryPort contributionRepositoryPort;
+    private final WikiContributionWorkflowEventRepositoryPort workflowEventRepositoryPort;
+    private final IdGeneratorPort idGeneratorPort;
+    private final ClockPort clockPort;
 
     public UpdatePublishedWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
             WikiCoverOrphanRepositoryPort orphanRepositoryPort,
+            WikiContributionRepositoryPort contributionRepositoryPort,
+            WikiContributionWorkflowEventRepositoryPort workflowEventRepositoryPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
     ) {
-        this.articleRepositoryPort =
-                articleRepositoryPort;
-
-        this.revisionRepositoryPort =
-                revisionRepositoryPort;
-
-        this.orphanRepositoryPort =
-                orphanRepositoryPort;
-
-        this.idGeneratorPort =
-                idGeneratorPort;
-
-        this.clockPort =
-                clockPort;
+        this.articleRepositoryPort = Objects.requireNonNull(articleRepositoryPort, "WikiArticleRepositoryPort không được để trống.");
+        this.revisionRepositoryPort = Objects.requireNonNull(revisionRepositoryPort, "WikiArticleRevisionRepositoryPort không được để trống.");
+        this.orphanRepositoryPort = Objects.requireNonNull(orphanRepositoryPort, "WikiCoverOrphanRepositoryPort không được để trống.");
+        this.contributionRepositoryPort = Objects.requireNonNull(contributionRepositoryPort, "WikiContributionRepositoryPort không được để trống.");
+        this.workflowEventRepositoryPort = Objects.requireNonNull(workflowEventRepositoryPort, "WikiContributionWorkflowEventRepositoryPort không được để trống.");
+        this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "IdGeneratorPort không được để trống.");
+        this.clockPort = Objects.requireNonNull(clockPort, "ClockPort không được để trống.");
     }
 
     @Transactional
@@ -91,6 +85,20 @@ public class UpdatePublishedWikiArticleUseCase {
                                         articleId
                                 )
                         );
+
+        if (command.sourceContributionId() != null) {
+            WikiContribution contribution = contributionRepositoryPort.findById(command.sourceContributionId())
+                    .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy đóng góp được liên kết."));
+            if (!contribution.getArticleId().equals(articleId)) {
+                throw new IllegalArgumentException("Đóng góp được liên kết không thuộc bài viết này.");
+            }
+            if (contribution.getStatus() != WikiContributionStatus.REVIEWING) {
+                throw new IllegalStateException("Đóng góp được liên kết phải đang trong trạng thái xem xét (REVIEWING).");
+            }
+            if (contribution.getAssignedToUserId() == null) {
+                throw new IllegalStateException("Đóng góp được liên kết chưa có người phụ trách xử lý. Vui lòng tiếp nhận (claim) trước khi chỉnh sửa bài viết.");
+            }
+        }
 
         Instant now =
                 clockPort.now();
@@ -180,7 +188,8 @@ public class UpdatePublishedWikiArticleUseCase {
                     article,
                     resolveEditSummary(
                             command.editSummary()
-                    )
+                    ),
+                    command.sourceContributionId()
             );
         }
 
@@ -196,7 +205,8 @@ public class UpdatePublishedWikiArticleUseCase {
 
     private void saveRevision(
             WikiArticle article,
-            String editSummary
+            String editSummary,
+            UUID sourceContributionId
     ) {
         UUID revisionId =
                 idGeneratorPort.generate();
@@ -206,12 +216,25 @@ public class UpdatePublishedWikiArticleUseCase {
                         revisionId,
                         article,
                         RevisionChangeType.UPDATE_PUBLISHED,
-                        editSummary
+                        editSummary,
+                        sourceContributionId
                 );
 
         revisionRepositoryPort.save(
                 revision
         );
+
+        if (sourceContributionId != null) {
+            WikiContributionWorkflowEvent event = WikiContributionWorkflowEvent.createArticleUpdateLinked(
+                    idGeneratorPort.generate(),
+                    sourceContributionId,
+                    article.getUpdatedBy(),
+                    article.getContentVersion(),
+                    editSummary,
+                    clockPort.now()
+            );
+            workflowEventRepositoryPort.save(event);
+        }
     }
 
     private String resolveEditSummary(

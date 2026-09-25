@@ -2,13 +2,17 @@ package com.universe.wiki.entry.admin;
 
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
+import com.universe.identity.domain.UserRole;
 import com.universe.wiki.application.contribution.workflow.AdminWikiContributionWorkflowUseCase;
+import com.universe.wiki.application.contribution.workflow.ClaimWikiContributionCommand;
+import com.universe.wiki.application.contribution.workflow.ReassignWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.RejectWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ResolveWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ReviewWikiContributionCommand;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
 import com.universe.wiki.application.exceptions.WikiContributionStaleMutationException;
 import com.universe.wiki.domain.contribution.WikiContribution;
+import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Controller;
@@ -41,6 +45,8 @@ import java.util.UUID;
 public class AdminWikiContributionCommandController {
 
     public static final String FLASH_SUCCESS_REVIEW = "Đã chuyển trạng thái đóng góp sang Đang xem xét.";
+    public static final String FLASH_SUCCESS_CLAIM = "Đã tiếp nhận phân công xử lý đóng góp này.";
+    public static final String FLASH_SUCCESS_REASSIGN = "Đã phân công lại đóng góp thành công.";
     public static final String FLASH_SUCCESS_RESOLVE = "Đã chấp thuận và giải quyết đóng góp.";
     public static final String FLASH_SUCCESS_REJECT = "Đã từ chối đóng góp.";
     public static final String FLASH_ERROR_STALE = "Đóng góp bài viết Wiki đã bị thay đổi đồng thời bởi quản trị viên khác. Vui lòng kiểm tra lại trạng thái mới nhất.";
@@ -88,18 +94,117 @@ public class AdminWikiContributionCommandController {
     }
 
     /**
-     * Chấp thuận và giải quyết đóng góp (NEW/REVIEWING -> RESOLVED).
+     * Tiếp nhận đóng góp đang xem xét (legacy unassigned claim).
+     */
+    @PostMapping("/{contributionId}/claim")
+    public String claimContribution(
+            @PathVariable UUID contributionId,
+            @RequestParam(name = "expectedVersion", required = false) Long expectedVersion,
+            HttpServletRequest request,
+            RedirectAttributes redirectAttributes
+    ) {
+        if (expectedVersion == null) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_VERSION_REQUIRED);
+            return redirectToDetail(contributionId);
+        }
+
+        UUID actorId = resolveAdminUserId(request);
+
+        try {
+            workflowUseCase.claim(new ClaimWikiContributionCommand(contributionId, actorId, expectedVersion));
+            redirectAttributes.addFlashAttribute("successMessage", FLASH_SUCCESS_CLAIM);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return redirectToInbox();
+        } catch (WikiContributionStaleMutationException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_STALE);
+            return redirectToDetail(contributionId);
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Thao tác không hợp lệ: " + ex.getMessage());
+            return redirectToDetail(contributionId);
+        }
+    }
+
+    /**
+     * Phân công lại đóng góp đang xem xét cho quản trị viên khác (chỉ dành cho SUPER_ADMIN).
+     */
+    @PostMapping("/{contributionId}/reassign")
+    public String reassignContribution(
+            @PathVariable UUID contributionId,
+            @RequestParam(name = "targetUserId", required = false) UUID targetUserId,
+            @RequestParam(name = "reason", required = false) String reason,
+            @RequestParam(name = "expectedVersion", required = false) Long expectedVersion,
+            HttpServletRequest request,
+            RedirectAttributes redirectAttributes
+    ) {
+        if (expectedVersion == null) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_VERSION_REQUIRED);
+            return redirectToDetail(contributionId);
+        }
+        if (targetUserId == null) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Vui lòng chọn quản trị viên nhận phân công.");
+            return redirectToDetail(contributionId);
+        }
+        if (reason == null || reason.trim().length() < ReassignWikiContributionCommand.MIN_REASON_LENGTH || reason.trim().length() > ReassignWikiContributionCommand.MAX_REASON_LENGTH) {
+            redirectAttributes.addFlashAttribute("errorMessage", String.format("Lý do phân công lại phải từ %d đến %d ký tự.",
+                    ReassignWikiContributionCommand.MIN_REASON_LENGTH, ReassignWikiContributionCommand.MAX_REASON_LENGTH));
+            return redirectToDetail(contributionId);
+        }
+
+        AuthenticatedRequestIdentity identity = resolveAdminIdentity(request);
+        if (identity.role() != UserRole.SUPER_ADMIN) {
+            throw new AccessDeniedException("Chỉ Quản trị viên cấp cao (SUPER_ADMIN) mới có quyền phân công lại đóng góp.");
+        }
+
+        try {
+            workflowUseCase.reassign(new ReassignWikiContributionCommand(contributionId, identity.userId(), targetUserId, reason, expectedVersion));
+            redirectAttributes.addFlashAttribute("successMessage", FLASH_SUCCESS_REASSIGN);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return redirectToInbox();
+        } catch (WikiContributionStaleMutationException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_STALE);
+            return redirectToDetail(contributionId);
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Thao tác không hợp lệ: " + ex.getMessage());
+            return redirectToDetail(contributionId);
+        }
+    }
+
+    public String resolveContribution(
+            UUID contributionId,
+            Long expectedVersion,
+            String resolutionNote,
+            HttpServletRequest request,
+            RedirectAttributes redirectAttributes
+    ) {
+        return resolveContribution(contributionId, expectedVersion, "APPLIED", resolutionNote, request, redirectAttributes);
+    }
+
+    /**
+     * Chấp thuận và giải quyết đóng góp (REVIEWING -> RESOLVED).
      */
     @PostMapping("/{contributionId}/resolve")
     public String resolveContribution(
             @PathVariable UUID contributionId,
             @RequestParam(name = "expectedVersion", required = false) Long expectedVersion,
+            @RequestParam(name = "outcome", required = false) String outcomeStr,
             @RequestParam(name = "resolutionNote", required = false) String resolutionNote,
             HttpServletRequest request,
             RedirectAttributes redirectAttributes
     ) {
         if (expectedVersion == null) {
             redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_VERSION_REQUIRED);
+            return redirectToDetail(contributionId);
+        }
+
+        WikiContributionResolutionOutcome outcome;
+        try {
+            outcome = outcomeStr != null ? WikiContributionResolutionOutcome.valueOf(outcomeStr.trim()) : WikiContributionResolutionOutcome.APPLIED;
+        } catch (IllegalArgumentException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Kết quả giải quyết không hợp lệ.");
             return redirectToDetail(contributionId);
         }
 
@@ -112,7 +217,7 @@ public class AdminWikiContributionCommandController {
         UUID actorId = resolveAdminUserId(request);
 
         try {
-            workflowUseCase.resolve(new ResolveWikiContributionCommand(contributionId, actorId, expectedVersion, resolutionNote));
+            workflowUseCase.resolve(new ResolveWikiContributionCommand(contributionId, actorId, expectedVersion, outcome, resolutionNote));
             redirectAttributes.addFlashAttribute("successMessage", FLASH_SUCCESS_RESOLVE);
             return redirectToDetail(contributionId);
         } catch (WikiContributionNotFoundException ex) {
@@ -128,7 +233,7 @@ public class AdminWikiContributionCommandController {
     }
 
     /**
-     * Từ chối đóng góp (NEW/REVIEWING -> REJECTED).
+     * Từ chối đóng góp (REVIEWING -> REJECTED).
      */
     @PostMapping("/{contributionId}/reject")
     public String rejectContribution(
@@ -178,10 +283,13 @@ public class AdminWikiContributionCommandController {
         return null;
     }
 
-    private UUID resolveAdminUserId(HttpServletRequest request) {
+    private AuthenticatedRequestIdentity resolveAdminIdentity(HttpServletRequest request) {
         return AuthenticatedRequestIdentityAccessor.find(request)
-                .map(AuthenticatedRequestIdentity::userId)
                 .orElseThrow(() -> new AccessDeniedException("Yêu cầu thông tin định danh quản trị viên hợp lệ."));
+    }
+
+    private UUID resolveAdminUserId(HttpServletRequest request) {
+        return resolveAdminIdentity(request).userId();
     }
 
     private String redirectToDetail(UUID contributionId) {

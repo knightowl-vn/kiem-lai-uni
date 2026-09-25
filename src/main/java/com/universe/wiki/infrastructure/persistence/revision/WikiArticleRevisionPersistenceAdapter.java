@@ -123,6 +123,40 @@ public class WikiArticleRevisionPersistenceAdapter
                 );
     }
 
+    @Override
+    public Optional<WikiArticleRevision> findLatestBySourceContributionId(
+            UUID contributionId
+    ) {
+        if (contributionId == null) {
+            return Optional.empty();
+        }
+
+        return repository
+                .findFirstBySourceContributionIdOrderByContentVersionDesc(
+                        contributionId.toString()
+                )
+                .map(
+                        this::toDomain
+                );
+    }
+
+    @Override
+    public java.util.List<WikiArticleRevision> findBySourceContributionId(
+            UUID contributionId
+    ) {
+        if (contributionId == null) {
+            return java.util.List.of();
+        }
+
+        return repository
+                .findBySourceContributionIdOrderByCreatedAtAscIdAsc(
+                        contributionId.toString()
+                )
+                .stream()
+                .map(this::toDomain)
+                .toList();
+    }
+
 
     /*
      * =====================================================
@@ -205,6 +239,12 @@ public class WikiArticleRevisionPersistenceAdapter
                         .toString()
         );
 
+        entity.setSourceContributionId(
+                revision.sourceContributionId() != null
+                        ? revision.sourceContributionId().toString()
+                        : null
+        );
+
         entity.setCreatedAt(
                 revision.createdAt()
         );
@@ -263,7 +303,11 @@ public class WikiArticleRevisionPersistenceAdapter
                         entity.getEditedBy()
                 ),
 
-                entity.getCreatedAt()
+                entity.getCreatedAt(),
+
+                entity.getSourceContributionId() != null
+                        ? UUID.fromString(entity.getSourceContributionId())
+                        : null
         );
     }
 }

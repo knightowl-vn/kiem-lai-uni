@@ -20,8 +20,42 @@ public record PublishedWikiArticleDTO(
         UUID coverMediaAssetId,
         int coverPositionX,
         int coverPositionY,
-        long contentVersion
+        long contentVersion,
+        UUID createdBy,
+        UUID updatedBy
 ) {
+
+    public PublishedWikiArticleDTO(
+            UUID id,
+            String title,
+            String slug,
+            String articleType,
+            String summary,
+            String content,
+            Instant publishedAt,
+            Instant updatedAt,
+            UUID coverMediaAssetId,
+            int coverPositionX,
+            int coverPositionY,
+            long contentVersion
+    ) {
+        this(
+                id,
+                title,
+                slug,
+                articleType,
+                summary,
+                content,
+                publishedAt,
+                updatedAt,
+                coverMediaAssetId,
+                coverPositionX,
+                coverPositionY,
+                contentVersion,
+                null,
+                null
+        );
+    }
 
     public PublishedWikiArticleDTO(
             UUID id,
@@ -75,6 +109,37 @@ public record PublishedWikiArticleDTO(
                 50,
                 50,
                 contentVersion
+        );
+    }
+
+    public PublishedWikiArticleDTO(
+            UUID id,
+            String title,
+            String slug,
+            String articleType,
+            String summary,
+            String content,
+            Instant publishedAt,
+            Instant updatedAt,
+            long contentVersion,
+            UUID createdBy,
+            UUID updatedBy
+    ) {
+        this(
+                id,
+                title,
+                slug,
+                articleType,
+                summary,
+                content,
+                publishedAt,
+                updatedAt,
+                null,
+                50,
+                50,
+                contentVersion,
+                createdBy,
+                updatedBy
         );
     }
 

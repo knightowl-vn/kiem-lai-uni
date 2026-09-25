@@ -41,6 +41,7 @@ public interface SpringDataWikiContributionJpaRepository
                 c.articleSlugSnapshot AS articleSlugSnapshot,
                 c.articleContentVersion AS articleContentVersion,
                 c.submittedByUserId AS submittedByUserId,
+                c.assignedToUserId AS assignedToUserId,
                 c.createdAt AS createdAt,
                 (CASE WHEN c.contextType = 'TEXT_SELECTION' AND c.selectedText IS NOT NULL THEN true ELSE false END) AS hasSelectedText,
                 SUBSTRING(c.message, 1, 200) AS messagePreview

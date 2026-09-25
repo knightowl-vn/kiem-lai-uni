@@ -1,9 +1,12 @@
 package com.universe.wiki.entry.admin;
 
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
 import com.universe.wiki.application.contribution.query.WikiContributionAdminFilter;
 import com.universe.wiki.domain.contribution.WikiContributionStatus;
 import com.universe.wiki.domain.contribution.WikiContributionType;
 import com.universe.wiki.entry.admin.dto.AdminWikiContributionQueuePageDTO;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -93,9 +96,19 @@ public class AdminWikiContributionPageController {
         return VIEW_NAME;
     }
 
+    public String detailPage(
+            UUID contributionId,
+            Model model,
+            HttpServletResponse response,
+            org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes
+    ) {
+        return detailPage(contributionId, null, model, response, redirectAttributes);
+    }
+
     @GetMapping("/{contributionId}")
     public String detailPage(
             @PathVariable UUID contributionId,
+            HttpServletRequest request,
             Model model,
             HttpServletResponse response,
             org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes
@@ -106,10 +119,14 @@ public class AdminWikiContributionPageController {
 
         try {
             com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO detail = coordinator.getDetail(contributionId);
+            AuthenticatedRequestIdentity currentAdmin = request != null
+                    ? AuthenticatedRequestIdentityAccessor.find(request).orElse(null)
+                    : null;
 
             model.addAttribute("pageTitle", "Chi tiết đóng góp Wiki");
             model.addAttribute("activeMenu", ACTIVE_MENU);
             model.addAttribute("contribution", detail);
+            model.addAttribute("currentAdmin", currentAdmin);
 
             return "admin/wiki/contribution-detail";
         } catch (com.universe.wiki.application.exceptions.WikiContributionNotFoundException ex) {

@@ -306,7 +306,9 @@ public class WikiArticleQueryAdapter
                 ),
                 Byte.toUnsignedInt(entity.getCoverPositionX()),
                 Byte.toUnsignedInt(entity.getCoverPositionY()),
-                entity.getContentVersion()
+                entity.getContentVersion(),
+                toNullableUuid(entity.getCreatedBy()),
+                toNullableUuid(entity.getUpdatedBy())
         );
     }
     private PublishedWikiArticleListItemDTO

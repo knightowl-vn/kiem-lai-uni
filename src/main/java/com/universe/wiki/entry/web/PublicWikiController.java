@@ -20,9 +20,12 @@ import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.domain.article.ArticleType;
 
+import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 
@@ -36,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Controller
@@ -58,19 +62,29 @@ public class PublicWikiController {
 
 	private final GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
 
+	private final UserIdentityContract userIdentityContract;
+
 	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
-
 			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
-
 			ArticleTypePathMapper articleTypePathMapper,
-
 			WikiMarkdownRenderer wikiMarkdownRenderer,
-
 			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
-
 			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
-
 			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase) {
+		this(listPublishedArticlesUseCase, getPublishedArticleUseCase, articleTypePathMapper,
+				wikiMarkdownRenderer, isWikiArticleSavedUseCase, getWikiAppreciationDetailStateUseCase,
+				getWikiAppreciationSummariesUseCase, null);
+	}
+
+	@Autowired
+	public PublicWikiController(ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase,
+			GetPublishedWikiArticleUseCase getPublishedArticleUseCase,
+			ArticleTypePathMapper articleTypePathMapper,
+			WikiMarkdownRenderer wikiMarkdownRenderer,
+			IsWikiArticleSavedUseCase isWikiArticleSavedUseCase,
+			GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase,
+			GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase,
+			UserIdentityContract userIdentityContract) {
 		this.listPublishedArticlesUseCase = listPublishedArticlesUseCase;
 
 		this.getPublishedArticleUseCase = getPublishedArticleUseCase;
@@ -93,6 +107,8 @@ public class PublicWikiController {
 				getWikiAppreciationSummariesUseCase,
 				"GetWikiAppreciationSummariesUseCase không được để trống."
 		);
+
+		this.userIdentityContract = userIdentityContract;
 	}
 
 	/**
@@ -199,7 +215,45 @@ public class PublicWikiController {
 
 		model.addAttribute("appreciationState", appreciationState);
 
+		String attributionLine = resolveAttributionLine(article);
+		model.addAttribute("attributionLine", attributionLine);
+
 		return "wiki/public/detail";
+	}
+
+	private String resolveAttributionLine(PublishedWikiArticleDTO article) {
+		if (article == null || userIdentityContract == null) {
+			return null;
+		}
+		if (article.contentVersion() > 1L && article.updatedBy() != null) {
+			String displayName = resolveDisplayName(article.updatedBy());
+			if (displayName != null && !displayName.isBlank()) {
+				return "Cập nhật bởi " + displayName;
+			}
+		} else if (article.createdBy() != null) {
+			String displayName = resolveDisplayName(article.createdBy());
+			if (displayName != null && !displayName.isBlank()) {
+				return "Đăng bởi " + displayName;
+			}
+		}
+		return null;
+	}
+
+	private String resolveDisplayName(UUID userId) {
+		if (userId == null) {
+			return null;
+		}
+		try {
+			Map<UUID, UserPublicProfileDTO> profiles =
+					userIdentityContract.findPublicProfilesByIds(Set.of(userId));
+			UserPublicProfileDTO profile = profiles.get(userId);
+			if (profile != null && profile.displayName() != null && !profile.displayName().isBlank()) {
+				return profile.displayName();
+			}
+		} catch (Exception ignored) {
+			// Gracefully omit attribution if identity service lookup fails
+		}
+		return null;
 	}
 
 	private ArticleType resolveOptionalArticleType(String articleTypePath) {

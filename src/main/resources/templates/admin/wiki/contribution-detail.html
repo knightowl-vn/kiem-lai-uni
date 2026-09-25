@@ -264,22 +264,88 @@
                         </section>
 
                         <!-- =========================================================
-                             SECTION G: WORKFLOW HISTORY & DECISION METADATA
+                             SECTION G: REVIEW ACCOUNTABILITY & DECISION METADATA
                              ========================================================= -->
-                        <section th:if="${contribution.isTerminal()}" class="wiki-contribution-detail-card wiki-resolution-info-card">
+                        <section th:if="${contribution.reviewStartedBy != null or contribution.assignee != null or contribution.isTerminal()}"
+                                 class="wiki-contribution-detail-card wiki-resolution-info-card">
                             <div class="wiki-contribution-card-title">
                                 <span class="wiki-contribution-card-icon">⚖</span>
-                                <h3>Quyết định kiểm duyệt</h3>
+                                <h3>Thông tin xử lý & Phân công</h3>
                                 <span class="status-badge"
-                                      th:classappend="${contribution.status.name() == 'RESOLVED' ? ' status-resolved' : ' status-rejected'}"
-                                      th:text="${contribution.status.name() == 'RESOLVED' ? 'Đã giải quyết' : 'Đã từ chối'}">
-                                    Đã giải quyết
+                                      th:classappend="${contribution.status.name() == 'NEW' ? ' status-new' :
+                                                       contribution.status.name() == 'REVIEWING' ? ' status-reviewing' :
+                                                       contribution.status.name() == 'RESOLVED' ? ' status-resolved' :
+                                                       ' status-rejected'}"
+                                      th:text="${contribution.status.name() == 'NEW' ? 'Mới tiếp nhận' :
+                                               contribution.status.name() == 'REVIEWING' ? 'Đang xem xét' :
+                                               contribution.status.name() == 'RESOLVED' ? 'Đã giải quyết' :
+                                               'Đã từ chối'}">
+                                    Đang xem xét
                                 </span>
                             </div>
 
                             <div class="wiki-resolution-meta-list">
+                                <!-- Assignee Info -->
                                 <div class="wiki-resolution-meta-item">
-                                    <span class="wiki-meta-label">Người xử lý:</span>
+                                    <span class="wiki-meta-label">Người được phân công:</span>
+                                    <span th:if="${contribution.assignee != null and contribution.assignee.resolved}"
+                                          class="wiki-meta-value font-medium"
+                                          th:text="${contribution.assignee.displayName}">
+                                        Tên Assignee
+                                    </span>
+                                    <span th:if="${contribution.assignee != null and !contribution.assignee.resolved}"
+                                          class="wiki-meta-value font-mono text-sm"
+                                          th:text="${contribution.assignee.userId}">
+                                        Assignee UUID
+                                    </span>
+                                    <span th:if="${contribution.assignee == null}"
+                                          class="wiki-meta-value text-muted text-sm">
+                                        (Chưa phân công)
+                                    </span>
+                                </div>
+
+                                <div th:if="${contribution.assignedAt != null}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Thời điểm phân công:</span>
+                                    <time th:datetime="${contribution.assignedAt}"
+                                          th:text="${#temporals.format(contribution.assignedAt, 'dd/MM/yyyy HH:mm:ss')}">
+                                        01/01/2026 12:00:00
+                                    </time>
+                                </div>
+
+                                <!-- Review Starter Info -->
+                                <div th:if="${contribution.reviewStartedBy != null}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Người bắt đầu xem xét:</span>
+                                    <span th:if="${contribution.reviewStartedBy.resolved}"
+                                          class="wiki-meta-value font-medium"
+                                          th:text="${contribution.reviewStartedBy.displayName}">
+                                        Tên Admin
+                                    </span>
+                                    <span th:unless="${contribution.reviewStartedBy.resolved}"
+                                          class="wiki-meta-value font-mono text-sm"
+                                          th:text="${contribution.reviewStartedBy.userId}">
+                                        Admin UUID
+                                    </span>
+                                </div>
+
+                                <div th:if="${contribution.reviewStartedAt != null}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Thời điểm bắt đầu xem xét:</span>
+                                    <time th:datetime="${contribution.reviewStartedAt}"
+                                          th:text="${#temporals.format(contribution.reviewStartedAt, 'dd/MM/yyyy HH:mm:ss')}">
+                                        01/01/2026 12:00:00
+                                    </time>
+                                </div>
+
+                                <div th:if="${contribution.reviewStartedArticleContentVersion != null}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Phiên bản bài viết khi bắt đầu:</span>
+                                    <span class="wiki-article-version-badge"
+                                          th:text="${'v' + contribution.reviewStartedArticleContentVersion}">
+                                        v1
+                                    </span>
+                                </div>
+
+                                <!-- Terminal Decision Metadata -->
+                                <div th:if="${contribution.isTerminal()}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Người quyết định:</span>
                                     <span th:if="${contribution.resolver != null and contribution.resolver.resolved}"
                                           class="wiki-meta-value font-medium"
                                           th:text="${contribution.resolver.displayName}">
@@ -292,12 +358,22 @@
                                     </span>
                                 </div>
 
-                                <div class="wiki-resolution-meta-item">
-                                    <span class="wiki-meta-label">Thời điểm xử lý:</span>
+                                <div th:if="${contribution.isTerminal()}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Thời điểm quyết định:</span>
                                     <time th:datetime="${contribution.resolvedAt}"
                                           th:text="${#temporals.format(contribution.resolvedAt, 'dd/MM/yyyy HH:mm:ss')}">
                                         01/01/2026 12:00:00
                                     </time>
+                                </div>
+
+                                <div th:if="${contribution.status.name() == 'RESOLVED' and contribution.resolutionOutcome != null}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Kết quả xử lý:</span>
+                                    <span class="status-badge status-resolved"
+                                          th:text="${contribution.resolutionOutcome.name() == 'APPLIED' ? 'Đã áp dụng (APPLIED)' :
+                                                   contribution.resolutionOutcome.name() == 'NO_CHANGE_NEEDED' ? 'Không cần thay đổi (NO_CHANGE_NEEDED)' :
+                                                   contribution.resolutionOutcome.name() == 'DUPLICATE' ? 'Trùng lặp (DUPLICATE)' : contribution.resolutionOutcome.name()}">
+                                        APPLIED
+                                    </span>
                                 </div>
 
                                 <div th:if="${contribution.status.name() == 'RESOLVED'}" class="wiki-resolution-meta-item">
@@ -313,7 +389,7 @@
                                     </span>
                                 </div>
 
-                                <div class="wiki-resolution-note-box">
+                                <div th:if="${contribution.isTerminal()}" class="wiki-resolution-note-box">
                                     <span class="wiki-meta-label">Ghi chú quyết định:</span>
                                     <p class="wiki-resolution-note-text" th:text="${contribution.resolutionNote}">
                                         Ghi chú xử lý đóng góp của quản trị viên...
@@ -323,7 +399,57 @@
                         </section>
 
                         <!-- =========================================================
-                             SECTION H: AVAILABLE WORKFLOW ACTIONS
+                             SECTION H: WORKFLOW AUDIT EVENTS TIMELINE
+                             ========================================================= -->
+                        <section th:if="${contribution.events != null and !#lists.isEmpty(contribution.events)}" class="wiki-contribution-detail-card wiki-events-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">📜</span>
+                                <h3>Nhật ký quy trình & Kiểm toán</h3>
+                                <span class="wiki-source-count-badge" th:text="${contribution.events.size() + ' sự kiện'}">0 sự kiện</span>
+                            </div>
+
+                            <ul class="wiki-events-timeline" style="list-style: none; padding-left: 0; margin-top: 12px;">
+                                <li th:each="evt : ${contribution.events}" class="wiki-event-item" style="border-left: 2px solid var(--admin-border, #cbd5e1); padding-left: 14px; margin-bottom: 16px; position: relative;">
+                                    <div style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                                        <span th:text="${evt.eventType.name() == 'REVIEW_STARTED' ? 'Bắt đầu xem xét' :
+                                                        evt.eventType.name() == 'CLAIMED' ? 'Nhận xử lý đóng góp' :
+                                                        evt.eventType.name() == 'REASSIGNED' ? 'Phân công lại' :
+                                                        evt.eventType.name() == 'ARTICLE_UPDATE_LINKED' ? 'Đã liên kết cập nhật bài viết' :
+                                                        evt.eventType.name() == 'RESOLVED' ? 'Đã giải quyết' :
+                                                        evt.eventType.name() == 'REJECTED' ? 'Đã từ chối' : evt.eventType.name()}">
+                                            Sự kiện
+                                        </span>
+                                        <span th:if="${evt.resolutionOutcome != null}"
+                                              style="font-size: 11px; padding: 2px 6px; background: #e0e7ff; color: #3730a3; border-radius: 4px; margin-left: 6px;"
+                                              th:text="${evt.resolutionOutcome.name()}">
+                                            OUTCOME
+                                        </span>
+                                        <span th:if="${evt.articleContentVersion != null}"
+                                              style="font-size: 11px; padding: 2px 6px; background: #f1f5f9; color: #475569; border-radius: 4px; margin-left: 4px;"
+                                              th:text="${'v' + evt.articleContentVersion}">
+                                            v2
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
+                                        Thực hiện bởi:
+                                        <strong th:text="${evt.actor != null and evt.actor.resolved ? evt.actor.displayName : (evt.actor != null ? evt.actor.userId : 'Hệ thống')}">Admin</strong>
+                                        <span th:if="${evt.targetUser != null}">
+                                            → chuyển cho <strong th:text="${evt.targetUser.resolved ? evt.targetUser.displayName : evt.targetUser.userId}">Target Admin</strong>
+                                        </span>
+                                        ·
+                                        <time th:datetime="${evt.createdAt}" th:text="${#temporals.format(evt.createdAt, 'dd/MM/yyyy HH:mm:ss')}">01/01/2026 12:00:00</time>
+                                    </div>
+                                    <div th:if="${evt.note != null and !evt.note.isBlank()}"
+                                         style="font-size: 12px; color: #334155; background: #f8fafc; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border: 1px solid #e2e8f0;"
+                                         th:text="${evt.note}">
+                                        Ghi chú sự kiện...
+                                    </div>
+                                </li>
+                            </ul>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION I: AVAILABLE WORKFLOW ACTIONS
                              ========================================================= -->
                         <section th:unless="${contribution.isTerminal()}" class="wiki-contribution-detail-card wiki-actions-card">
                             <div class="wiki-contribution-card-title">
@@ -333,72 +459,168 @@
 
                             <div class="wiki-actions-panel">
 
-                                <!-- Action 1: Mark reviewing (Only for NEW) -->
+                                <!-- State: NEW -> Transition to REVIEWING -->
                                 <div th:if="${contribution.status.name() == 'NEW'}" class="wiki-action-block">
                                     <div class="wiki-action-desc">
-                                        <strong>Chuyển sang Đang xem xét</strong>
-                                        <p>Đánh dấu đóng góp này đang được ban biên tập nghiên cứu, giữ nguyên hàng đợi.</p>
+                                        <strong>Bắt đầu xem xét đóng góp</strong>
+                                        <p>Đánh dấu bạn là người tiếp nhận và bắt đầu xử lý đóng góp này.</p>
                                     </div>
                                     <form method="post"
                                           th:action="@{/admin/wiki/contributions/{id}/review(id=${contribution.contributionId})}">
                                         <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
-                                        <button type="submit" class="admin-secondary-button wiki-btn-review">
+                                        <button type="submit" class="admin-primary-button wiki-btn-review">
                                             Bắt đầu xem xét
                                         </button>
                                     </form>
                                 </div>
 
-                                <!-- Action 2: Resolve (Allowed for NEW & REVIEWING) -->
-                                <div class="wiki-action-block">
+                                <!-- State: REVIEWING & Unassigned -> Claim Action -->
+                                <div th:if="${contribution.status.name() == 'REVIEWING' and contribution.assignee == null}" class="wiki-action-block">
                                     <div class="wiki-action-desc">
-                                        <strong>Chấp thuận & Giải quyết đóng góp</strong>
-                                        <p>Xác nhận đóng góp hợp lệ và đã được xử lý (lưu ý: thao tác này không tự động sửa bài viết hay ghi nhận điểm thưởng).</p>
+                                        <strong>Nhận xử lý đóng góp (Claim)</strong>
+                                        <p>Đóng góp này đang ở trạng thái xem xét nhưng chưa có người phụ trách. Nhận xử lý để tiếp tục các bước tiếp theo.</p>
                                     </div>
                                     <form method="post"
-                                          th:action="@{/admin/wiki/contributions/{id}/resolve(id=${contribution.contributionId})}"
-                                          class="wiki-decision-form">
+                                          th:action="@{/admin/wiki/contributions/{id}/claim(id=${contribution.contributionId})}">
                                         <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
-                                        <div class="wiki-form-group">
-                                            <label for="resolveNote">Ghi chú giải quyết <span class="required">*</span></label>
-                                            <textarea id="resolveNote"
-                                                      name="resolutionNote"
-                                                      rows="3"
-                                                      minlength="5"
-                                                      maxlength="2000"
-                                                      required
-                                                      placeholder="Nhập ghi chú xử lý (tối thiểu 5 ký tự)..."
-                                                      class="admin-textarea"></textarea>
-                                        </div>
-                                        <button type="submit" class="admin-primary-button wiki-btn-resolve">
-                                            Chấp thuận & Giải quyết
+                                        <button type="submit" class="admin-primary-button">
+                                            Nhận xử lý đóng góp
                                         </button>
                                     </form>
                                 </div>
 
-                                <!-- Action 3: Reject (Allowed for NEW & REVIEWING) -->
-                                <div class="wiki-action-block">
+                                <!-- State: REVIEWING & Assigned -> Edit Article Link + Resolve/Reject (Assignee Only) -->
+                                <div th:if="${contribution.status.name() == 'REVIEWING' and contribution.assignee != null}">
+
+                                    <!-- If current admin is the assignee -->
+                                    <div th:if="${currentAdmin != null and currentAdmin.userId == contribution.assignee.userId}">
+                                        <!-- Step 1: Article Edit Link -->
+                                        <div class="wiki-action-block" style="background: rgba(59, 130, 246, 0.05); border-left: 4px solid #3b82f6; padding: 12px; margin-bottom: 16px; border-radius: 4px;">
+                                            <strong style="color: #1e40af;">Bước 1: Chỉnh sửa bài viết và liên kết đóng góp</strong>
+                                            <p style="font-size: 13px; color: #475569; margin: 4px 0 10px 0;">
+                                                Mở trình chỉnh sửa bài viết với tham số liên kết đóng góp. Khi bạn cập nhật bài viết thành công, hệ thống sẽ tự động liên kết phiên bản mới vào đóng góp này.
+                                            </p>
+                                            <a th:href="@{/admin/wiki/articles/{id}/edit(id=${contribution.articleId}, sourceContributionId=${contribution.contributionId})}"
+                                               target="_blank"
+                                               class="admin-secondary-button">
+                                                Mở trang sửa bài viết (liên kết đóng góp) ↗
+                                            </a>
+                                        </div>
+
+                                        <!-- Step 2: Resolve Action -->
+                                        <div class="wiki-action-block">
+                                            <div class="wiki-action-desc">
+                                                <strong>Bước 2a: Chấp thuận & Giải quyết đóng góp</strong>
+                                                <p>Chọn kết quả xử lý phù hợp. Lưu ý: nếu chọn <em>APPLIED</em>, bạn phải thực hiện Bước 1 trước để có phiên bản bài viết mới liên kết đóng góp này.</p>
+                                            </div>
+                                            <form method="post"
+                                                  th:action="@{/admin/wiki/contributions/{id}/resolve(id=${contribution.contributionId})}"
+                                                  class="wiki-decision-form">
+                                                <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
+
+                                                <div class="wiki-form-group">
+                                                    <label for="resolutionOutcome">Kết quả giải quyết <span class="required">*</span></label>
+                                                    <select id="resolutionOutcome" name="outcome" required class="admin-select" style="width: 100%; padding: 8px; border: 1px solid var(--admin-border, #cbd5e1); border-radius: 4px;">
+                                                        <option value="APPLIED">APPLIED — Đã áp dụng chỉnh sửa vào bài viết</option>
+                                                        <option value="NO_CHANGE_NEEDED">NO_CHANGE_NEEDED — Không cần thay đổi bài viết</option>
+                                                        <option value="DUPLICATE">DUPLICATE — Đóng góp trùng lặp</option>
+                                                    </select>
+                                                </div>
+
+                                                <div class="wiki-form-group">
+                                                    <label for="resolveNote">Ghi chú giải quyết <span class="required">*</span></label>
+                                                    <textarea id="resolveNote"
+                                                              name="resolutionNote"
+                                                              rows="3"
+                                                              minlength="5"
+                                                              maxlength="2000"
+                                                              required
+                                                              placeholder="Nhập ghi chú xử lý (tối thiểu 5 ký tự)..."
+                                                              class="admin-textarea"></textarea>
+                                                </div>
+                                                <button type="submit" class="admin-primary-button wiki-btn-resolve">
+                                                    Chấp thuận & Giải quyết
+                                                </button>
+                                            </form>
+                                        </div>
+
+                                        <!-- Step 2: Reject Action -->
+                                        <div class="wiki-action-block">
+                                            <div class="wiki-action-desc">
+                                                <strong>Bước 2b: Từ chối đóng góp</strong>
+                                                <p>Đóng góp không chính xác, thiếu căn cứ hoặc không phù hợp với tiêu chuẩn Wiki.</p>
+                                            </div>
+                                            <form method="post"
+                                                  th:action="@{/admin/wiki/contributions/{id}/reject(id=${contribution.contributionId})}"
+                                                  class="wiki-decision-form"
+                                                  onsubmit="return confirm('Bạn có chắc chắn muốn từ chối đóng góp này không?')">
+                                                <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
+                                                <div class="wiki-form-group">
+                                                    <label for="rejectNote">Lý do từ chối <span class="required">*</span></label>
+                                                    <textarea id="rejectNote"
+                                                              name="resolutionNote"
+                                                              rows="3"
+                                                              minlength="5"
+                                                              maxlength="2000"
+                                                              required
+                                                              placeholder="Nêu rõ lý do từ chối để lưu vết kiểm duyệt (tối thiểu 5 ký tự)..."
+                                                              class="admin-textarea"></textarea>
+                                                </div>
+                                                <button type="submit" class="admin-danger-button wiki-btn-reject">
+                                                    Từ chối đóng góp
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+
+                                    <!-- If current admin is NOT the assignee -->
+                                    <div th:unless="${currentAdmin != null and currentAdmin.userId == contribution.assignee.userId}"
+                                         class="wiki-action-block">
+                                        <div class="alert-info" style="padding: 12px; background: rgba(59, 130, 246, 0.08); border-radius: 6px; border-left: 4px solid #3b82f6;">
+                                            <p style="margin: 0; font-size: 13px; color: #1e3a8a;">
+                                                Đóng góp này hiện đang được xử lý bởi <strong th:text="${contribution.assignee.displayName}">Admin</strong>.
+                                                Chỉ người phụ trách mới có quyền đưa ra quyết định chấp thuận hoặc từ chối.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                                <!-- Action: Reassign (SUPER_ADMIN only, when in REVIEWING) -->
+                                <div th:if="${currentAdmin != null and currentAdmin.role.name() == 'SUPER_ADMIN' and contribution.status.name() == 'REVIEWING'}"
+                                     class="wiki-action-block"
+                                     style="border-top: 1px dashed var(--admin-border, #cbd5e1); padding-top: 16px; margin-top: 16px;">
                                     <div class="wiki-action-desc">
-                                        <strong>Từ chối đóng góp</strong>
-                                        <p>Đóng góp không chính xác, thiếu căn cứ hoặc không phù hợp với tiêu chuẩn Wiki.</p>
+                                        <strong>Phân công lại (Dành cho Super Admin)</strong>
+                                        <p>Chuyển giao quyền xử lý đóng góp này cho Quản trị viên khác trong hệ thống.</p>
                                     </div>
                                     <form method="post"
-                                          th:action="@{/admin/wiki/contributions/{id}/reject(id=${contribution.contributionId})}"
-                                          class="wiki-decision-form"
-                                          onsubmit="return confirm('Bạn có chắc chắn muốn từ chối đóng góp này không?')">
+                                          th:action="@{/admin/wiki/contributions/{id}/reassign(id=${contribution.contributionId})}"
+                                          class="wiki-decision-form">
                                         <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
                                         <div class="wiki-form-group">
-                                            <label for="rejectNote">Lý do từ chối <span class="required">*</span></label>
-                                            <textarea id="rejectNote"
-                                                      name="resolutionNote"
-                                                      rows="3"
+                                            <label for="targetUserId">ID Quản trị viên mới (UUID) <span class="required">*</span></label>
+                                            <input type="text"
+                                                   id="targetUserId"
+                                                   name="targetUserId"
+                                                   required
+                                                   placeholder="Nhập UUID của Admin hoặc Super Admin..."
+                                                   class="admin-input"
+                                                   style="width: 100%; padding: 8px; border: 1px solid var(--admin-border, #cbd5e1); border-radius: 4px;">
+                                        </div>
+                                        <div class="wiki-form-group">
+                                            <label for="reassignReason">Lý do phân công lại <span class="required">*</span></label>
+                                            <textarea id="reassignReason"
+                                                      name="reason"
+                                                      rows="2"
                                                       minlength="5"
-                                                      maxlength="2000"
+                                                      maxlength="500"
                                                       required
-                                                      placeholder="Nêu rõ lý do từ chối để lưu vết kiểm duyệt (tối thiểu 5 ký tự)..."
+                                                      placeholder="Nhập lý do phân công lại (5 - 500 ký tự)..."
                                                       class="admin-textarea"></textarea>
                                         </div>
-                                        <button type="submit" class="admin-danger-button wiki-btn-reject">
-                                            Từ chối đóng góp
+                                        <button type="submit" class="admin-secondary-button">
+                                            Xác nhận phân công lại
                                         </button>
                                     </form>
                                 </div>

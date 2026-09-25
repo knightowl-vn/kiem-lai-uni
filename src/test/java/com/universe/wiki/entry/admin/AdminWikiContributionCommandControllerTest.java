@@ -5,9 +5,12 @@ import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.wiki.application.contribution.workflow.AdminWikiContributionWorkflowUseCase;
+import com.universe.wiki.application.contribution.workflow.ClaimWikiContributionCommand;
+import com.universe.wiki.application.contribution.workflow.ReassignWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.RejectWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ResolveWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ReviewWikiContributionCommand;
+import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
 import com.universe.wiki.application.exceptions.WikiContributionStaleMutationException;
 import org.junit.jupiter.api.BeforeEach;
@@ -332,6 +335,166 @@ class AdminWikiContributionCommandControllerTest {
             assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
             assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
                     .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_STALE);
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /{contributionId}/claim")
+    class ClaimActionTests {
+
+        @Test
+        @DisplayName("Missing expectedVersion redirects to detail with error flash attribute")
+        void shouldRequireExpectedVersion() {
+            String view = controller.claimContribution(contributionId, null, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_VERSION_REQUIRED);
+            verify(workflowUseCase, never()).claim(any());
+        }
+
+        @Test
+        @DisplayName("Successful claim executes command and redirects to detail with success flash message")
+        void shouldExecuteClaimSuccessfully() {
+            String view = controller.claimContribution(contributionId, 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_SUCCESS_CLAIM);
+
+            ArgumentCaptor<ClaimWikiContributionCommand> captor = ArgumentCaptor.forClass(ClaimWikiContributionCommand.class);
+            verify(workflowUseCase).claim(captor.capture());
+
+            ClaimWikiContributionCommand cmd = captor.getValue();
+            assertThat(cmd.contributionId()).isEqualTo(contributionId);
+            assertThat(cmd.actorId()).isEqualTo(adminUserId);
+            assertThat(cmd.expectedVersion()).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("WikiContributionNotFoundException redirects to inbox with error flash message")
+        void shouldRedirectToInboxWhenNotFound() {
+            doThrow(new WikiContributionNotFoundException(contributionId))
+                    .when(workflowUseCase).claim(any());
+
+            String view = controller.claimContribution(contributionId, 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage").toString())
+                    .contains(contributionId.toString());
+        }
+
+        @Test
+        @DisplayName("WikiContributionStaleMutationException redirects to detail with conflict error flash message")
+        void shouldRedirectToDetailOnStaleMutation() {
+            doThrow(new WikiContributionStaleMutationException(contributionId, 1L, 2L))
+                    .when(workflowUseCase).claim(any());
+
+            String view = controller.claimContribution(contributionId, 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_STALE);
+        }
+
+        @Test
+        @DisplayName("IllegalStateException redirects to detail with descriptive error flash message")
+        void shouldRedirectToDetailOnInvalidStateTransition() {
+            doThrow(new IllegalStateException("Đóng góp đã có người phụ trách"))
+                    .when(workflowUseCase).claim(any());
+
+            String view = controller.claimContribution(contributionId, 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage").toString())
+                    .contains("Đóng góp đã có người phụ trách");
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /{contributionId}/reassign")
+    class ReassignActionTests {
+
+        private UUID targetUserId;
+
+        @BeforeEach
+        void setUpReassign() {
+            targetUserId = UUID.randomUUID();
+        }
+
+        @Test
+        @DisplayName("Missing expectedVersion redirects to detail with error flash attribute")
+        void shouldRequireExpectedVersion() {
+            String view = controller.reassignContribution(contributionId, targetUserId, "Lý do hợp lệ để phân công", null, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_VERSION_REQUIRED);
+            verify(workflowUseCase, never()).reassign(any());
+        }
+
+        @Test
+        @DisplayName("Missing targetUserId redirects to detail with error flash attribute")
+        void shouldRequireTargetUserId() {
+            String view = controller.reassignContribution(contributionId, null, "Lý do hợp lệ để phân công", 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Vui lòng chọn quản trị viên nhận phân công.");
+            verify(workflowUseCase, never()).reassign(any());
+        }
+
+        @Test
+        @DisplayName("Invalid reason redirects to detail with error flash attribute")
+        void shouldValidateReasonBounds() {
+            String view = controller.reassignContribution(contributionId, targetUserId, "ngan", 1L, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage").toString())
+                    .contains("Lý do phân công lại phải từ");
+            verify(workflowUseCase, never()).reassign(any());
+        }
+
+        @Test
+        @DisplayName("ADMIN role is denied access; SUPER_ADMIN is required")
+        void shouldThrowAccessDeniedWhenNotSuperAdmin() {
+            // request identity is ADMIN (set up in @BeforeEach)
+            assertThatThrownBy(() -> controller.reassignContribution(contributionId, targetUserId, "Lý do hợp lệ để chuyển", 1L, request, redirectAttributes))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("SUPER_ADMIN");
+            verify(workflowUseCase, never()).reassign(any());
+        }
+
+        @Test
+        @DisplayName("SUPER_ADMIN can reassign successfully")
+        void shouldExecuteReassignSuccessfullyForSuperAdmin() {
+            MockHttpServletRequest superAdminRequest = new MockHttpServletRequest();
+            AuthenticatedRequestIdentity superAdminIdentity = new AuthenticatedRequestIdentity(
+                    adminUserId,
+                    "superadmin@universe.local",
+                    "Super Admin",
+                    null,
+                    UserStatus.ACTIVE,
+                    UserRole.SUPER_ADMIN
+            );
+            AuthenticatedRequestIdentityTestSupport.attach(superAdminRequest, superAdminIdentity);
+
+            String reason = "Phân công lại cho chuyên gia phụ trách tuyến nhân vật này.";
+            String view = controller.reassignContribution(contributionId, targetUserId, reason, 2L, superAdminRequest, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_SUCCESS_REASSIGN);
+
+            ArgumentCaptor<ReassignWikiContributionCommand> captor = ArgumentCaptor.forClass(ReassignWikiContributionCommand.class);
+            verify(workflowUseCase).reassign(captor.capture());
+
+            ReassignWikiContributionCommand cmd = captor.getValue();
+            assertThat(cmd.contributionId()).isEqualTo(contributionId);
+            assertThat(cmd.actorId()).isEqualTo(adminUserId);
+            assertThat(cmd.targetUserId()).isEqualTo(targetUserId);
+            assertThat(cmd.reason()).isEqualTo(reason);
+            assertThat(cmd.expectedVersion()).isEqualTo(2L);
         }
     }
 }

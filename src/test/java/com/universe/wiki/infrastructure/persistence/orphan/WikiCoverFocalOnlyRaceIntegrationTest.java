@@ -96,6 +96,16 @@ class WikiCoverFocalOnlyRaceIntegrationTest {
         public ClockPort clockPort() {
             return Instant::now;
         }
+
+        @Bean
+        public com.universe.wiki.application.ports.WikiContributionRepositoryPort wikiContributionRepositoryPort() {
+            return mock(com.universe.wiki.application.ports.WikiContributionRepositoryPort.class);
+        }
+
+        @Bean
+        public com.universe.wiki.application.ports.WikiContributionWorkflowEventRepositoryPort wikiContributionWorkflowEventRepositoryPort() {
+            return mock(com.universe.wiki.application.ports.WikiContributionWorkflowEventRepositoryPort.class);
+        }
     }
 
     @Autowired

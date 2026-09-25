@@ -30,6 +30,8 @@ public interface WikiContributionAdminInboxProjection {
 
     String getSubmittedByUserId();
 
+    String getAssignedToUserId();
+
     Instant getCreatedAt();
 
     boolean getHasSelectedText();

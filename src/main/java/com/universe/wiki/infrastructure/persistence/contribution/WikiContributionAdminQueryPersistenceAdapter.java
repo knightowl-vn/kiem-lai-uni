@@ -95,6 +95,8 @@ public class WikiContributionAdminQueryPersistenceAdapter implements WikiContrib
             boolean hasSources = sourceCount > 0;
             String preview = p.getMessagePreview() != null ? p.getMessagePreview().trim() : "";
 
+            UUID assignedToUserId = p.getAssignedToUserId() != null ? UUID.fromString(p.getAssignedToUserId()) : null;
+
             WikiContributionAdminItem item = new WikiContributionAdminItem(
                     UUID.fromString(p.getId()),
                     WikiContributionStatus.valueOf(p.getStatus()),
@@ -106,6 +108,7 @@ public class WikiContributionAdminQueryPersistenceAdapter implements WikiContrib
                     p.getArticleSlugSnapshot(),
                     p.getArticleContentVersion(),
                     UUID.fromString(p.getSubmittedByUserId()),
+                    assignedToUserId,
                     preview,
                     p.getHasSelectedText(),
                     hasSources,

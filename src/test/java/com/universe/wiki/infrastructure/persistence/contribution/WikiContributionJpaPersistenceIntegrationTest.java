@@ -59,9 +59,27 @@ class WikiContributionJpaPersistenceIntegrationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67')");
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67', '68')");
+            jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_workflow_events");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_sources");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contributions");
+            String dbName = TestDatabaseSupport.resolveDatabaseName();
+            Integer revIdxExists = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = ? AND table_name = 'wiki_article_revisions' AND index_name = 'idx_wiki_article_revisions_source_contribution'",
+                    Integer.class,
+                    dbName
+            );
+            if (revIdxExists != null && revIdxExists > 0) {
+                jdbc.execute("ALTER TABLE wiki_article_revisions DROP INDEX idx_wiki_article_revisions_source_contribution");
+            }
+            Integer revColExists = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = ? AND table_name = 'wiki_article_revisions' AND column_name = 'source_contribution_id'",
+                    Integer.class,
+                    dbName
+            );
+            if (revColExists != null && revColExists > 0) {
+                jdbc.execute("ALTER TABLE wiki_article_revisions DROP COLUMN source_contribution_id");
+            }
         } catch (Exception ignored) {
         }
     }

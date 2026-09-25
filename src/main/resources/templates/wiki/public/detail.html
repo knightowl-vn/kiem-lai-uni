@@ -258,6 +258,9 @@
 	                                'dd/MM/yyyy HH:mm'
 	                            )}">14/08/2026 19:38</time></strong>
 							</span>
+							<div th:if="${attributionLine != null}" class="wiki-public-attribution-line" style="font-size: 13px; color: var(--text-muted, #64748b); margin-top: 4px;" th:text="${attributionLine}">
+								Cập nhật bởi Admin
+							</div>
 						</div>
 					</div>
 

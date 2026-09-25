@@ -114,6 +114,10 @@ class PublicWikiControllerTest {
     private GetWikiAppreciationSummariesUseCase
             getWikiAppreciationSummariesUseCase;
 
+    @Mock
+    private com.universe.identity.contracts.interfaces.UserIdentityContract
+            userIdentityContract;
+
     private PublicWikiController
             controller;
 
@@ -127,7 +131,8 @@ class PublicWikiControllerTest {
                         wikiMarkdownRenderer,
                         isWikiArticleSavedUseCase,
                         getWikiAppreciationDetailStateUseCase,
-                        getWikiAppreciationSummariesUseCase
+                        getWikiAppreciationSummariesUseCase,
+                        userIdentityContract
                 );
     }
 
@@ -852,6 +857,77 @@ class PublicWikiControllerTest {
         assertThat(model.getAttribute("isAppreciationEligible")).isEqualTo(false);
         assertThat(model.getAttribute("appreciationState")).isNull();
         verify(getWikiAppreciationDetailStateUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("Bài viết contentVersion > 1 và có updatedBy -> attributionLine = Cập nhật bởi {displayName}")
+    void shouldRenderUpdatedByAttributionWhenContentVersionGreaterThanOne() {
+        UUID creatorId = UUID.randomUUID();
+        UUID editorId = UUID.randomUUID();
+        PublishedWikiArticleDTO article = new PublishedWikiArticleDTO(
+                ARTICLE_ID,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Nhân vật chính",
+                "## Giới thiệu",
+                PUBLISHED_AT,
+                UPDATED_AT,
+                2L,
+                creatorId,
+                editorId
+        );
+
+        when(articleTypePathMapper.fromPath("character")).thenReturn(ArticleType.CHARACTER);
+        when(getPublishedArticleUseCase.execute(any())).thenReturn(article);
+        when(articleTypePathMapper.toPath(ArticleType.CHARACTER)).thenReturn("character");
+        when(wikiMarkdownRenderer.render(any())).thenReturn(new RenderedWikiContent("<p>Nội dung</p>", List.of()));
+        when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
+                .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
+        when(userIdentityContract.findPublicProfilesByIds(java.util.Set.of(editorId)))
+                .thenReturn(Map.of(editorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(editorId, "Biên tập viên A", null)));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        controller.detailPage("character", "tran-binh-an", request, model);
+
+        assertThat(model.getAttribute("attributionLine")).isEqualTo("Cập nhật bởi Biên tập viên A");
+    }
+
+    @Test
+    @DisplayName("Bài viết contentVersion = 1 và có createdBy -> attributionLine = Đăng bởi {displayName}")
+    void shouldRenderCreatedByAttributionWhenContentVersionIsOne() {
+        UUID creatorId = UUID.randomUUID();
+        PublishedWikiArticleDTO article = new PublishedWikiArticleDTO(
+                ARTICLE_ID,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "Nhân vật chính",
+                "## Giới thiệu",
+                PUBLISHED_AT,
+                UPDATED_AT,
+                1L,
+                creatorId,
+                null
+        );
+
+        when(articleTypePathMapper.fromPath("character")).thenReturn(ArticleType.CHARACTER);
+        when(getPublishedArticleUseCase.execute(any())).thenReturn(article);
+        when(articleTypePathMapper.toPath(ArticleType.CHARACTER)).thenReturn("character");
+        when(wikiMarkdownRenderer.render(any())).thenReturn(new RenderedWikiContent("<p>Nội dung</p>", List.of()));
+        when(getWikiAppreciationDetailStateUseCase.execute(any(), any()))
+                .thenReturn(new WikiAppreciationDetailState(null, 0L, null));
+        when(userIdentityContract.findPublicProfilesByIds(java.util.Set.of(creatorId)))
+                .thenReturn(Map.of(creatorId, new com.universe.identity.contracts.dto.UserPublicProfileDTO(creatorId, "Tác giả gốc", null)));
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        controller.detailPage("character", "tran-binh-an", request, model);
+
+        assertThat(model.getAttribute("attributionLine")).isEqualTo("Đăng bởi Tác giả gốc");
     }
 
     private PublishedWikiArticlePageDTO

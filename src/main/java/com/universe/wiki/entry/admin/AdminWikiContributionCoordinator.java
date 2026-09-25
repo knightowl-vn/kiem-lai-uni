@@ -75,11 +75,14 @@ public class AdminWikiContributionCoordinator {
 
         List<WikiContributionAdminItem> rawItems = rawPage.items();
 
-        // 1. Collect unique contributor IDs for 1 bulk lookup to Identity
+        // 1. Collect unique contributor and assignee IDs for 1 bulk lookup to Identity
         Set<UUID> userIds = new HashSet<>();
         for (WikiContributionAdminItem item : rawItems) {
             if (item.submittedByUserId() != null) {
                 userIds.add(item.submittedByUserId());
+            }
+            if (item.assignedToUserId() != null) {
+                userIds.add(item.assignedToUserId());
             }
         }
 
@@ -91,7 +94,10 @@ public class AdminWikiContributionCoordinator {
         List<AdminWikiContributionQueueItemDTO> enrichedItems = new ArrayList<>(rawItems.size());
         for (WikiContributionAdminItem item : rawItems) {
             AdminWikiContributionContributorDTO contributor = mapContributor(item.submittedByUserId(), profileMap);
-            enrichedItems.add(new AdminWikiContributionQueueItemDTO(item, contributor));
+            AdminWikiContributionContributorDTO assignee = item.assignedToUserId() != null
+                    ? mapContributor(item.assignedToUserId(), profileMap)
+                    : null;
+            enrichedItems.add(new AdminWikiContributionQueueItemDTO(item, contributor, assignee));
         }
 
         return new AdminWikiContributionQueuePageDTO(
@@ -123,6 +129,20 @@ public class AdminWikiContributionCoordinator {
         if (detail.resolvedByUserId() != null) {
             userIds.add(detail.resolvedByUserId());
         }
+        if (detail.assignedToUserId() != null) {
+            userIds.add(detail.assignedToUserId());
+        }
+        if (detail.reviewStartedByUserId() != null) {
+            userIds.add(detail.reviewStartedByUserId());
+        }
+        for (com.universe.wiki.domain.contribution.WikiContributionWorkflowEvent event : detail.events()) {
+            if (event.getActorId() != null) {
+                userIds.add(event.getActorId());
+            }
+            if (event.getTargetUserId() != null) {
+                userIds.add(event.getTargetUserId());
+            }
+        }
 
         Map<UUID, UserPublicProfileDTO> profileMap = userIds.isEmpty()
                 ? Map.of()
@@ -132,9 +152,29 @@ public class AdminWikiContributionCoordinator {
         AdminWikiContributionContributorDTO resolver = detail.resolvedByUserId() != null
                 ? mapContributor(detail.resolvedByUserId(), profileMap)
                 : null;
+        AdminWikiContributionContributorDTO assignee = detail.assignedToUserId() != null
+                ? mapContributor(detail.assignedToUserId(), profileMap)
+                : null;
+        AdminWikiContributionContributorDTO reviewStartedBy = detail.reviewStartedByUserId() != null
+                ? mapContributor(detail.reviewStartedByUserId(), profileMap)
+                : null;
 
         List<AdminWikiContributionSourceDTO> sources = detail.sources().stream()
                 .map(AdminWikiContributionSourceDTO::from)
+                .toList();
+
+        List<com.universe.wiki.entry.admin.dto.AdminWikiContributionWorkflowEventDTO> workflowEventDTOs = detail.events().stream()
+                .map(event -> new com.universe.wiki.entry.admin.dto.AdminWikiContributionWorkflowEventDTO(
+                        event.getId(),
+                        event.getContributionId(),
+                        event.getEventType(),
+                        event.getActorId() != null ? mapContributor(event.getActorId(), profileMap) : null,
+                        event.getTargetUserId() != null ? mapContributor(event.getTargetUserId(), profileMap) : null,
+                        event.getArticleContentVersion(),
+                        event.getResolutionOutcome(),
+                        event.getNote(),
+                        event.getCreatedAt()
+                ))
                 .toList();
 
         return new AdminWikiContributionDetailDTO(
@@ -160,7 +200,14 @@ public class AdminWikiContributionCoordinator {
                 detail.resolutionNote(),
                 resolver,
                 detail.resolvedAt(),
-                detail.resolvedArticleContentVersion()
+                detail.resolvedArticleContentVersion(),
+                assignee,
+                detail.assignedAt(),
+                reviewStartedBy,
+                detail.reviewStartedAt(),
+                detail.reviewStartedArticleContentVersion(),
+                detail.resolutionOutcome(),
+                workflowEventDTOs
         );
     }
 

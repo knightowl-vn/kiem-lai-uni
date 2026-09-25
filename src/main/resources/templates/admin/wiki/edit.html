@@ -60,11 +60,12 @@
         id=${article.id}
     )}"
 						th:data-wiki-article-id="${article.id}" th:object="${form}">
-						<!-- ================================================= -->
-						<!-- CSRF DATA FOR IMAGE UPLOAD                         -->
-						<!-- ================================================= -->
 						<div hidden="" id="wikiCsrf" th:data-header="${_csrf.headerName}"
 							th:data-token="${_csrf.token}"></div>
+						<input type="hidden" name="sourceContributionId" th:value="${sourceContributionId != null ? sourceContributionId : form.sourceContributionId}" th:if="${sourceContributionId != null or form.sourceContributionId != null}" />
+						<div class="wiki-admin-create-note" th:if="${sourceContributionId != null or form.sourceContributionId != null}" style="margin-bottom: 1rem; border-left: 3px solid #3b82f6;">
+							<strong>Đang chỉnh sửa theo đóng góp ý kiến độc giả</strong> — Sau khi lưu, phiên bản mới sẽ tự động liên kết với đóng góp này.
+						</div>
 						<!-- ================================================= -->
 						<!-- ERROR                                              -->
 						<!-- ================================================= -->

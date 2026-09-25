@@ -356,7 +356,8 @@ public class AdminWikiArticleCommandController {
 									normalizePublishedUpdateEditSummary(form.getEditSummary()),
 									actorId,
 									form.getCoverPositionX(),
-									form.getCoverPositionY()),
+									form.getCoverPositionY(),
+									form.getSourceContributionId()),
 							upload,
 							form.isRemoveCover());
 				}
@@ -380,6 +381,9 @@ public class AdminWikiArticleCommandController {
 				return redirectToArticleList();
 			}
 
+			if (form.getSourceContributionId() != null) {
+				return "redirect:/admin/wiki/articles/" + articleId + "/edit?sourceContributionId=" + form.getSourceContributionId();
+			}
 			return "redirect:/admin/wiki/articles/" + articleId + "/edit";
 		}
 
@@ -396,8 +400,11 @@ public class AdminWikiArticleCommandController {
 		 */
 		redirectAttributes.addFlashAttribute(AUTOSAVE_CLEANUP_ATTRIBUTE, editAutosaveKey(articleId));
 		/*
-		 * Sau khi lưu xong quay về trang chi tiết bài.
+		 * Sau khi lưu xong quay về trang chi tiết bài (hoặc đóng góp nếu có).
 		 */
+		if (form.getSourceContributionId() != null) {
+			return "redirect:/admin/wiki/contributions/" + form.getSourceContributionId();
+		}
 		return redirectToArticleDetail(articleId);
 	}
 

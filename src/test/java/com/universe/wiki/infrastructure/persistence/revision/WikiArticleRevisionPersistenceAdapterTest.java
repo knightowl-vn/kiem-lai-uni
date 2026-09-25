@@ -197,6 +197,94 @@ class WikiArticleRevisionPersistenceAdapterTest {
 
         assertThat(revision.editedBy())
                 .isEqualTo(ADMIN_ID);
+
+        assertThat(revision.sourceContributionId())
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("Lưu và khôi phục revision có chứa sourceContributionId")
+    void shouldSaveAndRestoreRevisionWithSourceContributionId() {
+        UUID contributionId = UUID.randomUUID();
+        WikiArticleRevision revision = new WikiArticleRevision(
+                REVISION_ID,
+                ARTICLE_ID,
+                2L,
+                2L,
+                "Trần Bình An",
+                new Slug("tran-binh-an"),
+                ArticleType.CHARACTER,
+                "Tóm tắt",
+                "Nội dung",
+                ArticleStatus.PUBLISHED,
+                RevisionChangeType.UPDATE_PUBLISHED,
+                "Cập nhật theo đóng góp của bạn đọc",
+                ADMIN_ID,
+                NOW,
+                contributionId
+        );
+
+        ArgumentCaptor<WikiArticleRevisionJpaEntity> entityCaptor =
+                ArgumentCaptor.forClass(WikiArticleRevisionJpaEntity.class);
+
+        persistenceAdapter.save(revision);
+
+        verify(repository).save(entityCaptor.capture());
+        WikiArticleRevisionJpaEntity entity = entityCaptor.getValue();
+        assertThat(entity.getSourceContributionId()).isEqualTo(contributionId.toString());
+
+        when(repository.findByArticleIdAndRevisionNumber(ARTICLE_ID.toString(), 2L))
+                .thenReturn(Optional.of(entity));
+
+        Optional<WikiArticleRevision> restoredOpt =
+                persistenceAdapter.findByArticleIdAndRevisionNumber(ARTICLE_ID, 2L);
+        assertThat(restoredOpt).isPresent();
+        assertThat(restoredOpt.get().sourceContributionId()).isEqualTo(contributionId);
+    }
+
+    @Test
+    @DisplayName("findLatestBySourceContributionId deterministically returns highest contentVersion when multiple linked revisions exist")
+    void shouldReturnHighestContentVersionWhenMultipleRevisionsLinkedToSameContribution() {
+        UUID contributionId = UUID.randomUUID();
+
+        WikiArticleRevisionJpaEntity entityV6 = createEntity();
+        entityV6.setId(UUID.randomUUID().toString());
+        entityV6.setRevisionNumber(6L);
+        entityV6.setContentVersion(6L);
+        entityV6.setSourceContributionId(contributionId.toString());
+
+        when(repository.findFirstBySourceContributionIdOrderByContentVersionDesc(contributionId.toString()))
+                .thenReturn(Optional.of(entityV6));
+
+        Optional<WikiArticleRevision> result = persistenceAdapter.findLatestBySourceContributionId(contributionId);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().contentVersion()).isEqualTo(6L);
+        assertThat(result.get().sourceContributionId()).isEqualTo(contributionId);
+        verify(repository).findFirstBySourceContributionIdOrderByContentVersionDesc(contributionId.toString());
+    }
+
+    @Test
+    @DisplayName("findLatestBySourceContributionId returns empty when no revision has matching sourceContributionId")
+    void shouldReturnEmptyWhenNoRevisionMatchesSourceContributionId() {
+        UUID contributionId = UUID.randomUUID();
+
+        when(repository.findFirstBySourceContributionIdOrderByContentVersionDesc(contributionId.toString()))
+                .thenReturn(Optional.empty());
+
+        Optional<WikiArticleRevision> result = persistenceAdapter.findLatestBySourceContributionId(contributionId);
+
+        assertThat(result).isEmpty();
+        verify(repository).findFirstBySourceContributionIdOrderByContentVersionDesc(contributionId.toString());
+    }
+
+    @Test
+    @DisplayName("findLatestBySourceContributionId returns empty when contributionId is null without querying DB")
+    void shouldReturnEmptyWhenContributionIdIsNull() {
+        Optional<WikiArticleRevision> result = persistenceAdapter.findLatestBySourceContributionId(null);
+
+        assertThat(result).isEmpty();
+        verify(repository, never()).findFirstBySourceContributionIdOrderByContentVersionDesc(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
