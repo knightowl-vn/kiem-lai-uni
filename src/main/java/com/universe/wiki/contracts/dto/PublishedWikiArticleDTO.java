@@ -19,7 +19,8 @@ public record PublishedWikiArticleDTO(
         Instant updatedAt,
         UUID coverMediaAssetId,
         int coverPositionX,
-        int coverPositionY
+        int coverPositionY,
+        long contentVersion
 ) {
 
     public PublishedWikiArticleDTO(
@@ -31,7 +32,8 @@ public record PublishedWikiArticleDTO(
             String content,
             Instant publishedAt,
             Instant updatedAt,
-            UUID coverMediaAssetId
+            UUID coverMediaAssetId,
+            long contentVersion
     ) {
         this(
                 id,
@@ -44,7 +46,8 @@ public record PublishedWikiArticleDTO(
                 updatedAt,
                 coverMediaAssetId,
                 50,
-                50
+                50,
+                contentVersion
         );
     }
 
@@ -56,7 +59,8 @@ public record PublishedWikiArticleDTO(
             String summary,
             String content,
             Instant publishedAt,
-            Instant updatedAt
+            Instant updatedAt,
+            long contentVersion
     ) {
         this(
                 id,
@@ -69,7 +73,8 @@ public record PublishedWikiArticleDTO(
                 updatedAt,
                 null,
                 50,
-                50
+                50,
+                contentVersion
         );
     }
 

@@ -108,6 +108,7 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class,
         com.universe.wiki.entry.web.SavedWikiArticleController.class,
         com.universe.wiki.entry.web.PublicWikiController.class,
+        com.universe.wiki.entry.web.PublicWikiContextualLookupController.class,
         com.universe.interaction.entry.admin.AdminCommentReportQueueController.class,
         com.universe.interaction.entry.admin.AdminCommentReportDetailController.class,
         com.universe.interaction.entry.admin.AdminCommentReportModerationController.class
@@ -239,6 +240,15 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.wiki.application.saved.IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
+
+    @MockBean
+    private com.universe.wiki.contracts.interfaces.WikiContextualLookupContract wikiContextualLookupContract;
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
@@ -714,7 +724,8 @@ class SecurityAuthorizationTest {
                         "Tóm tắt",
                         "Nội dung",
                         Instant.now(),
-                        Instant.now()
+                        Instant.now(),
+                        1L
                 ));
         when(wikiMarkdownRenderer.render(any()))
                 .thenReturn(new com.universe.wiki.application.article.render.RenderedWikiContent("html", List.of()));
@@ -722,6 +733,21 @@ class SecurityAuthorizationTest {
                 .thenReturn("character");
 
         mockMvc.perform(get("/wiki/character/tran-binh-an"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép tra cứu Wiki công khai GET /wiki/contextual-lookup")
+    void shouldAllowAnonymousAccessToPublicWikiContextualLookup() throws Exception {
+        when(wikiContextualLookupContract.lookupByTitle("kiem-lai"))
+                .thenReturn(new com.universe.wiki.contracts.dto.WikiContextualLookupResultDTO(
+                        "kiem-lai",
+                        false,
+                        List.of()
+                ));
+
+        mockMvc.perform(get("/wiki/contextual-lookup").param("q", "kiem-lai"))
                 .andExpect(status().isOk());
     }
 

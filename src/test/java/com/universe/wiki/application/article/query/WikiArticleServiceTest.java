@@ -39,7 +39,8 @@ class WikiArticleServiceTest {
                 "Tóm tắt",
                 "Nội dung",
                 Instant.now(),
-                Instant.now()
+                Instant.now(),
+                1L
         );
 
         when(queryPort.findPublishedById(ARTICLE_ID)).thenReturn(Optional.of(dto));

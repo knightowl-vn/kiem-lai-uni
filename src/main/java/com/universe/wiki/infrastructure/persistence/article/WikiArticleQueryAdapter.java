@@ -305,7 +305,8 @@ public class WikiArticleQueryAdapter
                         entity.getCoverMediaAssetId()
                 ),
                 Byte.toUnsignedInt(entity.getCoverPositionX()),
-                Byte.toUnsignedInt(entity.getCoverPositionY())
+                Byte.toUnsignedInt(entity.getCoverPositionY()),
+                entity.getContentVersion()
         );
     }
     private PublishedWikiArticleListItemDTO

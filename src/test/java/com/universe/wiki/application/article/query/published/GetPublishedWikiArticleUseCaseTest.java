@@ -223,7 +223,8 @@ class GetPublishedWikiArticleUseCaseTest {
                 "Nhân vật chính của Kiếm Lai.",
                 "Nội dung công khai.",
                 PUBLISHED_AT,
-                UPDATED_AT
+                UPDATED_AT,
+                1L
         );
     }
 }

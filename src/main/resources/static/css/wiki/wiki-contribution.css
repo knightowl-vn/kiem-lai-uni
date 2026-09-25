@@ -1,0 +1,756 @@
+/**
+ * KiemLai Universe — Wiki Reader Contribution UX & Selection Toolbar Styles (MS-05H5)
+ *
+ * Responsibilities:
+ * 1. Top action bar "Góp ý" button (.wiki-contribute-btn).
+ * 2. Floating text-selection toolbar (.wiki-selection-toolbar) with [Tra cứu] and [Góp ý] actions.
+ * 3. Reader contribution modal (.wiki-contribution-modal) with accessible dialog, preview block,
+ *    type selector, message textarea with counter, dynamic sources list, status alerts, and buttons.
+ * 4. Contextual Wiki lookup presentation container (.wiki-contextual-lookup-container).
+ */
+
+/* =========================================================
+   1. TOP ACTION BAR BUTTON
+   ========================================================= */
+
+.wiki-contribute-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.875rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--text-secondary, #64748b);
+    background-color: var(--surface-bg, #ffffff);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.wiki-contribute-btn:hover {
+    color: var(--primary-color, #0284c7);
+    border-color: var(--primary-color, #0284c7);
+    background-color: var(--surface-hover, #f8fafc);
+}
+
+.wiki-contribute-btn:active {
+    transform: scale(0.97);
+}
+
+.wiki-contribute-btn:focus-visible {
+    outline: 2px solid var(--primary-color, #0284c7);
+    outline-offset: 2px;
+}
+
+.wiki-contribute-btn .wiki-contribute-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+}
+
+/* =========================================================
+   2. FLOATING TEXT-SELECTION TOOLBAR
+   ========================================================= */
+
+.wiki-selection-toolbar {
+    position: fixed;
+    z-index: 1060;
+    display: inline-flex;
+    align-items: center;
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 9999px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+    padding: 3px;
+    user-select: none;
+    pointer-events: auto;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.wiki-selection-toolbar.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.wiki-selection-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+    color: #f1f5f9;
+    border: none;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.wiki-selection-btn:hover {
+    background-color: #334155;
+    color: #38bdf8;
+}
+
+.wiki-selection-btn:active {
+    transform: scale(0.96);
+}
+
+.wiki-selection-btn:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+.wiki-selection-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.wiki-selection-divider {
+    width: 1px;
+    height: 16px;
+    background-color: #475569;
+    margin: 0 2px;
+}
+
+/* Mobile Selection Toolbar Positioning (<= 640px) */
+@media (max-width: 640px) {
+    .wiki-selection-toolbar {
+        top: auto !important;
+        bottom: calc(20px + env(safe-area-inset-bottom, 0px)) !important;
+        left: 50% !important;
+        transform: translateX(-50%) translateY(10px);
+        padding: 4px;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .wiki-selection-toolbar.is-visible {
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .wiki-selection-btn {
+        padding: 8px 14px;
+        font-size: 13.5px;
+    }
+}
+
+/* =========================================================
+   3. READER CONTRIBUTION MODAL
+   ========================================================= */
+
+.wiki-contribution-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1070;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 1rem;
+    outline: 0;
+}
+
+.wiki-contribution-modal[hidden] {
+    display: none !important;
+}
+
+.wiki-contribution-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: 0;
+    transition: opacity 0.2s ease;
+}
+
+.wiki-contribution-dialog {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 38rem;
+    margin: auto;
+    pointer-events: auto;
+    animation: wikiModalSlideIn 0.2s ease-out;
+}
+
+@keyframes wikiModalSlideIn {
+    from {
+        opacity: 0;
+        transform: scale(0.97) translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+.wiki-contribution-content {
+    background-color: var(--surface-bg, #ffffff);
+    color: var(--text-primary, #0f172a);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 0.75rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Modal Header */
+.wiki-contribution-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+
+.wiki-contribution-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.5;
+    margin: 0;
+    color: var(--text-primary, #0f172a);
+}
+
+.wiki-contribution-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.375rem;
+    color: var(--text-secondary, #64748b);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.wiki-contribution-close-btn:hover {
+    background-color: var(--surface-hover, #f1f5f9);
+    color: var(--text-primary, #0f172a);
+}
+
+/* Modal Body */
+.wiki-contribution-body {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-height: calc(85vh - 120px);
+    overflow-y: auto;
+}
+
+/* Selection Preview */
+.wiki-contribution-selection-preview {
+    background-color: var(--surface-subtle, #f8fafc);
+    border-left: 3px solid var(--primary-color, #0284c7);
+    border-radius: 0 0.375rem 0.375rem 0;
+    padding: 0.75rem 1rem;
+}
+
+.wiki-contribution-selection-preview[hidden] {
+    display: none !important;
+}
+
+.wiki-contribution-preview-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary-color, #0284c7);
+    margin-bottom: 0.375rem;
+}
+
+.wiki-contribution-blockquote {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary, #475569);
+    font-style: italic;
+    margin: 0;
+    word-break: break-word;
+    max-height: 6rem;
+    overflow-y: auto;
+}
+
+.wiki-contribution-anchor-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted, #94a3b8);
+    margin-top: 0.375rem;
+}
+
+.wiki-contribution-anchor-hint[hidden] {
+    display: none !important;
+}
+
+/* Form Fields */
+.wiki-contribution-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.wiki-contribution-field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.wiki-contribution-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-primary, #0f172a);
+    margin: 0;
+}
+
+.wiki-contribution-counter {
+    font-size: 0.75rem;
+    color: var(--text-muted, #94a3b8);
+    font-variant-numeric: tabular-nums;
+}
+
+.wiki-contribution-select,
+.wiki-contribution-textarea,
+.wiki-contribution-source-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-primary, #0f172a);
+    background-color: var(--surface-bg, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 0.375rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wiki-contribution-select:focus,
+.wiki-contribution-textarea:focus,
+.wiki-contribution-source-input:focus {
+    outline: none;
+    border-color: var(--primary-color, #0284c7);
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.wiki-contribution-textarea {
+    resize: vertical;
+    min-height: 5.5rem;
+}
+
+.wiki-contribution-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+/* Sources List */
+.wiki-contribution-sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wiki-contribution-source-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.wiki-contribution-remove-source-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    color: #ef4444;
+    background: transparent;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.wiki-contribution-remove-source-btn:hover {
+    background-color: #fee2e2;
+    border-color: #fca5a5;
+}
+
+.wiki-contribution-add-source-btn {
+    align-self: flex-start;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--primary-color, #0284c7);
+    background: transparent;
+    border: 1px dashed var(--primary-color, #0284c7);
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.wiki-contribution-add-source-btn:hover {
+    background-color: var(--surface-subtle, #f0f9ff);
+}
+
+.wiki-contribution-add-source-btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    border-color: var(--border-color, #cbd5e1);
+    color: var(--text-muted, #94a3b8);
+}
+
+/* Status Alert */
+.wiki-contribution-status {
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.wiki-contribution-status[hidden] {
+    display: none !important;
+}
+
+.wiki-contribution-status--success {
+    background-color: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+
+.wiki-contribution-status--error {
+    background-color: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* Modal Footer */
+.wiki-contribution-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 0.875rem 1.25rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+    background-color: var(--surface-subtle, #f8fafc);
+}
+
+.wiki-contribution-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1.125rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.25rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.wiki-contribution-btn--primary {
+    color: #ffffff;
+    background-color: var(--primary-color, #0284c7);
+    border: 1px solid var(--primary-color, #0284c7);
+}
+
+.wiki-contribution-btn--primary:hover:not([disabled]) {
+    background-color: #0369a1;
+    border-color: #0369a1;
+}
+
+.wiki-contribution-btn--secondary {
+    color: var(--text-secondary, #475569);
+    background-color: var(--surface-bg, #ffffff);
+    border: 1px solid var(--border-color, #cbd5e1);
+}
+
+.wiki-contribution-btn--secondary:hover:not([disabled]) {
+    background-color: var(--surface-hover, #f1f5f9);
+    color: var(--text-primary, #0f172a);
+}
+
+.wiki-contribution-btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   4. CONTEXTUAL WIKI LOOKUP PRESENTATION
+   ========================================================= */
+
+.wiki-contextual-lookup-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1061;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.wiki-contextual-lookup-backdrop.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.wiki-contextual-lookup-container {
+    position: fixed;
+    z-index: 1062;
+    width: 390px;
+    max-width: calc(100vw - 32px);
+    max-height: 480px;
+    background-color: var(--surface-bg, #ffffff);
+    color: var(--text-primary, #0f172a);
+    border: 1px solid var(--border-color, #cbd5e1);
+    border-radius: 0.75rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+
+.wiki-contextual-lookup-container.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.wiki-contextual-lookup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border-color, #e2e8f0);
+    background-color: var(--surface-subtle, #f8fafc);
+}
+
+.wiki-contextual-lookup-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--primary-color, #0284c7);
+}
+
+.wiki-contextual-lookup-header-title svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.wiki-contextual-lookup-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    background: transparent;
+    border: none;
+    border-radius: 0.25rem;
+    color: var(--text-secondary, #64748b);
+    cursor: pointer;
+}
+
+.wiki-contextual-lookup-close-btn:hover {
+    color: var(--text-primary, #0f172a);
+}
+
+.wiki-contextual-lookup-body {
+    padding: 1rem;
+    overflow-y: auto;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.wiki-contextual-lookup-loading,
+.wiki-contextual-lookup-empty,
+.wiki-contextual-lookup-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 1.5rem 1rem;
+    gap: 0.75rem;
+    color: var(--text-secondary, #64748b);
+}
+
+.wiki-contextual-lookup-spinner {
+    width: 2rem;
+    height: 2rem;
+    border: 3px solid rgba(2, 132, 199, 0.2);
+    border-top-color: var(--primary-color, #0284c7);
+    border-radius: 50%;
+    animation: wikiLookupSpin 0.8s linear infinite;
+}
+
+@keyframes wikiLookupSpin {
+    to { transform: rotate(360deg); }
+}
+
+.wiki-contextual-lookup-primary-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.wiki-contextual-lookup-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+}
+
+.wiki-contextual-lookup-type-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background-color: var(--primary-light, #e0f2fe);
+    color: var(--primary-dark, #0369a1);
+    border-radius: 9999px;
+}
+
+.wiki-contextual-lookup-card-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary, #0f172a);
+}
+
+.wiki-contextual-lookup-card-summary {
+    font-size: 0.8125rem;
+    color: var(--text-secondary, #475569);
+    margin: 0;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.wiki-contextual-lookup-article-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--primary-color, #0284c7);
+    text-decoration: none;
+    margin-top: 0.5rem;
+}
+
+.wiki-contextual-lookup-article-link:hover {
+    text-decoration: underline;
+}
+
+.wiki-contextual-lookup-secondary-section {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border-color, #e2e8f0);
+}
+
+.wiki-contextual-lookup-secondary-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted, #94a3b8);
+    margin-bottom: 0.5rem;
+}
+
+.wiki-contextual-lookup-secondary-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.wiki-contextual-lookup-secondary-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    text-decoration: none;
+    color: var(--text-primary, #0f172a);
+    font-size: 0.8125rem;
+    transition: background-color 0.15s ease;
+}
+
+.wiki-contextual-lookup-secondary-item:hover {
+    background-color: var(--surface-subtle, #f1f5f9);
+    color: var(--primary-color, #0284c7);
+}
+
+/* Mobile Bottom Sheet for Contextual Lookup */
+@media (max-width: 640px) {
+    .wiki-contextual-lookup-container {
+        top: auto !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 70vh !important;
+        border-radius: 1rem 1rem 0 0 !important;
+        transform: translateY(100%);
+    }
+
+    .wiki-contextual-lookup-container.is-visible {
+        transform: translateY(0);
+    }
+}
+
+/* =========================================================
+   5. DISABLED BUTTONS & TOAST NOTIFICATION
+   ========================================================= */
+
+.wiki-selection-btn:disabled,
+.wiki-selection-btn.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.wiki-contribution-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    z-index: 1080;
+    padding: 10px 18px;
+    background-color: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 500;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+    pointer-events: none;
+}
+
+.wiki-contribution-toast.is-visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+

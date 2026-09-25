@@ -794,7 +794,8 @@ class PublicWikiControllerTest {
                 "Tông môn của Trần Bình An.",
                 "## Giới thiệu",
                 PUBLISHED_AT,
-                UPDATED_AT
+                UPDATED_AT,
+                1L
         );
 
         when(articleTypePathMapper.fromPath("faction")).thenReturn(ArticleType.FACTION);
@@ -831,7 +832,8 @@ class PublicWikiControllerTest {
                 "Hồ lô chứa kiếm.",
                 "## Pháp bảo",
                 PUBLISHED_AT,
-                UPDATED_AT
+                UPDATED_AT,
+                1L
         );
 
         when(articleTypePathMapper.fromPath("item")).thenReturn(ArticleType.ITEM);
@@ -894,7 +896,8 @@ class PublicWikiControllerTest {
                 ### Cảnh giới
                 """,
                 PUBLISHED_AT,
-                UPDATED_AT
+                UPDATED_AT,
+                1L
         );
     }
 }

@@ -43,7 +43,7 @@ class WikiCoverDTOContractsTest {
     void shouldReturnCorrectUrlsForPublishedWikiArticleDTO() {
         PublishedWikiArticleDTO withCover = new PublishedWikiArticleDTO(
                 ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER", "Tóm tắt", "Nội dung",
-                Instant.now(), Instant.now(), ASSET_ID
+                Instant.now(), Instant.now(), ASSET_ID, 1L
         );
 
         assertThat(withCover.coverMediaAssetId()).isEqualTo(ASSET_ID);
@@ -52,7 +52,7 @@ class WikiCoverDTOContractsTest {
 
         PublishedWikiArticleDTO withoutCover = new PublishedWikiArticleDTO(
                 ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER", "Tóm tắt", "Nội dung",
-                Instant.now(), Instant.now(), null
+                Instant.now(), Instant.now(), null, 1L
         );
 
         assertThat(withoutCover.coverMediaAssetId()).isNull();
