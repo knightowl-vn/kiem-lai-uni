@@ -191,4 +191,49 @@ class AdminWikiContributionPageControllerTest {
         assertThat(captor.getValue().keyword()).isNull();
         assertThat(model.getAttribute("keyword")).isEqualTo("");
     }
+
+    @Test
+    @DisplayName("Detail page: returns contribution-detail view with model attributes and no-cache headers")
+    void shouldRenderDetailPageWhenFound() {
+        java.util.UUID contributionId = java.util.UUID.randomUUID();
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap redirectAttributes =
+                new org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap();
+
+        com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO detailMock =
+                org.mockito.Mockito.mock(com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO.class);
+        when(coordinator.getDetail(contributionId)).thenReturn(detailMock);
+
+        String view = controller.detailPage(contributionId, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("admin/wiki/contribution-detail");
+        assertThat(model.getAttribute("pageTitle")).isEqualTo("Chi tiết đóng góp Wiki");
+        assertThat(model.getAttribute("activeMenu")).isEqualTo("wiki-contributions");
+        assertThat(model.getAttribute("contribution")).isSameAs(detailMock);
+
+        // No-cache headers
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store, no-cache, must-revalidate, max-age=0");
+        assertThat(response.getHeader("Pragma")).isEqualTo("no-cache");
+    }
+
+    @Test
+    @DisplayName("Detail page: redirects to inbox with flash error when contribution not found")
+    void shouldRedirectToInboxWhenContributionNotFound() {
+        java.util.UUID contributionId = java.util.UUID.randomUUID();
+        ExtendedModelMap model = new ExtendedModelMap();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap redirectAttributes =
+                new org.springframework.web.servlet.mvc.support.RedirectAttributesModelMap();
+
+        when(coordinator.getDetail(contributionId))
+                .thenThrow(new com.universe.wiki.application.exceptions.WikiContributionNotFoundException(contributionId));
+
+        String view = controller.detailPage(contributionId, model, response, redirectAttributes);
+
+        assertThat(view).isEqualTo("redirect:/admin/wiki/contributions");
+        assertThat(redirectAttributes.getFlashAttributes()).containsKey("errorMessage");
+        assertThat(redirectAttributes.getFlashAttributes().get("errorMessage").toString())
+                .contains(contributionId.toString());
+    }
 }

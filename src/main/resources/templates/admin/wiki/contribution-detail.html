@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chi tiết đóng góp Wiki | Kiếm Lai Universe</title>
+    <link rel="stylesheet" th:href="@{/css/admin/dashboard.css}">
+    <link rel="stylesheet" th:href="@{/css/admin/wiki-contributions.css}">
+</head>
+
+<body>
+
+    <div class="admin-layout">
+
+        <div th:replace="~{admin/fragments/sidebar :: sidebar(${activeMenu})}"></div>
+
+        <main class="admin-main">
+
+            <div th:replace="~{admin/fragments/header :: header(${pageTitle})}"></div>
+
+            <section class="dashboard-content">
+
+                <!-- Back link -->
+                <a th:href="@{/admin/wiki/contributions}" class="admin-back-link wiki-contribution-back">
+                    ← Quay lại hàng đợi đóng góp
+                </a>
+
+                <!-- Flash Alerts -->
+                <div th:if="${successMessage != null}" class="admin-form-success alert-success" role="alert" th:text="${successMessage}">
+                    Thông báo thành công
+                </div>
+
+                <div th:if="${errorMessage != null}" class="admin-form-error alert-error" role="alert" th:text="${errorMessage}">
+                    Thông báo lỗi
+                </div>
+
+                <!-- =========================================================
+                     SECTION A: CONTRIBUTION STATUS & IDENTITY
+                     ========================================================= -->
+                <section class="wiki-contribution-detail-card wiki-contribution-detail-summary-card">
+                    <div class="wiki-contribution-detail-header-row">
+                        <div class="wiki-contribution-detail-badges">
+                            <!-- Status Badge -->
+                            <span class="status-badge"
+                                  th:classappend="${contribution.status.name() == 'NEW' ? ' status-new' :
+                                                   contribution.status.name() == 'REVIEWING' ? ' status-reviewing' :
+                                                   contribution.status.name() == 'RESOLVED' ? ' status-resolved' :
+                                                   ' status-rejected'}"
+                                  th:text="${contribution.status.name() == 'NEW' ? 'Mới tiếp nhận' :
+                                           contribution.status.name() == 'REVIEWING' ? 'Đang xem xét' :
+                                           contribution.status.name() == 'RESOLVED' ? 'Đã giải quyết' :
+                                           'Đã từ chối'}">
+                                Mới tiếp nhận
+                            </span>
+
+                            <!-- Context Badge -->
+                            <span class="context-badge"
+                                  th:classappend="${contribution.contextType.name() == 'TEXT_SELECTION' ? ' context-text-selection' : ' context-general'}"
+                                  th:text="${contribution.contextType.name() == 'TEXT_SELECTION' ? 'Đoạn trích dẫn' : 'Đóng góp chung'}">
+                                Đóng góp chung
+                            </span>
+
+                            <!-- Contribution Type Badge -->
+                            <span class="type-badge"
+                                  th:text="${contribution.contributionType.name() == 'INCORRECT_INFORMATION' ? 'Thông tin sai lệch' :
+                                           contribution.contributionType.name() == 'MISSING_INFORMATION' ? 'Thiếu thông tin' :
+                                           contribution.contributionType.name() == 'OUTDATED_INFORMATION' ? 'Thông tin lỗi thời' :
+                                           contribution.contributionType.name() == 'WORDING' ? 'Lỗi diễn đạt / chính tả' :
+                                           contribution.contributionType.name() == 'SOURCE_REFERENCE' ? 'Nguồn tham khảo' :
+                                           'Khác'}">
+                                Thông tin sai lệch
+                            </span>
+                        </div>
+
+                        <div class="wiki-contribution-detail-meta-group">
+                            <span class="wiki-contribution-id-pill" th:text="${'ID: ' + contribution.contributionId}">UUID</span>
+                            <span class="wiki-contribution-version-pill" th:text="${'Version: ' + contribution.version}">v0</span>
+                        </div>
+                    </div>
+
+                    <div class="wiki-contribution-detail-time-row">
+                        <span class="wiki-contribution-time-label">Thời điểm gửi:</span>
+                        <time th:datetime="${contribution.createdAt}"
+                              th:text="${#temporals.format(contribution.createdAt, 'dd/MM/yyyy HH:mm:ss')}">
+                            01/01/2026 12:00:00
+                        </time>
+                        <span class="wiki-contribution-time-sep">·</span>
+                        <span class="wiki-contribution-time-label">Cập nhật:</span>
+                        <time th:datetime="${contribution.updatedAt}"
+                              th:text="${#temporals.format(contribution.updatedAt, 'dd/MM/yyyy HH:mm:ss')}">
+                            01/01/2026 12:00:00
+                        </time>
+                    </div>
+                </section>
+
+                <div class="wiki-contribution-detail-grid">
+
+                    <div class="wiki-contribution-detail-main-col">
+
+                        <!-- =========================================================
+                             SECTION B: ARTICLE SNAPSHOT AT SUBMISSION
+                             ========================================================= -->
+                        <section class="wiki-contribution-detail-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">📖</span>
+                                <h3>Thông tin bài viết tại thời điểm đóng góp</h3>
+                            </div>
+
+                            <div class="wiki-article-snapshot-box">
+                                <div class="wiki-article-snapshot-header">
+                                    <span class="wiki-article-type-tag" th:text="${contribution.articleTypeSnapshot}">CHARACTER</span>
+                                    <h4 class="wiki-article-title-heading" th:text="${contribution.articleTitleSnapshot}">Tiêu đề bài viết</h4>
+                                    <span class="wiki-article-version-badge" th:text="${'Phiên bản gửi: v' + contribution.articleContentVersion}">v1</span>
+                                </div>
+
+                                <div class="wiki-article-snapshot-links">
+                                    <a th:href="@{/wiki/{type}/{slug}(type=${#strings.toLowerCase(#strings.replace(contribution.articleTypeSnapshot, '_', '-'))}, slug=${contribution.articleSlugSnapshot})}"
+                                       class="admin-secondary-button"
+                                       target="_blank"
+                                       rel="noopener noreferrer">
+                                        Xem bài viết công khai hiện tại ↗
+                                    </a>
+                                    <a th:href="@{/admin/wiki/articles/{id}/edit(id=${contribution.articleId})}"
+                                       class="admin-secondary-button"
+                                       target="_blank"
+                                       rel="noopener noreferrer">
+                                        Mở trang quản trị bài viết ↗
+                                    </a>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION C: READER MESSAGE
+                             ========================================================= -->
+                        <section class="wiki-contribution-detail-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">💬</span>
+                                <h3>Nội dung đóng góp từ độc giả</h3>
+                            </div>
+
+                            <div class="wiki-contribution-message-full">
+                                <p th:text="${contribution.message}">Nội dung đóng góp đầy đủ từ người đọc...</p>
+                            </div>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION D: TEXT SELECTION EVIDENCE
+                             ========================================================= -->
+                        <section th:if="${contribution.hasSelectionEvidence()}" class="wiki-contribution-detail-card wiki-selection-evidence-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">✦</span>
+                                <h3>Bằng chứng trích dẫn văn bản</h3>
+                            </div>
+
+                            <div class="wiki-selection-evidence-content">
+                                <div th:if="${contribution.selectedHeadingAnchor != null and !contribution.selectedHeadingAnchor.isBlank()}"
+                                     class="wiki-selection-heading-box">
+                                    <span class="wiki-meta-label">Tiêu đề đoạn (anchor):</span>
+                                    <code th:text="${contribution.selectedHeadingAnchor}">#tieu-de</code>
+                                </div>
+
+                                <div class="wiki-selection-quote-box">
+                                    <span th:if="${contribution.selectedPrefix != null and !contribution.selectedPrefix.isBlank()}"
+                                          class="wiki-selection-prefix"
+                                          th:text="${contribution.selectedPrefix}">
+                                        Tiền tố ngữ cảnh...
+                                    </span>
+                                    <mark class="wiki-selection-target-text" th:text="${contribution.selectedText}">
+                                        Đoạn văn bản trích dẫn chính xác được chọn bởi độc giả
+                                    </mark>
+                                    <span th:if="${contribution.selectedSuffix != null and !contribution.selectedSuffix.isBlank()}"
+                                          class="wiki-selection-suffix"
+                                          th:text="${contribution.selectedSuffix}">
+                                        ...Hậu tố ngữ cảnh
+                                    </span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION E: SOURCE REFERENCES
+                             ========================================================= -->
+                        <section class="wiki-contribution-detail-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">🔗</span>
+                                <h3>Nguồn tham khảo / Bằng chứng đối chiếu</h3>
+                                <span class="wiki-source-count-badge" th:text="${contribution.sources.size() + ' nguồn'}">0 nguồn</span>
+                            </div>
+
+                            <div th:if="${#lists.isEmpty(contribution.sources)}" class="wiki-empty-sources-notice">
+                                <p>Đóng góp này không đính kèm nguồn tham khảo.</p>
+                            </div>
+
+                            <ul th:unless="${#lists.isEmpty(contribution.sources)}" class="wiki-detail-sources-list">
+                                <li th:each="src : ${contribution.sources}" class="wiki-detail-source-item">
+                                    <div class="wiki-source-order-col">
+                                        <span class="wiki-source-order-number" th:text="${'#' + (src.sourceOrder + 1)}">#1</span>
+                                    </div>
+                                    <div class="wiki-source-info-col">
+                                        <div class="wiki-source-type-row">
+                                            <span class="wiki-source-type-tag"
+                                                  th:classappend="${src.sourceType.name() == 'INTERNAL' ? ' internal' : ' external'}"
+                                                  th:text="${src.sourceType.name() == 'INTERNAL' ? 'Nội bộ Vũ Trụ' : 'Nguồn bên ngoài'}">
+                                                Nội bộ
+                                            </span>
+                                            <time th:datetime="${src.createdAt}"
+                                                  th:text="${#temporals.format(src.createdAt, 'dd/MM/yyyy HH:mm')}">
+                                                01/01/2026 12:00
+                                            </time>
+                                        </div>
+                                        <a th:href="${src.url}"
+                                           class="wiki-source-url-link"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           th:text="${src.url}">
+                                            https://example.com/source
+                                        </a>
+                                    </div>
+                                </li>
+                            </ul>
+                        </section>
+
+                    </div>
+
+                    <div class="wiki-contribution-detail-side-col">
+
+                        <!-- =========================================================
+                             SECTION F: CONTRIBUTOR CONTEXT
+                             ========================================================= -->
+                        <section class="wiki-contribution-detail-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">👤</span>
+                                <h3>Thông tin người đóng góp</h3>
+                            </div>
+
+                            <div class="wiki-contributor-profile-box">
+                                <div class="wiki-contributor-avatar-large"
+                                     th:classappend="${!contribution.contributor.resolved ? ' unresolved' : ''}">
+                                    <img th:if="${contribution.contributor.resolved and contribution.contributor.avatarUrl != null and !contribution.contributor.avatarUrl.isBlank()}"
+                                         th:src="${contribution.contributor.avatarUrl}"
+                                         alt="Avatar"
+                                         referrerpolicy="no-referrer">
+                                    <span th:unless="${contribution.contributor.resolved and contribution.contributor.avatarUrl != null and !contribution.contributor.avatarUrl.isBlank()}"
+                                          th:text="${contribution.contributor.resolved and contribution.contributor.displayName != null and !contribution.contributor.displayName.isBlank() ? #strings.substring(contribution.contributor.displayName, 0, 1) : '?'}">
+                                        ?
+                                    </span>
+                                </div>
+                                <div class="wiki-contributor-profile-details">
+                                    <strong class="wiki-contributor-display-name"
+                                            th:text="${contribution.contributor.resolved ? contribution.contributor.displayName : 'Người dùng không khả dụng'}">
+                                        Tên người gửi
+                                    </strong>
+                                    <span class="wiki-contributor-id-code" th:text="${contribution.contributor.userId}">
+                                        UUID
+                                    </span>
+                                    <span th:if="${!contribution.contributor.resolved}" class="wiki-contributor-deleted-tag">
+                                        Tài khoản đã bị xóa hoặc không còn tồn tại
+                                    </span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION G: WORKFLOW HISTORY & DECISION METADATA
+                             ========================================================= -->
+                        <section th:if="${contribution.isTerminal()}" class="wiki-contribution-detail-card wiki-resolution-info-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">⚖</span>
+                                <h3>Quyết định kiểm duyệt</h3>
+                                <span class="status-badge"
+                                      th:classappend="${contribution.status.name() == 'RESOLVED' ? ' status-resolved' : ' status-rejected'}"
+                                      th:text="${contribution.status.name() == 'RESOLVED' ? 'Đã giải quyết' : 'Đã từ chối'}">
+                                    Đã giải quyết
+                                </span>
+                            </div>
+
+                            <div class="wiki-resolution-meta-list">
+                                <div class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Người xử lý:</span>
+                                    <span th:if="${contribution.resolver != null and contribution.resolver.resolved}"
+                                          class="wiki-meta-value font-medium"
+                                          th:text="${contribution.resolver.displayName}">
+                                        Tên Admin
+                                    </span>
+                                    <span th:unless="${contribution.resolver != null and contribution.resolver.resolved}"
+                                          class="wiki-meta-value font-mono text-sm"
+                                          th:text="${contribution.resolver != null ? contribution.resolver.displayName : (contribution.resolvedArticleContentVersion != null ? 'Hệ thống' : 'Quản trị viên')}">
+                                        Admin UUID
+                                    </span>
+                                </div>
+
+                                <div class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Thời điểm xử lý:</span>
+                                    <time th:datetime="${contribution.resolvedAt}"
+                                          th:text="${#temporals.format(contribution.resolvedAt, 'dd/MM/yyyy HH:mm:ss')}">
+                                        01/01/2026 12:00:00
+                                    </time>
+                                </div>
+
+                                <div th:if="${contribution.status.name() == 'RESOLVED'}" class="wiki-resolution-meta-item">
+                                    <span class="wiki-meta-label">Phiên bản bài viết khi giải quyết:</span>
+                                    <span th:if="${contribution.resolvedArticleContentVersion != null}"
+                                          class="wiki-article-version-badge"
+                                          th:text="${'v' + contribution.resolvedArticleContentVersion}">
+                                        v1
+                                    </span>
+                                    <span th:unless="${contribution.resolvedArticleContentVersion != null}"
+                                          class="text-muted text-sm">
+                                        Không khả dụng (bài viết đã gỡ/xóa)
+                                    </span>
+                                </div>
+
+                                <div class="wiki-resolution-note-box">
+                                    <span class="wiki-meta-label">Ghi chú quyết định:</span>
+                                    <p class="wiki-resolution-note-text" th:text="${contribution.resolutionNote}">
+                                        Ghi chú xử lý đóng góp của quản trị viên...
+                                    </p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- =========================================================
+                             SECTION H: AVAILABLE WORKFLOW ACTIONS
+                             ========================================================= -->
+                        <section th:unless="${contribution.isTerminal()}" class="wiki-contribution-detail-card wiki-actions-card">
+                            <div class="wiki-contribution-card-title">
+                                <span class="wiki-contribution-card-icon">⚡</span>
+                                <h3>Hành động xử lý</h3>
+                            </div>
+
+                            <div class="wiki-actions-panel">
+
+                                <!-- Action 1: Mark reviewing (Only for NEW) -->
+                                <div th:if="${contribution.status.name() == 'NEW'}" class="wiki-action-block">
+                                    <div class="wiki-action-desc">
+                                        <strong>Chuyển sang Đang xem xét</strong>
+                                        <p>Đánh dấu đóng góp này đang được ban biên tập nghiên cứu, giữ nguyên hàng đợi.</p>
+                                    </div>
+                                    <form method="post"
+                                          th:action="@{/admin/wiki/contributions/{id}/review(id=${contribution.contributionId})}">
+                                        <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
+                                        <button type="submit" class="admin-secondary-button wiki-btn-review">
+                                            Bắt đầu xem xét
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <!-- Action 2: Resolve (Allowed for NEW & REVIEWING) -->
+                                <div class="wiki-action-block">
+                                    <div class="wiki-action-desc">
+                                        <strong>Chấp thuận & Giải quyết đóng góp</strong>
+                                        <p>Xác nhận đóng góp hợp lệ và đã được xử lý (lưu ý: thao tác này không tự động sửa bài viết hay ghi nhận điểm thưởng).</p>
+                                    </div>
+                                    <form method="post"
+                                          th:action="@{/admin/wiki/contributions/{id}/resolve(id=${contribution.contributionId})}"
+                                          class="wiki-decision-form">
+                                        <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
+                                        <div class="wiki-form-group">
+                                            <label for="resolveNote">Ghi chú giải quyết <span class="required">*</span></label>
+                                            <textarea id="resolveNote"
+                                                      name="resolutionNote"
+                                                      rows="3"
+                                                      minlength="5"
+                                                      maxlength="2000"
+                                                      required
+                                                      placeholder="Nhập ghi chú xử lý (tối thiểu 5 ký tự)..."
+                                                      class="admin-textarea"></textarea>
+                                        </div>
+                                        <button type="submit" class="admin-primary-button wiki-btn-resolve">
+                                            Chấp thuận & Giải quyết
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <!-- Action 3: Reject (Allowed for NEW & REVIEWING) -->
+                                <div class="wiki-action-block">
+                                    <div class="wiki-action-desc">
+                                        <strong>Từ chối đóng góp</strong>
+                                        <p>Đóng góp không chính xác, thiếu căn cứ hoặc không phù hợp với tiêu chuẩn Wiki.</p>
+                                    </div>
+                                    <form method="post"
+                                          th:action="@{/admin/wiki/contributions/{id}/reject(id=${contribution.contributionId})}"
+                                          class="wiki-decision-form"
+                                          onsubmit="return confirm('Bạn có chắc chắn muốn từ chối đóng góp này không?')">
+                                        <input type="hidden" name="expectedVersion" th:value="${contribution.version}">
+                                        <div class="wiki-form-group">
+                                            <label for="rejectNote">Lý do từ chối <span class="required">*</span></label>
+                                            <textarea id="rejectNote"
+                                                      name="resolutionNote"
+                                                      rows="3"
+                                                      minlength="5"
+                                                      maxlength="2000"
+                                                      required
+                                                      placeholder="Nêu rõ lý do từ chối để lưu vết kiểm duyệt (tối thiểu 5 ký tự)..."
+                                                      class="admin-textarea"></textarea>
+                                        </div>
+                                        <button type="submit" class="admin-danger-button wiki-btn-reject">
+                                            Từ chối đóng góp
+                                        </button>
+                                    </form>
+                                </div>
+
+                            </div>
+                        </section>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+</body>
+</html>

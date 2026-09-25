@@ -38,7 +38,7 @@ class WikiContributionV65FlywayRuntimeVerificationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66')");
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67')");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_sources");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contributions");
         } catch (Exception ignored) {
@@ -74,7 +74,7 @@ class WikiContributionV65FlywayRuntimeVerificationTest {
                 dbName
         );
 
-        assertThat(columnNames).containsExactly(
+        assertThat(columnNames).startsWith(
                 "id",
                 "article_id",
                 "article_type_snapshot",

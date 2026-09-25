@@ -36,21 +36,26 @@ class AdminWikiContributionCoordinatorTest {
     private GetWikiContributionAdminInboxUseCase useCase;
 
     @Mock
+    private com.universe.wiki.application.contribution.query.GetWikiContributionAdminDetailUseCase detailUseCase;
+
+    @Mock
     private UserIdentityContract userIdentityContract;
 
     private AdminWikiContributionCoordinator coordinator;
 
     @BeforeEach
     void setUp() {
-        coordinator = new AdminWikiContributionCoordinator(useCase, userIdentityContract);
+        coordinator = new AdminWikiContributionCoordinator(useCase, detailUseCase, userIdentityContract);
     }
 
     @Test
     @DisplayName("Constructor enforces non-null dependencies")
     void constructorEnforcesNonNull() {
-        assertThatThrownBy(() -> new AdminWikiContributionCoordinator(null, userIdentityContract))
+        assertThatThrownBy(() -> new AdminWikiContributionCoordinator(null, detailUseCase, userIdentityContract))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new AdminWikiContributionCoordinator(useCase, null))
+        assertThatThrownBy(() -> new AdminWikiContributionCoordinator(useCase, null, userIdentityContract))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new AdminWikiContributionCoordinator(useCase, detailUseCase, null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -214,5 +219,78 @@ class AdminWikiContributionCoordinatorTest {
 
         assertThat(count).isEqualTo(7L);
         verify(useCase).getCountByStatus(WikiContributionStatus.NEW);
+    }
+
+    @Test
+    @DisplayName("getDetail enriches contributor and resolver in 1 bulk query to Identity")
+    void shouldEnrichDetailContributorAndResolver() {
+        UUID contributionId = UUID.randomUUID();
+        UUID contributorUserId = UUID.randomUUID();
+        UUID resolverUserId = UUID.randomUUID();
+
+        com.universe.wiki.domain.contribution.WikiContributionSource source =
+                com.universe.wiki.domain.contribution.WikiContributionSource.reconstitute(
+                        UUID.randomUUID(),
+                        contributionId,
+                        0,
+                        com.universe.wiki.domain.contribution.WikiContributionSourceType.INTERNAL,
+                        "/wiki/character/tran-binh-an",
+                        Instant.now()
+                );
+
+        com.universe.wiki.application.contribution.query.WikiContributionAdminDetail detail =
+                new com.universe.wiki.application.contribution.query.WikiContributionAdminDetail(
+                        contributionId,
+                        UUID.randomUUID(),
+                        "CHARACTER",
+                        "Trần Bình An",
+                        "tran-binh-an",
+                        1L,
+                        contributorUserId,
+                        WikiContributionContextType.TEXT_SELECTION,
+                        WikiContributionType.WORDING,
+                        "Sửa lỗi chính tả",
+                        "văn bản chọn",
+                        "tiền tố",
+                        "hậu tố",
+                        "#heading",
+                        WikiContributionStatus.RESOLVED,
+                        2L,
+                        Instant.now().minusSeconds(100),
+                        Instant.now(),
+                        List.of(source),
+                        "Đã sửa trong bản mới",
+                        resolverUserId,
+                        Instant.now(),
+                        2L
+                );
+
+        when(detailUseCase.execute(contributionId)).thenReturn(detail);
+
+        UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
+                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg"
+        );
+        UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
+                resolverUserId, "Admin Resolver", null
+        );
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId)))
+                .thenReturn(Map.of(contributorUserId, contributorProfile, resolverUserId, resolverProfile));
+
+        com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO result =
+                coordinator.getDetail(contributionId);
+
+        assertThat(result.contributionId()).isEqualTo(contributionId);
+        assertThat(result.contributor().displayName()).isEqualTo("Contributor Name");
+        assertThat(result.contributor().resolved()).isTrue();
+        assertThat(result.resolver().displayName()).isEqualTo("Admin Resolver");
+        assertThat(result.resolver().resolved()).isTrue();
+        assertThat(result.sources()).hasSize(1);
+        assertThat(result.resolutionNote()).isEqualTo("Đã sửa trong bản mới");
+        assertThat(result.resolvedArticleContentVersion()).isEqualTo(2L);
+        assertThat(result.isTerminal()).isTrue();
+        assertThat(result.hasSelectionEvidence()).isTrue();
+
+        verify(userIdentityContract).findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId));
     }
 }

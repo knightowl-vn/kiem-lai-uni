@@ -8,11 +8,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Administrative controller for rendering the read-only Wiki contribution inbox page.
@@ -89,6 +91,34 @@ public class AdminWikiContributionPageController {
         model.addAttribute("contributionTypes", WikiContributionType.values());
 
         return VIEW_NAME;
+    }
+
+    @GetMapping("/{contributionId}")
+    public String detailPage(
+            @PathVariable UUID contributionId,
+            Model model,
+            HttpServletResponse response,
+            org.springframework.web.servlet.mvc.support.RedirectAttributes redirectAttributes
+    ) {
+        if (response != null) {
+            disableCaching(response);
+        }
+
+        try {
+            com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO detail = coordinator.getDetail(contributionId);
+
+            model.addAttribute("pageTitle", "Chi tiết đóng góp Wiki");
+            model.addAttribute("activeMenu", ACTIVE_MENU);
+            model.addAttribute("contribution", detail);
+
+            return "admin/wiki/contribution-detail";
+        } catch (com.universe.wiki.application.exceptions.WikiContributionNotFoundException ex) {
+            redirectAttributes.addFlashAttribute(
+                    "errorMessage",
+                    "Không tìm thấy đóng góp bài viết Wiki: " + contributionId
+            );
+            return "redirect:/admin/wiki/contributions";
+        }
     }
 
     private void disableCaching(HttpServletResponse response) {

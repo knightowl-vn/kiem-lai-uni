@@ -31,6 +31,8 @@ public class WikiContribution {
     public static final int MAX_SELECTED_PREFIX_LENGTH = 100;
     public static final int MAX_SELECTED_SUFFIX_LENGTH = 100;
     public static final int MAX_SELECTED_HEADING_ANCHOR_LENGTH = 255;
+    public static final int MIN_RESOLUTION_NOTE_LENGTH = 5;
+    public static final int MAX_RESOLUTION_NOTE_LENGTH = 2000;
 
     private final UUID id;
     private final UUID articleId;
@@ -46,10 +48,14 @@ public class WikiContribution {
     private final String selectedPrefix;
     private final String selectedSuffix;
     private final String selectedHeadingAnchor;
-    private final WikiContributionStatus status;
+    private WikiContributionStatus status;
     private final long version;
     private final Instant createdAt;
-    private final Instant updatedAt;
+    private Instant updatedAt;
+    private String resolutionNote;
+    private UUID resolvedByUserId;
+    private Instant resolvedAt;
+    private Long resolvedArticleContentVersion;
 
     private WikiContribution(
             UUID id,
@@ -69,7 +75,11 @@ public class WikiContribution {
             WikiContributionStatus status,
             long version,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            String resolutionNote,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            Long resolvedArticleContentVersion
     ) {
         this.id = Objects.requireNonNull(id, "ID đóng góp không được để trống.");
         this.articleId = Objects.requireNonNull(articleId, "ID bài viết không được để trống.");
@@ -154,6 +164,38 @@ public class WikiContribution {
         this.version = version;
         this.createdAt = Objects.requireNonNull(createdAt, "Thời gian tạo không được để trống.");
         this.updatedAt = Objects.requireNonNull(updatedAt, "Thời gian cập nhật không được để trống.");
+
+        if (status == WikiContributionStatus.NEW || status == WikiContributionStatus.REVIEWING) {
+            if (resolutionNote != null || resolvedByUserId != null || resolvedAt != null || resolvedArticleContentVersion != null) {
+                throw new IllegalArgumentException("Đóng góp ở trạng thái " + status + " không được chứa thông tin xử lý kết thúc.");
+            }
+            this.resolutionNote = null;
+            this.resolvedByUserId = null;
+            this.resolvedAt = null;
+            this.resolvedArticleContentVersion = null;
+        } else if (status == WikiContributionStatus.RESOLVED) {
+            this.resolutionNote = validateResolutionNote(resolutionNote);
+            this.resolvedByUserId = Objects.requireNonNull(resolvedByUserId, "ID người kiểm duyệt không được để trống khi đã giải quyết.");
+            this.resolvedAt = Objects.requireNonNull(resolvedAt, "Thời gian quyết định không được để trống khi đã giải quyết.");
+            if (resolvedAt.isBefore(createdAt)) {
+                throw new IllegalArgumentException("Thời gian quyết định không thể trước thời gian tạo đóng góp.");
+            }
+            if (resolvedArticleContentVersion != null && resolvedArticleContentVersion < 1L) {
+                throw new IllegalArgumentException("Phiên bản nội dung bài viết khi giải quyết phải lớn hơn hoặc bằng 1.");
+            }
+            this.resolvedArticleContentVersion = resolvedArticleContentVersion;
+        } else if (status == WikiContributionStatus.REJECTED) {
+            this.resolutionNote = validateResolutionNote(resolutionNote);
+            this.resolvedByUserId = Objects.requireNonNull(resolvedByUserId, "ID người kiểm duyệt không được để trống khi từ chối.");
+            this.resolvedAt = Objects.requireNonNull(resolvedAt, "Thời gian quyết định không được để trống khi từ chối.");
+            if (resolvedAt.isBefore(createdAt)) {
+                throw new IllegalArgumentException("Thời gian quyết định không thể trước thời gian tạo đóng góp.");
+            }
+            if (resolvedArticleContentVersion != null) {
+                throw new IllegalArgumentException("Đóng góp bị từ chối không được lưu phiên bản bài viết giải quyết.");
+            }
+            this.resolvedArticleContentVersion = null;
+        }
     }
 
     /**
@@ -191,7 +233,11 @@ public class WikiContribution {
                 WikiContributionStatus.NEW,
                 0L,
                 timestamp,
-                timestamp
+                timestamp,
+                null,
+                null,
+                null,
+                null
         );
     }
 
@@ -234,12 +280,69 @@ public class WikiContribution {
                 WikiContributionStatus.NEW,
                 0L,
                 timestamp,
-                timestamp
+                timestamp,
+                null,
+                null,
+                null,
+                null
         );
     }
 
     /**
-     * Khôi phục Aggregate từ tầng persistence.
+     * Khôi phục Aggregate từ tầng persistence kèm dữ liệu xử lý quy trình.
+     */
+    public static WikiContribution reconstitute(
+            UUID id,
+            UUID articleId,
+            String articleTypeSnapshot,
+            String articleTitleSnapshot,
+            String articleSlugSnapshot,
+            long articleContentVersion,
+            UUID submittedByUserId,
+            WikiContributionContextType contextType,
+            WikiContributionType contributionType,
+            String message,
+            String selectedText,
+            String selectedPrefix,
+            String selectedSuffix,
+            String selectedHeadingAnchor,
+            WikiContributionStatus status,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            String resolutionNote,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            Long resolvedArticleContentVersion
+    ) {
+        return new WikiContribution(
+                id,
+                articleId,
+                articleTypeSnapshot,
+                articleTitleSnapshot,
+                articleSlugSnapshot,
+                articleContentVersion,
+                submittedByUserId,
+                contextType,
+                contributionType,
+                message,
+                selectedText,
+                selectedPrefix,
+                selectedSuffix,
+                selectedHeadingAnchor,
+                status,
+                version,
+                createdAt,
+                updatedAt,
+                resolutionNote,
+                resolvedByUserId,
+                resolvedAt,
+                resolvedArticleContentVersion
+        );
+    }
+
+    /**
+     * Khôi phục Aggregate từ tầng persistence (tương thích ngược).
      */
     public static WikiContribution reconstitute(
             UUID id,
@@ -261,7 +364,7 @@ public class WikiContribution {
             Instant createdAt,
             Instant updatedAt
     ) {
-        return new WikiContribution(
+        return reconstitute(
                 id,
                 articleId,
                 articleTypeSnapshot,
@@ -279,12 +382,69 @@ public class WikiContribution {
                 status,
                 version,
                 createdAt,
-                updatedAt
+                updatedAt,
+                null,
+                null,
+                null,
+                null
         );
     }
 
     /**
      * Khôi phục Aggregate từ tầng persistence (bí danh của reconstitute).
+     */
+    public static WikiContribution rehydrate(
+            UUID id,
+            UUID articleId,
+            String articleTypeSnapshot,
+            String articleTitleSnapshot,
+            String articleSlugSnapshot,
+            long articleContentVersion,
+            UUID submittedByUserId,
+            WikiContributionContextType contextType,
+            WikiContributionType contributionType,
+            String message,
+            String selectedText,
+            String selectedPrefix,
+            String selectedSuffix,
+            String selectedHeadingAnchor,
+            WikiContributionStatus status,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            String resolutionNote,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            Long resolvedArticleContentVersion
+    ) {
+        return reconstitute(
+                id,
+                articleId,
+                articleTypeSnapshot,
+                articleTitleSnapshot,
+                articleSlugSnapshot,
+                articleContentVersion,
+                submittedByUserId,
+                contextType,
+                contributionType,
+                message,
+                selectedText,
+                selectedPrefix,
+                selectedSuffix,
+                selectedHeadingAnchor,
+                status,
+                version,
+                createdAt,
+                updatedAt,
+                resolutionNote,
+                resolvedByUserId,
+                resolvedAt,
+                resolvedArticleContentVersion
+        );
+    }
+
+    /**
+     * Khôi phục Aggregate từ tầng persistence (bí danh tương thích ngược).
      */
     public static WikiContribution rehydrate(
             UUID id,
@@ -324,8 +484,106 @@ public class WikiContribution {
                 status,
                 version,
                 createdAt,
-                updatedAt
+                updatedAt,
+                null,
+                null,
+                null,
+                null
         );
+    }
+
+    /**
+     * Bắt đầu xem xét đóng góp (chuyển từ NEW sang REVIEWING).
+     *
+     * @param now thời điểm thực hiện thao tác
+     */
+    public void markReviewing(Instant now) {
+        Objects.requireNonNull(now, "Thời gian thao tác không được để trống.");
+        if (this.status == WikiContributionStatus.REVIEWING) {
+            throw new IllegalStateException("Đóng góp đã đang trong trạng thái xem xét.");
+        }
+        if (this.status != WikiContributionStatus.NEW) {
+            throw new IllegalStateException(
+                    String.format("Không thể chuyển sang trạng thái xem xét từ trạng thái hiện tại: %s.", this.status)
+            );
+        }
+        this.status = WikiContributionStatus.REVIEWING;
+        this.updatedAt = now;
+    }
+
+    /**
+     * Chấp thuận và giải quyết đóng góp (RESOLVED).
+     *
+     * @param resolverUserId ID người kiểm duyệt
+     * @param note ghi chú giải quyết (bắt buộc, 5..2000 ký tự)
+     * @param currentArticleVersion phiên bản bài viết hiện tại tại thời điểm giải quyết (nếu có)
+     * @param now thời điểm giải quyết
+     */
+    public void resolve(UUID resolverUserId, String note, Long currentArticleVersion, Instant now) {
+        Objects.requireNonNull(resolverUserId, "ID người kiểm duyệt không được để trống.");
+        Objects.requireNonNull(now, "Thời gian quyết định không được để trống.");
+        if (this.status == WikiContributionStatus.RESOLVED || this.status == WikiContributionStatus.REJECTED) {
+            throw new IllegalStateException(
+                    String.format("Không thể giải quyết đóng góp đã ở trạng thái kết thúc: %s.", this.status)
+            );
+        }
+        if (now.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("Thời gian quyết định không thể trước thời gian tạo đóng góp.");
+        }
+        if (currentArticleVersion != null && currentArticleVersion < 1L) {
+            throw new IllegalArgumentException("Phiên bản nội dung bài viết khi giải quyết phải lớn hơn hoặc bằng 1.");
+        }
+
+        String validNote = validateResolutionNote(note);
+
+        this.status = WikiContributionStatus.RESOLVED;
+        this.resolutionNote = validNote;
+        this.resolvedByUserId = resolverUserId;
+        this.resolvedAt = now;
+        this.resolvedArticleContentVersion = currentArticleVersion;
+        this.updatedAt = now;
+    }
+
+    /**
+     * Từ chối đóng góp (REJECTED).
+     *
+     * @param resolverUserId ID người kiểm duyệt
+     * @param note ghi chú từ chối (bắt buộc, 5..2000 ký tự)
+     * @param now thời điểm từ chối
+     */
+    public void reject(UUID resolverUserId, String note, Instant now) {
+        Objects.requireNonNull(resolverUserId, "ID người kiểm duyệt không được để trống.");
+        Objects.requireNonNull(now, "Thời gian quyết định không được để trống.");
+        if (this.status == WikiContributionStatus.RESOLVED || this.status == WikiContributionStatus.REJECTED) {
+            throw new IllegalStateException(
+                    String.format("Không thể từ chối đóng góp đã ở trạng thái kết thúc: %s.", this.status)
+            );
+        }
+        if (now.isBefore(this.createdAt)) {
+            throw new IllegalArgumentException("Thời gian quyết định không thể trước thời gian tạo đóng góp.");
+        }
+
+        String validNote = validateResolutionNote(note);
+
+        this.status = WikiContributionStatus.REJECTED;
+        this.resolutionNote = validNote;
+        this.resolvedByUserId = resolverUserId;
+        this.resolvedAt = now;
+        this.resolvedArticleContentVersion = null;
+        this.updatedAt = now;
+    }
+
+    private static String validateResolutionNote(String note) {
+        if (note == null || note.trim().isEmpty()) {
+            throw new IllegalArgumentException("Ghi chú xử lý không được để trống.");
+        }
+        String trimmed = note.trim();
+        if (trimmed.length() < MIN_RESOLUTION_NOTE_LENGTH || trimmed.length() > MAX_RESOLUTION_NOTE_LENGTH) {
+            throw new IllegalArgumentException(
+                    String.format("Độ dài ghi chú xử lý phải từ %d đến %d ký tự.", MIN_RESOLUTION_NOTE_LENGTH, MAX_RESOLUTION_NOTE_LENGTH)
+            );
+        }
+        return trimmed;
     }
 
     private static String normalizeAnchorText(String text) {
@@ -432,6 +690,22 @@ public class WikiContribution {
         return updatedAt;
     }
 
+    public String getResolutionNote() {
+        return resolutionNote;
+    }
+
+    public UUID getResolvedByUserId() {
+        return resolvedByUserId;
+    }
+
+    public Instant getResolvedAt() {
+        return resolvedAt;
+    }
+
+    public Long getResolvedArticleContentVersion() {
+        return resolvedArticleContentVersion;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -461,6 +735,10 @@ public class WikiContribution {
                 ", version=" + version +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +
+                ", resolutionNote='" + resolutionNote + '\'' +
+                ", resolvedByUserId=" + resolvedByUserId +
+                ", resolvedAt=" + resolvedAt +
+                ", resolvedArticleContentVersion=" + resolvedArticleContentVersion +
                 '}';
     }
 }

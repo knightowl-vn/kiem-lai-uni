@@ -59,7 +59,7 @@ class WikiContributionJpaPersistenceIntegrationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66')");
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67')");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_sources");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contributions");
         } catch (Exception ignored) {
@@ -312,7 +312,11 @@ class WikiContributionJpaPersistenceIntegrationTest {
                 WikiContributionStatus.REJECTED,
                 copyB.getVersion(), // stale version 0
                 copyB.getCreatedAt(),
-                created.plus(20, ChronoUnit.MINUTES)
+                created.plus(20, ChronoUnit.MINUTES),
+                "Từ chối đóng góp",
+                SEEDED_ADMIN_ID,
+                created.plus(20, ChronoUnit.MINUTES),
+                null
         );
 
         // 5. Khẳng định thao tác lưu của B bị từ chối với WikiContributionStaleMutationException

@@ -159,6 +159,29 @@ public class WikiContributionJpaEntity {
     )
     private Instant updatedAt;
 
+    @Column(
+            name = "resolution_note",
+            length = 2000
+    )
+    private String resolutionNote;
+
+    @Column(
+            name = "resolved_by_user_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String resolvedByUserId;
+
+    @Column(
+            name = "resolved_at"
+    )
+    private Instant resolvedAt;
+
+    @Column(
+            name = "resolved_article_content_version"
+    )
+    private Long resolvedArticleContentVersion;
+
     public WikiContributionJpaEntity() {
     }
 
@@ -304,6 +327,38 @@ public class WikiContributionJpaEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getResolutionNote() {
+        return resolutionNote;
+    }
+
+    public void setResolutionNote(String resolutionNote) {
+        this.resolutionNote = resolutionNote;
+    }
+
+    public String getResolvedByUserId() {
+        return resolvedByUserId;
+    }
+
+    public void setResolvedByUserId(String resolvedByUserId) {
+        this.resolvedByUserId = resolvedByUserId;
+    }
+
+    public Instant getResolvedAt() {
+        return resolvedAt;
+    }
+
+    public void setResolvedAt(Instant resolvedAt) {
+        this.resolvedAt = resolvedAt;
+    }
+
+    public Long getResolvedArticleContentVersion() {
+        return resolvedArticleContentVersion;
+    }
+
+    public void setResolvedArticleContentVersion(Long resolvedArticleContentVersion) {
+        this.resolvedArticleContentVersion = resolvedArticleContentVersion;
     }
 
     @Override

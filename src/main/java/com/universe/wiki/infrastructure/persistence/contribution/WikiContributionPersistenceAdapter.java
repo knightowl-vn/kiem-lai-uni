@@ -110,6 +110,10 @@ public class WikiContributionPersistenceAdapter implements WikiContributionRepos
         target.setStatus(source.getStatus().name());
         target.setCreatedAt(source.getCreatedAt());
         target.setUpdatedAt(source.getUpdatedAt());
+        target.setResolutionNote(source.getResolutionNote());
+        target.setResolvedByUserId(source.getResolvedByUserId() != null ? source.getResolvedByUserId().toString() : null);
+        target.setResolvedAt(source.getResolvedAt());
+        target.setResolvedArticleContentVersion(source.getResolvedArticleContentVersion());
     }
 
     private WikiContribution toDomain(WikiContributionJpaEntity entity) {
@@ -131,7 +135,11 @@ public class WikiContributionPersistenceAdapter implements WikiContributionRepos
                 WikiContributionStatus.valueOf(entity.getStatus()),
                 entity.getVersion() != null ? entity.getVersion() : 0L,
                 entity.getCreatedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                entity.getResolutionNote(),
+                entity.getResolvedByUserId() != null ? UUID.fromString(entity.getResolvedByUserId()) : null,
+                entity.getResolvedAt(),
+                entity.getResolvedArticleContentVersion()
         );
     }
 }
