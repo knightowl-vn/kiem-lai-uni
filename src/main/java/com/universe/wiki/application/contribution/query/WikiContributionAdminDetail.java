@@ -59,7 +59,8 @@ public record WikiContributionAdminDetail(
         Instant reviewStartedAt,
         Long reviewStartedArticleContentVersion,
         WikiContributionResolutionOutcome resolutionOutcome,
-        List<WikiContributionWorkflowEvent> events
+        List<WikiContributionWorkflowEvent> events,
+        WikiContributionAdminCredit credit
 ) {
     public WikiContributionAdminDetail {
         Objects.requireNonNull(contributionId, "contributionId cannot be null");
@@ -75,42 +76,11 @@ public record WikiContributionAdminDetail(
         events = events != null ? Collections.unmodifiableList(events) : List.of();
     }
 
-    public WikiContributionAdminDetail(
-            UUID contributionId,
-            UUID articleId,
-            String articleTypeSnapshot,
-            String articleTitleSnapshot,
-            String articleSlugSnapshot,
-            long articleContentVersion,
-            UUID submittedByUserId,
-            WikiContributionContextType contextType,
-            WikiContributionType contributionType,
-            String message,
-            String selectedText,
-            String selectedPrefix,
-            String selectedSuffix,
-            String selectedHeadingAnchor,
-            WikiContributionStatus status,
-            long version,
-            Instant createdAt,
-            Instant updatedAt,
-            List<WikiContributionSource> sources,
-            String resolutionNote,
-            UUID resolvedByUserId,
-            Instant resolvedAt,
-            Long resolvedArticleContentVersion
-    ) {
-        this(contributionId, articleId, articleTypeSnapshot, articleTitleSnapshot, articleSlugSnapshot,
-                articleContentVersion, submittedByUserId, contextType, contributionType, message,
-                selectedText, selectedPrefix, selectedSuffix, selectedHeadingAnchor, status, version,
-                createdAt, updatedAt, sources, resolutionNote, resolvedByUserId, resolvedAt,
-                resolvedArticleContentVersion, null, null, null, null, null, null, List.of());
-    }
-
     public static WikiContributionAdminDetail from(
             WikiContribution contribution,
             List<WikiContributionSource> sources,
-            List<WikiContributionWorkflowEvent> events
+            List<WikiContributionWorkflowEvent> events,
+            WikiContributionAdminCredit credit
     ) {
         Objects.requireNonNull(contribution, "contribution cannot be null");
         return new WikiContributionAdminDetail(
@@ -143,14 +113,8 @@ public record WikiContributionAdminDetail(
                 contribution.getReviewStartedAt(),
                 contribution.getReviewStartedArticleContentVersion(),
                 contribution.getResolutionOutcome(),
-                events
+                events,
+                credit
         );
-    }
-
-    public static WikiContributionAdminDetail from(
-            WikiContribution contribution,
-            List<WikiContributionSource> sources
-    ) {
-        return from(contribution, sources, List.of());
     }
 }

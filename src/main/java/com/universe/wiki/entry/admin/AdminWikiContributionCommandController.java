@@ -9,6 +9,13 @@ import com.universe.wiki.application.contribution.workflow.ReassignWikiContribut
 import com.universe.wiki.application.contribution.workflow.RejectWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ResolveWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ReviewWikiContributionCommand;
+import com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditCommand;
+import com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditUseCase;
+import com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditCommand;
+import com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditUseCase;
+import com.universe.wiki.application.exceptions.WikiContributionAlreadyCreditedException;
+import com.universe.wiki.application.exceptions.WikiContributionCreditNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionCreditStaleMutationException;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
 import com.universe.wiki.application.exceptions.WikiContributionStaleMutationException;
 import com.universe.wiki.domain.contribution.WikiContribution;
@@ -26,15 +33,17 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Administrative controller for handling Wiki contribution workflow mutations.
+ * Administrative controller for handling Wiki contribution workflow mutations and credit attribution.
  *
  * <p>Protected by Spring Security under {@code /admin/**}, requiring role {@code ADMIN}
  * or {@code SUPER_ADMIN} and valid CSRF token.
  *
- * <p>Guarantees:
+ * <p>Concurrency authorities and guarantees:
  * <ul>
  *   <li>Actor identity is derived strictly from server authentication;</li>
- *   <li>Optimistic concurrency token (expectedVersion) is checked on every mutation;</li>
+ *   <li>WikiContribution workflow mutations check optimistic concurrency token (expectedVersion) against contribution version;</li>
+ *   <li>Credit grant relies on database UNIQUE(contribution_id) race authority without expectedVersion;</li>
+ *   <li>Credit revoke relies on WikiContributionCredit JPA @Version real-adapter optimistic locking without expectedVersion;</li>
  *   <li>State transitions are strictly bounded by domain rules;</li>
  *   <li>Post-Redirect-Get (PRG) pattern with flash attributes for human administrator feedback;</li>
  *   <li>Concurrent modifications fail safely into a reviewable state without silent overwrites.</li>
@@ -49,15 +58,26 @@ public class AdminWikiContributionCommandController {
     public static final String FLASH_SUCCESS_REASSIGN = "Đã phân công lại đóng góp thành công.";
     public static final String FLASH_SUCCESS_RESOLVE = "Đã chấp thuận và giải quyết đóng góp.";
     public static final String FLASH_SUCCESS_REJECT = "Đã từ chối đóng góp.";
+    public static final String FLASH_SUCCESS_CREDIT = "Đã ghi nhận công trạng cho người đóng góp.";
+    public static final String FLASH_SUCCESS_REVOKE_CREDIT = "Đã thu hồi ghi nhận công trạng.";
     public static final String FLASH_ERROR_STALE = "Đóng góp bài viết Wiki đã bị thay đổi đồng thời bởi quản trị viên khác. Vui lòng kiểm tra lại trạng thái mới nhất.";
+    public static final String FLASH_ERROR_CREDIT_STALE = "Công trạng vừa được quản trị viên khác cập nhật. Vui lòng kiểm tra lại trạng thái mới nhất.";
     public static final String FLASH_ERROR_VERSION_REQUIRED = "Phiên bản đồng thời (expectedVersion) không được để trống.";
     public static final String FLASH_ERROR_NOTE_REQUIRED = "Ghi chú xử lý không được để trống.";
     public static final String FLASH_ERROR_NOTE_BOUNDS = "Độ dài ghi chú xử lý phải từ 5 đến 2000 ký tự.";
 
     private final AdminWikiContributionWorkflowUseCase workflowUseCase;
+    private final GrantWikiContributionCreditUseCase grantCreditUseCase;
+    private final RevokeWikiContributionCreditUseCase revokeCreditUseCase;
 
-    public AdminWikiContributionCommandController(AdminWikiContributionWorkflowUseCase workflowUseCase) {
+    public AdminWikiContributionCommandController(
+            AdminWikiContributionWorkflowUseCase workflowUseCase,
+            GrantWikiContributionCreditUseCase grantCreditUseCase,
+            RevokeWikiContributionCreditUseCase revokeCreditUseCase
+    ) {
         this.workflowUseCase = Objects.requireNonNull(workflowUseCase, "AdminWikiContributionWorkflowUseCase cannot be null");
+        this.grantCreditUseCase = Objects.requireNonNull(grantCreditUseCase, "GrantWikiContributionCreditUseCase cannot be null");
+        this.revokeCreditUseCase = Objects.requireNonNull(revokeCreditUseCase, "RevokeWikiContributionCreditUseCase cannot be null");
     }
 
     /**
@@ -265,6 +285,68 @@ public class AdminWikiContributionCommandController {
             return redirectToInbox();
         } catch (WikiContributionStaleMutationException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_STALE);
+            return redirectToDetail(contributionId);
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Thao tác không hợp lệ: " + ex.getMessage());
+            return redirectToDetail(contributionId);
+        }
+    }
+
+    /**
+     * Ghi nhận công trạng cho người đóng góp (RESOLVED + APPLIED / NO_CHANGE_NEEDED).
+     */
+    @PostMapping("/{contributionId}/credit")
+    public String creditContribution(
+            @PathVariable UUID contributionId,
+            @RequestParam(name = "creditNote", required = false) String creditNote,
+            HttpServletRequest request,
+            RedirectAttributes redirectAttributes
+    ) {
+        UUID actorId = resolveAdminUserId(request);
+
+        try {
+            grantCreditUseCase.execute(new GrantWikiContributionCreditCommand(contributionId, actorId, creditNote));
+            redirectAttributes.addFlashAttribute("successMessage", FLASH_SUCCESS_CREDIT);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return redirectToInbox();
+        } catch (WikiContributionCreditStaleMutationException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_CREDIT_STALE);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionAlreadyCreditedException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return redirectToDetail(contributionId);
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Thao tác không hợp lệ: " + ex.getMessage());
+            return redirectToDetail(contributionId);
+        }
+    }
+
+    /**
+     * Thu hồi ghi nhận công trạng (ACTIVE -> REVOKED, chỉ SUPER_ADMIN).
+     */
+    @PostMapping("/{contributionId}/credit/revoke")
+    public String revokeCreditContribution(
+            @PathVariable UUID contributionId,
+            @RequestParam(name = "revocationReason", required = false) String revocationReason,
+            HttpServletRequest request,
+            RedirectAttributes redirectAttributes
+    ) {
+        UUID actorId = resolveAdminUserId(request);
+
+        try {
+            revokeCreditUseCase.execute(new RevokeWikiContributionCreditCommand(contributionId, actorId, revocationReason));
+            redirectAttributes.addFlashAttribute("successMessage", FLASH_SUCCESS_REVOKE_CREDIT);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
+            return redirectToInbox();
+        } catch (WikiContributionCreditStaleMutationException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", FLASH_ERROR_CREDIT_STALE);
+            return redirectToDetail(contributionId);
+        } catch (WikiContributionCreditNotFoundException ex) {
+            redirectAttributes.addFlashAttribute("errorMessage", ex.getMessage());
             return redirectToDetail(contributionId);
         } catch (IllegalArgumentException | IllegalStateException ex) {
             redirectAttributes.addFlashAttribute("errorMessage", "Thao tác không hợp lệ: " + ex.getMessage());

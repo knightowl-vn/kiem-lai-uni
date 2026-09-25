@@ -10,6 +10,11 @@ import com.universe.wiki.application.contribution.workflow.ReassignWikiContribut
 import com.universe.wiki.application.contribution.workflow.RejectWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ResolveWikiContributionCommand;
 import com.universe.wiki.application.contribution.workflow.ReviewWikiContributionCommand;
+import com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditCommand;
+import com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditCommand;
+import com.universe.wiki.application.exceptions.WikiContributionAlreadyCreditedException;
+import com.universe.wiki.application.exceptions.WikiContributionCreditNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionCreditStaleMutationException;
 import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
 import com.universe.wiki.application.exceptions.WikiContributionStaleMutationException;
@@ -40,6 +45,12 @@ class AdminWikiContributionCommandControllerTest {
     @Mock
     private AdminWikiContributionWorkflowUseCase workflowUseCase;
 
+    @Mock
+    private com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditUseCase grantCreditUseCase;
+
+    @Mock
+    private com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditUseCase revokeCreditUseCase;
+
     private AdminWikiContributionCommandController controller;
 
     private MockHttpServletRequest request;
@@ -49,7 +60,7 @@ class AdminWikiContributionCommandControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AdminWikiContributionCommandController(workflowUseCase);
+        controller = new AdminWikiContributionCommandController(workflowUseCase, grantCreditUseCase, revokeCreditUseCase);
         request = new MockHttpServletRequest();
         redirectAttributes = new RedirectAttributesModelMap();
         adminUserId = UUID.randomUUID();
@@ -67,11 +78,17 @@ class AdminWikiContributionCommandControllerTest {
     }
 
     @Test
-    @DisplayName("Constructor enforces non-null workflow use case")
+    @DisplayName("Constructor enforces non-null dependencies")
     void constructorEnforcesNonNull() {
-        assertThatThrownBy(() -> new AdminWikiContributionCommandController(null))
+        assertThatThrownBy(() -> new AdminWikiContributionCommandController(null, grantCreditUseCase, revokeCreditUseCase))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("AdminWikiContributionWorkflowUseCase cannot be null");
+        assertThatThrownBy(() -> new AdminWikiContributionCommandController(workflowUseCase, null, revokeCreditUseCase))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("GrantWikiContributionCreditUseCase cannot be null");
+        assertThatThrownBy(() -> new AdminWikiContributionCommandController(workflowUseCase, grantCreditUseCase, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("RevokeWikiContributionCreditUseCase cannot be null");
     }
 
     @Nested
@@ -495,6 +512,166 @@ class AdminWikiContributionCommandControllerTest {
             assertThat(cmd.targetUserId()).isEqualTo(targetUserId);
             assertThat(cmd.reason()).isEqualTo(reason);
             assertThat(cmd.expectedVersion()).isEqualTo(2L);
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /{contributionId}/credit")
+    class CreditActionTests {
+
+        @Test
+        @DisplayName("Unauthenticated request throws AccessDeniedException")
+        void shouldThrowAccessDeniedWhenUnauthenticated() {
+            MockHttpServletRequest unauthRequest = new MockHttpServletRequest();
+
+            assertThatThrownBy(() -> controller.creditContribution(contributionId, "Ghi chú hợp lệ", unauthRequest, redirectAttributes))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Yêu cầu thông tin định danh quản trị viên hợp lệ.");
+            verify(grantCreditUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("Valid grant delegates to use case with server-derived actor ID and redirects to detail")
+        void shouldGrantCreditSuccessfully() {
+            String note = "Đóng góp rất chuẩn xác";
+            String view = controller.creditContribution(contributionId, note, request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_SUCCESS_CREDIT);
+
+            ArgumentCaptor<GrantWikiContributionCreditCommand> captor = ArgumentCaptor.forClass(GrantWikiContributionCreditCommand.class);
+            verify(grantCreditUseCase).execute(captor.capture());
+
+            GrantWikiContributionCreditCommand cmd = captor.getValue();
+            assertThat(cmd.contributionId()).isEqualTo(contributionId);
+            assertThat(cmd.actorId()).isEqualTo(adminUserId);
+            assertThat(cmd.creditNote()).isEqualTo(note);
+        }
+
+        @Test
+        @DisplayName("WikiContributionNotFoundException redirects to inbox with error flash")
+        void shouldRedirectToInboxWhenContributionNotFound() {
+            doThrow(new WikiContributionNotFoundException(contributionId))
+                    .when(grantCreditUseCase).execute(any());
+
+            String view = controller.creditContribution(contributionId, "note", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Không tìm thấy đóng góp bài viết Wiki: " + contributionId);
+        }
+
+        @Test
+        @DisplayName("Stale mutation exception redirects to detail with credit stale flash message")
+        void shouldHandleStaleMutationException() {
+            doThrow(new WikiContributionCreditStaleMutationException(contributionId, new RuntimeException()))
+                    .when(grantCreditUseCase).execute(any());
+
+            String view = controller.creditContribution(contributionId, "note", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_CREDIT_STALE);
+        }
+
+        @Test
+        @DisplayName("Domain/business exceptions redirect to detail with exception message")
+        void shouldHandleBusinessExceptions() {
+            WikiContributionAlreadyCreditedException ex = new WikiContributionAlreadyCreditedException(contributionId);
+            doThrow(ex).when(grantCreditUseCase).execute(any());
+
+            String view = controller.creditContribution(contributionId, "note", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(ex.getMessage());
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /{contributionId}/credit/revoke")
+    class RevokeCreditActionTests {
+
+        @Test
+        @DisplayName("Unauthenticated request throws AccessDeniedException")
+        void shouldThrowAccessDeniedWhenUnauthenticated() {
+            MockHttpServletRequest unauthRequest = new MockHttpServletRequest();
+
+            assertThatThrownBy(() -> controller.revokeCreditContribution(contributionId, "Lý do thu hồi hợp lệ", unauthRequest, redirectAttributes))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Yêu cầu thông tin định danh quản trị viên hợp lệ.");
+            verify(revokeCreditUseCase, never()).execute(any());
+        }
+
+        @Test
+        @DisplayName("Valid revoke delegates to use case with server-derived SUPER_ADMIN actor ID and redirects to detail")
+        void shouldRevokeCreditSuccessfully() {
+            UUID superAdminUserId = UUID.randomUUID();
+            MockHttpServletRequest superAdminRequest = new MockHttpServletRequest();
+            AuthenticatedRequestIdentity superAdminIdentity = new AuthenticatedRequestIdentity(
+                    superAdminUserId,
+                    "superadmin@universe.local",
+                    "Super Admin User",
+                    null,
+                    UserStatus.ACTIVE,
+                    UserRole.SUPER_ADMIN
+            );
+            AuthenticatedRequestIdentityTestSupport.attach(superAdminRequest, superAdminIdentity);
+
+            String reason = "Phát hiện nội dung có vi phạm bản quyền sau đó";
+            String view = controller.revokeCreditContribution(contributionId, reason, superAdminRequest, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_SUCCESS_REVOKE_CREDIT);
+
+            ArgumentCaptor<RevokeWikiContributionCreditCommand> captor = ArgumentCaptor.forClass(RevokeWikiContributionCreditCommand.class);
+            verify(revokeCreditUseCase).execute(captor.capture());
+
+            RevokeWikiContributionCreditCommand cmd = captor.getValue();
+            assertThat(cmd.contributionId()).isEqualTo(contributionId);
+            assertThat(cmd.actorId()).isEqualTo(superAdminUserId);
+            assertThat(cmd.revocationReason()).isEqualTo(reason);
+        }
+
+        @Test
+        @DisplayName("WikiContributionNotFoundException redirects to inbox with error flash")
+        void shouldRedirectToInboxWhenContributionNotFound() {
+            doThrow(new WikiContributionNotFoundException(contributionId))
+                    .when(revokeCreditUseCase).execute(any());
+
+            String view = controller.revokeCreditContribution(contributionId, "reason", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions");
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Không tìm thấy đóng góp bài viết Wiki: " + contributionId);
+        }
+
+        @Test
+        @DisplayName("Stale mutation exception redirects to detail with credit stale flash message")
+        void shouldHandleStaleMutationException() {
+            doThrow(new WikiContributionCreditStaleMutationException(contributionId, new RuntimeException()))
+                    .when(revokeCreditUseCase).execute(any());
+
+            String view = controller.revokeCreditContribution(contributionId, "reason", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo(AdminWikiContributionCommandController.FLASH_ERROR_CREDIT_STALE);
+        }
+
+        @Test
+        @DisplayName("IllegalStateException redirects to detail with exception message")
+        void shouldHandleIllegalStateException() {
+            doThrow(new IllegalStateException("Chỉ Quản trị viên cấp cao (SUPER_ADMIN) mới có quyền thu hồi công trạng."))
+                    .when(revokeCreditUseCase).execute(any());
+
+            String view = controller.revokeCreditContribution(contributionId, "reason", request, redirectAttributes);
+
+            assertThat(view).isEqualTo("redirect:/admin/wiki/contributions/" + contributionId);
+            assertThat(redirectAttributes.getFlashAttributes().get("errorMessage"))
+                    .isEqualTo("Thao tác không hợp lệ: Chỉ Quản trị viên cấp cao (SUPER_ADMIN) mới có quyền thu hồi công trạng.");
         }
     }
 }

@@ -143,6 +143,14 @@ public class AdminWikiContributionCoordinator {
                 userIds.add(event.getTargetUserId());
             }
         }
+        if (detail.credit() != null) {
+            if (detail.credit().creditedByUserId() != null) {
+                userIds.add(detail.credit().creditedByUserId());
+            }
+            if (detail.credit().revokedByUserId() != null) {
+                userIds.add(detail.credit().revokedByUserId());
+            }
+        }
 
         Map<UUID, UserPublicProfileDTO> profileMap = userIds.isEmpty()
                 ? Map.of()
@@ -158,6 +166,25 @@ public class AdminWikiContributionCoordinator {
         AdminWikiContributionContributorDTO reviewStartedBy = detail.reviewStartedByUserId() != null
                 ? mapContributor(detail.reviewStartedByUserId(), profileMap)
                 : null;
+
+        com.universe.wiki.entry.admin.dto.AdminWikiContributionCreditDTO creditDTO = null;
+        if (detail.credit() != null) {
+            AdminWikiContributionContributorDTO creditedBy = detail.credit().creditedByUserId() != null
+                    ? mapContributor(detail.credit().creditedByUserId(), profileMap)
+                    : null;
+            AdminWikiContributionContributorDTO revokedBy = detail.credit().revokedByUserId() != null
+                    ? mapContributor(detail.credit().revokedByUserId(), profileMap)
+                    : null;
+            creditDTO = new com.universe.wiki.entry.admin.dto.AdminWikiContributionCreditDTO(
+                    detail.credit().status(),
+                    creditedBy,
+                    detail.credit().creditedAt(),
+                    detail.credit().creditNote(),
+                    revokedBy,
+                    detail.credit().revokedAt(),
+                    detail.credit().revocationReason()
+            );
+        }
 
         List<AdminWikiContributionSourceDTO> sources = detail.sources().stream()
                 .map(AdminWikiContributionSourceDTO::from)
@@ -207,7 +234,8 @@ public class AdminWikiContributionCoordinator {
                 detail.reviewStartedAt(),
                 detail.reviewStartedArticleContentVersion(),
                 detail.resolutionOutcome(),
-                workflowEventDTOs
+                workflowEventDTOs,
+                creditDTO
         );
     }
 

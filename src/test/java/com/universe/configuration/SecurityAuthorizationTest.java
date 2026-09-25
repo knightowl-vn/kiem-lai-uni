@@ -271,6 +271,12 @@ class SecurityAuthorizationTest {
     private com.universe.wiki.application.contribution.workflow.AdminWikiContributionWorkflowUseCase adminWikiContributionWorkflowUseCase;
 
     @MockBean
+    private com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditUseCase grantWikiContributionCreditUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditUseCase revokeWikiContributionCreditUseCase;
+
+    @MockBean
     private ThymeleafViewResolver thymeleafViewResolver;
 
     @BeforeEach
@@ -1314,5 +1320,119 @@ class SecurityAuthorizationTest {
                 .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
 
         verify(adminWikiContributionWorkflowUseCase).reject(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/credit (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingCreditWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .param("creditNote", "Ghi chú hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/credit (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToCreditWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .param("creditNote", "Ghi chú hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/credit")
+    void shouldAllowAccessToCreditWikiContributionForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("creditNote", "Ghi nhận công trạng chuẩn xác"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(grantWikiContributionCreditUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN bị từ chối thực hiện POST /credit khi thiếu CSRF token (chuyển hướng sang /access-denied)")
+    void shouldRejectCreditWikiContributionWithoutCsrf() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("creditNote", "Ghi nhận công trạng chuẩn xác"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(grantWikiContributionCreditUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/credit/revoke (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingRevokeCreditWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .param("revocationReason", "Lý do thu hồi hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/credit/revoke (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToRevokeCreditWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .param("revocationReason", "Lý do thu hồi hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/credit/revoke")
+    void shouldAllowAccessToRevokeCreditWikiContributionForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("revocationReason", "Phát hiện nội dung có sai sót lớn"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(revokeWikiContributionCreditUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN bị từ chối thực hiện POST /credit/revoke khi thiếu CSRF token (chuyển hướng sang /access-denied)")
+    void shouldRejectRevokeCreditWikiContributionWithoutCsrf() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("revocationReason", "Phát hiện nội dung có sai sót lớn"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(revokeWikiContributionCreditUseCase, never()).execute(any());
     }
 }

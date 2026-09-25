@@ -123,17 +123,84 @@ class AdminWikiContributionDetailTemplateContractTest {
     }
 
     @Test
-    @DisplayName("NON-GOAL VERIFICATION: No arbitrary status dropdowns, credit controls, or inline editors")
+    @DisplayName("Credit attribution card renders states, forms, and validation rules (H8B)")
+    void shouldRenderCreditAttributionSectionAndActions() throws Exception {
+        String html = readTemplate(DETAIL_TEMPLATE_PATH);
+
+        // Section title
+        assertThat(html).contains("Ghi nhận công trạng");
+
+        // Action endpoints
+        assertThat(html).contains("th:action=\"@{/admin/wiki/contributions/{id}/credit(id=${contribution.contributionId})}\"");
+        assertThat(html).contains("th:action=\"@{/admin/wiki/contributions/{id}/credit/revoke(id=${contribution.contributionId})}\"");
+
+        // Credit note and revocation reason inputs
+        assertThat(html).contains("name=\"creditNote\"");
+        assertThat(html).contains("name=\"revocationReason\"");
+        assertThat(html).contains("minlength=\"5\"");
+        assertThat(html).contains("maxlength=\"1000\"");
+
+        // State gating expressions
+        assertThat(html).contains("contribution.isTerminal()");
+        assertThat(html).contains("contribution.hasCredit()");
+        assertThat(html).contains("contribution.credit.isActive()");
+        assertThat(html).contains("contribution.credit.isRevoked()");
+        assertThat(html).contains("contribution.canGrantCredit(currentAdmin)");
+        assertThat(html).contains("contribution.canRevokeCredit(currentAdmin)");
+
+        // Explanatory texts for all terminal states
+        assertThat(html).contains("Đóng góp bị từ chối và không đủ điều kiện ghi nhận công trạng.");
+        assertThat(html).contains("Đóng góp trùng lặp không đủ điều kiện ghi nhận công trạng.");
+        assertThat(html).contains("Đóng góp cũ chưa có kết quả xử lý phù hợp để ghi nhận.");
+        assertThat(html).contains("Chỉ quản trị viên đã giải quyết đóng góp hoặc SUPER_ADMIN mới có thể ghi nhận.");
+        assertThat(html).contains("Công trạng đã bị thu hồi");
+    }
+
+    @Test
+    @DisplayName("Credit forms must NOT contain expectedVersion or technical persistence version tokens")
+    void creditFormsMustNotContainExpectedVersion() throws Exception {
+        String html = readTemplate(DETAIL_TEMPLATE_PATH);
+
+        int creditSectionStart = html.indexOf("SECTION G.1: CREDIT ATTRIBUTION");
+        int creditSectionEnd = html.indexOf("SECTION H: WORKFLOW AUDIT EVENTS TIMELINE");
+        assertThat(creditSectionStart).isGreaterThan(0);
+        assertThat(creditSectionEnd).isGreaterThan(creditSectionStart);
+
+        String creditSectionHtml = html.substring(creditSectionStart, creditSectionEnd);
+
+        // Absolutely no version tokens in credit forms
+        assertThat(creditSectionHtml).doesNotContain("expectedVersion");
+        assertThat(creditSectionHtml).doesNotContain("persistence_version");
+        assertThat(creditSectionHtml).doesNotContain("name=\"version\"");
+    }
+
+    @Test
+    @DisplayName("Workflow timeline must NOT contain credit events")
+    void workflowTimelineMustNotContainCreditEvents() throws Exception {
+        String html = readTemplate(DETAIL_TEMPLATE_PATH);
+
+        int timelineStart = html.indexOf("SECTION H: WORKFLOW AUDIT EVENTS TIMELINE");
+        assertThat(timelineStart).isGreaterThan(0);
+        String timelineHtml = html.substring(timelineStart);
+
+        assertThat(timelineHtml).doesNotContain("CREDIT_GRANTED");
+        assertThat(timelineHtml).doesNotContain("CREDIT_REVOKED");
+    }
+
+    @Test
+    @DisplayName("NON-GOAL VERIFICATION: No arbitrary status dropdowns, gamification, or inline editors")
     void shouldEnforceMilestoneBoundaries() throws Exception {
         String html = readTemplate(DETAIL_TEMPLATE_PATH);
 
         // No arbitrary status dropdown selector
         assertThat(html).doesNotContain("<select name=\"status\"");
 
-        // No credit or reward controls (H8)
-        assertThat(html).doesNotContain("credit");
+        // No gamification, public contributor card (H9), or anti-abuse features (H10)
         assertThat(html).doesNotContain("reputation");
         assertThat(html).doesNotContain("rewardPoints");
+        assertThat(html).doesNotContain("contributor-card");
+        assertThat(html).doesNotContain("leaderboard");
+        assertThat(html).doesNotContain("gamification");
 
         // No inline wiki markdown editor (Admin Wiki Editing is separate)
         assertThat(html).doesNotContain("editor-container");

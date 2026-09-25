@@ -39,6 +39,9 @@ class GetWikiContributionAdminDetailUseCaseTest {
     @Mock
     private WikiContributionWorkflowEventRepositoryPort workflowEventRepository;
 
+    @Mock
+    private com.universe.wiki.application.ports.WikiContributionCreditRepositoryPort creditRepository;
+
     private GetWikiContributionAdminDetailUseCase useCase;
 
     private final Instant now = Instant.parse("2026-09-25T11:00:00Z");
@@ -48,7 +51,8 @@ class GetWikiContributionAdminDetailUseCaseTest {
         useCase = new GetWikiContributionAdminDetailUseCase(
                 contributionRepository,
                 sourceRepository,
-                workflowEventRepository
+                workflowEventRepository,
+                creditRepository
         );
     }
 
@@ -104,6 +108,7 @@ class GetWikiContributionAdminDetailUseCaseTest {
         assertThat(detail.sources().get(0).getUrl()).isEqualTo("/wiki/character/tran-binh-an");
         assertThat(detail.sources().get(1).getUrl()).isEqualTo("https://example.com/source");
         assertThat(detail.events()).isEmpty();
+        assertThat(detail.credit()).isNull();
     }
 
     @Test
@@ -155,5 +160,109 @@ class GetWikiContributionAdminDetailUseCaseTest {
 
         assertThatThrownBy(() -> useCase.execute(unknownId))
                 .isInstanceOf(WikiContributionNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("Maps ACTIVE credit correctly when present")
+    void shouldMapActiveCreditWhenPresent() {
+        UUID contributionId = UUID.randomUUID();
+        WikiContribution contribution = WikiContribution.createTextSelection(
+                contributionId,
+                UUID.randomUUID(),
+                "CHARACTER",
+                "Trần Bình An",
+                "tran-binh-an",
+                1L,
+                UUID.randomUUID(),
+                WikiContributionType.WORDING,
+                "Lỗi chính tả đoạn này cần được chỉnh sửa lại",
+                "văn bản",
+                null,
+                null,
+                null,
+                now
+        );
+
+        UUID creditId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        com.universe.wiki.domain.credit.WikiContributionCredit credit =
+                com.universe.wiki.domain.credit.WikiContributionCredit.createActive(
+                        creditId,
+                        contributionId,
+                        adminId,
+                        now,
+                        "Đóng góp rất chuẩn xác"
+                );
+
+        when(contributionRepository.findById(contributionId)).thenReturn(Optional.of(contribution));
+        when(sourceRepository.findByContributionId(contributionId)).thenReturn(List.of());
+        when(workflowEventRepository.findByContributionId(contributionId)).thenReturn(List.of());
+        when(creditRepository.findByContributionId(contributionId)).thenReturn(Optional.of(credit));
+
+        WikiContributionAdminDetail detail = useCase.execute(contributionId);
+
+        assertThat(detail.credit()).isNotNull();
+        assertThat(detail.credit().status()).isEqualTo(com.universe.wiki.domain.credit.CreditStatus.ACTIVE);
+        assertThat(detail.credit().creditedByUserId()).isEqualTo(adminId);
+        assertThat(detail.credit().creditedAt()).isEqualTo(now);
+        assertThat(detail.credit().creditNote()).isEqualTo("Đóng góp rất chuẩn xác");
+        assertThat(detail.credit().revokedByUserId()).isNull();
+        assertThat(detail.credit().revokedAt()).isNull();
+        assertThat(detail.credit().revocationReason()).isNull();
+    }
+
+    @Test
+    @DisplayName("Maps REVOKED credit correctly when present")
+    void shouldMapRevokedCreditWhenPresent() {
+        UUID contributionId = UUID.randomUUID();
+        WikiContribution contribution = WikiContribution.createTextSelection(
+                contributionId,
+                UUID.randomUUID(),
+                "CHARACTER",
+                "Trần Bình An",
+                "tran-binh-an",
+                1L,
+                UUID.randomUUID(),
+                WikiContributionType.WORDING,
+                "Lỗi chính tả đoạn này cần được chỉnh sửa lại",
+                "văn bản",
+                null,
+                null,
+                null,
+                now
+        );
+
+        UUID creditId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+        UUID superAdminId = UUID.randomUUID();
+        Instant revokedAt = now.plusSeconds(3600);
+        com.universe.wiki.domain.credit.WikiContributionCredit credit =
+                com.universe.wiki.domain.credit.WikiContributionCredit.reconstitute(
+                        creditId,
+                        contributionId,
+                        com.universe.wiki.domain.credit.CreditStatus.REVOKED,
+                        adminId,
+                        now,
+                        "Ghi chú ban đầu",
+                        superAdminId,
+                        revokedAt,
+                        "Phát hiện nội dung vi phạm bản quyền sau đó"
+                );
+
+        when(contributionRepository.findById(contributionId)).thenReturn(Optional.of(contribution));
+        when(sourceRepository.findByContributionId(contributionId)).thenReturn(List.of());
+        when(workflowEventRepository.findByContributionId(contributionId)).thenReturn(List.of());
+        when(creditRepository.findByContributionId(contributionId)).thenReturn(Optional.of(credit));
+
+        WikiContributionAdminDetail detail = useCase.execute(contributionId);
+
+        assertThat(detail.credit()).isNotNull();
+        assertThat(detail.credit().status()).isEqualTo(com.universe.wiki.domain.credit.CreditStatus.REVOKED);
+        assertThat(detail.credit().creditedByUserId()).isEqualTo(adminId);
+        assertThat(detail.credit().creditedAt()).isEqualTo(now);
+        assertThat(detail.credit().creditNote()).isEqualTo("Ghi chú ban đầu");
+        assertThat(detail.credit().revokedByUserId()).isEqualTo(superAdminId);
+        assertThat(detail.credit().revokedAt()).isEqualTo(revokedAt);
+        assertThat(detail.credit().revocationReason()).isEqualTo("Phát hiện nội dung vi phạm bản quyền sau đó");
     }
 }

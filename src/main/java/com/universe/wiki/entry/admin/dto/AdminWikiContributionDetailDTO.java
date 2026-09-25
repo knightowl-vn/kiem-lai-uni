@@ -1,10 +1,12 @@
 package com.universe.wiki.entry.admin.dto;
 
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
 import com.universe.wiki.domain.contribution.WikiContributionContextType;
+import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 import com.universe.wiki.domain.contribution.WikiContributionStatus;
 import com.universe.wiki.domain.contribution.WikiContributionType;
-
-import com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -45,7 +47,8 @@ public record AdminWikiContributionDetailDTO(
         Instant reviewStartedAt,
         Long reviewStartedArticleContentVersion,
         WikiContributionResolutionOutcome resolutionOutcome,
-        List<AdminWikiContributionWorkflowEventDTO> events
+        List<AdminWikiContributionWorkflowEventDTO> events,
+        AdminWikiContributionCreditDTO credit
 ) {
     public AdminWikiContributionDetailDTO {
         Objects.requireNonNull(contributionId, "contributionId cannot be null");
@@ -61,38 +64,6 @@ public record AdminWikiContributionDetailDTO(
         events = events != null ? Collections.unmodifiableList(events) : List.of();
     }
 
-    public AdminWikiContributionDetailDTO(
-            UUID contributionId,
-            UUID articleId,
-            String articleTypeSnapshot,
-            String articleTitleSnapshot,
-            String articleSlugSnapshot,
-            long articleContentVersion,
-            AdminWikiContributionContributorDTO contributor,
-            WikiContributionContextType contextType,
-            WikiContributionType contributionType,
-            String message,
-            String selectedText,
-            String selectedPrefix,
-            String selectedSuffix,
-            String selectedHeadingAnchor,
-            WikiContributionStatus status,
-            long version,
-            Instant createdAt,
-            Instant updatedAt,
-            List<AdminWikiContributionSourceDTO> sources,
-            String resolutionNote,
-            AdminWikiContributionContributorDTO resolver,
-            Instant resolvedAt,
-            Long resolvedArticleContentVersion
-    ) {
-        this(contributionId, articleId, articleTypeSnapshot, articleTitleSnapshot, articleSlugSnapshot,
-                articleContentVersion, contributor, contextType, contributionType, message,
-                selectedText, selectedPrefix, selectedSuffix, selectedHeadingAnchor, status,
-                version, createdAt, updatedAt, sources, resolutionNote, resolver, resolvedAt,
-                resolvedArticleContentVersion, null, null, null, null, null, null, List.of());
-    }
-
     public boolean hasSelectionEvidence() {
         return contextType == WikiContributionContextType.TEXT_SELECTION
                 && selectedText != null && !selectedText.isBlank();
@@ -104,5 +75,44 @@ public record AdminWikiContributionDetailDTO(
 
     public boolean isTerminal() {
         return status == WikiContributionStatus.RESOLVED || status == WikiContributionStatus.REJECTED;
+    }
+
+    public boolean hasCredit() {
+        return credit != null;
+    }
+
+    public boolean isCreditableOutcome() {
+        return status == WikiContributionStatus.RESOLVED
+                && (resolutionOutcome == WikiContributionResolutionOutcome.APPLIED
+                || resolutionOutcome == WikiContributionResolutionOutcome.NO_CHANGE_NEEDED);
+    }
+
+    public boolean canGrantCredit(AuthenticatedRequestIdentity currentAdmin) {
+        if (currentAdmin == null || currentAdmin.status() != UserStatus.ACTIVE) {
+            return false;
+        }
+        if (!isCreditableOutcome()) {
+            return false;
+        }
+        if (hasCredit()) {
+            return false;
+        }
+        boolean isAdmin = currentAdmin.role() == UserRole.ADMIN;
+        boolean isSuperAdmin = currentAdmin.role() == UserRole.SUPER_ADMIN;
+        if (!isAdmin && !isSuperAdmin) {
+            return false;
+        }
+        boolean isResolver = resolver != null && currentAdmin.userId().equals(resolver.userId());
+        return isSuperAdmin || isResolver;
+    }
+
+    public boolean canRevokeCredit(AuthenticatedRequestIdentity currentAdmin) {
+        if (currentAdmin == null || currentAdmin.status() != UserStatus.ACTIVE) {
+            return false;
+        }
+        if (credit == null || !credit.isActive()) {
+            return false;
+        }
+        return currentAdmin.role() == UserRole.SUPER_ADMIN;
     }
 }

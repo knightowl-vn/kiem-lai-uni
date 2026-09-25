@@ -262,7 +262,15 @@ class AdminWikiContributionCoordinatorTest {
                         "Đã sửa trong bản mới",
                         resolverUserId,
                         Instant.now(),
-                        2L
+                        2L,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome.APPLIED,
+                        List.of(),
+                        null
                 );
 
         when(detailUseCase.execute(contributionId)).thenReturn(detail);
@@ -292,5 +300,186 @@ class AdminWikiContributionCoordinatorTest {
         assertThat(result.hasSelectionEvidence()).isTrue();
 
         verify(userIdentityContract).findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId));
+    }
+
+    @Test
+    @DisplayName("getDetail enriches creditedBy in the single bulk Identity query when ACTIVE credit exists")
+    void shouldEnrichActiveCreditInSingleBulkIdentityQuery() {
+        UUID contributionId = UUID.randomUUID();
+        UUID contributorUserId = UUID.randomUUID();
+        UUID resolverUserId = UUID.randomUUID();
+        UUID creditedByUserId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        com.universe.wiki.application.contribution.query.WikiContributionAdminCredit adminCredit =
+                new com.universe.wiki.application.contribution.query.WikiContributionAdminCredit(
+                        com.universe.wiki.domain.credit.CreditStatus.ACTIVE,
+                        creditedByUserId,
+                        now,
+                        "Đóng góp chuẩn xác",
+                        null,
+                        null,
+                        null
+                );
+
+        com.universe.wiki.application.contribution.query.WikiContributionAdminDetail detail =
+                new com.universe.wiki.application.contribution.query.WikiContributionAdminDetail(
+                        contributionId,
+                        UUID.randomUUID(),
+                        "CHARACTER",
+                        "Trần Bình An",
+                        "tran-binh-an",
+                        1L,
+                        contributorUserId,
+                        WikiContributionContextType.TEXT_SELECTION,
+                        WikiContributionType.WORDING,
+                        "Sửa lỗi chính tả",
+                        "văn bản chọn",
+                        "tiền tố",
+                        "hậu tố",
+                        "#heading",
+                        WikiContributionStatus.RESOLVED,
+                        2L,
+                        now.minusSeconds(100),
+                        now,
+                        List.of(),
+                        "Đã sửa trong bản mới",
+                        resolverUserId,
+                        now,
+                        2L,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome.APPLIED,
+                        List.of(),
+                        adminCredit
+                );
+
+        when(detailUseCase.execute(contributionId)).thenReturn(detail);
+
+        UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
+                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg"
+        );
+        UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
+                resolverUserId, "Admin Resolver", null
+        );
+        UserPublicProfileDTO creditedByProfile = new UserPublicProfileDTO(
+                creditedByUserId, "Credit Admin", "https://example.com/admin.jpg"
+        );
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId)))
+                .thenReturn(Map.of(
+                        contributorUserId, contributorProfile,
+                        resolverUserId, resolverProfile,
+                        creditedByUserId, creditedByProfile
+                ));
+
+        com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO result =
+                coordinator.getDetail(contributionId);
+
+        assertThat(result.contributionId()).isEqualTo(contributionId);
+        assertThat(result.contributor().userId()).isEqualTo(contributorUserId);
+        assertThat(result.credit()).isNotNull();
+        assertThat(result.credit().isActive()).isTrue();
+        assertThat(result.credit().creditedBy().userId()).isEqualTo(creditedByUserId);
+        assertThat(result.credit().creditedBy().displayName()).isEqualTo("Credit Admin");
+        assertThat(result.credit().creditNote()).isEqualTo("Đóng góp chuẩn xác");
+        assertThat(result.credit().revokedBy()).isNull();
+
+        verify(userIdentityContract).findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId));
+    }
+
+    @Test
+    @DisplayName("getDetail enriches revokedBy in the single bulk Identity query when REVOKED credit exists")
+    void shouldEnrichRevokedCreditInSingleBulkIdentityQuery() {
+        UUID contributionId = UUID.randomUUID();
+        UUID contributorUserId = UUID.randomUUID();
+        UUID resolverUserId = UUID.randomUUID();
+        UUID creditedByUserId = UUID.randomUUID();
+        UUID revokedByUserId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        com.universe.wiki.application.contribution.query.WikiContributionAdminCredit adminCredit =
+                new com.universe.wiki.application.contribution.query.WikiContributionAdminCredit(
+                        com.universe.wiki.domain.credit.CreditStatus.REVOKED,
+                        creditedByUserId,
+                        now.minusSeconds(3600),
+                        "Đóng góp ban đầu",
+                        revokedByUserId,
+                        now,
+                        "Phát hiện trùng lặp gian lận"
+                );
+
+        com.universe.wiki.application.contribution.query.WikiContributionAdminDetail detail =
+                new com.universe.wiki.application.contribution.query.WikiContributionAdminDetail(
+                        contributionId,
+                        UUID.randomUUID(),
+                        "CHARACTER",
+                        "Trần Bình An",
+                        "tran-binh-an",
+                        1L,
+                        contributorUserId,
+                        WikiContributionContextType.TEXT_SELECTION,
+                        WikiContributionType.WORDING,
+                        "Sửa lỗi chính tả",
+                        "văn bản chọn",
+                        "tiền tố",
+                        "hậu tố",
+                        "#heading",
+                        WikiContributionStatus.RESOLVED,
+                        2L,
+                        now.minusSeconds(100),
+                        now,
+                        List.of(),
+                        "Đã sửa trong bản mới",
+                        resolverUserId,
+                        now,
+                        2L,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        com.universe.wiki.domain.contribution.WikiContributionResolutionOutcome.APPLIED,
+                        List.of(),
+                        adminCredit
+                );
+
+        when(detailUseCase.execute(contributionId)).thenReturn(detail);
+
+        UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
+                contributorUserId, "Contributor Name", null
+        );
+        UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
+                resolverUserId, "Admin Resolver", null
+        );
+        UserPublicProfileDTO creditedByProfile = new UserPublicProfileDTO(
+                creditedByUserId, "Credit Admin", null
+        );
+        UserPublicProfileDTO revokedByProfile = new UserPublicProfileDTO(
+                revokedByUserId, "Super Admin Revoker", null
+        );
+
+        when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId, revokedByUserId)))
+                .thenReturn(Map.of(
+                        contributorUserId, contributorProfile,
+                        resolverUserId, resolverProfile,
+                        creditedByUserId, creditedByProfile,
+                        revokedByUserId, revokedByProfile
+                ));
+
+        com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO result =
+                coordinator.getDetail(contributionId);
+
+        assertThat(result.credit()).isNotNull();
+        assertThat(result.credit().isRevoked()).isTrue();
+        assertThat(result.credit().creditedBy().userId()).isEqualTo(creditedByUserId);
+        assertThat(result.credit().revokedBy().userId()).isEqualTo(revokedByUserId);
+        assertThat(result.credit().revokedBy().displayName()).isEqualTo("Super Admin Revoker");
+        assertThat(result.credit().revocationReason()).isEqualTo("Phát hiện trùng lặp gian lận");
+
+        verify(userIdentityContract).findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId, revokedByUserId));
     }
 }
