@@ -197,6 +197,19 @@ class PublicInteractionReactionControllerTest {
         }
 
         @Test
+        @DisplayName("GET on DONGHUA_EPISODE target -> fails closed with 404 Not Found")
+        void shouldReturn404WhenDonghuaEpisodeTargetIneligible() throws Exception {
+            ReactionTarget target = ReactionTarget.donghuaEpisode(TARGET_ID);
+            when(getReactionSummaryUseCase.execute(eq(target), any()))
+                    .thenThrow(new ReactionTargetNotEligibleException(target));
+
+            mockMvc.perform(get("/api/interaction/reactions")
+                            .param("targetType", "DONGHUA_EPISODE")
+                            .param("targetId", TARGET_ID.toString()))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
         @DisplayName("GET with missing or invalid targetType -> 400 Bad Request")
         void shouldReturn400WhenTargetTypeIsInvalidOrMissing() throws Exception {
             // Missing targetType
@@ -361,6 +374,28 @@ class PublicInteractionReactionControllerTest {
             String requestJson = """
                     {
                         "targetType": "COMMENT",
+                        "targetId": "%s",
+                        "reactionType": "LIKE"
+                    }
+                    """.formatted(TARGET_ID);
+
+            mockMvc.perform(put("/api/interaction/reactions")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson)
+                            .with(attachRequestIdentity(USER_ID)))
+                    .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @DisplayName("PUT on DONGHUA_EPISODE target -> fails closed with 404 Not Found")
+        void shouldReturn404WhenDonghuaEpisodeTargetIneligibleOnPut() throws Exception {
+            ReactionTarget target = ReactionTarget.donghuaEpisode(TARGET_ID);
+            when(setReactionUseCase.execute(any(SetReactionCommand.class)))
+                    .thenThrow(new ReactionTargetNotEligibleException(target));
+
+            String requestJson = """
+                    {
+                        "targetType": "DONGHUA_EPISODE",
                         "targetId": "%s",
                         "reactionType": "LIKE"
                     }
