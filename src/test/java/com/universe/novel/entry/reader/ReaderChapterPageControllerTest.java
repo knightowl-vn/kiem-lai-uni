@@ -4,6 +4,10 @@ import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
+import com.universe.interaction.application.query.GetReactionSummaryUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.reaction.ReactionTarget;
+import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.novel.application.exceptions.ChapterNotFoundException;
 import com.universe.novel.application.reader.GetReaderChapterDetailUseCase;
 import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
@@ -23,7 +27,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -55,6 +59,9 @@ class ReaderChapterPageControllerTest {
     @Mock
     private IsChapterBookmarkedUseCase isChapterBookmarkedUseCase;
 
+    @Mock
+    private GetReactionSummaryUseCase getReactionSummaryUseCase;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -62,7 +69,8 @@ class ReaderChapterPageControllerTest {
         ReaderChapterPageController controller =
                 new ReaderChapterPageController(
                         getReaderChapterDetailUseCase,
-                        isChapterBookmarkedUseCase
+                        isChapterBookmarkedUseCase,
+                        getReactionSummaryUseCase
                 );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
@@ -126,57 +134,79 @@ class ReaderChapterPageControllerTest {
     }
 
     @Test
-    @DisplayName("1. Anonymous Reader: Trả về 200 OK và isBookmarked=false mà không truy vấn bookmark state")
+    @DisplayName("1. Anonymous Reader: Trả về 200 OK, isBookmarked=false và reactionSummary ẩn danh")
     void shouldRenderChapterReadingPageForAnonymous() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+        ReactionTarget target = ReactionTarget.novelChapter(CHAPTER_ID);
+        ReactionSummary reactionSummary = ReactionSummary.of(
+                target,
+                Map.of(ReactionType.LOVE, 5L, ReactionType.FIRE, 2L, ReactionType.HAHA, 0L, ReactionType.SAD, 1L),
+                null
+        );
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
+        when(getReactionSummaryUseCase.execute(target, null)).thenReturn(reactionSummary);
 
         mockMvc.perform(get("/novel/chapters/" + slug))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))
                 .andExpect(model().attribute("pageTitle", "Chương 1: Khởi Đầu"))
-                .andExpect(model().attribute("isBookmarked", false));
+                .andExpect(model().attribute("isBookmarked", false))
+                .andExpect(model().attribute("reactionSummary", reactionSummary));
 
         verify(getReaderChapterDetailUseCase).execute(slug);
+        verify(getReactionSummaryUseCase).execute(target, null);
         verify(isChapterBookmarkedUseCase, never()).execute(any(), any());
     }
 
     @Test
-    @DisplayName("2. Authenticated Reader: Gán isBookmarked=true khi người dùng đã đánh dấu chương")
-    void shouldPopulateIsBookmarkedTrueWhenAuthenticatedAndBookmarked() throws Exception {
+    @DisplayName("2. Authenticated Reader: Gán isBookmarked=true và reactionSummary với currentUserReaction")
+    void shouldPopulateIsBookmarkedTrueAndReactionSummaryWhenAuthenticated() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+        ReactionTarget target = ReactionTarget.novelChapter(CHAPTER_ID);
+        ReactionSummary reactionSummary = ReactionSummary.of(
+                target,
+                Map.of(ReactionType.LOVE, 8L, ReactionType.FIRE, 3L, ReactionType.HAHA, 1L, ReactionType.SAD, 0L),
+                ReactionType.FIRE
+        );
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
         when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID)).thenReturn(true);
+        when(getReactionSummaryUseCase.execute(target, USER_ID)).thenReturn(reactionSummary);
 
         mockMvc.perform(get("/novel/chapters/" + slug).with(authenticatedIdentity()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))
-                .andExpect(model().attribute("isBookmarked", true));
+                .andExpect(model().attribute("isBookmarked", true))
+                .andExpect(model().attribute("reactionSummary", reactionSummary));
 
         verify(isChapterBookmarkedUseCase).execute(USER_ID, CHAPTER_ID);
+        verify(getReactionSummaryUseCase).execute(target, USER_ID);
     }
 
     @Test
-    @DisplayName("3. Graceful Degradation: Không chặn hiển thị chương khi kiểm tra bookmark gặp lỗi bất ngờ")
-    void shouldDegradeIsBookmarkedFalseWhenBookmarkLookupFails() throws Exception {
+    @DisplayName("3. Graceful Degradation: Không chặn hiển thị chương khi kiểm tra bookmark hoặc reaction gặp lỗi bất ngờ")
+    void shouldDegradeGracefullyWhenBookmarkOrReactionLookupFails() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
+        ReactionTarget target = ReactionTarget.novelChapter(CHAPTER_ID);
 
         when(getReaderChapterDetailUseCase.execute(slug)).thenReturn(chapter);
         when(isChapterBookmarkedUseCase.execute(USER_ID, CHAPTER_ID))
                 .thenThrow(new RuntimeException("Bookmark service transient error"));
+        when(getReactionSummaryUseCase.execute(target, USER_ID))
+                .thenThrow(new RuntimeException("Reaction service transient error"));
 
         mockMvc.perform(get("/novel/chapters/" + slug).with(authenticatedIdentity()))
                 .andExpect(status().isOk())
                 .andExpect(view().name("novel/chapter"))
                 .andExpect(model().attribute("chapter", chapter))
-                .andExpect(model().attribute("isBookmarked", false));
+                .andExpect(model().attribute("isBookmarked", false))
+                .andExpect(model().attribute("reactionSummary", (Object) null));
     }
 
     @Test

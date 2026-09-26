@@ -895,6 +895,16 @@
         lastPointerType = null;
     }
 
+    if (typeof document !== 'undefined') {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () {
+                init(document);
+            });
+        } else {
+            init(document);
+        }
+    }
+
     return {
         init: init,
         destroy: destroy,

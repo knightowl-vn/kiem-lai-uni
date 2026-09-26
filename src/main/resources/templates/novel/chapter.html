@@ -32,6 +32,9 @@
           th:content="${_csrf.headerName}">
 
     <link rel="stylesheet"
+          th:href="@{/css/shared/interaction-reactions.css}">
+
+    <link rel="stylesheet"
           th:href="@{/css/novel/reader-wiki-lookup.css}">
 
     <link rel="stylesheet"
@@ -338,6 +341,41 @@
         </span>
 
     </nav>
+
+
+    <!-- =====================================================
+         CHAPTER EMOTIONAL REACTIONS (MS-05I6)
+         ===================================================== -->
+    <section th:if="${reactionSummary != null}"
+             class="novel-chapter-reactions"
+             id="novelChapterReactions"
+             aria-label="Cảm xúc chương">
+        <div class="kl-reaction-widget"
+             data-reaction-widget
+             data-reaction-target-type="NOVEL_CHAPTER"
+             th:attr="data-reaction-target-id=${chapter.id},
+                      data-reaction-current=${reactionSummary.currentUserReaction != null ? reactionSummary.currentUserReaction.name() : null},
+                      data-reaction-total=${reactionSummary.totalCount},
+                      data-reaction-count-love=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).LOVE) : 0},
+                      data-reaction-count-fire=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).FIRE) : 0},
+                      data-reaction-count-haha=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).HAHA) : 0},
+                      data-reaction-count-sad=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).SAD) : 0}">
+            <button type="button"
+                    class="kl-reaction-trigger"
+                    data-reaction-trigger
+                    th:classappend="${reactionSummary.currentUserReaction != null} ? ' has-reaction' : ''"
+                    th:attr="aria-expanded='false',
+                             aria-label=${reactionSummary.currentUserReaction != null ? 'Biểu cảm: ' + reactionSummary.currentUserReaction.name() + ', tổng cộng ' + reactionSummary.totalCount + ' lượt' : (reactionSummary.totalCount > 0 ? 'Thả cảm xúc, tổng cộng ' + reactionSummary.totalCount + ' lượt' : 'Thả cảm xúc')}">
+                <span class="kl-reaction-trigger__emoji"
+                      data-reaction-trigger-emoji
+                      th:text="${reactionSummary.currentUserReaction != null ? (reactionSummary.currentUserReaction.name() == 'LOVE' ? '❤️' : (reactionSummary.currentUserReaction.name() == 'FIRE' ? '🔥' : (reactionSummary.currentUserReaction.name() == 'HAHA' ? '😂' : (reactionSummary.currentUserReaction.name() == 'SAD' ? '😭' : '❤️')))) : '❤️'}">❤️</span>
+                <span class="kl-reaction-trigger__count"
+                      data-reaction-trigger-count
+                      th:hidden="${reactionSummary.totalCount == 0}"
+                      th:text="${reactionSummary.totalCount > 0 ? reactionSummary.totalCount : ''}"></span>
+            </button>
+        </div>
+    </section>
 
 
     <!-- =====================================================
@@ -997,6 +1035,8 @@
 <script th:src="@{/js/novel/reader-block-discussion-delete.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-block-discussion-restore.js}"
+        defer></script>
+<script th:src="@{/js/shared/interaction-reactions.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-chapter-comments.js}"
         defer></script>

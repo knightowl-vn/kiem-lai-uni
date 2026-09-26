@@ -2,6 +2,9 @@ package com.universe.novel.entry.reader;
 
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
+import com.universe.interaction.application.query.GetReactionSummaryUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.reaction.ReactionTarget;
 import com.universe.novel.application.reader.GetReaderChapterDetailUseCase;
 import com.universe.novel.application.reader.IsChapterBookmarkedUseCase;
 import com.universe.novel.contracts.dto.reader.ReaderChapterDetailDTO;
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 @Controller
 @RequestMapping("/novel")
@@ -32,9 +36,13 @@ public class ReaderChapterPageController {
     private final IsChapterBookmarkedUseCase
             isChapterBookmarkedUseCase;
 
+    private final GetReactionSummaryUseCase
+            getReactionSummaryUseCase;
+
     public ReaderChapterPageController(
             GetReaderChapterDetailUseCase getReaderChapterDetailUseCase,
-            IsChapterBookmarkedUseCase isChapterBookmarkedUseCase
+            IsChapterBookmarkedUseCase isChapterBookmarkedUseCase,
+            GetReactionSummaryUseCase getReactionSummaryUseCase
     ) {
         this.getReaderChapterDetailUseCase =
                 Objects.requireNonNull(
@@ -45,6 +53,11 @@ public class ReaderChapterPageController {
                 Objects.requireNonNull(
                         isChapterBookmarkedUseCase,
                         "IsChapterBookmarkedUseCase không được để trống."
+                );
+        this.getReactionSummaryUseCase =
+                Objects.requireNonNull(
+                        getReactionSummaryUseCase,
+                        "GetReactionSummaryUseCase không được để trống."
                 );
     }
 
@@ -72,14 +85,19 @@ public class ReaderChapterPageController {
                         + chapter.title()
         );
 
-        boolean isBookmarked = false;
+        UUID currentUserId = null;
         Optional<AuthenticatedRequestIdentity> identityOptional =
                 AuthenticatedRequestIdentityAccessor.find(request);
         if (identityOptional.isPresent()) {
+            currentUserId = identityOptional.get().userId();
+        }
+
+        boolean isBookmarked = false;
+        if (currentUserId != null) {
             try {
                 isBookmarked =
                         isChapterBookmarkedUseCase.execute(
-                                identityOptional.get().userId(),
+                                currentUserId,
                                 chapter.id()
                         );
             } catch (Exception ex) {
@@ -95,6 +113,29 @@ public class ReaderChapterPageController {
         model.addAttribute(
                 "isBookmarked",
                 isBookmarked
+        );
+
+        ReactionSummary reactionSummary = null;
+        try {
+            ReactionTarget reactionTarget =
+                    ReactionTarget.novelChapter(chapter.id());
+            reactionSummary =
+                    getReactionSummaryUseCase.execute(
+                            reactionTarget,
+                            currentUserId
+                    );
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Không thể tải reaction summary cho chapterId={}",
+                    chapter.id(),
+                    ex
+            );
+            reactionSummary = null;
+        }
+
+        model.addAttribute(
+                "reactionSummary",
+                reactionSummary
         );
 
         return "novel/chapter";
