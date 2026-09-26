@@ -171,7 +171,8 @@ public class SecurityBeanConfig {
                                 "/api/wiki/articles/*/comments",
                                 "/api/wiki/articles/*/comments/feed",
                                 "/api/wiki/articles/*/comments/*/thread",
-                                "/api/wiki/articles/*/comments/*/revisions"
+                                "/api/wiki/articles/*/comments/*/revisions",
+                                "/api/interaction/reactions"
                         )
                         .permitAll()
 
@@ -207,7 +208,8 @@ public class SecurityBeanConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.PUT,
-                                "/api/wiki/articles/*/appreciation"
+                                "/api/wiki/articles/*/appreciation",
+                                "/api/interaction/reactions"
                         )
                         .authenticated()
 
