@@ -14,13 +14,14 @@ import java.util.UUID;
 /**
  * Persistence adapter implementing WikiArticlePublicContributorQueryPort using Spring Data JPA.
  *
- * <p>Enforces a hard maximum limit of 50 distinct contributors database-side,
- * sorts deterministically by contributor user ID ascending, and filters out non-active credits.
+ * <p>Enforces a hard limit of 51 distinct candidate contributors database-side to support
+ * truncation detection, grouped by contributor, filtering out non-active credits, and ordered
+ * by latest active creditedAt DESC with contributorUserId ASC tie-breaker.
  */
 @Component
 public class WikiArticlePublicContributorQueryAdapter implements WikiArticlePublicContributorQueryPort {
 
-    private static final int HARD_LIMIT = 50;
+    private static final int CANDIDATE_HARD_LIMIT = 51;
     private final SpringDataWikiContributionJpaRepository contributionRepository;
 
     public WikiArticlePublicContributorQueryAdapter(SpringDataWikiContributionJpaRepository contributionRepository) {
@@ -37,7 +38,7 @@ public class WikiArticlePublicContributorQueryAdapter implements WikiArticlePubl
         List<WikiArticlePublicContributorProjection> projections =
                 contributionRepository.findActiveContributorsByArticleId(
                         articleId.toString(),
-                        PageRequest.of(0, HARD_LIMIT)
+                        PageRequest.of(0, CANDIDATE_HARD_LIMIT)
                 );
 
         if (projections == null || projections.isEmpty()) {
@@ -45,10 +46,11 @@ public class WikiArticlePublicContributorQueryAdapter implements WikiArticlePubl
         }
 
         return projections.stream()
-                .filter(p -> p != null && p.getContributorUserId() != null && p.getActiveCreditCount() > 0)
+                .filter(p -> p != null && p.getContributorUserId() != null && p.getActiveCreditCount() > 0 && p.getLastCreditedAt() != null)
                 .map(p -> new WikiArticlePublicContributorAggregate(
                         UUID.fromString(p.getContributorUserId()),
-                        p.getActiveCreditCount()
+                        p.getActiveCreditCount(),
+                        p.getLastCreditedAt()
                 ))
                 .toList();
     }

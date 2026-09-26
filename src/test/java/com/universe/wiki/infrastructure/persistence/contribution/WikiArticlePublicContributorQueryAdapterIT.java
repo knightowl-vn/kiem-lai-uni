@@ -89,12 +89,15 @@ class WikiArticlePublicContributorQueryAdapterIT {
     }
 
     private WikiContributionCredit createActiveCredit(UUID creditId, UUID contributionId) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        return createActiveCredit(creditId, contributionId, Instant.now().truncatedTo(ChronoUnit.MICROS));
+    }
+
+    private WikiContributionCredit createActiveCredit(UUID creditId, UUID contributionId, Instant creditedAt) {
         WikiContributionCredit credit = WikiContributionCredit.createActive(
                 creditId,
                 contributionId,
                 UUID.randomUUID(),
-                now,
+                creditedAt != null ? creditedAt : Instant.now().truncatedTo(ChronoUnit.MICROS),
                 "Ghi nhận đóng góp."
         );
         return creditAdapter.save(credit);
@@ -128,6 +131,7 @@ class WikiArticlePublicContributorQueryAdapterIT {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).contributorUserId()).isEqualTo(userA);
         assertThat(results.get(0).activeCreditCount()).isEqualTo(1L);
+        assertThat(results.get(0).lastCreditedAt()).isNotNull();
     }
 
     @Test
@@ -171,14 +175,18 @@ class WikiArticlePublicContributorQueryAdapterIT {
         createContribution(c1, articleId, userA);
         createContribution(c2, articleId, userA);
 
-        createActiveCredit(UUID.randomUUID(), c1);
-        createActiveCredit(UUID.randomUUID(), c2);
+        Instant t1 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t2 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+
+        createActiveCredit(UUID.randomUUID(), c1, t1);
+        createActiveCredit(UUID.randomUUID(), c2, t2);
 
         List<WikiArticlePublicContributorAggregate> results = queryAdapter.findActiveContributorsByArticleId(articleId);
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).contributorUserId()).isEqualTo(userA);
         assertThat(results.get(0).activeCreditCount()).isEqualTo(2L);
+        assertThat(results.get(0).lastCreditedAt()).isEqualTo(t2);
     }
 
     @Test
@@ -212,37 +220,42 @@ class WikiArticlePublicContributorQueryAdapterIT {
     }
 
     @Test
-    @DisplayName("Results are ordered deterministically by contributor user ID ascending")
-    void shouldOrderDeterministicallyByContributorUserIdAscending() {
+    @DisplayName("Results are ordered by lastCreditedAt DESC, then by contributor user ID ascending")
+    void shouldOrderByLastCreditedAtDescThenContributorUserIdAscending() {
         UUID articleId = UUID.randomUUID();
         UUID user1 = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID user2 = UUID.fromString("00000000-0000-0000-0000-000000000002");
         UUID user3 = UUID.fromString("00000000-0000-0000-0000-000000000003");
 
-        // Insert in reverse order
-        UUID c3 = UUID.randomUUID();
-        UUID c2 = UUID.randomUUID();
         UUID c1 = UUID.randomUUID();
+        UUID c2 = UUID.randomUUID();
+        UUID c3 = UUID.randomUUID();
 
-        createContribution(c3, articleId, user3);
-        createContribution(c2, articleId, user2);
         createContribution(c1, articleId, user1);
+        createContribution(c2, articleId, user2);
+        createContribution(c3, articleId, user3);
 
-        createActiveCredit(UUID.randomUUID(), c3);
-        createActiveCredit(UUID.randomUUID(), c2);
-        createActiveCredit(UUID.randomUUID(), c1);
+        Instant base = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = base.minus(3, ChronoUnit.HOURS);
+        Instant t2 = base.minus(1, ChronoUnit.HOURS);
+        Instant t3 = base.minus(2, ChronoUnit.HOURS);
+
+        createActiveCredit(UUID.randomUUID(), c1, t1);
+        createActiveCredit(UUID.randomUUID(), c2, t2);
+        createActiveCredit(UUID.randomUUID(), c3, t3);
 
         List<WikiArticlePublicContributorAggregate> results = queryAdapter.findActiveContributorsByArticleId(articleId);
 
         assertThat(results).hasSize(3);
-        assertThat(results.get(0).contributorUserId()).isEqualTo(user1);
-        assertThat(results.get(1).contributorUserId()).isEqualTo(user2);
-        assertThat(results.get(2).contributorUserId()).isEqualTo(user3);
+        // Recency order: t2 (user2, 1h ago) > t3 (user3, 2h ago) > t1 (user1, 3h ago)
+        assertThat(results.get(0).contributorUserId()).isEqualTo(user2);
+        assertThat(results.get(1).contributorUserId()).isEqualTo(user3);
+        assertThat(results.get(2).contributorUserId()).isEqualTo(user1);
     }
 
     @Test
-    @DisplayName("Database-side hard limit of 50 is enforced when more than 50 distinct contributors exist")
-    void shouldEnforceHardLimitOf50() {
+    @DisplayName("Database-side hard limit of 51 candidates is enforced when more than 51 distinct contributors exist")
+    void shouldEnforceCandidateHardLimitOf51() {
         UUID articleId = UUID.randomUUID();
         List<UUID> userIds = new ArrayList<>();
         for (int i = 0; i < 55; i++) {
@@ -255,6 +268,6 @@ class WikiArticlePublicContributorQueryAdapterIT {
 
         List<WikiArticlePublicContributorAggregate> results = queryAdapter.findActiveContributorsByArticleId(articleId);
 
-        assertThat(results).hasSize(50);
+        assertThat(results).hasSize(51);
     }
 }

@@ -13,8 +13,9 @@ public interface WikiArticlePublicContributorQueryPort {
     /**
      * Retrieves the active credited contributor aggregates for the specified article ID.
      *
-     * <p>Enforces a hard limit of 50 distinct contributors, grouped by contributor user ID
-     * and ordered deterministically by contributor user ID ascending.
+     * <p>Enforces a bounded candidate query (up to 51 aggregates) grouped by contributor,
+     * considering active credits only, and ordered by latest active creditedAt DESC,
+     * with contributorUserId ASC as a deterministic tie-breaker.
      *
      * @param articleId the unique identifier of the Wiki article
      * @return list of active contributor aggregates, empty if none exist

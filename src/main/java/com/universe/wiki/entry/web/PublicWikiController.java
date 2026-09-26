@@ -22,6 +22,7 @@ import com.universe.wiki.domain.article.ArticleType;
 
 import com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase;
 import com.universe.wiki.contracts.dto.WikiPublicContributorDTO;
+import com.universe.wiki.contracts.dto.WikiPublicContributorsResult;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
@@ -216,9 +217,13 @@ public class PublicWikiController {
 		String attributionLine = resolveAttributionLine(article);
 		model.addAttribute("attributionLine", attributionLine);
 
-		List<WikiPublicContributorDTO> publicContributors =
+		WikiPublicContributorsResult contributorsResult =
 				getWikiArticlePublicContributorsUseCase.execute(article.id());
-		model.addAttribute("publicContributors", publicContributors);
+		if (contributorsResult == null) {
+			contributorsResult = WikiPublicContributorsResult.empty();
+		}
+		model.addAttribute("publicContributors", contributorsResult.contributors());
+		model.addAttribute("publicContributorsLimitReached", contributorsResult.candidateLimitReached());
 
 		return "wiki/public/detail";
 	}

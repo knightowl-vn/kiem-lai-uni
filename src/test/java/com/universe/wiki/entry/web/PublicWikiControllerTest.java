@@ -139,6 +139,8 @@ class PublicWikiControllerTest {
                         userIdentityContract,
                         getWikiArticlePublicContributorsUseCase
                 );
+        org.mockito.Mockito.lenient().when(getWikiArticlePublicContributorsUseCase.execute(any()))
+                .thenReturn(com.universe.wiki.contracts.dto.WikiPublicContributorsResult.empty());
     }
 
     @Test
@@ -950,7 +952,9 @@ class PublicWikiControllerTest {
                 new com.universe.wiki.contracts.dto.WikiPublicContributorDTO("Độc giả 1", "https://avatar.com/1.png", 2L),
                 new com.universe.wiki.contracts.dto.WikiPublicContributorDTO("Độc giả 2", null, 1L)
         );
-        when(getWikiArticlePublicContributorsUseCase.execute(ARTICLE_ID)).thenReturn(contributors);
+        com.universe.wiki.contracts.dto.WikiPublicContributorsResult result =
+                new com.universe.wiki.contracts.dto.WikiPublicContributorsResult(contributors, true);
+        when(getWikiArticlePublicContributorsUseCase.execute(ARTICLE_ID)).thenReturn(result);
 
         ExtendedModelMap model = new ExtendedModelMap();
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -958,6 +962,7 @@ class PublicWikiControllerTest {
         controller.detailPage("character", "tran-binh-an", request, model);
 
         assertThat(model.getAttribute("publicContributors")).isEqualTo(contributors);
+        assertThat(model.getAttribute("publicContributorsLimitReached")).isEqualTo(true);
         verify(getWikiArticlePublicContributorsUseCase, times(1)).execute(ARTICLE_ID);
     }
 

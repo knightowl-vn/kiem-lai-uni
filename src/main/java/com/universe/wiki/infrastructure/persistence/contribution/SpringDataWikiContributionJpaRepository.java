@@ -73,13 +73,14 @@ public interface SpringDataWikiContributionJpaRepository
     @Query("""
             SELECT
                 c.submittedByUserId AS contributorUserId,
-                COUNT(cr.id) AS activeCreditCount
+                COUNT(cr.id) AS activeCreditCount,
+                MAX(cr.creditedAt) AS lastCreditedAt
             FROM WikiContributionJpaEntity c
             JOIN WikiContributionCreditJpaEntity cr ON cr.contributionId = c.id
             WHERE c.articleId = :articleId
               AND cr.creditStatus = 'ACTIVE'
             GROUP BY c.submittedByUserId
-            ORDER BY c.submittedByUserId ASC
+            ORDER BY MAX(cr.creditedAt) DESC, c.submittedByUserId ASC
             """)
     List<WikiArticlePublicContributorProjection> findActiveContributorsByArticleId(
             @Param("articleId") String articleId,
