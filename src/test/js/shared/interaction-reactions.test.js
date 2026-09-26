@@ -1005,4 +1005,46 @@ describe('InteractionReactions MS-05I Corrective Pass Tests', () => {
         const statusEl = widget.querySelector('[data-reaction-status]');
         assert.strictEqual(statusEl.textContent, 'Không thể cập nhật biểu cảm. Vui lòng thử lại.');
     });
+
+    test('26. A11y semantics: trigger has no aria-haspopup, aria-controls matches unique palette id, and multi-widgets have distinct ids', () => {
+        const widget1 = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        const widget2 = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+
+        doc.body.appendChild(widget1);
+        doc.body.appendChild(widget2);
+
+        const trigger1 = widget1.querySelector('[data-reaction-trigger]');
+        const palette1 = widget1.querySelector('[data-reaction-palette]');
+        const trigger2 = widget2.querySelector('[data-reaction-trigger]');
+        const palette2 = widget2.querySelector('[data-reaction-palette]');
+
+        // aria-haspopup must NOT be present
+        assert.strictEqual(trigger1.getAttribute('aria-haspopup'), null, 'trigger1 must not have aria-haspopup');
+        assert.strictEqual(trigger2.getAttribute('aria-haspopup'), null, 'trigger2 must not have aria-haspopup');
+
+        // aria-controls must match palette id
+        assert.ok(palette1.id, 'palette1 must have an id');
+        assert.ok(palette2.id, 'palette2 must have an id');
+        assert.notStrictEqual(palette1.id, palette2.id, 'palette ids must be globally distinct');
+        assert.strictEqual(trigger1.getAttribute('aria-controls'), palette1.id);
+        assert.strictEqual(trigger2.getAttribute('aria-controls'), palette2.id);
+
+        // palette role and options
+        assert.strictEqual(palette1.getAttribute('role'), 'group');
+        assert.strictEqual(palette1.getAttribute('aria-label'), 'Chọn cảm xúc');
+        const options = palette1.querySelectorAll('[data-reaction-option]');
+        assert.strictEqual(options.length, 5);
+        options.forEach(opt => {
+            assert.strictEqual(opt.tagName, 'BUTTON');
+            assert.strictEqual(opt.hasAttribute('aria-pressed'), true);
+        });
+    });
 });
