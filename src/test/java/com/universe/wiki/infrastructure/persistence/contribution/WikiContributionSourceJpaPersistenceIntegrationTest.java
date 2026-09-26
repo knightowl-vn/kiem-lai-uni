@@ -53,9 +53,10 @@ class WikiContributionSourceJpaPersistenceIntegrationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version = '66'");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_sources");
-        } catch (Exception ignored) {
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version = '66'");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to clean V66 test baseline before Flyway in WikiContributionSourceJpaPersistenceIntegrationTest", e);
         }
     }
 

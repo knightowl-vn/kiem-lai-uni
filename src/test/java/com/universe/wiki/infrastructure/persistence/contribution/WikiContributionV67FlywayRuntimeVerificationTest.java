@@ -38,7 +38,6 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('67', '68')");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_workflow_events");
             String dbName = TestDatabaseSupport.resolveDatabaseName();
             Integer idxExists = jdbc.queryForObject(
@@ -85,7 +84,9 @@ class WikiContributionV67FlywayRuntimeVerificationTest {
             if (revColExists != null && revColExists > 0) {
                 jdbc.execute("ALTER TABLE wiki_article_revisions DROP COLUMN source_contribution_id");
             }
-        } catch (Exception ignored) {
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('67', '68')");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to clean V67 test baseline before Flyway in WikiContributionV67FlywayRuntimeVerificationTest", e);
         }
     }
 

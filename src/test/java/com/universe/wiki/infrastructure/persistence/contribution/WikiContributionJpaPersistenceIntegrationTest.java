@@ -59,7 +59,7 @@ class WikiContributionJpaPersistenceIntegrationTest {
         try {
             javax.sql.DataSource ds = TestDatabaseSupport.createTestDataSource(TestDatabaseSupport.resolveDatabaseName());
             org.springframework.jdbc.core.JdbcTemplate jdbc = new org.springframework.jdbc.core.JdbcTemplate(ds);
-            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67', '68')");
+            jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_credits");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_workflow_events");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contribution_sources");
             jdbc.execute("DROP TABLE IF EXISTS wiki_contributions");
@@ -80,7 +80,9 @@ class WikiContributionJpaPersistenceIntegrationTest {
             if (revColExists != null && revColExists > 0) {
                 jdbc.execute("ALTER TABLE wiki_article_revisions DROP COLUMN source_contribution_id");
             }
-        } catch (Exception ignored) {
+            jdbc.execute("DELETE FROM flyway_schema_history WHERE version IN ('65', '66', '67', '68', '69')");
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to clean V65 test baseline before Flyway in WikiContributionJpaPersistenceIntegrationTest", e);
         }
     }
 
