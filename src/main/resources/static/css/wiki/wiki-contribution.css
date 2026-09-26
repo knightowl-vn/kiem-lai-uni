@@ -51,6 +51,21 @@
     flex-shrink: 0;
 }
 
+@media (max-width: 767.98px) {
+    .wiki-contribute-btn {
+        height: 34px;
+        padding: 0 8px;
+        font-size: 0.8125rem;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    .wiki-contribute-btn .wiki-contribute-icon {
+        width: 1rem;
+        height: 1rem;
+    }
+}
+
 /* =========================================================
    2. FLOATING TEXT-SELECTION TOOLBAR
    ========================================================= */

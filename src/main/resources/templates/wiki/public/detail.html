@@ -48,7 +48,10 @@
 		<div class="wiki-public-utility-row">
 
 			<div class="wiki-public-back">
-				<a th:href="@{/wiki}"> ← Quay lại Wiki </a>
+				<a th:href="@{/wiki}">
+					<span class="wiki-back-label-desktop">← Quay lại Wiki</span>
+					<span class="wiki-back-label-mobile">← Quay lại</span>
+				</a>
 			</div>
 
 			<div class="wiki-public-utility-actions">
@@ -93,7 +96,8 @@
 						aria-hidden="true">
 						<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
 					</svg>
-					<span class="wiki-save-btn-text" th:text="${isSaved ? 'Đã lưu' : 'Lưu bài viết'}">Lưu bài viết</span>
+					<span class="wiki-save-btn-text wiki-save-label-desktop" th:text="${isSaved ? 'Đã lưu' : 'Lưu bài viết'}">Lưu bài viết</span>
+					<span class="wiki-save-btn-text-mobile wiki-save-label-mobile" th:text="${isSaved ? 'Đã lưu' : 'Lưu'}">Lưu</span>
 				</button>
 
 				<!-- Contribute Wiki Article Button -->
@@ -122,7 +126,8 @@
 						<path d="M12 20h9"></path>
 						<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
 					</svg>
-					<span class="wiki-contribute-btn-text">Góp ý</span>
+					<span class="wiki-contribute-btn-text wiki-contribute-label-desktop">Góp ý</span>
+					<span class="wiki-contribute-btn-text-mobile wiki-contribute-label-mobile">Đóng góp</span>
 				</button>
 
 				<div class="wiki-reading-settings-wrapper">
@@ -466,18 +471,17 @@
 			</article>
 
 
-			<!-- TOC -->
+			<!-- TOC & SIDEBAR -->
 
 			<aside class="wiki-public-reading-sidebar"
-				th:if="${!#lists.isEmpty(
-            renderedContent.tableOfContents
-        )}">
+				th:if="${!#lists.isEmpty(renderedContent.tableOfContents) or (publicContributors != null and !#lists.isEmpty(publicContributors))}">
 
 				<!-- ================================================= -->
 				<!-- MOBILE TOC TOGGLE                                 -->
 				<!-- ================================================= -->
 
 				<button type="button" class="wiki-public-toc-toggle"
+					th:if="${!#lists.isEmpty(renderedContent.tableOfContents)}"
 					aria-expanded="false" aria-controls="wikiPublicToc"
 					data-wiki-toc-toggle>
 
@@ -494,6 +498,7 @@
 
 				</button>
 				<nav id="wikiPublicToc" class="wiki-table-of-contents"
+					th:if="${!#lists.isEmpty(renderedContent.tableOfContents)}"
 					aria-label="Mục lục bài viết">
 
 					<div class="wiki-toc-header">
@@ -529,60 +534,100 @@
 				</nav>
 
 
-				<a class="wiki-public-back-to-top" href="#"> ↑ Đầu trang </a>
+				<a class="wiki-public-back-to-top"
+					th:if="${!#lists.isEmpty(renderedContent.tableOfContents)}"
+					href="#"> ↑ Đầu trang </a>
+
+				<!-- ================================================= -->
+				<!-- DESKTOP PUBLIC CONTRIBUTORS SIDEBAR CARD          -->
+				<!-- ================================================= -->
+				<section th:if="${publicContributors != null and !#lists.isEmpty(publicContributors)}"
+					class="wiki-public-contributors-sidebar-card"
+					aria-labelledby="wikiDesktopContributorsHeading">
+					<div class="wiki-public-contributors-sidebar-header">
+						<h3 id="wikiDesktopContributorsHeading" class="wiki-public-contributors-sidebar-title">
+							<span>Người đóng góp</span>
+							<span class="wiki-public-contributors-count-badge"
+								th:text="${(publicContributorsLimitReached != null and publicContributorsLimitReached and #lists.size(publicContributors) == 50) ? '50+' : #lists.size(publicContributors)}">1</span>
+						</h3>
+					</div>
+					<button type="button"
+						class="wiki-public-contributors-trigger"
+						data-wiki-contributors-modal-trigger
+						aria-haspopup="dialog"
+						aria-controls="wikiContributorsModal"
+						aria-label="Xem danh sách người đóng góp">
+						<div class="wiki-public-contributors-avatar-stack">
+							<th:block th:each="contributor, iterStat : ${publicContributors}">
+								<div th:if="${iterStat.index < 5}"
+									class="wiki-public-contributor-avatar-wrap"
+									th:title="${contributor.displayName}">
+									<img th:if="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+										th:src="${contributor.avatarUrl}"
+										th:alt="${contributor.displayName}"
+										class="wiki-public-contributor-avatar"
+										referrerpolicy="no-referrer"
+										onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+									<span th:unless="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+										class="wiki-public-contributor-avatar wiki-public-contributor-avatar--initial"
+										th:text="${#strings.substring(contributor.displayName, 0, 1)}"
+										aria-hidden="true">U</span>
+								</div>
+							</th:block>
+							<span th:if="${#lists.size(publicContributors) > 5}"
+								class="wiki-public-contributors-more-badge"
+								th:text="${'+' + (#lists.size(publicContributors) - 5)}">+3</span>
+						</div>
+						<p class="wiki-public-contributors-sidebar-help">Đã giúp cải thiện bài viết</p>
+					</button>
+				</section>
 
 			</aside>
 
 		</div>
 
 		<!-- ================================================= -->
-		<!-- PUBLIC CONTRIBUTORS                               -->
+		<!-- MOBILE PUBLIC CONTRIBUTORS CARD                   -->
 		<!-- ================================================= -->
 		<section th:if="${publicContributors != null and !#lists.isEmpty(publicContributors)}"
-			class="wiki-public-contributors-card"
-			aria-labelledby="wikiContributorsHeading">
-			<div class="wiki-public-contributors-header">
-				<svg class="wiki-public-contributors-icon"
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					width="20"
-					height="20"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					aria-hidden="true">
-					<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-					<circle cx="9" cy="7" r="4"></circle>
-					<path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-					<path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-				</svg>
-				<h2 id="wikiContributorsHeading" class="wiki-public-contributors-title">
-					Người đóng góp bài viết
-				</h2>
-			</div>
-			<div class="wiki-public-contributors-list">
-				<div th:each="contributor : ${publicContributors}" class="wiki-public-contributor-item">
-					<div class="wiki-public-contributor-avatar-wrap">
-						<img th:if="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
-							th:src="${contributor.avatarUrl}"
-							th:alt="${contributor.displayName}"
-							class="wiki-public-contributor-avatar"
-							referrerpolicy="no-referrer"
-							onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
-						<span th:unless="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
-							class="wiki-public-contributor-avatar wiki-public-contributor-avatar--initial"
-							th:text="${#strings.substring(contributor.displayName, 0, 1)}"
-							aria-hidden="true">U</span>
-					</div>
-					<div class="wiki-public-contributor-info">
-						<span class="wiki-public-contributor-name" th:text="${contributor.displayName}">Tên người dùng</span>
-						<span class="wiki-public-contributor-count"
-							th:text="${contributor.activeCreditCount == 1 ? '1 đóng góp được ghi nhận' : (contributor.activeCreditCount + ' đóng góp được ghi nhận')}">1 đóng góp được ghi nhận</span>
-					</div>
+			class="wiki-public-contributors-mobile-card"
+			aria-labelledby="wikiMobileContributorsHeading">
+			<button type="button"
+				class="wiki-public-contributors-mobile-btn"
+				data-wiki-contributors-modal-trigger
+				aria-haspopup="dialog"
+				aria-controls="wikiContributorsModal"
+				aria-label="Xem danh sách người đóng góp">
+				<div class="wiki-public-contributors-mobile-left">
+					<h3 id="wikiMobileContributorsHeading" class="wiki-public-contributors-mobile-title">
+						<span>Người đóng góp</span>
+						<span class="wiki-public-contributors-count-badge"
+							th:text="${(publicContributorsLimitReached != null and publicContributorsLimitReached and #lists.size(publicContributors) == 50) ? '50+' : #lists.size(publicContributors)}">1</span>
+					</h3>
+					<p class="wiki-public-contributors-mobile-help">Đã giúp cải thiện bài viết</p>
 				</div>
-			</div>
+				<div class="wiki-public-contributors-avatar-stack">
+					<th:block th:each="contributor, iterStat : ${publicContributors}">
+						<div th:if="${iterStat.index < 3}"
+							class="wiki-public-contributor-avatar-wrap"
+							th:title="${contributor.displayName}">
+							<img th:if="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+								th:src="${contributor.avatarUrl}"
+								th:alt="${contributor.displayName}"
+								class="wiki-public-contributor-avatar"
+								referrerpolicy="no-referrer"
+								onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+							<span th:unless="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+								class="wiki-public-contributor-avatar wiki-public-contributor-avatar--initial"
+								th:text="${#strings.substring(contributor.displayName, 0, 1)}"
+								aria-hidden="true">U</span>
+						</div>
+					</th:block>
+					<span th:if="${#lists.size(publicContributors) > 3}"
+						class="wiki-public-contributors-more-badge"
+						th:text="${'+' + (#lists.size(publicContributors) - 3)}">+3</span>
+				</div>
+			</button>
 		</section>
 
 		<!-- ================================================= -->
@@ -772,6 +817,72 @@
 			</div>
 		</div>
 
+		<!-- ================================================= -->
+		<!-- PUBLIC CONTRIBUTORS MODAL                         -->
+		<!-- ================================================= -->
+		<div id="wikiContributorsModal"
+			class="wiki-contributors-modal"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="wikiContributorsModalTitle"
+			hidden>
+			<div class="wiki-contributors-modal-backdrop" id="wikiContributorsModalBackdrop" data-wiki-contributors-modal-close></div>
+			<div class="wiki-contributors-modal-dialog">
+				<div class="wiki-contributors-modal-content">
+					<div class="wiki-contributors-modal-header">
+						<div class="wiki-contributors-modal-header-text">
+							<h2 id="wikiContributorsModalTitle" class="wiki-contributors-modal-title">
+								<span>Người đóng góp</span>
+								<span class="wiki-public-contributors-count-badge"
+									th:if="${publicContributors != null}"
+									th:text="${(publicContributorsLimitReached != null and publicContributorsLimitReached and #lists.size(publicContributors) == 50) ? '50+' : #lists.size(publicContributors)}">0</span>
+							</h2>
+							<p class="wiki-contributors-modal-subtitle">Thành viên đã có đóng góp được ghi nhận cho bài viết này</p>
+						</div>
+						<button type="button"
+							class="wiki-contributors-modal-close-btn"
+							id="wikiContributorsModalCloseBtn"
+							data-wiki-contributors-modal-close
+							aria-label="Đóng cửa sổ">
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+								<line x1="18" y1="6" x2="6" y2="18"></line>
+								<line x1="6" y1="6" x2="18" y2="18"></line>
+							</svg>
+						</button>
+					</div>
+					<div class="wiki-contributors-modal-body">
+						<div th:if="${publicContributors != null and !#lists.isEmpty(publicContributors)}"
+							class="wiki-contributors-modal-list">
+							<div th:each="contributor : ${publicContributors}"
+								class="wiki-contributors-modal-item">
+								<div class="wiki-public-contributor-avatar-wrap">
+									<img th:if="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+										th:src="${contributor.avatarUrl}"
+										th:alt="${contributor.displayName}"
+										class="wiki-public-contributor-avatar"
+										referrerpolicy="no-referrer"
+										onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+									<span th:unless="${contributor.avatarUrl != null and !contributor.avatarUrl.isBlank()}"
+										class="wiki-public-contributor-avatar wiki-public-contributor-avatar--initial"
+										th:text="${#strings.substring(contributor.displayName, 0, 1)}"
+										aria-hidden="true">U</span>
+								</div>
+								<div class="wiki-contributors-modal-item-info">
+									<span class="wiki-contributors-modal-item-name" th:text="${contributor.displayName}">Tên hiển thị</span>
+									<span class="wiki-contributors-modal-item-count"
+										th:text="${contributor.activeCreditCount == 1 ? '1 đóng góp được ghi nhận' : (contributor.activeCreditCount + ' đóng góp được ghi nhận')}">1 đóng góp được ghi nhận</span>
+								</div>
+							</div>
+						</div>
+						<p th:if="${publicContributorsLimitReached != null and publicContributorsLimitReached}"
+							class="wiki-contributors-modal-limit-note">
+							Hiển thị tối đa 50 người đóng góp gần nhất có hồ sơ công khai.
+						</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
 	</main>
 
 	<script th:src="@{/js/theme.js}"></script>
@@ -787,5 +898,6 @@
 	<script th:src="@{/js/wiki/wiki-comments.js}" defer></script>
 	<script th:if="${isAppreciationEligible}" th:src="@{/js/wiki/wiki-appreciation.js}" defer></script>
 	<script th:src="@{/js/wiki/wiki-contribution.js}" defer></script>
+	<script th:src="@{/js/wiki/wiki-contributors.js}" defer></script>
 </body>
 </html>

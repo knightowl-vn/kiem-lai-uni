@@ -107,21 +107,28 @@
                     const newSavedState = !isSaved;
                     saveBtn.setAttribute('data-saved', String(newSavedState));
 
-                    const textSpan = saveBtn.querySelector('.wiki-save-btn-text');
+                    const desktopSpan = saveBtn.querySelector('.wiki-save-label-desktop, .wiki-save-btn-text');
+                    const mobileSpan = saveBtn.querySelector('.wiki-save-label-mobile, .wiki-save-btn-text-mobile');
 
                     if (newSavedState) {
                         saveBtn.classList.add('is-saved');
                         saveBtn.setAttribute('aria-label', 'Bỏ lưu bài viết');
                         saveBtn.setAttribute('title', 'Bỏ lưu bài viết');
-                        if (textSpan) {
-                            textSpan.textContent = 'Đã lưu';
+                        if (desktopSpan) {
+                            desktopSpan.textContent = 'Đã lưu';
+                        }
+                        if (mobileSpan) {
+                            mobileSpan.textContent = 'Đã lưu';
                         }
                     } else {
                         saveBtn.classList.remove('is-saved');
                         saveBtn.setAttribute('aria-label', 'Lưu bài viết');
                         saveBtn.setAttribute('title', 'Lưu bài viết');
-                        if (textSpan) {
-                            textSpan.textContent = 'Lưu bài viết';
+                        if (desktopSpan) {
+                            desktopSpan.textContent = 'Lưu bài viết';
+                        }
+                        if (mobileSpan) {
+                            mobileSpan.textContent = 'Lưu';
                         }
                     }
                 } else if (response.status === 401) {
