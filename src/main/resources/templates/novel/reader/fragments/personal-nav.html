@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<body>
+
+<nav th:fragment="personalNav(activeTab)"
+     class="novel-personal-nav"
+     aria-label="Điều hướng cá nhân Novel">
+    <div class="novel-personal-nav-list">
+        <a th:href="@{/novel/history}"
+           class="novel-personal-nav-item"
+           th:classappend="${activeTab == 'history'} ? ' is-active' : ''"
+           th:attr="aria-current=${activeTab == 'history' ? 'page' : null}">
+            <svg class="novel-personal-nav-icon"
+                 xmlns="http://www.w3.org/2000/svg"
+                 viewBox="0 0 24 24"
+                 width="18"
+                 height="18"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="2"
+                 stroke-linecap="round"
+                 stroke-linejoin="round"
+                 aria-hidden="true">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Lịch sử đọc</span>
+        </a>
+
+        <a th:href="@{/novel/bookmarks}"
+           class="novel-personal-nav-item"
+           th:classappend="${activeTab == 'bookmarks'} ? ' is-active' : ''"
+           th:attr="aria-current=${activeTab == 'bookmarks' ? 'page' : null}">
+            <svg class="novel-personal-nav-icon"
+                 xmlns="http://www.w3.org/2000/svg"
+                 viewBox="0 0 24 24"
+                 width="18"
+                 height="18"
+                 fill="none"
+                 stroke="currentColor"
+                 stroke-width="2"
+                 stroke-linecap="round"
+                 stroke-linejoin="round"
+                 aria-hidden="true">
+                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"></path>
+            </svg>
+            <span>Dấu trang</span>
+        </a>
+    </div>
+</nav>
+
+</body>
+</html>

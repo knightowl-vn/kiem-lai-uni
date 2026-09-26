@@ -41,6 +41,9 @@ class ReaderBookmarkTemplateContractTest {
         assertThat(bookmarksPage).contains("th:replace=\"~{fragments/navbar :: navbar(activeNav='novel')}\"");
         assertThat(bookmarksPage).contains("th:href=\"@{/css/novel/reader.css}\"");
 
+        // 1b. Personal Area Navigation Switcher
+        assertThat(bookmarksPage).contains("th:replace=\"~{novel/reader/fragments/personal-nav :: personalNav(activeTab='bookmarks')}\"");
+
         // 2. Bookmark list iteration
         assertThat(bookmarksPage).contains("th:if=\"${!#lists.isEmpty(bookmarks)}\"");
         assertThat(bookmarksPage).contains("th:each=\"bm : ${bookmarks}\"");
@@ -63,6 +66,27 @@ class ReaderBookmarkTemplateContractTest {
         // 5. Script
         assertThat(bookmarksPage).contains("th:src=\"@{/js/novel/reader-bookmark.js}\"");
         assertThat(bookmarksPage).contains("defer");
+    }
+
+    @Test
+    @DisplayName("Personal Nav fragment (personal-nav.html) định nghĩa switcher giữa Lịch sử đọc và Dấu trang kèm aria-current và giữ nguyên ngữ nghĩa native link")
+    void personalNavFragmentDefinesExpectedContract() throws Exception {
+        String nav = read("src/main/resources/templates/novel/reader/fragments/personal-nav.html");
+
+        assertThat(nav).contains("class=\"novel-personal-nav\"");
+        assertThat(nav).contains("th:href=\"@{/novel/history}\"");
+        assertThat(nav).contains("th:href=\"@{/novel/bookmarks}\"");
+        assertThat(nav).contains("th:classappend=\"${activeTab == 'history'} ? ' is-active' : ''\"");
+        assertThat(nav).contains("th:classappend=\"${activeTab == 'bookmarks'} ? ' is-active' : ''\"");
+        assertThat(nav).contains("th:attr=\"aria-current=${activeTab == 'history' ? 'page' : null}\"");
+        assertThat(nav).contains("th:attr=\"aria-current=${activeTab == 'bookmarks' ? 'page' : null}\"");
+        assertThat(nav).contains("Lịch sử đọc");
+        assertThat(nav).contains("Dấu trang");
+
+        // Native link semantics: no role="list", role="listitem", or role="tab" overrides
+        assertThat(nav).doesNotContain("role=\"list\"");
+        assertThat(nav).doesNotContain("role=\"listitem\"");
+        assertThat(nav).doesNotContain("role=\"tab\"");
     }
 
     @Test

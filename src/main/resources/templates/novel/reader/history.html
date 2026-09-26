@@ -48,6 +48,9 @@
             <span aria-current="page">Lịch sử đọc</span>
         </nav>
 
+        <!-- Personal Navigation Switcher -->
+        <div th:replace="~{novel/reader/fragments/personal-nav :: personalNav(activeTab='history')}"></div>
+
         <!-- Header -->
         <header class="novel-history-header">
             <h1 class="novel-history-title">

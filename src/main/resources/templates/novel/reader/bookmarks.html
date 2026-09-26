@@ -45,6 +45,9 @@
             <span aria-current="page">Dấu trang</span>
         </nav>
 
+        <!-- Personal Navigation Switcher -->
+        <div th:replace="~{novel/reader/fragments/personal-nav :: personalNav(activeTab='bookmarks')}"></div>
+
         <!-- Header -->
         <header class="novel-bookmarks-header">
             <h1 class="novel-bookmarks-title">
