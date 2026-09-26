@@ -2,9 +2,12 @@ package com.universe.wiki.application.contribution;
 
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionSubmissionRateLimitedException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiContributionRepositoryPort;
 import com.universe.wiki.application.ports.WikiContributionSourceRepositoryPort;
+import com.universe.wiki.application.ports.WikiContributionSubmissionThrottleDecision;
+import com.universe.wiki.application.ports.WikiContributionSubmissionThrottlePort;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
@@ -34,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,6 +62,9 @@ class SubmitWikiContributionUseCaseTest {
     private WikiContributionSourceRepositoryPort sourceRepository;
 
     @Mock
+    private WikiContributionSubmissionThrottlePort throttlePort;
+
+    @Mock
     private ClockPort clockPort;
 
     private SubmitWikiContributionUseCase useCase;
@@ -68,8 +75,11 @@ class SubmitWikiContributionUseCaseTest {
                 articleRepository,
                 contributionRepository,
                 sourceRepository,
+                throttlePort,
                 clockPort
         );
+        lenient().when(throttlePort.tryAcquire(any(), any()))
+                .thenReturn(WikiContributionSubmissionThrottleDecision.allow());
     }
 
     private WikiArticle createMockArticle(ArticleStatus status, long contentVersion) {
@@ -101,21 +111,58 @@ class SubmitWikiContributionUseCaseTest {
         @Test
         @DisplayName("Ném NullPointerException khi bất kỳ dependency nào bị null")
         void shouldThrowWhenAnyDependencyIsNull() {
-            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(null, contributionRepository, sourceRepository, clockPort))
+            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(null, contributionRepository, sourceRepository, throttlePort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiArticleRepositoryPort");
 
-            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, null, sourceRepository, clockPort))
+            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, null, sourceRepository, throttlePort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiContributionRepositoryPort");
 
-            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, contributionRepository, null, clockPort))
+            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, contributionRepository, null, throttlePort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("WikiContributionSourceRepositoryPort");
 
-            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, contributionRepository, sourceRepository, null))
+            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, contributionRepository, sourceRepository, null, clockPort))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("WikiContributionSubmissionThrottlePort");
+
+            assertThatThrownBy(() -> new SubmitWikiContributionUseCase(articleRepository, contributionRepository, sourceRepository, throttlePort, null))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("ClockPort");
+        }
+    }
+
+    @Nested
+    @DisplayName("1b. Rate limiting / Anti-abuse throttling")
+    class ThrottleTests {
+
+        @Test
+        @DisplayName("Ném WikiContributionSubmissionRateLimitedException và không tương tác DB khi throttle từ chối")
+        void shouldThrowRateLimitedExceptionAndSkipDatabaseWhenThrottled() {
+            when(clockPort.now()).thenReturn(FIXED_NOW);
+            when(throttlePort.tryAcquire(USER_ID, FIXED_NOW))
+                    .thenReturn(WikiContributionSubmissionThrottleDecision.reject(240L));
+
+            SubmitWikiContributionCommand command = new SubmitWikiContributionCommand(
+                    ARTICLE_ID,
+                    USER_ID,
+                    1L,
+                    "GENERAL",
+                    "INCORRECT_INFORMATION",
+                    "Nội dung đóng góp hợp lệ có độ dài trên hai mươi ký tự.",
+                    null, null, null, null,
+                    Collections.emptyList()
+            );
+
+            assertThatThrownBy(() -> useCase.execute(command))
+                    .isInstanceOf(WikiContributionSubmissionRateLimitedException.class)
+                    .satisfies(ex -> {
+                        WikiContributionSubmissionRateLimitedException rateLimitEx = (WikiContributionSubmissionRateLimitedException) ex;
+                        assertThat(rateLimitEx.getRetryAfterSeconds()).isEqualTo(240L);
+                    });
+
+            verifyNoInteractions(articleRepository, contributionRepository, sourceRepository);
         }
     }
 

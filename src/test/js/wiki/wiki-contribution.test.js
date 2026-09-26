@@ -508,6 +508,32 @@ describe('MS-05H5 Wiki Reader Contribution Frontend Unit Tests', () => {
             assert.strictEqual(classified.type, 'ERROR');
             assert.match(classified.message, /Yêu cầu chuyển hướng không hợp lệ/);
         });
+
+        test('5r. 429 empty / non-JSON returns RATE_LIMITED with default friendly message', () => {
+            const classified = WikiContribution.classifySubmissionResponse({
+                status: 429,
+                contentType: '',
+                body: null
+            });
+
+            assert.strictEqual(classified.type, 'RATE_LIMITED');
+            assert.strictEqual(classified.status, 429);
+            assert.match(classified.message, /Bạn đang gửi đóng góp quá nhanh/);
+        });
+
+        test('5s. 429 with JSON custom message preserves server rate-limit message', () => {
+            const classified = WikiContribution.classifySubmissionResponse({
+                status: 429,
+                contentType: 'application/json',
+                body: {
+                    message: 'Bạn đã đạt giới hạn gửi đóng góp. Vui lòng thử lại sau 300 giây.'
+                }
+            });
+
+            assert.strictEqual(classified.type, 'RATE_LIMITED');
+            assert.strictEqual(classified.status, 429);
+            assert.strictEqual(classified.message, 'Bạn đã đạt giới hạn gửi đóng góp. Vui lòng thử lại sau 300 giây.');
+        });
     });
 
     describe('6. CSRF Meta Tag Extraction', () => {

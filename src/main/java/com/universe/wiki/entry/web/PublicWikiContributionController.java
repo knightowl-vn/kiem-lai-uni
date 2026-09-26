@@ -6,6 +6,7 @@ import com.universe.wiki.application.contribution.SubmitWikiContributionCommand;
 import com.universe.wiki.application.contribution.SubmitWikiContributionResult;
 import com.universe.wiki.application.contribution.SubmitWikiContributionUseCase;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionSubmissionRateLimitedException;
 import com.universe.wiki.entry.web.dto.SubmitWikiContributionRequest;
 import com.universe.wiki.entry.web.dto.SubmitWikiContributionResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -95,6 +96,18 @@ public class PublicWikiContributionController {
         } else {
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         }
+    }
+
+    @ExceptionHandler(WikiContributionSubmissionRateLimitedException.class)
+    public ResponseEntity<SubmitWikiContributionResponse> handleRateLimited(WikiContributionSubmissionRateLimitedException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(org.springframework.http.HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(new SubmitWikiContributionResponse(
+                        null,
+                        null,
+                        false,
+                        "Bạn đang gửi đóng góp quá nhanh. Vui lòng thử lại sau ít phút."
+                ));
     }
 
     @ExceptionHandler(PublishedWikiArticleNotFoundException.class)

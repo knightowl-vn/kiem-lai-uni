@@ -2,9 +2,12 @@ package com.universe.wiki.application.contribution;
 
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionSubmissionRateLimitedException;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiContributionRepositoryPort;
 import com.universe.wiki.application.ports.WikiContributionSourceRepositoryPort;
+import com.universe.wiki.application.ports.WikiContributionSubmissionThrottleDecision;
+import com.universe.wiki.application.ports.WikiContributionSubmissionThrottlePort;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.WikiArticle;
 import com.universe.wiki.domain.contribution.WikiContribution;
@@ -27,14 +30,15 @@ import java.util.stream.Collectors;
  * Use case xử lý tiếp nhận đóng góp bài viết Wiki từ độc giả đã xác thực.
  *
  * Quy tắc thực thi:
- * 1. Xác thực bài viết tồn tại và đang ở trạng thái PUBLISHED;
- * 2. Bảo toàn articleContentVersion do độc giả nhìn thấy (1 <= readerVersion <= currentVersion);
- * 3. Chụp nhanh thông tin bài viết (articleTypeSnapshot, articleTitleSnapshot, articleSlugSnapshot);
- * 4. Kiểm tra cú pháp, ngăn ngừa path traversal và phân loại 0..5 nguồn tham khảo (không gửi request mạng);
- * 5. Ngăn chặn trùng lặp URL quy chuẩn trong cùng một lượt đóng góp;
- * 6. Phòng ngừa đóng góp trùng lặp trong cửa sổ 60s (cùng user, article, contextType, contributionType,
+ * 1. Điều tiết tần suất gửi đóng góp (Node-Local throttle: tối đa 10 lượt / 5 phút per user);
+ * 2. Xác thực bài viết tồn tại và đang ở trạng thái PUBLISHED;
+ * 3. Bảo toàn articleContentVersion do độc giả nhìn thấy (1 <= readerVersion <= currentVersion);
+ * 4. Chụp nhanh thông tin bài viết (articleTypeSnapshot, articleTitleSnapshot, articleSlugSnapshot);
+ * 5. Kiểm tra cú pháp, ngăn ngừa path traversal và phân loại 0..5 nguồn tham khảo (không gửi request mạng);
+ * 6. Ngăn chặn trùng lặp URL quy chuẩn trong cùng một lượt đóng góp;
+ * 7. Phòng ngừa đóng góp trùng lặp trong cửa sổ 60s (cùng user, article, contextType, contributionType,
  *    nội dung chuẩn hóa, văn bản chọn và tập nguồn quy chuẩn không phụ thuộc thứ tự);
- * 7. Lưu trữ nguyên tử (atomic) đóng góp và nguồn tham khảo trong cùng một transaction.
+ * 8. Lưu trữ nguyên tử (atomic) đóng góp và nguồn tham khảo trong cùng một transaction.
  */
 @Service
 public class SubmitWikiContributionUseCase {
@@ -46,17 +50,20 @@ public class SubmitWikiContributionUseCase {
     private final WikiArticleRepositoryPort articleRepository;
     private final WikiContributionRepositoryPort contributionRepository;
     private final WikiContributionSourceRepositoryPort sourceRepository;
+    private final WikiContributionSubmissionThrottlePort throttlePort;
     private final ClockPort clockPort;
 
     public SubmitWikiContributionUseCase(
             WikiArticleRepositoryPort articleRepository,
             WikiContributionRepositoryPort contributionRepository,
             WikiContributionSourceRepositoryPort sourceRepository,
+            WikiContributionSubmissionThrottlePort throttlePort,
             ClockPort clockPort
     ) {
         this.articleRepository = Objects.requireNonNull(articleRepository, "WikiArticleRepositoryPort không được để trống.");
         this.contributionRepository = Objects.requireNonNull(contributionRepository, "WikiContributionRepositoryPort không được để trống.");
         this.sourceRepository = Objects.requireNonNull(sourceRepository, "WikiContributionSourceRepositoryPort không được để trống.");
+        this.throttlePort = Objects.requireNonNull(throttlePort, "WikiContributionSubmissionThrottlePort không được để trống.");
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort không được để trống.");
     }
 
@@ -65,6 +72,14 @@ public class SubmitWikiContributionUseCase {
         Objects.requireNonNull(command, "SubmitWikiContributionCommand không được để trống.");
         UUID articleId = Objects.requireNonNull(command.articleId(), "ID bài viết không được để trống.");
         UUID submittedByUserId = Objects.requireNonNull(command.submittedByUserId(), "ID người dùng không được để trống.");
+
+        Instant now = clockPort.now();
+
+        // 0. Điều tiết tần suất gửi đóng góp (Tối đa 10 lượt / 5 phút per user)
+        WikiContributionSubmissionThrottleDecision throttleDecision = throttlePort.tryAcquire(submittedByUserId, now);
+        if (!throttleDecision.allowed()) {
+            throw new WikiContributionSubmissionRateLimitedException(throttleDecision.retryAfterSeconds());
+        }
 
         if (command.articleContentVersion() == null || command.articleContentVersion() < 1L) {
             throw new IllegalArgumentException("Phiên bản nội dung bài viết phải lớn hơn hoặc bằng 1.");
@@ -125,7 +140,6 @@ public class SubmitWikiContributionUseCase {
             );
         }
 
-        Instant now = clockPort.now();
         UUID contributionId = UUID.randomUUID();
 
         List<WikiContributionSource> sources = new ArrayList<>();

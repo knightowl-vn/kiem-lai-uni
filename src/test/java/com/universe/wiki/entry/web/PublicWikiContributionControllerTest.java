@@ -14,6 +14,7 @@ import com.universe.wiki.application.contribution.SubmitWikiContributionCommand;
 import com.universe.wiki.application.contribution.SubmitWikiContributionResult;
 import com.universe.wiki.application.contribution.SubmitWikiContributionUseCase;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiContributionSubmissionRateLimitedException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithAnonymousUser;
@@ -47,6 +49,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
@@ -375,6 +378,31 @@ class PublicWikiContributionControllerTest {
                                     }
                                     """))
                     .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @WithMockUser
+        @DisplayName("Use case ném WikiContributionSubmissionRateLimitedException -> 429 Too Many Requests kèm Retry-After header và thông điệp thân thiện")
+        void shouldReturn429WhenRateLimited() throws Exception {
+            when(submitWikiContributionUseCase.execute(any()))
+                    .thenThrow(new WikiContributionSubmissionRateLimitedException(275L));
+
+            mockMvc.perform(post("/wiki/articles/" + ARTICLE_ID + "/contributions")
+                            .with(csrf())
+                            .with(attachRequestIdentity(USER_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {
+                                        "articleContentVersion": 1,
+                                        "contextType": "GENERAL",
+                                        "contributionType": "WORDING",
+                                        "message": "Nội dung đóng góp hợp lệ có độ dài trên hai mươi ký tự."
+                                    }
+                                    """))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(header().string(HttpHeaders.RETRY_AFTER, "275"))
+                    .andExpect(jsonPath("$.alreadySubmitted").value(false))
+                    .andExpect(jsonPath("$.message").value("Bạn đang gửi đóng góp quá nhanh. Vui lòng thử lại sau ít phút."));
         }
 
         @Test

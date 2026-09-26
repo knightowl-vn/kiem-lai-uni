@@ -482,7 +482,20 @@
             };
         }
 
-        // H. 5xx: generic server message (JSON not required)
+        // H. 429 Too Many Requests: friendly rate-limiting message
+        if (status === 429) {
+            let msg = 'Bạn đang gửi đóng góp quá nhanh. Vui lòng thử lại sau ít phút.';
+            if (body && typeof body === 'object' && typeof body.message === 'string' && body.message.trim().length > 0) {
+                msg = body.message.trim();
+            }
+            return {
+                type: 'RATE_LIMITED',
+                status: 429,
+                message: msg
+            };
+        }
+
+        // I. 5xx: generic server message (JSON not required)
         if (status >= 500) {
             return {
                 type: 'ERROR',
@@ -1233,8 +1246,13 @@
         statusEl.className = 'wiki-contribution-status';
     }
 
+    let isSubmitting = false;
+
     async function handleFormSubmit(e) {
         e.preventDefault();
+        if (isSubmitting) {
+            return;
+        }
         clearStatus();
 
         const submissionGeneration = currentModalGeneration;
@@ -1343,8 +1361,10 @@
         }
 
         // In-flight UI guard
+        isSubmitting = true;
         if (submitBtn) {
             submitBtn.setAttribute('disabled', '');
+            submitBtn.setAttribute('aria-busy', 'true');
             submitBtn.textContent = 'Đang gửi...';
         }
 
@@ -1398,6 +1418,12 @@
                 return;
             }
 
+            if (classified.type === 'RATE_LIMITED') {
+                showStatus(classified.message, true);
+                resetSubmitBtn(submitBtn);
+                return;
+            }
+
             if (classified.type === 'SUCCESS') {
                 showStatus(classified.thankYouMessage, false);
                 if (form) form.reset();
@@ -1426,8 +1452,10 @@
     }
 
     function resetSubmitBtn(submitBtn) {
+        isSubmitting = false;
         if (submitBtn) {
             submitBtn.removeAttribute('disabled');
+            submitBtn.removeAttribute('aria-busy');
             submitBtn.textContent = 'Gửi góp ý';
         }
     }
