@@ -1400,6 +1400,7 @@
             author: reply.author,
             createdAt: reply.createdAt,
             edited: isReplyEdited,
+            reactionSummary: reply.reactionSummary,
             body: function (bodyEl, d) {
                 if (parentDisplayName) {
                     const mentionSpan = d.createElement('span');
@@ -1501,6 +1502,7 @@
             author: item.author,
             createdAt: item.createdAt,
             edited: isRootEdited,
+            reactionSummary: item.reactionSummary,
             body: item.body || '',
             overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
             primaryActions: rootId ? [

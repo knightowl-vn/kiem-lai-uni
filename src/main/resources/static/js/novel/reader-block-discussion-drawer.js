@@ -1022,6 +1022,7 @@
             author: root.author,
             createdAt: root.createdAt,
             edited: isRootEdited,
+            reactionSummary: root.reactionSummary,
             body: root.body || '',
             overflowActions: overflowDescriptors.length > 0 ? overflowDescriptors : null,
             primaryActions: rootId ? [
@@ -1171,6 +1172,7 @@
             author: reply.author,
             createdAt: reply.createdAt,
             edited: isReplyEdited,
+            reactionSummary: reply.reactionSummary,
             body: function (bodyEl, bodyDoc) {
                 const targetDoc = bodyDoc || d;
                 if (parentDisplayName) {

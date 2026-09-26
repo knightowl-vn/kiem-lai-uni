@@ -31,7 +31,8 @@ public record ChapterDiscussionFeedItemDTO(
         String anchorStatus,
         String blockKey,
         String passageExcerpt,
-        List<CommentReadDTO> replies
+        List<CommentReadDTO> replies,
+        ReactionSummaryResponseDTO reactionSummary
 ) {
     public ChapterDiscussionFeedItemDTO {
         Objects.requireNonNull(rootCommentId, "rootCommentId cannot be null");
@@ -41,5 +42,38 @@ public record ChapterDiscussionFeedItemDTO(
         Objects.requireNonNull(updatedAt, "updatedAt cannot be null");
         Objects.requireNonNull(anchorStatus, "anchorStatus cannot be null");
         replies = replies == null ? List.of() : List.copyOf(replies);
+    }
+
+    public ChapterDiscussionFeedItemDTO(
+            UUID rootCommentId,
+            CommentAuthorDTO author,
+            String body,
+            Instant createdAt,
+            Instant updatedAt,
+            boolean edited,
+            boolean canEdit,
+            boolean canDelete,
+            int replyCount,
+            String anchorStatus,
+            String blockKey,
+            String passageExcerpt,
+            List<CommentReadDTO> replies
+    ) {
+        this(
+                rootCommentId,
+                author,
+                body,
+                createdAt,
+                updatedAt,
+                edited,
+                canEdit,
+                canDelete,
+                replyCount,
+                anchorStatus,
+                blockKey,
+                passageExcerpt,
+                replies,
+                null
+        );
     }
 }

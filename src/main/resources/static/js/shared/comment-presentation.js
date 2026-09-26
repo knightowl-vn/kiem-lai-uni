@@ -503,6 +503,41 @@
     }
 
     /**
+     * Creates a reaction widget host element for an active comment.
+     *
+     * @param {string|UUID} commentId
+     * @param {Object} reactionSummary
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function createReactionHost(commentId, reactionSummary, doc) {
+        const d = doc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !commentId || !reactionSummary || typeof reactionSummary !== 'object') {
+            return null;
+        }
+
+        const host = d.createElement('div');
+        host.className = 'kl-reaction-widget';
+        host.setAttribute('data-reaction-widget', '');
+        host.setAttribute('data-reaction-target-type', 'COMMENT');
+        host.setAttribute('data-reaction-target-id', String(commentId));
+
+        if (reactionSummary.currentUserReaction) {
+            host.setAttribute('data-reaction-current', reactionSummary.currentUserReaction);
+        }
+        if (reactionSummary.totalCount !== undefined && reactionSummary.totalCount !== null) {
+            host.setAttribute('data-reaction-total', String(reactionSummary.totalCount));
+        }
+        const counts = reactionSummary.counts || {};
+        host.setAttribute('data-reaction-count-love', String(counts.LOVE || 0));
+        host.setAttribute('data-reaction-count-fire', String(counts.FIRE || 0));
+        host.setAttribute('data-reaction-count-haha', String(counts.HAHA || 0));
+        host.setAttribute('data-reaction-count-sad', String(counts.SAD || 0));
+
+        return host;
+    }
+
+    /**
      * Renders a full comment card element (root or reply, active or tombstone).
      *
      * @param {Object} descriptor
@@ -703,8 +738,11 @@
 
         commentEl.appendChild(bodyEl);
 
-        // Active comment: Primary Actions (e.g. Reply button)
-        if (Array.isArray(desc.primaryActions) && desc.primaryActions.length > 0) {
+        // Active comment: Primary Actions & Reactions (e.g. Reaction picker, Reply button)
+        const hasPrimaryActions = Array.isArray(desc.primaryActions) && desc.primaryActions.length > 0;
+        const hasReactions = !desc.tombstone && desc.id && desc.reactionSummary != null;
+
+        if (hasPrimaryActions || hasReactions) {
             const actionsEl = d.createElement('div');
             let actionsCls = 'kl-comment__primary-actions';
             if (legacyPrefix) {
@@ -712,32 +750,41 @@
             }
             actionsEl.className = actionsCls;
 
-            for (let a = 0; a < desc.primaryActions.length; a++) {
-                const act = desc.primaryActions[a];
-                if (!act) continue;
-
-                const actBtn = d.createElement('button');
-                actBtn.type = 'button';
-                let actCls = 'kl-comment__primary-action';
-                if (act.className) {
-                    actCls += ' ' + act.className;
+            if (hasReactions) {
+                const reactionHost = createReactionHost(desc.id, desc.reactionSummary, d);
+                if (reactionHost) {
+                    actionsEl.appendChild(reactionHost);
                 }
-                actBtn.className = actCls;
+            }
 
-                if (act.attributes && typeof act.attributes === 'object') {
-                    for (const [ak, av] of Object.entries(act.attributes)) {
-                        if (av !== undefined && av !== null) {
-                            actBtn.setAttribute(ak, String(av));
+            if (hasPrimaryActions) {
+                for (let a = 0; a < desc.primaryActions.length; a++) {
+                    const act = desc.primaryActions[a];
+                    if (!act) continue;
+
+                    const actBtn = d.createElement('button');
+                    actBtn.type = 'button';
+                    let actCls = 'kl-comment__primary-action';
+                    if (act.className) {
+                        actCls += ' ' + act.className;
+                    }
+                    actBtn.className = actCls;
+
+                    if (act.attributes && typeof act.attributes === 'object') {
+                        for (const [ak, av] of Object.entries(act.attributes)) {
+                            if (av !== undefined && av !== null) {
+                                actBtn.setAttribute(ak, String(av));
+                            }
                         }
                     }
-                }
 
-                if (act.disabled) {
-                    actBtn.disabled = true;
-                }
-                actBtn.textContent = act.label || '';
+                    if (act.disabled) {
+                        actBtn.disabled = true;
+                    }
+                    actBtn.textContent = act.label || '';
 
-                actionsEl.appendChild(actBtn);
+                    actionsEl.appendChild(actBtn);
+                }
             }
 
             commentEl.appendChild(actionsEl);
@@ -752,6 +799,7 @@
         renderAvatar: renderAvatar,
         formatTimestamp: formatTimestamp,
         isCommentEdited: isCommentEdited,
+        createReactionHost: createReactionHost,
         renderActionsMenu: renderActionsMenu,
         createActionsMenu: renderActionsMenu, // backward compatibility alias
         renderComment: renderComment,

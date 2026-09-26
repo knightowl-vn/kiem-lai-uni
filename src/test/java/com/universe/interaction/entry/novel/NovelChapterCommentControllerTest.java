@@ -35,13 +35,17 @@ import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.CountVisibleActiveRepliesByRootIdsUseCase;
 import com.universe.interaction.application.query.FindVisibleRootCommentIdsUseCase;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentRevision;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.novel.application.anchor.ChapterAnchorResolutionBulkView;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsForChapterUseCase;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
@@ -77,8 +81,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.universe.interaction.domain.reaction.ReactionTarget;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -189,6 +195,9 @@ class NovelChapterCommentControllerTest {
 
     @MockBean
     private SubmitCommentReportUseCase submitCommentReportUseCase;
+
+    @MockBean
+    private GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -343,6 +352,82 @@ class NovelChapterCommentControllerTest {
                 .andExpect(status().isNotFound());
 
         verify(getCommentThreadUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Should include reaction summaries in listRootComments when available and degrade gracefully on error")
+    void shouldIncludeReactionSummariesInListRootComments() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Root comment body", NOW);
+        CommentReadItem item = CommentReadItem.fromRoot(root);
+        CommentReadSlice slice = new CommentReadSlice(List.of(item), 0, 20, false);
+
+        when(listCommentRootsUseCase.execute(target, 0, 20)).thenReturn(slice);
+
+        ReactionSummary summary = ReactionSummary.of(
+                ReactionTarget.comment(ROOT_COMMENT_ID),
+                Map.of(ReactionType.LOVE, 8L, ReactionType.FIRE, 2L),
+                null
+        );
+        when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_COMMENT_ID), null))
+                .thenReturn(Map.of(ROOT_COMMENT_ID, summary));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].reactionSummary.totalCount").value(10))
+                .andExpect(jsonPath("$.items[0].reactionSummary.counts.LOVE").value(8))
+                .andExpect(jsonPath("$.items[0].reactionSummary.counts.FIRE").value(2));
+
+        // When batch reaction lookup fails, endpoint still returns 200 with null reactionSummary
+        when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
+                .thenThrow(new RuntimeException("Reaction service failure"));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].reactionSummary").doesNotExist());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Should include reaction summaries on thread root and replies when available")
+    void shouldIncludeReactionSummariesInCommentThread() throws Exception {
+        when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_A_ID))
+                .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_A_ID, 1)));
+
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).executeRoot(ROOT_COMMENT_ID, target);
+
+        Comment root = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Root body", NOW);
+        Comment reply = Comment.createReply(REPLY_COMMENT_ID, root, USER_2_ID, "Reply body", NOW.plusSeconds(60));
+
+        CommentReadItem rootItem = CommentReadItem.fromRoot(root);
+        CommentReadItem replyItem = CommentReadItem.fromActiveReply(reply, USER_1_ID);
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(replyItem));
+
+        when(getCommentThreadUseCase.execute(ROOT_COMMENT_ID)).thenReturn(threadView);
+
+        ReactionSummary rootSummary = ReactionSummary.of(
+                ReactionTarget.comment(ROOT_COMMENT_ID),
+                Map.of(ReactionType.LOVE, 4L),
+                null
+        );
+        ReactionSummary replySummary = ReactionSummary.of(
+                ReactionTarget.comment(REPLY_COMMENT_ID),
+                Map.of(ReactionType.HAHA, 1L),
+                null
+        );
+
+        when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_COMMENT_ID, REPLY_COMMENT_ID), null))
+                .thenReturn(Map.of(ROOT_COMMENT_ID, rootSummary, REPLY_COMMENT_ID, replySummary));
+
+        mockMvc.perform(get("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID + "/thread"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.root.reactionSummary.totalCount").value(4))
+                .andExpect(jsonPath("$.replies[0].reactionSummary.totalCount").value(1));
     }
 
     @Test

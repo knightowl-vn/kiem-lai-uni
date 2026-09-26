@@ -35,7 +35,8 @@ public record CommentReadDTO(
         Instant updatedAt,
         CommentAuthorDTO author,
         boolean canEdit,
-        boolean canDelete
+        boolean canDelete,
+        ReactionSummaryResponseDTO reactionSummary
 ) {
 
     public CommentReadDTO {
@@ -49,7 +50,24 @@ public record CommentReadDTO(
             author = null;
             canEdit = false;
             canDelete = false;
+            reactionSummary = null;
         }
+    }
+
+    public CommentReadDTO(
+            UUID id,
+            UUID authorUserId,
+            UUID parentCommentId,
+            UUID replyToAuthorUserId,
+            String body,
+            boolean tombstone,
+            Instant createdAt,
+            Instant updatedAt,
+            CommentAuthorDTO author,
+            boolean canEdit,
+            boolean canDelete
+    ) {
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, canEdit, canDelete, null);
     }
 
     public CommentReadDTO(
@@ -64,7 +82,7 @@ public record CommentReadDTO(
             CommentAuthorDTO author,
             boolean canEdit
     ) {
-        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, canEdit, canEdit);
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, canEdit, canEdit, null);
     }
 
     public CommentReadDTO(
@@ -78,7 +96,7 @@ public record CommentReadDTO(
             Instant updatedAt,
             CommentAuthorDTO author
     ) {
-        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, false, false);
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, author, false, false, null);
     }
 
     public CommentReadDTO(
@@ -91,7 +109,7 @@ public record CommentReadDTO(
             Instant createdAt,
             Instant updatedAt
     ) {
-        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, null, false, false);
+        this(id, authorUserId, parentCommentId, replyToAuthorUserId, body, tombstone, createdAt, updatedAt, null, false, false, null);
     }
 
     private static boolean isOwner(CommentReadItem item, UUID viewerUserId) {
@@ -107,18 +125,26 @@ public record CommentReadDTO(
     }
 
     public static CommentReadDTO from(CommentReadItem item) {
-        return from(item, (CommentAuthorDTO) null, (UUID) null);
+        return from(item, (CommentAuthorDTO) null, (UUID) null, null);
     }
 
     public static CommentReadDTO from(CommentReadItem item, UUID viewerUserId) {
-        return from(item, (CommentAuthorDTO) null, viewerUserId);
+        return from(item, (CommentAuthorDTO) null, viewerUserId, null);
+    }
+
+    public static CommentReadDTO from(CommentReadItem item, UUID viewerUserId, ReactionSummaryResponseDTO reactionSummary) {
+        return from(item, (CommentAuthorDTO) null, viewerUserId, reactionSummary);
     }
 
     public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author) {
-        return from(item, author, (UUID) null);
+        return from(item, author, (UUID) null, null);
     }
 
     public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author, UUID viewerUserId) {
+        return from(item, author, viewerUserId, null);
+    }
+
+    public static CommentReadDTO from(CommentReadItem item, CommentAuthorDTO author, UUID viewerUserId, ReactionSummaryResponseDTO reactionSummary) {
         Objects.requireNonNull(item, "CommentReadItem cannot be null.");
         if (item.tombstone()) {
             return new CommentReadDTO(
@@ -132,7 +158,8 @@ public record CommentReadDTO(
                     item.updatedAt(),
                     null,
                     false,
-                    false
+                    false,
+                    null
             );
         }
         boolean eligible = isOwner(item, viewerUserId);
@@ -147,7 +174,8 @@ public record CommentReadDTO(
                 item.updatedAt(),
                 author,
                 eligible,
-                eligible
+                eligible,
+                reactionSummary
         );
     }
 
@@ -163,7 +191,8 @@ public record CommentReadDTO(
                 this.updatedAt,
                 author,
                 this.canEdit,
-                this.canDelete
+                this.canDelete,
+                this.reactionSummary
         );
     }
 
@@ -179,7 +208,8 @@ public record CommentReadDTO(
                 this.updatedAt,
                 this.author,
                 canEdit,
-                this.canDelete
+                this.canDelete,
+                this.reactionSummary
         );
     }
 
@@ -195,7 +225,25 @@ public record CommentReadDTO(
                 this.updatedAt,
                 this.author,
                 this.canEdit,
-                canDelete
+                canDelete,
+                this.reactionSummary
+        );
+    }
+
+    public CommentReadDTO withReactionSummary(ReactionSummaryResponseDTO reactionSummary) {
+        return new CommentReadDTO(
+                this.id,
+                this.authorUserId,
+                this.parentCommentId,
+                this.replyToAuthorUserId,
+                this.body,
+                this.tombstone,
+                this.createdAt,
+                this.updatedAt,
+                this.author,
+                this.canEdit,
+                this.canDelete,
+                reactionSummary
         );
     }
 }

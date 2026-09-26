@@ -23,10 +23,27 @@ public record CommentThreadResponseDTO(
     }
 
     public static CommentThreadResponseDTO from(CommentThreadView view, UUID viewerUserId) {
+        return from(view, viewerUserId, null);
+    }
+
+    public static CommentThreadResponseDTO from(
+            CommentThreadView view,
+            UUID viewerUserId,
+            java.util.Map<UUID, ReactionSummaryResponseDTO> reactionSummaries
+    ) {
         Objects.requireNonNull(view, "CommentThreadView cannot be null.");
-        return new CommentThreadResponseDTO(
-                CommentReadDTO.from(view.root(), viewerUserId),
-                view.replies().stream().map(reply -> CommentReadDTO.from(reply, viewerUserId)).toList()
-        );
+        ReactionSummaryResponseDTO rootSummary = (reactionSummaries != null && view.root() != null)
+                ? reactionSummaries.get(view.root().id())
+                : null;
+        CommentReadDTO rootDTO = CommentReadDTO.from(view.root(), viewerUserId, rootSummary);
+        List<CommentReadDTO> replyDTOs = view.replies().stream()
+                .map(reply -> {
+                    ReactionSummaryResponseDTO replySummary = (reactionSummaries != null && reply != null)
+                            ? reactionSummaries.get(reply.id())
+                            : null;
+                    return CommentReadDTO.from(reply, viewerUserId, replySummary);
+                })
+                .toList();
+        return new CommentThreadResponseDTO(rootDTO, replyDTOs);
     }
 }

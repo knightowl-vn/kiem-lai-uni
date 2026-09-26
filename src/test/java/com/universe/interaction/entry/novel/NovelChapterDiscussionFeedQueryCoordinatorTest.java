@@ -11,6 +11,10 @@ import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsByRootIdsUseCase;
 import com.universe.novel.application.anchor.ResolvedChapterCommentAnchorView;
 import com.universe.novel.domain.anchor.ChapterCommentAnchorResolutionStatus;
@@ -51,6 +55,9 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
     @Mock
     private UserIdentityContract userIdentityContract;
 
+    @Mock
+    private GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
+
     private NovelChapterDiscussionFeedQueryCoordinator coordinator;
 
     private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -74,7 +81,8 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
                 listCommentRootsUseCase,
                 getCommentThreadsByRootIdsUseCase,
                 resolveChapterCommentAnchorsByRootIdsUseCase,
-                userIdentityContract
+                userIdentityContract,
+                getBatchReactionSummariesUseCase
         );
     }
 
@@ -404,5 +412,68 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         String truncated = NovelChapterDiscussionFeedQueryCoordinator.truncatePassage(longText);
         assertThat(truncated).endsWith("...");
         assertThat(truncated.length()).isLessThanOrEqualTo(140);
+    }
+
+    @Test
+    @DisplayName("Should query batch reaction summaries for active roots and active replies in single call and degrade gracefully on failure")
+    void shouldEnrichReactionsInSingleBatchQueryAndDegradeGracefullyOnFailure() {
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_ID);
+
+        CommentReadItem root1 = new CommentReadItem(ROOT_1_ID, AUTHOR_1_ID, null, null, "Root 1", false, T1, T1);
+        CommentReadItem reply1Active = new CommentReadItem(REPLY_1_ID, AUTHOR_2_ID, ROOT_1_ID, AUTHOR_1_ID, "Reply 1", false, T2, T2);
+        CommentReadItem reply2Tombstone = new CommentReadItem(REPLY_2_ID, AUTHOR_1_ID, ROOT_1_ID, null, null, true, T3, T3);
+        CommentThreadView thread1 = new CommentThreadView(root1, List.of(reply1Active, reply2Tombstone));
+
+        when(listCommentRootsUseCase.execute(target, 0, 20))
+                .thenReturn(new CommentReadSlice(List.of(root1), 0, 20, false));
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                .thenReturn(List.of(thread1));
+        when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of());
+        when(resolveChapterCommentAnchorsByRootIdsUseCase.execute(CHAPTER_ID, List.of(ROOT_1_ID)))
+                .thenReturn(List.of());
+
+        // Reaction summaries for active comments only: ROOT_1_ID and REPLY_1_ID (REPLY_2_ID is a tombstone)
+        ReactionSummary rootSummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(ROOT_1_ID),
+                Map.of(ReactionType.LOVE, 5L),
+                ReactionType.LOVE
+        );
+        ReactionSummary replySummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(REPLY_1_ID),
+                Map.of(ReactionType.FIRE, 2L),
+                null
+        );
+
+        when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID, REPLY_1_ID), AUTHOR_1_ID))
+                .thenReturn(Map.of(ROOT_1_ID, rootSummary, REPLY_1_ID, replySummary));
+
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID);
+
+        assertThat(feed.items()).hasSize(1);
+        ChapterDiscussionFeedItemDTO item = feed.items().get(0);
+        assertThat(item.reactionSummary()).isNotNull();
+        assertThat(item.reactionSummary().currentUserReaction()).isEqualTo("LOVE");
+        assertThat(item.reactionSummary().totalCount()).isEqualTo(5);
+
+        // Active reply has reaction summary
+        CommentReadDTO rep1 = item.replies().get(0);
+        assertThat(rep1.reactionSummary()).isNotNull();
+        assertThat(rep1.reactionSummary().totalCount()).isEqualTo(2);
+
+        // Tombstone reply has null reaction summary
+        CommentReadDTO rep2 = item.replies().get(1);
+        assertThat(rep2.reactionSummary()).isNull();
+
+        // Verify EXACT single batch call for reactions
+        verify(getBatchReactionSummariesUseCase).execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID, REPLY_1_ID), AUTHOR_1_ID);
+
+        // Graceful degradation test: batch reaction lookup throws RuntimeException
+        when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
+                .thenThrow(new RuntimeException("Database timeout on reaction aggregation"));
+
+        ChapterDiscussionFeedResponseDTO degradedFeed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID);
+        assertThat(degradedFeed.items()).hasSize(1);
+        assertThat(degradedFeed.items().get(0).reactionSummary()).isNull();
+        assertThat(degradedFeed.items().get(0).replies().get(0).reactionSummary()).isNull();
     }
 }

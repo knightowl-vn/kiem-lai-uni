@@ -11,6 +11,10 @@ import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.novel.application.anchor.ChapterBlockDiscussionAnchorView;
 import com.universe.novel.application.anchor.GetChapterBlockDiscussionAnchorsUseCase;
 import com.universe.novel.application.exceptions.ReaderBlockNotFoundException;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.reaction.ReactionType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,6 +49,9 @@ class NovelBlockDiscussionQueryCoordinatorTest {
     @Mock
     private UserIdentityContract userIdentityContract;
 
+    @Mock
+    private GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
+
     private NovelBlockDiscussionQueryCoordinator coordinator;
 
     private static final UUID CHAPTER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -57,7 +64,8 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         coordinator = new NovelBlockDiscussionQueryCoordinator(
                 getChapterBlockDiscussionAnchorsUseCase,
                 getCommentThreadsByRootIdsUseCase,
-                userIdentityContract
+                userIdentityContract,
+                getBatchReactionSummariesUseCase
         );
     }
 
@@ -464,5 +472,67 @@ class NovelBlockDiscussionQueryCoordinatorTest {
         assertThat(cDto.authorUserId()).isEqualTo(userC);
 
         verify(userIdentityContract).findPublicProfilesByIds(Set.of(userRoot, userC));
+    }
+
+    @Test
+    @DisplayName("Should query batch reaction summaries for active block roots and replies in single call and degrade gracefully")
+    void shouldEnrichReactionsInSingleBatchQueryForBlockDiscussionAndDegradeGracefully() {
+        UUID rootId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID replyId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID tombstoneReplyId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID authorId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID viewerId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+
+        ChapterBlockDiscussionAnchorView anchorView = new ChapterBlockDiscussionAnchorView(
+                CHAPTER_ID, CONTENT_VERSION, BLOCK_KEY, CANONICAL_TEXT, List.of(rootId)
+        );
+
+        CommentReadItem rootItem = new CommentReadItem(rootId, authorId, null, null, "Root body", false, Instant.now(), Instant.now());
+        CommentReadItem replyItem = new CommentReadItem(replyId, authorId, rootId, authorId, "Reply body", false, Instant.now(), Instant.now());
+        CommentReadItem tombstoneItem = new CommentReadItem(tombstoneReplyId, authorId, rootId, null, null, true, Instant.now(), Instant.now());
+
+        CommentThreadView threadView = new CommentThreadView(rootItem, List.of(replyItem, tombstoneItem));
+
+        when(getChapterBlockDiscussionAnchorsUseCase.execute(CHAPTER_ID, BLOCK_KEY)).thenReturn(anchorView);
+        when(getCommentThreadsByRootIdsUseCase.execute(CommentTarget.novelChapter(CHAPTER_ID), List.of(rootId)))
+                .thenReturn(List.of(threadView));
+        when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of());
+
+        ReactionSummary rootSummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(rootId),
+                Map.of(ReactionType.FIRE, 3L),
+                ReactionType.FIRE
+        );
+        ReactionSummary replySummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(replyId),
+                Map.of(ReactionType.HAHA, 1L),
+                null
+        );
+
+        when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(rootId, replyId), viewerId))
+                .thenReturn(Map.of(rootId, rootSummary, replyId, replySummary));
+
+        ChapterBlockDiscussionResponseDTO response = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, viewerId);
+
+        assertThat(response.threads()).hasSize(1);
+        var thread = response.threads().get(0);
+        assertThat(thread.root().reactionSummary()).isNotNull();
+        assertThat(thread.root().reactionSummary().currentUserReaction()).isEqualTo("FIRE");
+        assertThat(thread.root().reactionSummary().totalCount()).isEqualTo(3);
+
+        assertThat(thread.replies().get(0).reactionSummary()).isNotNull();
+        assertThat(thread.replies().get(0).reactionSummary().totalCount()).isEqualTo(1);
+        assertThat(thread.replies().get(1).reactionSummary()).isNull(); // Tombstone
+
+        verify(getBatchReactionSummariesUseCase).execute(ReactionTargetType.COMMENT, List.of(rootId, replyId), viewerId);
+
+        // Graceful degradation test
+        when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
+                .thenThrow(new RuntimeException("Reaction service unavailable"));
+
+        ChapterBlockDiscussionResponseDTO degraded = coordinator.getBlockDiscussion(CHAPTER_ID, BLOCK_KEY, viewerId);
+        assertThat(degraded.threads()).hasSize(1);
+        assertThat(degraded.threads().get(0).root().reactionSummary()).isNull();
+        assertThat(degraded.threads().get(0).replies().get(0).reactionSummary()).isNull();
     }
 }

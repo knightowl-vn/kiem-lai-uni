@@ -995,4 +995,183 @@ describe('CommentPresentation Module', () => {
         assert.strictEqual(time.getAttribute('title'), exactTime);
         assert.strictEqual(time.getAttribute('aria-label'), '3 giờ trước, thời gian chính xác ' + exactTime);
     });
+
+    test('X. renderComment: renders reaction widget host inside primary actions when reactionSummary is provided', () => {
+        const commentEl = CommentPresentation.renderComment({
+            id: 'comment-123',
+            createdAt: new Date().toISOString(),
+            body: 'Great chapter!',
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'comment-123',
+                currentUserReaction: 'LOVE',
+                totalCount: 7,
+                counts: { LOVE: 5, FIRE: 2, HAHA: 0, SAD: 0 }
+            },
+            primaryActions: [
+                {
+                    key: 'reply',
+                    label: 'Phản hồi',
+                    attributes: { 'data-action': 'reply', 'data-comment-id': 'comment-123' }
+                }
+            ]
+        }, doc);
+
+        const actionsEl = commentEl.querySelector('.kl-comment__primary-actions');
+        assert.ok(actionsEl);
+
+        const widgetEl = actionsEl.querySelector('.kl-reaction-widget');
+        assert.ok(widgetEl);
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-widget'), '');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-type'), 'COMMENT');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-id'), 'comment-123');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-current'), 'LOVE');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '7');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-love'), '5');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-fire'), '2');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-haha'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-sad'), '0');
+
+        // Verify reply button comes after reaction widget in primary actions
+        const replyBtn = actionsEl.querySelector('.kl-comment__primary-action');
+        assert.ok(replyBtn);
+        assert.strictEqual(replyBtn.getAttribute('data-comment-id'), 'comment-123');
+    });
+
+    test('X2. createReactionHost: currentUserReaction "FIRE" sets attribute, while null omits it', () => {
+        const hostFire = CommentPresentation.createReactionHost('comment-fire-1', {
+            targetType: 'COMMENT',
+            targetId: 'comment-fire-1',
+            currentUserReaction: 'FIRE',
+            totalCount: 3,
+            counts: { LOVE: 0, FIRE: 3, HAHA: 0, SAD: 0 }
+        }, doc);
+        assert.ok(hostFire);
+        assert.strictEqual(hostFire.getAttribute('data-reaction-current'), 'FIRE');
+        assert.strictEqual(hostFire.getAttribute('data-reaction-total'), '3');
+        assert.strictEqual(hostFire.getAttribute('data-reaction-count-fire'), '3');
+
+        const hostNull = CommentPresentation.createReactionHost('comment-unreacted-2', {
+            targetType: 'COMMENT',
+            targetId: 'comment-unreacted-2',
+            currentUserReaction: null,
+            totalCount: 1,
+            counts: { LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
+        }, doc);
+        assert.ok(hostNull);
+        assert.strictEqual(hostNull.hasAttribute('data-reaction-current'), false);
+        assert.strictEqual(hostNull.getAttribute('data-reaction-total'), '1');
+    });
+
+    test('X3. renderComment: authenticated reply with LOVE uses reply UUID and renders targetType=COMMENT and data-reaction-current=LOVE', () => {
+        const replyEl = CommentPresentation.renderComment({
+            id: 'reply-uuid-999',
+            tag: 'article',
+            className: 'novel-comment--reply',
+            createdAt: new Date().toISOString(),
+            body: 'I agree with this!',
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'reply-uuid-999',
+                currentUserReaction: 'LOVE',
+                totalCount: 1,
+                counts: { LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
+            }
+        }, doc);
+
+        const widgetEl = replyEl.querySelector('.kl-reaction-widget');
+        assert.ok(widgetEl);
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-type'), 'COMMENT');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-id'), 'reply-uuid-999');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-current'), 'LOVE');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '1');
+    });
+
+    test('X4. renderComment: same COMMENT rendered in main and drawer from same summary produces matching target attributes', () => {
+        const summary = {
+            targetType: 'COMMENT',
+            targetId: 'comment-shared-777',
+            currentUserReaction: 'HAHA',
+            totalCount: 4,
+            counts: { LOVE: 1, FIRE: 0, HAHA: 3, SAD: 0 }
+        };
+
+        const mainEl = CommentPresentation.renderComment({
+            id: 'comment-shared-777',
+            createdAt: new Date().toISOString(),
+            body: 'Shared comment in main feed',
+            reactionSummary: summary
+        }, doc);
+
+        const drawerEl = CommentPresentation.renderComment({
+            id: 'comment-shared-777',
+            createdAt: new Date().toISOString(),
+            body: 'Shared comment in drawer',
+            reactionSummary: summary
+        }, doc);
+
+        const mainWidget = mainEl.querySelector('.kl-reaction-widget');
+        const drawerWidget = drawerEl.querySelector('.kl-reaction-widget');
+
+        assert.ok(mainWidget);
+        assert.ok(drawerWidget);
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-target-type'), drawerWidget.getAttribute('data-reaction-target-type'));
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-target-id'), drawerWidget.getAttribute('data-reaction-target-id'));
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-current'), drawerWidget.getAttribute('data-reaction-current'));
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-total'), drawerWidget.getAttribute('data-reaction-total'));
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-target-id'), 'comment-shared-777');
+        assert.strictEqual(mainWidget.getAttribute('data-reaction-current'), 'HAHA');
+    });
+
+    test('X5. renderComment: authoritative zero summary renders valid zero-state widget', () => {
+        const commentEl = CommentPresentation.renderComment({
+            id: 'comment-zero-000',
+            createdAt: new Date().toISOString(),
+            body: 'Brand new comment',
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'comment-zero-000',
+                currentUserReaction: null,
+                totalCount: 0,
+                counts: { LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 }
+            }
+        }, doc);
+
+        const widgetEl = commentEl.querySelector('.kl-reaction-widget');
+        assert.ok(widgetEl);
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-type'), 'COMMENT');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-target-id'), 'comment-zero-000');
+        assert.strictEqual(widgetEl.hasAttribute('data-reaction-current'), false);
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-love'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-fire'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-haha'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-sad'), '0');
+    });
+
+    test('Y. renderComment: does NOT render reaction widget host when comment is a tombstone', () => {
+        const commentEl = CommentPresentation.renderComment({
+            id: 'tombstone-456',
+            tombstone: true,
+            createdAt: new Date().toISOString(),
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'tombstone-456',
+                currentUserReaction: null,
+                totalCount: 0,
+                counts: { LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 }
+            }
+        }, doc);
+
+        const actionsEl = commentEl.querySelector('.kl-comment__primary-actions');
+        assert.strictEqual(actionsEl, null);
+        const widgetEl = commentEl.querySelector('.kl-reaction-widget');
+        assert.strictEqual(widgetEl, null);
+    });
+
+    test('Z. createReactionHost: produces null when input is invalid or missing', () => {
+        assert.strictEqual(CommentPresentation.createReactionHost(null, { totalCount: 1 }, doc), null);
+        assert.strictEqual(CommentPresentation.createReactionHost('id-1', null, doc), null);
+        assert.strictEqual(CommentPresentation.createReactionHost('id-1', 'not-an-object', doc), null);
+    });
 });

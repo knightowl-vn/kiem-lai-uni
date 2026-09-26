@@ -5,15 +5,21 @@ import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.novel.application.anchor.ResolveChapterCommentAnchorsByRootIdsUseCase;
 import com.universe.novel.application.anchor.ResolvedChapterCommentAnchorView;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -33,13 +39,15 @@ import java.util.stream.Collectors;
  *   <li>Interaction application has ZERO Novel imports;</li>
  *   <li>Novel application has ZERO Interaction imports;</li>
  *   <li>Entry-layer composition uses only scalar cross-context references (UUIDs);</li>
- *   <li>One root Slice query + one batch visible thread query + one batch anchor resolution + one Identity profile query;</li>
+ *   <li>One root Slice query + one batch visible thread query + one batch anchor resolution + one Identity profile query + one batch reaction summary query;</li>
  *   <li>Zero per-root N+1 access loops;</li>
  *   <li>Read-only operation without write transactional overhead.</li>
  * </ul>
  */
 @Service
 public class NovelChapterDiscussionFeedQueryCoordinator {
+
+    private static final Logger log = LoggerFactory.getLogger(NovelChapterDiscussionFeedQueryCoordinator.class);
 
     static final int MAX_PASSAGE_LENGTH = 140;
     static final int MAX_TRUNCATED_CONTENT_LENGTH = 137;
@@ -48,12 +56,14 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
     private final GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase;
     private final ResolveChapterCommentAnchorsByRootIdsUseCase resolveChapterCommentAnchorsByRootIdsUseCase;
     private final UserIdentityContract userIdentityContract;
+    private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
 
     public NovelChapterDiscussionFeedQueryCoordinator(
             ListCommentRootsUseCase listCommentRootsUseCase,
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             ResolveChapterCommentAnchorsByRootIdsUseCase resolveChapterCommentAnchorsByRootIdsUseCase,
-            UserIdentityContract userIdentityContract
+            UserIdentityContract userIdentityContract,
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
     ) {
         this.listCommentRootsUseCase = Objects.requireNonNull(
                 listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null"
@@ -66,6 +76,9 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
         );
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract, "UserIdentityContract cannot be null"
+        );
+        this.getBatchReactionSummariesUseCase = Objects.requireNonNull(
+                getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null"
         );
     }
 
@@ -142,15 +155,25 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
 
         // 4. Identity contract: batch lookup public profiles for unique authors (roots + active replies)
         Set<UUID> authorUserIds = new HashSet<>();
+        List<UUID> activeCommentIds = new ArrayList<>();
+
         for (UUID rootId : survivingRootIds) {
             CommentThreadView threadView = threadViewsByRootId.get(rootId);
-            if (threadView.root() != null && threadView.root().authorUserId() != null) {
-                authorUserIds.add(threadView.root().authorUserId());
+            if (threadView.root() != null) {
+                if (!threadView.root().tombstone()) {
+                    activeCommentIds.add(threadView.root().id());
+                }
+                if (threadView.root().authorUserId() != null) {
+                    authorUserIds.add(threadView.root().authorUserId());
+                }
             }
             if (threadView.replies() != null) {
                 for (CommentReadItem reply : threadView.replies()) {
-                    if (reply != null && !reply.tombstone() && reply.authorUserId() != null) {
-                        authorUserIds.add(reply.authorUserId());
+                    if (reply != null && !reply.tombstone()) {
+                        activeCommentIds.add(reply.id());
+                        if (reply.authorUserId() != null) {
+                            authorUserIds.add(reply.authorUserId());
+                        }
                     }
                 }
             }
@@ -160,7 +183,30 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
 
-        // 5. Novel application: batch lookup and resolve anchors ONLY for surviving roots on this page
+        // 5. Interaction query: batch lookup reaction summaries for all active comments (surviving roots + active replies)
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
+        if (!activeCommentIds.isEmpty()) {
+            try {
+                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
+                        ReactionTargetType.COMMENT,
+                        activeCommentIds,
+                        viewerUserId
+                );
+                if (summaries != null && !summaries.isEmpty()) {
+                    reactionSummariesByCommentId = summaries.entrySet().stream()
+                            .filter(e -> e.getValue() != null)
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
+                            ));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to load reaction summaries for chapter discussion feed: chapterId={}", chapterId, ex);
+                reactionSummariesByCommentId = Map.of();
+            }
+        }
+
+        // 6. Novel application: batch lookup and resolve anchors ONLY for surviving roots on this page
         List<ResolvedChapterCommentAnchorView> resolvedAnchors =
                 resolveChapterCommentAnchorsByRootIdsUseCase.execute(chapterId, survivingRootIds);
 
@@ -171,7 +217,7 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                         (existing, replacement) -> existing
                 ));
 
-        // 6. Assemble feed items preserving original slice ordering
+        // 7. Assemble feed items preserving original slice ordering
         List<ChapterDiscussionFeedItemDTO> items = new ArrayList<>(survivingRootIds.size());
         for (UUID rootId : survivingRootIds) {
             CommentThreadView threadView = threadViewsByRootId.get(rootId);
@@ -185,8 +231,10 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                     ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
                     : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
+            ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
+
             // Canonical root CommentReadDTO for capability and data resolution
-            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId);
+            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary);
 
             // Nested replies mapping
             List<CommentReadDTO> replyDTOs = new ArrayList<>();
@@ -197,7 +245,7 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                         continue;
                     }
                     if (replyItem.tombstone()) {
-                        // Tombstone reply: privacy-safe, author null, canEdit=false, canDelete=false
+                        // Tombstone reply: privacy-safe, author null, canEdit=false, canDelete=false, reactionSummary=null
                         replyDTOs.add(CommentReadDTO.from(replyItem, viewerUserId));
                     } else {
                         activeReplyCount++;
@@ -207,7 +255,8 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                         CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
                                 ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
                                 : CommentAuthorDTO.fallback(replyItem.authorUserId());
-                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId));
+                        ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
+                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
                     }
                 }
             }
@@ -242,7 +291,8 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
                     anchorStatus,
                     blockKey,
                     passageExcerpt,
-                    replyDTOs
+                    replyDTOs,
+                    rootReactionSummary
             ));
         }
 

@@ -15,8 +15,12 @@ import com.universe.interaction.application.mutation.EditCommentUseCase;
 import com.universe.interaction.application.mutation.ReplyCommentCommand;
 import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
+import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.application.exceptions.CommentNotReportableException;
 import com.universe.interaction.application.exceptions.DuplicatePendingReportException;
 import com.universe.interaction.application.exceptions.SelfReportNotAllowedException;
@@ -35,6 +39,7 @@ import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.dto.CommentReportResponseDTO;
 import com.universe.interaction.entry.dto.CommentRevisionReadDTO;
 import com.universe.interaction.entry.dto.CommentRevisionSliceResponseDTO;
@@ -78,6 +83,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * REST API controller exposing Interaction comment operations for Novel Reader chapters.
@@ -114,6 +120,7 @@ public class NovelChapterCommentController {
     private final NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator;
     private final GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase;
     private final SubmitCommentReportUseCase submitCommentReportUseCase;
+    private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
 
     public NovelChapterCommentController(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
@@ -131,7 +138,8 @@ public class NovelChapterCommentController {
             NovelBlockDiscussionQueryCoordinator novelBlockDiscussionQueryCoordinator,
             NovelChapterDiscussionFeedQueryCoordinator novelChapterDiscussionFeedQueryCoordinator,
             GetPublicCommentRevisionsUseCase getPublicCommentRevisionsUseCase,
-            SubmitCommentReportUseCase submitCommentReportUseCase
+            SubmitCommentReportUseCase submitCommentReportUseCase,
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(readerChapterAccessQueryPort, "ReaderChapterAccessQueryPort cannot be null.");
         this.listCommentRootsUseCase = Objects.requireNonNull(listCommentRootsUseCase, "ListCommentRootsUseCase cannot be null.");
@@ -149,6 +157,7 @@ public class NovelChapterCommentController {
         this.novelChapterDiscussionFeedQueryCoordinator = Objects.requireNonNull(novelChapterDiscussionFeedQueryCoordinator, "NovelChapterDiscussionFeedQueryCoordinator cannot be null.");
         this.getPublicCommentRevisionsUseCase = Objects.requireNonNull(getPublicCommentRevisionsUseCase, "GetPublicCommentRevisionsUseCase cannot be null.");
         this.submitCommentReportUseCase = Objects.requireNonNull(submitCommentReportUseCase, "SubmitCommentReportUseCase cannot be null.");
+        this.getBatchReactionSummariesUseCase = Objects.requireNonNull(getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null.");
     }
 
     /**
@@ -180,8 +189,36 @@ public class NovelChapterCommentController {
         CommentTarget target = CommentTarget.novelChapter(chapterId);
         CommentReadSlice slice = listCommentRootsUseCase.execute(target, page, size);
 
+        List<UUID> activeIds = slice.items().stream()
+                .filter(item -> !item.tombstone())
+                .map(CommentReadItem::id)
+                .toList();
+
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummaries = Map.of();
+        if (!activeIds.isEmpty()) {
+            try {
+                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
+                        ReactionTargetType.COMMENT,
+                        activeIds,
+                        viewerUserId
+                );
+                if (summaries != null && !summaries.isEmpty()) {
+                    reactionSummaries = summaries.entrySet().stream()
+                            .filter(e -> e.getValue() != null)
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
+                            ));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to batch query reaction summaries for listRootComments: chapterId={}", chapterId, ex);
+                reactionSummaries = Map.of();
+            }
+        }
+
+        final Map<UUID, ReactionSummaryResponseDTO> finalSummaries = reactionSummaries;
         List<CommentReadDTO> items = slice.items().stream()
-                .map(item -> CommentReadDTO.from(item, viewerUserId))
+                .map(item -> CommentReadDTO.from(item, viewerUserId, finalSummaries.get(item.id())))
                 .toList();
 
         return ResponseEntity.ok(new CommentSliceResponseDTO(items, slice.page(), slice.size(), slice.hasNext()));
@@ -354,7 +391,42 @@ public class NovelChapterCommentController {
                 .orElse(null);
 
         CommentThreadView threadView = getCommentThreadUseCase.execute(rootCommentId);
-        return ResponseEntity.ok(CommentThreadResponseDTO.from(threadView, viewerUserId));
+
+        List<UUID> activeIds = new ArrayList<>();
+        if (threadView.root() != null && !threadView.root().tombstone()) {
+            activeIds.add(threadView.root().id());
+        }
+        if (threadView.replies() != null) {
+            for (CommentReadItem reply : threadView.replies()) {
+                if (reply != null && !reply.tombstone()) {
+                    activeIds.add(reply.id());
+                }
+            }
+        }
+
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummaries = Map.of();
+        if (!activeIds.isEmpty()) {
+            try {
+                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
+                        ReactionTargetType.COMMENT,
+                        activeIds,
+                        viewerUserId
+                );
+                if (summaries != null && !summaries.isEmpty()) {
+                    reactionSummaries = summaries.entrySet().stream()
+                            .filter(e -> e.getValue() != null)
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
+                            ));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to batch query reaction summaries for getCommentThread: rootCommentId={}", rootCommentId, ex);
+                reactionSummaries = Map.of();
+            }
+        }
+
+        return ResponseEntity.ok(CommentThreadResponseDTO.from(threadView, viewerUserId, reactionSummaries));
     }
 
     /**
