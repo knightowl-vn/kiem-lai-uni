@@ -242,4 +242,26 @@ class WikiArticleCoverOrchestratorTest {
         verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
         verifyNoInteractions(mediaCoordinator);
     }
+
+    @Test
+    @DisplayName("updatePublished: chuyển tiếp sourceContributionId sang UpdatePublishedWikiArticleCommand")
+    void shouldPropagateSourceContributionIdInUpdatePublished() {
+        UUID sourceContributionId = UUID.randomUUID();
+        UpdatePublishedWikiArticleCommand command = new UpdatePublishedWikiArticleCommand(
+                ARTICLE_ID, "Tóm tắt", "Nội dung", "Edit summary", ACTOR_ID, 50, 50, sourceContributionId
+        );
+        WikiArticleDTO sampleDTO = createSampleDTO(null);
+
+        when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+                .thenReturn(sampleDTO);
+        when(updatePublishedWikiArticleUseCase.execute(any(UpdatePublishedWikiArticleCommand.class)))
+                .thenReturn(sampleDTO);
+
+        WikiArticleDTO result = orchestrator.updatePublished(command, null, false);
+
+        assertThat(result).isSameAs(sampleDTO);
+        ArgumentCaptor<UpdatePublishedWikiArticleCommand> captor = ArgumentCaptor.forClass(UpdatePublishedWikiArticleCommand.class);
+        verify(updatePublishedWikiArticleUseCase).execute(captor.capture());
+        assertThat(captor.getValue().sourceContributionId()).isEqualTo(sourceContributionId);
+    }
 }

@@ -69,6 +69,19 @@ public record AdminWikiContributionDetailDTO(
                 && selectedText != null && !selectedText.isBlank();
     }
 
+    public boolean hasLinkedArticleUpdate() {
+        return events.stream().anyMatch(e -> e.eventType() == com.universe.wiki.domain.contribution.WikiContributionEventType.ARTICLE_UPDATE_LINKED);
+    }
+
+    public Long getLatestLinkedArticleContentVersion() {
+        return events.stream()
+                .filter(e -> e.eventType() == com.universe.wiki.domain.contribution.WikiContributionEventType.ARTICLE_UPDATE_LINKED)
+                .map(AdminWikiContributionWorkflowEventDTO::articleContentVersion)
+                .filter(Objects::nonNull)
+                .reduce((first, second) -> second)
+                .orElse(null);
+    }
+
     public boolean hasSources() {
         return !sources.isEmpty();
     }

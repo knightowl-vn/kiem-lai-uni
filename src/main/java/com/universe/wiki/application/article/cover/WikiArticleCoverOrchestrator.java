@@ -387,7 +387,8 @@ public class WikiArticleCoverOrchestrator {
                 targetPositionY,
                 updateCover,
                 intent,
-                expectedCoverId
+                expectedCoverId,
+                command.sourceContributionId()
         );
 
         WikiArticleDTO updated;

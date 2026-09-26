@@ -44,6 +44,19 @@ class AdminWikiContributionDetailTemplateContractTest {
         assertThat(html).contains("contribution.articleContentVersion");
         assertThat(html).contains("contribution.articleSlugSnapshot");
         assertThat(html).contains("target=\"_blank\"");
+        assertThat(html).contains("th:href=\"@{/admin/wiki/articles/{id}(id=${contribution.articleId})}\"");
+        assertThat(html).contains("Xem trang quản trị bài viết ↗");
+    }
+
+    @Test
+    @DisplayName("Detail template renders Step 1 edit link with sourceContributionId and feedback")
+    void shouldRenderStep1EditLinkWithSourceContributionId() throws Exception {
+        String html = readTemplate(DETAIL_TEMPLATE_PATH);
+
+        assertThat(html).contains("th:href=\"@{/admin/wiki/articles/{id}/edit(id=${contribution.articleId}, sourceContributionId=${contribution.contributionId})}\"");
+        assertThat(html).contains("Chỉnh sửa bài viết & liên kết đóng góp ↗");
+        assertThat(html).contains("contribution.hasLinkedArticleUpdate()");
+        assertThat(html).contains("contribution.getLatestLinkedArticleContentVersion()");
     }
 
     @Test

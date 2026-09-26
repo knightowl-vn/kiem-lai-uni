@@ -37,10 +37,10 @@
 				<div class="wiki-admin-create-heading">
 					<div>
 						<a class="wiki-admin-back-link"
-							th:href="@{/admin/wiki/articles/{id}(
-                            id=${article.id}
-                        )}">
-							← Quay lại chi tiết </a> <span class="wiki-admin-eyebrow">
+							th:href="${(sourceContributionId != null or form.sourceContributionId != null) ? '/admin/wiki/contributions/' + (sourceContributionId != null ? sourceContributionId : form.sourceContributionId) : '/admin/wiki/articles/' + article.id}">
+							<span th:if="${sourceContributionId != null or form.sourceContributionId != null}">← Quay lại chi tiết đóng góp</span>
+							<span th:unless="${sourceContributionId != null or form.sourceContributionId != null}">← Quay lại chi tiết</span>
+						</a> <span class="wiki-admin-eyebrow">
 							WIKI MODULE </span>
 						<h2>Chỉnh sửa bài viết</h2>
 						<p th:if="${draft}">Bài viết hiện đang là bản nháp. Bạn có thể
@@ -539,8 +539,7 @@
 						<div class="wiki-admin-form-actions wiki-admin-edit-actions">
 
 							<!-- CANCEL -->
-
-							<a th:href="@{/admin/wiki/articles/{id}(id=${article.id})}"
+							<a th:href="${(sourceContributionId != null or form.sourceContributionId != null) ? '/admin/wiki/contributions/' + (sourceContributionId != null ? sourceContributionId : form.sourceContributionId) : '/admin/wiki/articles/' + article.id}"
 								class="wiki-admin-secondary-button"> Hủy </a>
 
 

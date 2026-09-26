@@ -266,4 +266,76 @@ class AdminWikiContributionDetailDTOTest {
             assertThat(dto.canRevokeCredit(currentAdmin)).isFalse();
         }
     }
+
+    @Nested
+    @DisplayName("Linked Article Update Helper Tests")
+    class LinkedArticleUpdateHelperTests {
+
+        @Test
+        @DisplayName("hasLinkedArticleUpdate returns false when no ARTICLE_UPDATE_LINKED event")
+        void shouldReturnFalseWhenNoLinkedEvent() {
+            AdminWikiContributionDetailDTO dto = createDetail(
+                    WikiContributionStatus.REVIEWING,
+                    null,
+                    null,
+                    null
+            );
+
+            assertThat(dto.hasLinkedArticleUpdate()).isFalse();
+            assertThat(dto.getLatestLinkedArticleContentVersion()).isNull();
+        }
+
+        @Test
+        @DisplayName("hasLinkedArticleUpdate returns true and gives version when ARTICLE_UPDATE_LINKED event exists")
+        void shouldReturnTrueAndVersionWhenLinkedEventExists() {
+            AdminWikiContributionWorkflowEventDTO event = new AdminWikiContributionWorkflowEventDTO(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    com.universe.wiki.domain.contribution.WikiContributionEventType.ARTICLE_UPDATE_LINKED,
+                    resolver(),
+                    null,
+                    2L,
+                    null,
+                    "Linked update note",
+                    now
+            );
+
+            AdminWikiContributionDetailDTO dto = new AdminWikiContributionDetailDTO(
+                    UUID.randomUUID(),
+                    UUID.randomUUID(),
+                    "CHARACTER",
+                    "Trần Bình An",
+                    "tran-binh-an",
+                    1L,
+                    contributor(),
+                    WikiContributionContextType.TEXT_SELECTION,
+                    WikiContributionType.WORDING,
+                    "Lỗi diễn đạt",
+                    "đoạn văn",
+                    null,
+                    null,
+                    null,
+                    WikiContributionStatus.REVIEWING,
+                    1L,
+                    now.minusSeconds(100),
+                    now,
+                    List.of(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    resolver(),
+                    now,
+                    resolver(),
+                    now,
+                    1L,
+                    null,
+                    List.of(event),
+                    null
+            );
+
+            assertThat(dto.hasLinkedArticleUpdate()).isTrue();
+            assertThat(dto.getLatestLinkedArticleContentVersion()).isEqualTo(2L);
+        }
+    }
 }

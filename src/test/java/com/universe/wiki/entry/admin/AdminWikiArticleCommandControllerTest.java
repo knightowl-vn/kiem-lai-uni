@@ -448,6 +448,40 @@ class AdminWikiArticleCommandControllerTest {
 		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(UpdateDraftWikiArticleCommand.class), any(), anyBoolean());
 	}
 
+	@Test
+	@DisplayName("Chỉnh sửa bài Wiki PUBLISHED với sourceContributionId sẽ chuyển tiếp ID và redirect về chi tiết đóng góp")
+	void shouldUpdatePublishedWikiArticleWithSourceContributionId() {
+		UUID sourceContributionId = UUID.randomUUID();
+		EditWikiArticleForm form = new EditWikiArticleForm();
+		form.setSummary("Tóm tắt theo đóng góp");
+		form.setContent("Nội dung theo đóng góp");
+		form.setEditSummary("Cập nhật theo ý kiến độc giả");
+		form.setSourceContributionId(sourceContributionId);
+
+		prepareAuthenticatedAdmin();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createPublishedArticleDTO());
+
+		WikiArticleDTO updatedArticle = new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW,
+				NOW, NOW, null, 2L, 2L);
+
+		when(wikiArticleCoverOrchestrator.updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "Cập nhật theo ý kiến độc giả", ADMIN_ID, 50, 50, sourceContributionId), null, false))
+				.thenReturn(updatedArticle);
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES, authentication,
+				redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/contributions/" + sourceContributionId);
+
+		verify(wikiArticleCoverOrchestrator).updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "Cập nhật theo ý kiến độc giả", ADMIN_ID, 50, 50, sourceContributionId), null, false);
+	}
+
 	/*
 	 * ===================================================== UPDATE ARCHIVED
 	 * =====================================================

@@ -122,11 +122,11 @@
                                        rel="noopener noreferrer">
                                         Xem bài viết công khai hiện tại ↗
                                     </a>
-                                    <a th:href="@{/admin/wiki/articles/{id}/edit(id=${contribution.articleId})}"
+                                    <a th:href="@{/admin/wiki/articles/{id}(id=${contribution.articleId})}"
                                        class="admin-secondary-button"
                                        target="_blank"
                                        rel="noopener noreferrer">
-                                        Mở trang quản trị bài viết ↗
+                                        Xem trang quản trị bài viết ↗
                                     </a>
                                 </div>
                             </div>
@@ -710,10 +710,13 @@
                                             <p style="font-size: 13px; color: #475569; margin: 4px 0 10px 0;">
                                                 Mở trình chỉnh sửa bài viết với tham số liên kết đóng góp. Khi bạn cập nhật bài viết thành công, hệ thống sẽ tự động liên kết phiên bản mới vào đóng góp này.
                                             </p>
+                                            <div th:if="${contribution.hasLinkedArticleUpdate()}" style="margin-bottom: 10px; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 4px; font-size: 13px; color: #047857;">
+                                                ✓ Đã ghi nhận bản sửa bài viết liên kết (phiên bản v<span th:text="${contribution.getLatestLinkedArticleContentVersion()}">2</span>). Bạn có thể tiếp tục chỉnh sửa thêm hoặc tiến hành Bước 2a.
+                                            </div>
                                             <a th:href="@{/admin/wiki/articles/{id}/edit(id=${contribution.articleId}, sourceContributionId=${contribution.contributionId})}"
                                                target="_blank"
-                                               class="admin-secondary-button">
-                                                Mở trang sửa bài viết (liên kết đóng góp) ↗
+                                               class="admin-primary-button">
+                                                Chỉnh sửa bài viết & liên kết đóng góp ↗
                                             </a>
                                         </div>
 
