@@ -31,6 +31,7 @@ class WikiSavedArticlesQueryPersistenceAdapterTest {
     private static final UUID SAVED_2_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID ARTICLE_1_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID ARTICLE_2_ID = UUID.fromString("55555555-5555-5555-5555-555555555555");
+    private static final UUID COVER_MEDIA_ID = UUID.fromString("66666666-6666-6666-6666-666666666666");
     private static final Instant NOW = Instant.parse("2026-09-16T12:00:00Z");
 
     @Mock
@@ -55,6 +56,9 @@ class WikiSavedArticlesQueryPersistenceAdapterTest {
         when(proj1.getSlug()).thenReturn("tran-binh-an");
         when(proj1.getArticleType()).thenReturn("CHARACTER");
         when(proj1.getSummary()).thenReturn("Nhân vật chính");
+        when(proj1.getCoverMediaAssetId()).thenReturn(COVER_MEDIA_ID.toString());
+        when(proj1.getCoverPositionX()).thenReturn(50);
+        when(proj1.getCoverPositionY()).thenReturn(30);
 
         WikiSavedArticleItemProjection proj2 = mock(WikiSavedArticleItemProjection.class);
         when(proj2.getSavedId()).thenReturn(SAVED_2_ID.toString());
@@ -84,8 +88,11 @@ class WikiSavedArticlesQueryPersistenceAdapterTest {
         assertThat(item1.slug()).isEqualTo("tran-binh-an");
         assertThat(item1.articleType()).isEqualTo("CHARACTER");
         assertThat(item1.summary()).isEqualTo("Nhân vật chính");
+        assertThat(item1.coverMediaAssetId()).isEqualTo(COVER_MEDIA_ID);
+        assertThat(item1.coverPositionX()).isEqualTo(50);
+        assertThat(item1.coverPositionY()).isEqualTo(30);
 
-        // 2. Article 2: UNAVAILABLE - tuyệt đối không rò rỉ tiêu đề hay tóm tắt
+        // 2. Article 2: UNAVAILABLE - tuyệt đối không rò rỉ tiêu đề, tóm tắt hay cover
         SavedWikiArticleItemDTO item2 = result.items().get(1);
         assertThat(item2.savedId()).isEqualTo(SAVED_2_ID);
         assertThat(item2.articleId()).isEqualTo(ARTICLE_2_ID);
@@ -94,6 +101,9 @@ class WikiSavedArticlesQueryPersistenceAdapterTest {
         assertThat(item2.slug()).isNull();
         assertThat(item2.articleType()).isNull();
         assertThat(item2.summary()).isNull();
+        assertThat(item2.coverMediaAssetId()).isNull();
+        assertThat(item2.coverPositionX()).isEqualTo(50);
+        assertThat(item2.coverPositionY()).isEqualTo(50);
     }
 
     @Test

@@ -31,7 +31,10 @@ public interface SpringDataWikiSavedArticleJpaRepository
                         CASE WHEN a.status = 'PUBLISHED' THEN a.title ELSE NULL END AS title,
                         CASE WHEN a.status = 'PUBLISHED' THEN a.slug ELSE NULL END AS slug,
                         CASE WHEN a.status = 'PUBLISHED' THEN a.article_type ELSE NULL END AS articleType,
-                        CASE WHEN a.status = 'PUBLISHED' THEN a.summary ELSE NULL END AS summary
+                        CASE WHEN a.status = 'PUBLISHED' THEN a.summary ELSE NULL END AS summary,
+                        CASE WHEN a.status = 'PUBLISHED' THEN a.cover_media_asset_id ELSE NULL END AS coverMediaAssetId,
+                        CASE WHEN a.status = 'PUBLISHED' THEN a.cover_position_x ELSE NULL END AS coverPositionX,
+                        CASE WHEN a.status = 'PUBLISHED' THEN a.cover_position_y ELSE NULL END AS coverPositionY
                     FROM wiki_saved_articles s
                     LEFT JOIN wiki_articles a
                         ON a.id = s.article_id

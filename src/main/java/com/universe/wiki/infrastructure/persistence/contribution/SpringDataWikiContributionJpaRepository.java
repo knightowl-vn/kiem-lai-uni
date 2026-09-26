@@ -86,4 +86,20 @@ public interface SpringDataWikiContributionJpaRepository
             @Param("articleId") String articleId,
             Pageable pageable
     );
+
+    @Query(
+            value = """
+                    SELECT c FROM WikiContributionJpaEntity c
+                    WHERE c.submittedByUserId = :userId
+                    ORDER BY c.createdAt DESC, c.id DESC
+                    """,
+            countQuery = """
+                    SELECT COUNT(c) FROM WikiContributionJpaEntity c
+                    WHERE c.submittedByUserId = :userId
+                    """
+    )
+    Page<WikiContributionJpaEntity> findBySubmittedByUserId(
+            @Param("userId") String userId,
+            Pageable pageable
+    );
 }

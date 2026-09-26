@@ -19,7 +19,7 @@ import java.util.UUID;
  * Đảm bảo:
  * 1. Phân trang và sắp xếp mới nhất lên đầu: createdAt DESC, id DESC;
  * 2. Phân biệt rõ AVAILABLE (bài viết đang PUBLISHED) và UNAVAILABLE (bài viết đã gỡ/lưu trữ);
- * 3. Tuyệt đối không để lộ thông tin nhạy cảm (metadata/tiêu đề) của bài viết UNAVAILABLE.
+ * 3. Tuyệt đối không để lộ thông tin nhạy cảm (metadata/tiêu đề/ảnh) của bài viết UNAVAILABLE.
  */
 @Component
 @Transactional(readOnly = true)
@@ -75,6 +75,12 @@ public class WikiSavedArticlesQueryPersistenceAdapter implements WikiSavedArticl
         boolean available = "PUBLISHED".equalsIgnoreCase(projection.getArticleStatus());
 
         if (available) {
+            UUID coverMediaAssetId = projection.getCoverMediaAssetId() != null
+                    ? UUID.fromString(projection.getCoverMediaAssetId())
+                    : null;
+            int coverPositionX = projection.getCoverPositionX() != null ? projection.getCoverPositionX() : 50;
+            int coverPositionY = projection.getCoverPositionY() != null ? projection.getCoverPositionY() : 50;
+
             return SavedWikiArticleItemDTO.available(
                     savedId,
                     articleId,
@@ -82,7 +88,10 @@ public class WikiSavedArticlesQueryPersistenceAdapter implements WikiSavedArticl
                     projection.getTitle(),
                     projection.getSlug(),
                     projection.getArticleType(),
-                    projection.getSummary()
+                    projection.getSummary(),
+                    coverMediaAssetId,
+                    coverPositionX,
+                    coverPositionY
             );
         }
 

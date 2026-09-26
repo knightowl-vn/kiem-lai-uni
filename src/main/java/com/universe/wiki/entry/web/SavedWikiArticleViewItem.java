@@ -1,5 +1,6 @@
 package com.universe.wiki.entry.web;
 
+import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticleItemDTO;
 import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
@@ -11,7 +12,7 @@ import java.util.UUID;
  * View model cho từng bài viết Wiki đã lưu trong danh sách hiển thị.
  *
  * Mở rộng metadata hiển thị với {@code articleTypePath} chuẩn hóa thông qua {@link ArticleTypePathMapper},
- * giúp tầng giao diện (Thymeleaf) liên kết trực tiếp tới URL bài viết mà không cần tự suy diễn chuỗi URL.
+ * cùng với thông tin ảnh bìa và vị trí trọng tâm đồng bộ với thẻ bài viết Wiki chuẩn.
  */
 public record SavedWikiArticleViewItem(
         UUID savedId,
@@ -22,8 +23,27 @@ public record SavedWikiArticleViewItem(
         String slug,
         String articleType,
         String articleTypePath,
-        String summary
+        String summary,
+        UUID coverMediaAssetId,
+        int coverPositionX,
+        int coverPositionY
 ) {
+
+    public String displayCoverImageUrl() {
+        return coverMediaAssetId != null
+                ? MediaDeliveryUrlSupport.variantUrl(coverMediaAssetId, 300)
+                : null;
+    }
+
+    public String fallbackCoverImageUrl() {
+        return coverMediaAssetId != null
+                ? MediaDeliveryUrlSupport.contentUrl(coverMediaAssetId)
+                : null;
+    }
+
+    public String coverObjectPosition() {
+        return coverPositionX + "% " + coverPositionY + "%";
+    }
 
     public static SavedWikiArticleViewItem from(
             SavedWikiArticleItemDTO dto,
@@ -43,7 +63,10 @@ public record SavedWikiArticleViewItem(
                     null,
                     null,
                     null,
-                    null
+                    null,
+                    null,
+                    50,
+                    50
             );
         }
 
@@ -66,7 +89,10 @@ public record SavedWikiArticleViewItem(
                 dto.slug(),
                 dto.articleType(),
                 articleTypePath,
-                dto.summary()
+                dto.summary(),
+                dto.coverMediaAssetId(),
+                dto.coverPositionX(),
+                dto.coverPositionY()
         );
     }
 }

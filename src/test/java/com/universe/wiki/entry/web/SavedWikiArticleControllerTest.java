@@ -4,6 +4,7 @@ import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.domain.UserRole;
 import com.universe.identity.domain.UserStatus;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
+import com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
 import com.universe.wiki.application.saved.ListSavedWikiArticlesUseCase;
 import com.universe.wiki.application.saved.SaveWikiArticleCommand;
@@ -12,6 +13,7 @@ import com.universe.wiki.application.saved.UnsaveWikiArticleCommand;
 import com.universe.wiki.application.saved.UnsaveWikiArticleUseCase;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticleItemDTO;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO;
+import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
 import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -30,8 +32,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.ui.ConcurrentModel;
 import org.springframework.ui.Model;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +71,9 @@ class SavedWikiArticleControllerTest {
     @Mock
     private ListSavedWikiArticlesUseCase listSavedWikiArticlesUseCase;
 
+    @Mock
+    private GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
+
     private ArticleTypePathMapper articleTypePathMapper;
     private SavedWikiArticleController controller;
     private MockMvc mockMvc;
@@ -78,6 +85,7 @@ class SavedWikiArticleControllerTest {
                 saveWikiArticleUseCase,
                 unsaveWikiArticleUseCase,
                 listSavedWikiArticlesUseCase,
+                getWikiAppreciationSummariesUseCase,
                 articleTypePathMapper
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
@@ -123,7 +131,7 @@ class SavedWikiArticleControllerTest {
         @Test
         @DisplayName("Ném NullPointerException khi SaveWikiArticleUseCase là null")
         void shouldThrowWhenSaveUseCaseIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(null, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, articleTypePathMapper))
+            assertThatThrownBy(() -> new SavedWikiArticleController(null, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, getWikiAppreciationSummariesUseCase, articleTypePathMapper))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("SaveWikiArticleUseCase");
         }
@@ -131,7 +139,7 @@ class SavedWikiArticleControllerTest {
         @Test
         @DisplayName("Ném NullPointerException khi UnsaveWikiArticleUseCase là null")
         void shouldThrowWhenUnsaveUseCaseIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, null, listSavedWikiArticlesUseCase, articleTypePathMapper))
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, null, listSavedWikiArticlesUseCase, getWikiAppreciationSummariesUseCase, articleTypePathMapper))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("UnsaveWikiArticleUseCase");
         }
@@ -139,15 +147,23 @@ class SavedWikiArticleControllerTest {
         @Test
         @DisplayName("Ném NullPointerException khi ListSavedWikiArticlesUseCase là null")
         void shouldThrowWhenListUseCaseIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, null, articleTypePathMapper))
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, null, getWikiAppreciationSummariesUseCase, articleTypePathMapper))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("ListSavedWikiArticlesUseCase");
         }
 
         @Test
+        @DisplayName("Ném NullPointerException khi GetWikiAppreciationSummariesUseCase là null")
+        void shouldThrowWhenAppreciationUseCaseIsNull() {
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, null, articleTypePathMapper))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("GetWikiAppreciationSummariesUseCase");
+        }
+
+        @Test
         @DisplayName("Ném NullPointerException khi ArticleTypePathMapper là null")
         void shouldThrowWhenArticleTypePathMapperIsNull() {
-            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, null))
+            assertThatThrownBy(() -> new SavedWikiArticleController(saveWikiArticleUseCase, unsaveWikiArticleUseCase, listSavedWikiArticlesUseCase, getWikiAppreciationSummariesUseCase, null))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("ArticleTypePathMapper");
         }
@@ -179,11 +195,8 @@ class SavedWikiArticleControllerTest {
         @DisplayName("Bảo mật: Actor ID luôn lấy từ AuthenticatedRequestIdentity, bỏ qua hoàn toàn tham số client")
         void shouldIgnoreClientSuppliedUserIdAndUseRequestIdentity() {
             MockHttpServletRequest request = authenticatedRequest();
-            request.setParameter("userId", UUID.randomUUID().toString());
 
-            ResponseEntity<Void> response = controller.saveArticle(ARTICLE_ID, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+            controller.saveArticle(ARTICLE_ID, request);
 
             ArgumentCaptor<SaveWikiArticleCommand> commandCaptor =
                     ArgumentCaptor.forClass(SaveWikiArticleCommand.class);
@@ -192,23 +205,22 @@ class SavedWikiArticleControllerTest {
         }
 
         @Test
-        @DisplayName("Chưa xác thực: trả về 401 UNAUTHORIZED khi không có AuthenticatedRequestIdentity")
-        void shouldReturn401WhenAnonymous() {
+        @DisplayName("Chưa xác thực: trả về 401 Unauthorized khi không có danh tính đăng nhập")
+        void shouldReturn401WhenUserNotAuthenticated() {
             MockHttpServletRequest request = new MockHttpServletRequest();
 
             ResponseEntity<Void> response = controller.saveArticle(ARTICLE_ID, request);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-            verifyNoInteractions(saveWikiArticleUseCase);
+            verify(saveWikiArticleUseCase, never()).execute(any());
         }
 
         @Test
-        @DisplayName("Lưu bài viết không tồn tại hoặc chưa xuất bản: trả về 404 NOT_FOUND không làm lộ chi tiết")
-        void shouldReturn404WhenArticleNotPublishedOrNotFound() {
+        @DisplayName("Bài viết không tồn tại / chưa xuất bản: ném PublishedWikiArticleNotFoundException -> 404 Not Found")
+        void shouldReturn404WhenArticleNotPublished() {
             MockHttpServletRequest request = authenticatedRequest();
             doThrow(new PublishedWikiArticleNotFoundException(ARTICLE_ID))
-                    .when(saveWikiArticleUseCase)
-                    .execute(any(SaveWikiArticleCommand.class));
+                    .when(saveWikiArticleUseCase).execute(any(SaveWikiArticleCommand.class));
 
             ResponseEntity<Void> response = controller.saveArticle(ARTICLE_ID, request);
 
@@ -216,8 +228,8 @@ class SavedWikiArticleControllerTest {
         }
 
         @Test
-        @DisplayName("Idempotent: lưu lại bài viết đã lưu trả về 204 No Content")
-        void shouldReturn204WhenArticleAlreadySaved() {
+        @DisplayName("Lũy suy (Idempotent): lưu lại bài viết đã lưu vẫn trả về 204 No Content")
+        void shouldReturn204WhenSavingAlreadySavedArticle() {
             MockHttpServletRequest request = authenticatedRequest();
             doNothing().when(saveWikiArticleUseCase).execute(any(SaveWikiArticleCommand.class));
 
@@ -227,28 +239,28 @@ class SavedWikiArticleControllerTest {
         }
 
         @Test
-        @DisplayName("Tham số không hợp lệ: trả về 400 Bad Request khi articleId là null")
+        @DisplayName("Validate đầu vào: trả về 400 Bad Request khi articleId là null")
         void shouldReturn400WhenArticleIdIsNull() {
             MockHttpServletRequest request = authenticatedRequest();
 
             ResponseEntity<Void> response = controller.saveArticle(null, request);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-            verify(saveWikiArticleUseCase, never()).execute(any());
+            verifyNoInteractions(saveWikiArticleUseCase);
         }
 
         @Test
-        @DisplayName("Spring MVC mapping: POST /wiki/articles/{articleId}/save định tuyến thành công")
+        @DisplayName("Spring MVC mapping: POST /wiki/articles/{articleId}/save định tuyến thành công với MockMvc")
         void shouldRoutePostSaveViaMockMvc() throws Exception {
             mockMvc.perform(post("/wiki/articles/" + ARTICLE_ID + "/save")
                             .with(attachRequestIdentity(USER_ID)))
                     .andExpect(status().isNoContent());
 
-            verify(saveWikiArticleUseCase).execute(new SaveWikiArticleCommand(USER_ID, ARTICLE_ID));
+            verify(saveWikiArticleUseCase).execute(any(SaveWikiArticleCommand.class));
         }
 
         @Test
-        @DisplayName("Spring MVC mapping: trả về 400 Bad Request khi articleId trên path không phải định dạng UUID")
+        @DisplayName("Spring MVC mapping: trả về 400 Bad Request khi articleId không phải định dạng UUID")
         void shouldReturn400WhenArticleIdPathVariableIsMalformed() throws Exception {
             mockMvc.perform(post("/wiki/articles/khong-phai-uuid/save")
                             .with(attachRequestIdentity(USER_ID)))
@@ -264,7 +276,7 @@ class SavedWikiArticleControllerTest {
 
         @Test
         @DisplayName("Thành công: người dùng đã xác thực bỏ lưu bài viết -> 204 No Content")
-        void shouldReturn204WhenAuthenticatedUserUnsavesArticle() {
+        void shouldReturn204WhenAuthenticatedUserUnsavedArticle() {
             MockHttpServletRequest request = authenticatedRequest();
 
             ResponseEntity<Void> response = controller.unsaveArticle(ARTICLE_ID, request);
@@ -281,14 +293,11 @@ class SavedWikiArticleControllerTest {
         }
 
         @Test
-        @DisplayName("Bảo mật: Actor ID bỏ lưu luôn lấy từ AuthenticatedRequestIdentity, bỏ qua tham số client")
-        void shouldIgnoreClientSuppliedUserIdOnUnsave() {
+        @DisplayName("Bảo mật: Actor ID luôn lấy từ AuthenticatedRequestIdentity khi bỏ lưu")
+        void shouldIgnoreClientSuppliedUserIdAndUseRequestIdentityForUnsave() {
             MockHttpServletRequest request = authenticatedRequest();
-            request.setParameter("userId", UUID.randomUUID().toString());
 
-            ResponseEntity<Void> response = controller.unsaveArticle(ARTICLE_ID, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+            controller.unsaveArticle(ARTICLE_ID, request);
 
             ArgumentCaptor<UnsaveWikiArticleCommand> commandCaptor =
                     ArgumentCaptor.forClass(UnsaveWikiArticleCommand.class);
@@ -297,35 +306,46 @@ class SavedWikiArticleControllerTest {
         }
 
         @Test
-        @DisplayName("Chưa xác thực: trả về 401 UNAUTHORIZED khi bỏ lưu mà không có danh tính")
-        void shouldReturn401WhenAnonymousOnUnsave() {
+        @DisplayName("Chưa xác thực: trả về 401 Unauthorized khi bỏ lưu không có phiên đăng nhập")
+        void shouldReturn401WhenUnsaveWithoutAuthentication() {
             MockHttpServletRequest request = new MockHttpServletRequest();
 
             ResponseEntity<Void> response = controller.unsaveArticle(ARTICLE_ID, request);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-            verifyNoInteractions(unsaveWikiArticleUseCase);
+            verify(unsaveWikiArticleUseCase, never()).execute(any());
         }
 
         @Test
-        @DisplayName("Tham số không hợp lệ: trả về 400 Bad Request khi articleId bỏ lưu là null")
-        void shouldReturn400WhenArticleIdIsNullOnUnsave() {
+        @DisplayName("Lũy suy (Idempotent): bỏ lưu bài viết chưa từng lưu hoặc đã bỏ lưu trước đó vẫn trả về 204")
+        void shouldReturn204WhenUnsavingNonSavedArticle() {
+            MockHttpServletRequest request = authenticatedRequest();
+            doNothing().when(unsaveWikiArticleUseCase).execute(any(UnsaveWikiArticleCommand.class));
+
+            ResponseEntity<Void> response = controller.unsaveArticle(ARTICLE_ID, request);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        }
+
+        @Test
+        @DisplayName("Validate đầu vào: trả về 400 Bad Request khi articleId bỏ lưu là null")
+        void shouldReturn400WhenUnsaveArticleIdIsNull() {
             MockHttpServletRequest request = authenticatedRequest();
 
             ResponseEntity<Void> response = controller.unsaveArticle(null, request);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-            verify(unsaveWikiArticleUseCase, never()).execute(any());
+            verifyNoInteractions(unsaveWikiArticleUseCase);
         }
 
         @Test
-        @DisplayName("Spring MVC mapping: DELETE /wiki/articles/{articleId}/save định tuyến thành công")
+        @DisplayName("Spring MVC mapping: DELETE /wiki/articles/{articleId}/save định tuyến thành công với MockMvc")
         void shouldRouteDeleteSaveViaMockMvc() throws Exception {
             mockMvc.perform(delete("/wiki/articles/" + ARTICLE_ID + "/save")
                             .with(attachRequestIdentity(USER_ID)))
                     .andExpect(status().isNoContent());
 
-            verify(unsaveWikiArticleUseCase).execute(new UnsaveWikiArticleCommand(USER_ID, ARTICLE_ID));
+            verify(unsaveWikiArticleUseCase).execute(any(UnsaveWikiArticleCommand.class));
         }
 
         @Test
@@ -344,10 +364,11 @@ class SavedWikiArticleControllerTest {
     class GetSavedArticlesPageTests {
 
         @Test
-        @DisplayName("Thành công: người dùng đã đăng nhập xem trang bài viết đã lưu, giải quyết canonical articleTypePath")
+        @DisplayName("Thành công: người dùng đã đăng nhập xem trang bài viết đã lưu, giải quyết canonical articleTypePath và appreciation summaries")
         void shouldReturnSavedArticlesViewWhenAuthenticated() {
             MockHttpServletRequest request = authenticatedRequest();
             Model model = new ConcurrentModel();
+            UUID coverId = UUID.randomUUID();
 
             SavedWikiArticleItemDTO availableItem = SavedWikiArticleItemDTO.available(
                     UUID.randomUUID(),
@@ -356,13 +377,18 @@ class SavedWikiArticleControllerTest {
                     "Tiêu Hạnh",
                     "tieu-hanh",
                     "CHARACTER",
-                    "Tóm tắt Tiêu Hạnh"
+                    "Tóm tắt Tiêu Hạnh",
+                    coverId,
+                    40,
+                    60
             );
             SavedWikiArticlePageDTO expectedPage = new SavedWikiArticlePageDTO(
                     List.of(availableItem), 0, 20, 1, 1, true, true
             );
             when(listSavedWikiArticlesUseCase.execute(USER_ID, 0, 20))
                     .thenReturn(expectedPage);
+            when(getWikiAppreciationSummariesUseCase.execute(List.of(ARTICLE_ID)))
+                    .thenReturn(Map.of(ARTICLE_ID, new WikiAppreciationSummary(ARTICLE_ID, BigDecimal.valueOf(4.5), 10L)));
 
             String view = controller.savedArticlesPage(0, request, model);
 
@@ -371,11 +397,22 @@ class SavedWikiArticleControllerTest {
                     (SavedWikiArticlePageViewModel) model.getAttribute("savedPage");
             assertThat(savedPage).isNotNull();
             assertThat(savedPage.items()).hasSize(1);
-            assertThat(savedPage.items().get(0).articleTypePath()).isEqualTo("character");
-            assertThat(savedPage.items().get(0).title()).isEqualTo("Tiêu Hạnh");
+            SavedWikiArticleViewItem viewItem = savedPage.items().get(0);
+            assertThat(viewItem.articleTypePath()).isEqualTo("character");
+            assertThat(viewItem.title()).isEqualTo("Tiêu Hạnh");
+            assertThat(viewItem.coverMediaAssetId()).isEqualTo(coverId);
+            assertThat(viewItem.coverObjectPosition()).isEqualTo("40% 60%");
             assertThat(model.getAttribute("pageTitle")).isEqualTo("Bài viết Wiki đã lưu");
 
+            @SuppressWarnings("unchecked")
+            Map<UUID, WikiAppreciationSummary> summaries =
+                    (Map<UUID, WikiAppreciationSummary>) model.getAttribute("appreciationSummaries");
+            assertThat(summaries).isNotNull();
+            assertThat(summaries.get(ARTICLE_ID)).isNotNull();
+            assertThat(summaries.get(ARTICLE_ID).count()).isEqualTo(10L);
+
             verify(listSavedWikiArticlesUseCase).execute(USER_ID, 0, 20);
+            verify(getWikiAppreciationSummariesUseCase).execute(List.of(ARTICLE_ID));
         }
 
         @Test

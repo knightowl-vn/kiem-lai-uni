@@ -41,50 +41,65 @@ class SavedWikiArticleTemplateContractTest {
     void savedListPageDefinesExpectedContract() throws Exception {
         String savedPage = read("src/main/resources/templates/wiki/public/saved.html");
 
-        // 1. Shared navbar & stylesheet
+        // 1. Shared navbar, stylesheet & personal navigation
         assertThat(savedPage).contains("th:replace=\"~{fragments/navbar :: navbar(activeNav='wiki')}\"");
         assertThat(savedPage).contains("th:href=\"@{/css/wiki/wiki.css}\"");
+        assertThat(savedPage).contains("th:replace=\"~{wiki/public/fragments/personal-nav :: personalNav(activeTab='saved')}\"");
 
-        // 2. List iteration
+        // 2. List iteration & card structure
         assertThat(savedPage).contains("th:if=\"${!savedPage.items.isEmpty()}\"");
         assertThat(savedPage).contains("th:each=\"item : ${savedPage.items}\"");
+        assertThat(savedPage).contains("class=\"wiki-public-index-card wiki-saved-card\"");
 
-        // 3. Available branch renders title, link, type, summary with canonical articleTypePath
+        // 3. Available branch renders canonical 4:5 media thumbnail, title, link, type, summary, appreciation stats
         assertThat(savedPage).contains("th:if=\"${item.available}\"");
+        assertThat(savedPage).contains("wiki-public-index-card-media");
+        assertThat(savedPage).contains("item.coverMediaAssetId != null");
+        assertThat(savedPage).contains("item.displayCoverImageUrl()");
+        assertThat(savedPage).contains("item.fallbackCoverImageUrl()");
+        assertThat(savedPage).contains("wiki-public-index-card-placeholder");
+        assertThat(savedPage).contains("wiki-public-index-card-type");
         assertThat(savedPage).contains("th:href=\"@{/wiki/{type}/{slug}(");
         assertThat(savedPage).contains("type=${item.articleTypePath}");
         assertThat(savedPage).doesNotContain("#strings.toLowerCase(#strings.replace(item.articleType");
         assertThat(savedPage).contains("th:text=\"${item.title}\"");
         assertThat(savedPage).contains("item.articleType");
         assertThat(savedPage).contains("item.summary");
+        assertThat(savedPage).contains("wiki-public-index-card-appreciation");
+        assertThat(savedPage).contains("wiki-public-index-card-star-icon");
 
-        // 4. Unavailable branch renders generic tombstone without private metadata
+        // 4. Saved actions footer (Read + Unsave buttons)
+        assertThat(savedPage).contains("wiki-saved-card-footer");
+        assertThat(savedPage).contains("wiki-saved-read-btn");
+        assertThat(savedPage).contains("Xem bài viết");
+
+        // 5. Unavailable branch renders generic tombstone without private metadata
         assertThat(savedPage).contains("th:unless=\"${item.available}\"");
         assertThat(savedPage).contains("wiki-saved-tombstone");
         assertThat(savedPage).contains("Bài viết không còn khả dụng");
 
-        // 5. Unsave button on items
+        // 6. Unsave button on items
         assertThat(savedPage).contains("class=\"wiki-saved-remove-btn js-wiki-unsave-btn\"");
         assertThat(savedPage).contains("data-article-id=");
         assertThat(savedPage).contains("data-unsave-url=");
         assertThat(savedPage).contains("data-csrf-token=");
         assertThat(savedPage).contains("data-csrf-header=");
 
-        // 6. Empty state & container current page data attribute
+        // 7. Empty state & container current page data attribute
         assertThat(savedPage).contains("id=\"wikiSavedEmpty\"");
         assertThat(savedPage).contains("th:if=\"${savedPage.items.isEmpty()}\"");
         assertThat(savedPage).contains("Bạn chưa lưu bài viết Wiki nào.");
         assertThat(savedPage).contains("th:href=\"@{/wiki}\"");
         assertThat(savedPage).contains("data-current-page=");
 
-        // 7. Pagination
+        // 8. Pagination
         assertThat(savedPage).contains("th:if=\"${savedPage.totalPages > 1}\"");
         assertThat(savedPage).contains("savedPage.first");
         assertThat(savedPage).contains("savedPage.last");
         assertThat(savedPage).contains("savedPage.page - 1");
         assertThat(savedPage).contains("savedPage.page + 1");
 
-        // 8. Script
+        // 9. Script
         assertThat(savedPage).contains("th:src=\"@{/js/wiki/wiki-saved.js}\"");
         assertThat(savedPage).contains("defer");
     }

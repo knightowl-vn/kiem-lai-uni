@@ -44,6 +44,9 @@
             <span aria-current="page">Bài viết đã lưu</span>
         </nav>
 
+        <!-- Personal Switcher -->
+        <div th:replace="~{wiki/public/fragments/personal-nav :: personalNav(activeTab='saved')}"></div>
+
         <!-- Header -->
         <header class="wiki-saved-header mb-4">
             <h1 class="wiki-saved-title">
@@ -74,75 +77,142 @@
              th:attr="data-current-page=${savedPage.page}"
              role="list">
 
-            <div th:each="item : ${savedPage.items}"
-                 class="wiki-saved-item"
+            <article th:each="item : ${savedPage.items}"
+                 class="wiki-public-index-card wiki-saved-card"
                  th:classappend="${!item.available} ? ' wiki-saved-item--unavailable' : ''"
                  role="listitem">
 
                 <!-- AVAILABLE ITEM -->
-                <div th:if="${item.available}" class="wiki-saved-item-content">
-                    <div class="wiki-saved-item-top">
-                        <span class="wiki-public-type-badge"
-                              th:text="${#strings.replace(item.articleType, '_', ' ')}">
-                            CHARACTER
-                        </span>
-                        <span th:if="${item.savedAt != null}"
-                              class="wiki-saved-time">
-                            Đã lưu: <time data-relative-time
-                                         th:datetime="${item.savedAt}"
-                                         th:text="${#temporals.format(item.savedAt, 'dd/MM/yyyy HH:mm')}">15/08/2026 10:30</time>
-                        </span>
-                    </div>
-
-                    <h2 class="wiki-saved-item-title">
-                        <a th:href="@{/wiki/{type}/{slug}(
-                            type=${item.articleTypePath},
-                            slug=${item.slug}
-                        )}"
-                           class="wiki-saved-title-link"
-                           th:text="${item.title}">
-                            Tiêu đề bài viết
-                        </a>
-                    </h2>
-
-                    <p th:if="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}"
-                       class="wiki-saved-item-summary"
-                       th:text="${item.summary}">
-                        Tóm tắt ngắn gọn bài viết.
-                    </p>
-
-                    <div class="wiki-saved-item-actions">
-                        <a th:href="@{/wiki/{type}/{slug}(
-                            type=${item.articleTypePath},
-                            slug=${item.slug}
-                        )}"
-                           class="wiki-saved-read-btn">
-                            Xem bài viết
-                        </a>
-
-                        <button type="button"
-                                class="wiki-saved-remove-btn js-wiki-unsave-btn"
-                                th:attr="data-article-id=${item.articleId},
-                                         data-unsave-url=@{/wiki/articles/{id}/save(id=${item.articleId})},
-                                         data-csrf-token=${_csrf != null ? _csrf.token : ''},
-                                         data-csrf-header=${_csrf != null ? _csrf.headerName : ''}"
-                                aria-label="Bỏ lưu bài viết">
-                            <svg xmlns="http://www.w3.org/2000/svg"
-                                 viewBox="0 0 24 24"
-                                 width="16"
-                                 height="16"
-                                 fill="none"
-                                 stroke="currentColor"
-                                 stroke-width="2"
-                                 stroke-linecap="round"
-                                 stroke-linejoin="round"
-                                 aria-hidden="true">
-                                <line x1="18" y1="6" x2="6" y2="18"></line>
-                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                <div th:if="${item.available}" class="wiki-saved-card-body">
+                    <!-- 1. LEFT: 4:5 PORTRAIT THUMBNAIL OR COVER IMAGE -->
+                    <div class="wiki-public-index-card-media" aria-hidden="true">
+                        <img th:if="${item.coverMediaAssetId != null}"
+                            class="wiki-public-index-card-image"
+                            th:src="${item.displayCoverImageUrl()}"
+                            th:data-fallback-src="${item.fallbackCoverImageUrl()}"
+                            th:alt="${item.title}"
+                            loading="lazy"
+                            th:style="'object-position: ' + ${item.coverObjectPosition()}"
+                            onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+                        <div class="wiki-public-index-card-placeholder"
+                            th:style="${item.coverMediaAssetId != null ? 'display: none;' : ''}">
+                            <svg class="wiki-public-index-card-placeholder-icon"
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round">
+                                <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                                <path d="M6 6h10"/>
+                                <path d="M6 10h10"/>
+                                <path d="M6 14h6"/>
                             </svg>
-                            <span>Bỏ lưu</span>
-                        </button>
+                        </div>
                     </div>
+
+                    <!-- 2. MIDDLE: CONTENT -->
+                    <div class="wiki-public-index-card-content">
+                        <!-- TOP META ROW: TYPE BADGE -->
+                        <div class="wiki-public-index-card-top">
+                            <span class="wiki-public-index-card-type"
+                                th:text="${#strings.replace(item.articleType, '_', ' ')}">
+                                CHARACTER
+                            </span>
+                        </div>
+
+                        <!-- TITLE -->
+                        <h2 class="wiki-public-index-card-title">
+                            <a th:href="@{/wiki/{type}/{slug}(type=${item.articleTypePath}, slug=${item.slug})}"
+                               class="wiki-saved-title-link"
+                               th:text="${item.title}">
+                                Tiêu đề bài viết
+                            </a>
+                        </h2>
+
+                        <!-- SUMMARY -->
+                        <p class="wiki-public-index-card-summary"
+                            th:if="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}"
+                            th:text="${item.summary}">
+                            Tóm tắt ngắn gọn bài viết.
+                        </p>
+                        <p class="wiki-public-index-card-summary is-empty"
+                            th:unless="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}">
+                            Chưa có phần tóm tắt.
+                        </p>
+
+                        <!-- BOTTOM META: SAVED TIMESTAMP -->
+                        <div class="wiki-public-index-card-meta">
+                            <span class="wiki-public-index-card-time-label">Đã lưu</span>
+                            <strong th:if="${item.savedAt != null}">
+                                <time data-relative-time
+                                      th:datetime="${item.savedAt}"
+                                      th:text="${#temporals.format(item.savedAt, 'dd/MM/yyyy HH:mm')}">
+                                    15/08/2026 10:30
+                                </time>
+                            </strong>
+                        </div>
+                    </div>
+
+                    <!-- 3. RIGHT: APPRECIATION SUMMARY -->
+                    <th:block th:with="summary=${appreciationSummaries != null ? appreciationSummaries[item.articleId] : null}">
+                        <div th:if="${summary != null}"
+                            class="wiki-public-index-card-appreciation">
+                            <div th:if="${summary.count > 0 and summary.average != null}"
+                                class="wiki-public-index-card-appreciation-stats">
+                                <div class="wiki-public-index-card-rating-row">
+                                    <svg class="wiki-public-index-card-star-icon"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                        aria-hidden="true">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                    </svg>
+                                    <strong class="wiki-public-index-card-rating-avg"
+                                        th:text="${summary.displayAverage()}">4.8</strong>
+                                    <span class="wiki-public-index-card-rating-scale">/ 5</span>
+                                </div>
+                                <span class="wiki-public-index-card-rating-count"
+                                    th:text="${summary.count + ' lượt đánh giá'}">128 lượt đánh giá</span>
+                            </div>
+                            <div th:if="${summary.count == 0 or summary.average == null}"
+                                class="wiki-public-index-card-appreciation-empty">
+                                <span>Chưa có đánh giá</span>
+                            </div>
+                        </div>
+                    </th:block>
+                </div>
+
+                <!-- 4. SAVED ACTIONS BAR (AVAILABLE) -->
+                <div th:if="${item.available}" class="wiki-saved-card-footer">
+                    <a th:href="@{/wiki/{type}/{slug}(type=${item.articleTypePath}, slug=${item.slug})}"
+                       class="wiki-saved-read-btn">
+                        Xem bài viết
+                    </a>
+
+                    <button type="button"
+                            class="wiki-saved-remove-btn js-wiki-unsave-btn"
+                            th:attr="data-article-id=${item.articleId},
+                                     data-unsave-url=@{/wiki/articles/{id}/save(id=${item.articleId})},
+                                     data-csrf-token=${_csrf != null ? _csrf.token : ''},
+                                     data-csrf-header=${_csrf != null ? _csrf.headerName : ''}"
+                            aria-label="Bỏ lưu bài viết">
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="16"
+                             height="16"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        <span>Bỏ lưu</span>
+                    </button>
                 </div>
 
                 <!-- UNAVAILABLE TOMBSTONE -->
@@ -194,7 +264,7 @@
                     </div>
                 </div>
 
-            </div>
+            </article>
 
         </div>
 

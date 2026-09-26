@@ -24,4 +24,10 @@ public interface WikiSavedArticleItemProjection {
     String getArticleType();
 
     String getSummary();
+
+    String getCoverMediaAssetId();
+
+    Integer getCoverPositionX();
+
+    Integer getCoverPositionY();
 }
