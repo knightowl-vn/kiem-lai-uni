@@ -6782,6 +6782,69 @@ describe('MS-05E / E8C4-UX3: Wiki Article Comments Shared CommentPresentation Mi
         assert.strictEqual(renderedComment, null, 'renderComment must return null when presentation unavailable');
         assert.strictEqual(renderedThread, null, 'renderThread must return null when presentation unavailable');
     });
+
+    test('W. Active root and reply comments render reaction widget host when reactionSummary is present', () => {
+        const doc = new FakeDocument();
+        const testComment = {
+            id: 'c-reaction-1',
+            body: 'Comment with reactions',
+            author: { displayName: 'User 1' },
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'c-reaction-1',
+                currentUserReaction: 'LIKE',
+                totalCount: 5,
+                counts: { LIKE: 4, LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
+            }
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(testComment, 'c-reaction-1', null, false, doc);
+        assert.ok(commentEl);
+
+        const widgetHost = commentEl.querySelector('[data-reaction-widget]');
+        assert.ok(widgetHost, 'Reaction widget host must be present');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-target-type'), 'COMMENT');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-target-id'), 'c-reaction-1');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-current'), 'LIKE');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-total'), '5');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-count-like'), '4');
+        assert.strictEqual(widgetHost.getAttribute('data-reaction-count-love'), '1');
+    });
+
+    test('X. When reactionSummary is omitted or null, no reaction widget is rendered', () => {
+        const doc = new FakeDocument();
+        const testComment = {
+            id: 'c-no-reaction',
+            body: 'Comment without reactions',
+            author: { displayName: 'User 2' }
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(testComment, 'c-no-reaction', null, false, doc);
+        assert.ok(commentEl);
+
+        const widgetHost = commentEl.querySelector('[data-reaction-widget]');
+        assert.strictEqual(widgetHost, null, 'Reaction widget host must NOT be present when summary is omitted');
+    });
+
+    test('Y. Tombstone comment does NOT render reaction widget host', () => {
+        const doc = new FakeDocument();
+        const tombstoneComment = {
+            id: 'c-tombstone',
+            tombstone: true,
+            reactionSummary: {
+                targetType: 'COMMENT',
+                targetId: 'c-tombstone',
+                totalCount: 3,
+                counts: { LIKE: 3 }
+            }
+        };
+
+        const commentEl = wikiCommentsModule.renderComment(tombstoneComment, 'c-tombstone', null, false, doc);
+        assert.ok(commentEl);
+
+        const widgetHost = commentEl.querySelector('[data-reaction-widget]');
+        assert.strictEqual(widgetHost, null, 'Tombstone comment must never render reaction widget');
+    });
 });
 
 describe('MS-05E / E8E-5C2B Wiki Public Discussion Exact Comment Context Focus (Cases A-L)', () => {
@@ -7222,6 +7285,128 @@ describe('MS-05E / E8E-5C2B Wiki Public Discussion Exact Comment Context Focus (
         wikiCommentsModule.clearHighlight();
         assert.strictEqual(wikiCommentsModule.getHighlightedElement(), null);
         assert.strictEqual(el.classList.contains('is-restored-target'), false);
+    });
+
+    describe('Shared Comment Composer Design System Classes', () => {
+        test('Inline reply composer renders shared kl-comment-composer classes alongside wiki classes', async () => {
+            const doc = createEnvironment({ authenticated: 'true' });
+            const sampleThread = {
+                root: {
+                    id: ROOT_ID,
+                    authorUserId: '33333333-3333-3333-3333-333333333333',
+                    body: 'Thread for reply composer test',
+                    tombstone: false,
+                    createdAt: '2026-09-19T10:00:00Z',
+                    author: { displayName: 'Scholar' }
+                },
+                replies: []
+            };
+
+            wikiCommentsModule.setFetchImplementation(async () => ({
+                status: 200,
+                json: async () => ({
+                    threads: [sampleThread],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            }));
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+
+            wikiCommentsModule.openReplyComposer(ROOT_ID, ROOT_ID, 'Scholar', doc);
+
+            const slot = doc.querySelector('[data-reply-slot="' + ROOT_ID + '"]');
+            assert.ok(slot);
+
+            const composerBox = slot.querySelector('.wiki-inline-composer');
+            assert.ok(composerBox);
+            assert.ok(composerBox.classList.contains('kl-comment-composer'));
+
+            const form = composerBox.querySelector('form');
+            assert.ok(form.classList.contains('kl-comment-composer__form'));
+            assert.ok(form.classList.contains('wiki-comment-composer-form'));
+
+            const textarea = form.querySelector('textarea');
+            assert.ok(textarea.classList.contains('kl-comment-composer__input'));
+            assert.ok(textarea.classList.contains('wiki-comment-textarea'));
+
+            const footer = form.querySelector('.wiki-comment-composer-footer');
+            assert.ok(footer.classList.contains('kl-comment-composer__footer'));
+
+            const errorSpan = form.querySelector('.wiki-comment-composer-error');
+            assert.ok(errorSpan.classList.contains('kl-comment-composer__status'));
+            assert.ok(errorSpan.classList.contains('kl-comment-composer__error'));
+
+            const actions = form.querySelector('.wiki-comment-composer-actions');
+            assert.ok(actions.classList.contains('kl-comment-composer__actions'));
+
+            const cancelBtn = form.querySelector('.wiki-comment-btn--secondary');
+            assert.ok(cancelBtn.classList.contains('kl-comment-composer__cancel'));
+
+            const submitBtn = form.querySelector('.wiki-comment-btn--primary');
+            assert.ok(submitBtn.classList.contains('kl-comment-composer__submit'));
+        });
+
+        test('Inline edit composer renders shared kl-comment-composer classes alongside wiki classes', async () => {
+            const doc = createEnvironment({ authenticated: 'true' });
+            const sampleThread = {
+                root: {
+                    id: ROOT_ID,
+                    authorUserId: '11111111-1111-1111-1111-111111111111',
+                    body: 'Thread for edit composer test',
+                    tombstone: false,
+                    canEdit: true,
+                    createdAt: '2026-09-19T10:00:00Z',
+                    author: { displayName: 'Me' }
+                },
+                replies: []
+            };
+
+            wikiCommentsModule.setFetchImplementation(async () => ({
+                status: 200,
+                json: async () => ({
+                    threads: [sampleThread],
+                    threadCount: 1,
+                    commentCount: 1,
+                    page: 0,
+                    size: 20,
+                    hasNext: false
+                })
+            }));
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+
+            wikiCommentsModule.openEditComposer(ROOT_ID, ROOT_ID, doc);
+
+            const form = doc.querySelector('.wiki-inline-edit-form');
+            assert.ok(form);
+            assert.ok(form.classList.contains('kl-comment-composer__form'));
+
+            const textarea = form.querySelector('textarea');
+            assert.ok(textarea.classList.contains('kl-comment-composer__input'));
+            assert.ok(textarea.classList.contains('wiki-comment-textarea'));
+
+            const footer = form.querySelector('.wiki-comment-composer-footer');
+            assert.ok(footer.classList.contains('kl-comment-composer__footer'));
+
+            const errorSpan = form.querySelector('.wiki-comment-composer-error');
+            assert.ok(errorSpan.classList.contains('kl-comment-composer__status'));
+            assert.ok(errorSpan.classList.contains('kl-comment-composer__error'));
+
+            const actions = form.querySelector('.wiki-comment-composer-actions');
+            assert.ok(actions.classList.contains('kl-comment-composer__actions'));
+
+            const cancelBtn = form.querySelector('.wiki-comment-btn--secondary');
+            assert.ok(cancelBtn.classList.contains('kl-comment-composer__cancel'));
+
+            const submitBtn = form.querySelector('.wiki-comment-btn--primary');
+            assert.ok(submitBtn.classList.contains('kl-comment-composer__submit'));
+        });
     });
 });
 

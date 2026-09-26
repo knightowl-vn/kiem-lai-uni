@@ -91,8 +91,9 @@ class PublicInteractionReactionControllerTest {
         };
     }
 
-    private Map<ReactionType, Long> defaultCounts(long love, long fire, long haha, long sad) {
+    private Map<ReactionType, Long> defaultCounts(long like, long love, long fire, long haha, long sad) {
         Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+        counts.put(ReactionType.LIKE, like);
         counts.put(ReactionType.LOVE, love);
         counts.put(ReactionType.FIRE, fire);
         counts.put(ReactionType.HAHA, haha);
@@ -131,7 +132,7 @@ class PublicInteractionReactionControllerTest {
             ReactionTarget target = ReactionTarget.novelChapter(TARGET_ID);
             ReactionSummary summary = ReactionSummary.of(
                     target,
-                    defaultCounts(3, 1, 0, 0),
+                    defaultCounts(2, 3, 1, 0, 0),
                     null
             );
 
@@ -144,11 +145,12 @@ class PublicInteractionReactionControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.targetType").value("NOVEL_CHAPTER"))
                     .andExpect(jsonPath("$.targetId").value(TARGET_ID.toString()))
+                    .andExpect(jsonPath("$.counts.LIKE").value(2))
                     .andExpect(jsonPath("$.counts.LOVE").value(3))
                     .andExpect(jsonPath("$.counts.FIRE").value(1))
                     .andExpect(jsonPath("$.counts.HAHA").value(0))
                     .andExpect(jsonPath("$.counts.SAD").value(0))
-                    .andExpect(jsonPath("$.totalCount").value(4))
+                    .andExpect(jsonPath("$.totalCount").value(6))
                     .andExpect(jsonPath("$.currentUserReaction").doesNotExist());
         }
 
@@ -158,8 +160,8 @@ class PublicInteractionReactionControllerTest {
             ReactionTarget target = ReactionTarget.comment(TARGET_ID);
             ReactionSummary summary = ReactionSummary.of(
                     target,
-                    defaultCounts(10, 0, 5, 1),
-                    ReactionType.FIRE
+                    defaultCounts(5, 10, 0, 5, 1),
+                    ReactionType.LIKE
             );
 
             when(getReactionSummaryUseCase.execute(eq(target), eq(USER_ID)))
@@ -172,12 +174,13 @@ class PublicInteractionReactionControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.targetType").value("COMMENT"))
                     .andExpect(jsonPath("$.targetId").value(TARGET_ID.toString()))
+                    .andExpect(jsonPath("$.counts.LIKE").value(5))
                     .andExpect(jsonPath("$.counts.LOVE").value(10))
                     .andExpect(jsonPath("$.counts.FIRE").value(0))
                     .andExpect(jsonPath("$.counts.HAHA").value(5))
                     .andExpect(jsonPath("$.counts.SAD").value(1))
-                    .andExpect(jsonPath("$.totalCount").value(16))
-                    .andExpect(jsonPath("$.currentUserReaction").value("FIRE"));
+                    .andExpect(jsonPath("$.totalCount").value(21))
+                    .andExpect(jsonPath("$.currentUserReaction").value("LIKE"));
         }
 
         @Test
@@ -242,14 +245,14 @@ class PublicInteractionReactionControllerTest {
     class SetReactionTests {
 
         @Test
-        @DisplayName("Authenticated PUT with reactionType -> sets reaction and returns 200 OK with fresh summary")
+        @DisplayName("Authenticated PUT with reactionType LIKE -> sets reaction and returns 200 OK with fresh summary")
         void shouldSetReactionWhenAuthenticated() throws Exception {
-            ReactionTarget target = ReactionTarget.novelChapter(TARGET_ID);
+            ReactionTarget target = ReactionTarget.comment(TARGET_ID);
             Reaction reaction = Reaction.create(
                     UUID.randomUUID(),
                     USER_ID,
                     target,
-                    ReactionType.LOVE,
+                    ReactionType.LIKE,
                     Instant.now()
             );
 
@@ -257,16 +260,16 @@ class PublicInteractionReactionControllerTest {
 
             ReactionSummary updatedSummary = ReactionSummary.of(
                     target,
-                    defaultCounts(1, 0, 0, 0),
-                    ReactionType.LOVE
+                    defaultCounts(1, 0, 0, 0, 0),
+                    ReactionType.LIKE
             );
             when(getReactionSummaryUseCase.execute(eq(target), eq(USER_ID))).thenReturn(updatedSummary);
 
             String requestJson = """
                     {
-                        "targetType": "NOVEL_CHAPTER",
+                        "targetType": "COMMENT",
                         "targetId": "%s",
-                        "reactionType": "LOVE"
+                        "reactionType": "LIKE"
                     }
                     """.formatted(TARGET_ID);
 
@@ -275,17 +278,17 @@ class PublicInteractionReactionControllerTest {
                             .content(requestJson)
                             .with(attachRequestIdentity(USER_ID)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.targetType").value("NOVEL_CHAPTER"))
+                    .andExpect(jsonPath("$.targetType").value("COMMENT"))
                     .andExpect(jsonPath("$.targetId").value(TARGET_ID.toString()))
-                    .andExpect(jsonPath("$.counts.LOVE").value(1))
+                    .andExpect(jsonPath("$.counts.LIKE").value(1))
                     .andExpect(jsonPath("$.totalCount").value(1))
-                    .andExpect(jsonPath("$.currentUserReaction").value("LOVE"));
+                    .andExpect(jsonPath("$.currentUserReaction").value("LIKE"));
 
             ArgumentCaptor<SetReactionCommand> captor = ArgumentCaptor.forClass(SetReactionCommand.class);
             verify(setReactionUseCase).execute(captor.capture());
             assertThat(captor.getValue().target()).isEqualTo(target);
             assertThat(captor.getValue().userId()).isEqualTo(USER_ID);
-            assertThat(captor.getValue().reactionType()).isEqualTo(ReactionType.LOVE);
+            assertThat(captor.getValue().reactionType()).isEqualTo(ReactionType.LIKE);
             verify(removeReactionUseCase, never()).execute(any());
         }
 
@@ -298,7 +301,7 @@ class PublicInteractionReactionControllerTest {
 
             ReactionSummary updatedSummary = ReactionSummary.of(
                     target,
-                    defaultCounts(0, 0, 0, 0),
+                    defaultCounts(0, 0, 0, 0, 0),
                     null
             );
             when(getReactionSummaryUseCase.execute(eq(target), eq(USER_ID))).thenReturn(updatedSummary);
@@ -333,9 +336,9 @@ class PublicInteractionReactionControllerTest {
         void shouldReturn401WhenAnonymous() throws Exception {
             String requestJson = """
                     {
-                        "targetType": "NOVEL_CHAPTER",
+                        "targetType": "COMMENT",
                         "targetId": "%s",
-                        "reactionType": "LOVE"
+                        "reactionType": "LIKE"
                     }
                     """.formatted(TARGET_ID);
 
@@ -351,15 +354,15 @@ class PublicInteractionReactionControllerTest {
         @Test
         @DisplayName("PUT on ineligible target -> 404 Not Found")
         void shouldReturn404WhenTargetNotIneligible() throws Exception {
-            ReactionTarget target = ReactionTarget.novelChapter(TARGET_ID);
+            ReactionTarget target = ReactionTarget.comment(TARGET_ID);
             when(setReactionUseCase.execute(any(SetReactionCommand.class)))
                     .thenThrow(new ReactionTargetNotEligibleException(target));
 
             String requestJson = """
                     {
-                        "targetType": "NOVEL_CHAPTER",
+                        "targetType": "COMMENT",
                         "targetId": "%s",
-                        "reactionType": "LOVE"
+                        "reactionType": "LIKE"
                     }
                     """.formatted(TARGET_ID);
 
@@ -375,7 +378,7 @@ class PublicInteractionReactionControllerTest {
         void shouldReturn400WhenReactionTypeIsInvalid() throws Exception {
             String requestJson = """
                     {
-                        "targetType": "NOVEL_CHAPTER",
+                        "targetType": "COMMENT",
                         "targetId": "%s",
                         "reactionType": "INVALID_EMOJI"
                     }
@@ -402,7 +405,7 @@ class PublicInteractionReactionControllerTest {
             // Missing targetId
             mockMvc.perform(put("/api/interaction/reactions")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"targetType\": \"NOVEL_CHAPTER\"}")
+                            .content("{\"targetType\": \"COMMENT\"}")
                             .with(attachRequestIdentity(USER_ID)))
                     .andExpect(status().isBadRequest());
 

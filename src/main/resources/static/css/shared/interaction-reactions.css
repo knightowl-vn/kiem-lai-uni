@@ -1,7 +1,8 @@
 /**
- * KiemLai Universe — Content Reactions Component Styles
+ * KiemLai Universe — Content Reactions Component Styles (MS-05I)
  *
- * Scoped styling for the reusable Reaction Picker widget across Reader, Comments, and Universe surfaces.
+ * Scoped styling for the reusable Reaction Picker widget across Comments, Discussion, and Universe surfaces.
+ * Redesigned for neutral outline LIKE default, warm active styling, and 5-reaction floating palette.
  */
 
 .kl-reaction-widget {
@@ -13,48 +14,68 @@
     font-family: inherit;
 }
 
-/* Collapsed Trigger Button */
+/* Collapsed Trigger Button (Minimal Transparent Outline LIKE by Default) */
 .kl-reaction-trigger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    padding: 3px 8px;
-    min-height: 28px;
-    border: 1px solid var(--kl-border-subtle, #e2e8f0);
-    border-radius: 9999px;
-    background-color: var(--kl-surface-card, #ffffff);
-    color: var(--kl-text-muted, #64748b);
+    padding: 2px 6px;
+    border: none;
+    border-radius: 4px;
+    background-color: transparent;
+    color: var(--kl-text-muted, #78716c);
     font-size: 0.8125rem;
     font-weight: 500;
     line-height: 1;
     cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     -webkit-tap-highlight-color: transparent;
 }
 
 .kl-reaction-trigger:hover {
-    background-color: var(--kl-surface-hover, #f8fafc);
-    border-color: var(--kl-border-medium, #cbd5e1);
-    color: var(--kl-text-main, #334155);
+    background-color: transparent;
+    color: var(--kl-text-main, #44403c);
 }
 
 .kl-reaction-trigger:focus-visible {
-    outline: 2px solid var(--kl-focus-ring, #3b82f6);
+    outline: 2px solid var(--kl-focus-ring, #d97706);
     outline-offset: 1px;
 }
 
-.kl-reaction-trigger.has-reaction {
-    background-color: var(--kl-primary-subtle, #fef2f2);
-    border-color: var(--kl-primary-border, #fca5a5);
-    color: var(--kl-primary-text, #dc2626);
+/* Active Reaction States (Flat Transparent with Warm Color) */
+.kl-reaction-trigger.has-reaction,
+.kl-reaction-trigger.has-reaction.is-like {
+    border: none;
+    background-color: transparent;
+    color: var(--kl-primary-text, #b45309);
     font-weight: 600;
 }
 
+.kl-reaction-trigger.has-reaction:hover {
+    background-color: transparent;
+    color: var(--kl-primary-text, #b45309);
+}
+
+.kl-reaction-trigger__icon,
 .kl-reaction-trigger__emoji {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 0.9375rem;
     line-height: 1;
+}
+
+.kl-reaction-icon {
     display: inline-block;
+    vertical-align: middle;
+    width: 15px;
+    height: 15px;
+    color: inherit;
+}
+
+.kl-reaction-icon--filled {
+    fill: currentColor;
 }
 
 .kl-reaction-trigger__count {
@@ -73,12 +94,12 @@
     z-index: 120;
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 3px 4px;
+    gap: 3px;
+    padding: 3px 5px;
     background-color: var(--kl-surface-card, #ffffff);
     border: 1px solid var(--kl-border-subtle, #e2e8f0);
     border-radius: 9999px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.06);
     white-space: nowrap;
     pointer-events: auto;
     bottom: calc(100% + 6px);
@@ -119,7 +140,7 @@
     transform-origin: top left;
 }
 
-/* Individual Reaction Option Button */
+/* Individual Reaction Option Button (LIKE, LOVE, FIRE, HAHA, SAD) */
 .kl-reaction-option {
     display: inline-flex;
     align-items: center;
@@ -131,43 +152,45 @@
     border: 1px solid transparent;
     border-radius: 9999px;
     background-color: transparent;
-    color: var(--kl-text-muted, #64748b);
+    color: var(--kl-text-muted, #78716c);
     cursor: pointer;
     transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.12s ease;
     -webkit-tap-highlight-color: transparent;
 }
 
 .kl-reaction-option:hover {
-    background-color: var(--kl-surface-hover, #f1f5f9);
+    background-color: var(--kl-surface-hover, #f5f5f4);
     transform: scale(1.18);
 }
 
 .kl-reaction-option:focus-visible {
-    outline: 2px solid var(--kl-focus-ring, #3b82f6);
+    outline: 2px solid var(--kl-focus-ring, #d97706);
     outline-offset: 1px;
 }
 
 .kl-reaction-option.is-active {
-    background-color: var(--kl-primary-subtle, #fef2f2);
-    border-color: var(--kl-primary-border, #fca5a5);
-    color: var(--kl-primary-text, #dc2626);
+    background-color: var(--kl-primary-subtle, #fef3c7);
+    border-color: var(--kl-primary-border, #fcd34d);
+    color: var(--kl-primary-text, #b45309);
     font-weight: 600;
 }
 
 .kl-reaction-option__emoji {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: 1.125rem;
     line-height: 1;
-    display: inline-block;
 }
 
 .kl-reaction-option__count {
     font-size: 0.6875rem;
     font-variant-numeric: tabular-nums;
-    color: var(--kl-text-muted, #64748b);
+    color: var(--kl-text-muted, #78716c);
 }
 
 .kl-reaction-option.is-active .kl-reaction-option__count {
-    color: var(--kl-primary-text, #dc2626);
+    color: var(--kl-primary-text, #b45309);
 }
 
 .kl-reaction-option__count[hidden],

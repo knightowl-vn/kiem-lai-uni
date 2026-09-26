@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReaderChapterReactionTemplateContractTest {
 
     @Test
-    @DisplayName("1. chapter.html includes interaction-reactions.css stylesheet in head")
+    @DisplayName("1. chapter.html includes interaction-reactions.css stylesheet in head for comment reactions")
     void chapterReadingPageIncludesReactionStylesheet() throws Exception {
         String chapterPage = read("src/main/resources/templates/novel/chapter.html");
 
@@ -20,44 +20,45 @@ class ReaderChapterReactionTemplateContractTest {
     }
 
     @Test
-    @DisplayName("2. chapter.html renders reaction host between bottom nav and comments with correct attributes and th:if guard")
-    void chapterReadingPageRendersReactionHostMarkup() throws Exception {
+    @DisplayName("2. chapter.html does NOT render chapter reactions; bottom nav flows directly to comments")
+    void chapterReadingPageFlowsDirectlyFromBottomNavToCommentsWithoutChapterReactions() throws Exception {
         String chapterPage = read("src/main/resources/templates/novel/chapter.html");
 
-        // Section exists with th:if guard and aria-label
-        assertThat(chapterPage).contains("th:if=\"${reactionSummary != null}\"");
-        assertThat(chapterPage).contains("class=\"novel-chapter-reactions\"");
-        assertThat(chapterPage).contains("id=\"novelChapterReactions\"");
-        assertThat(chapterPage).contains("aria-label=\"Cảm xúc chương\"");
+        // Chapter reactions removed entirely
+        assertThat(chapterPage).doesNotContain("id=\"novelChapterReactions\"");
+        assertThat(chapterPage).doesNotContain("class=\"novel-chapter-reactions\"");
+        assertThat(chapterPage).doesNotContain("data-reaction-target-type=\"NOVEL_CHAPTER\"");
+        assertThat(chapterPage).doesNotContain("chapterReaction");
 
-        // Widget host container with required data attributes
-        assertThat(chapterPage).contains("<div class=\"kl-reaction-widget\"");
-        assertThat(chapterPage).contains("data-reaction-widget");
-        assertThat(chapterPage).contains("data-reaction-target-type=\"NOVEL_CHAPTER\"");
-        assertThat(chapterPage).contains("data-reaction-target-id=${chapter.id}");
-        assertThat(chapterPage).contains("data-reaction-current=");
-        assertThat(chapterPage).contains("data-reaction-total=");
-        assertThat(chapterPage).contains("data-reaction-count-love=");
-        assertThat(chapterPage).contains("data-reaction-count-fire=");
-        assertThat(chapterPage).contains("data-reaction-count-haha=");
-        assertThat(chapterPage).contains("data-reaction-count-sad=");
-
-        // Placement proof: bottom nav comes before reactions, reactions come before comments
+        // Placement proof: bottom nav comes before comments
         int bottomNavIdx = chapterPage.indexOf("class=\"novel-chapter-nav novel-chapter-nav--bottom\"");
-        int reactionsIdx = chapterPage.indexOf("class=\"novel-chapter-reactions\"");
-        int commentsIdx = chapterPage.indexOf("class=\"novel-chapter-comments\"");
+        int commentsIdx = chapterPage.indexOf("id=\"novelChapterComments\"");
 
         assertThat(bottomNavIdx).isGreaterThan(0);
-        assertThat(reactionsIdx).isGreaterThan(bottomNavIdx);
-        assertThat(commentsIdx).isGreaterThan(reactionsIdx);
+        assertThat(commentsIdx).isGreaterThan(bottomNavIdx);
     }
 
     @Test
-    @DisplayName("3. chapter.html includes interaction-reactions.js script at bottom")
+    @DisplayName("3. chapter.html includes interaction-reactions.js script at bottom for comment reactions")
     void chapterReadingPageIncludesReactionScript() throws Exception {
         String chapterPage = read("src/main/resources/templates/novel/chapter.html");
 
         assertThat(chapterPage).contains("<script th:src=\"@{/js/shared/interaction-reactions.js}\"\n        defer></script>");
+    }
+
+    @Test
+    @DisplayName("4. chapter.html renders shared kl-comment-composer classes on root comment composer")
+    void chapterReadingPageIncludesSharedComposerClasses() throws Exception {
+        String chapterPage = read("src/main/resources/templates/novel/chapter.html");
+
+        assertThat(chapterPage).contains("class=\"kl-comment-composer novel-chapter-comment-composer-wrapper\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__form novel-chapter-comment-composer\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__label novel-chapter-comment-composer-label\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__input novel-chapter-comment-composer-input\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__footer\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__status novel-chapter-comment-composer-status\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__actions novel-chapter-comment-composer-actions\"");
+        assertThat(chapterPage).contains("class=\"kl-comment-composer__submit novel-chapter-comment-composer-submit\"");
     }
 
     private String read(String relativePath) throws Exception {

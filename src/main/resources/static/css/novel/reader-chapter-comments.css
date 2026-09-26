@@ -173,7 +173,8 @@
 
 .novel-chapter-comments .novel-comment-replies {
     margin-top: 0.85rem;
-    padding-left: 1.25rem;
+    margin-left: 0;
+    padding-left: 1rem;
     border-left: 2px solid var(--reader-border, #e5e7eb);
     display: flex;
     flex-direction: column;
@@ -191,7 +192,8 @@
     }
 
     .novel-chapter-comments .novel-comment-replies {
-        padding-left: 0.875rem;
+        margin-left: 0;
+        padding-left: 0.75rem;
     }
 }
 
@@ -371,14 +373,14 @@
     min-height: 5rem;
     max-height: 15rem;
     resize: vertical;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 0.875rem;
     font-family: inherit;
     font-size: 0.9375rem;
     line-height: 1.5;
     color: var(--reader-text, #111827);
     background: var(--reader-surface, #ffffff);
     border: 1px solid var(--reader-border, #d1d5db);
-    border-radius: 6px;
+    border-radius: 8px;
     box-sizing: border-box;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -422,14 +424,15 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.5rem 1.25rem;
+    min-height: 38px;
+    padding: 0.45rem 1.15rem;
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: 600;
     color: #ffffff;
     background: var(--color-primary, #2563eb);
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
     transition: background-color 0.15s ease, opacity 0.15s ease;
 }

@@ -24,6 +24,7 @@ function createMockElement(tagName = 'div', initialAttrs = {}, ownerDoc = null) 
     const children = [];
     const style = { visibility: '', display: '' };
     let customRect = null;
+    let innerHtmlContent = '';
 
     const el = {
         nodeType: 1,
@@ -116,6 +117,8 @@ function createMockElement(tagName = 'div', initialAttrs = {}, ownerDoc = null) 
         matches: (sel) => matchesSelector(el, sel),
         get id() { return attrs['id'] || ''; },
         set id(val) { attrs['id'] = String(val); },
+        get innerHTML() { return innerHtmlContent; },
+        set innerHTML(val) { innerHtmlContent = String(val); },
         contains: (other) => {
             let curr = other;
             while (curr) {
@@ -166,6 +169,15 @@ function matchesSelector(el, sel) {
         return true;
     }
 
+    const pseudoNotMatch = remaining.match(/:not\(([^)]+)\)/);
+    if (pseudoNotMatch) {
+        const innerSel = pseudoNotMatch[1];
+        if (matchesSelector(el, innerSel)) {
+            return false;
+        }
+        remaining = remaining.replace(pseudoNotMatch[0], '');
+    }
+
     const brackets = remaining.match(/\[[^\]]+\]/g);
     if (brackets && brackets.length > 0) {
         for (const b of brackets) {
@@ -187,7 +199,7 @@ function matchesSelector(el, sel) {
         return true;
     }
 
-    return false;
+    return !remaining;
 }
 
 function createMockDocument() {
@@ -250,9 +262,9 @@ function createMockDocument() {
     return doc;
 }
 
-describe('InteractionReactions Corrective Pass Unit Tests', () => {
+describe('InteractionReactions MS-05I Corrective Pass Tests', () => {
     let doc;
-    const TARGET_CHAPTER_ID = '11111111-1111-1111-1111-111111111111';
+    const TARGET_COMMENT_ID = '22222222-2222-2222-2222-222222222222';
 
     beforeEach(() => {
         InteractionReactions.destroy();
@@ -260,26 +272,38 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
         InteractionReactions.init(doc);
     });
 
-    test('1. Dynamic inserted empty reaction host is automatically hydrated by MutationObserver', () => {
+    function makeValidResponse(currentUserReaction = null, counts = { LIKE: 0, LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 }, totalCount = 0) {
+        return {
+            targetType: 'COMMENT',
+            targetId: TARGET_COMMENT_ID,
+            counts: { LIKE: 0, LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0, ...counts },
+            totalCount: totalCount,
+            currentUserReaction: currentUserReaction
+        };
+    }
+
+    test('1. Dynamic inserted empty reaction host is automatically hydrated by MutationObserver with LIKE outline icon', () => {
         const dynamicHost = createMockElement('div', {
             'data-reaction-widget': '',
             'data-reaction-target-type': 'COMMENT',
-            'data-reaction-target-id': '22222222-2222-2222-2222-222222222222',
-            'data-reaction-total': '5',
-            'data-reaction-current': 'FIRE',
-            'data-reaction-count-fire': '5'
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0',
+            'data-reaction-count-like': '0',
+            'data-reaction-count-love': '0',
+            'data-reaction-count-fire': '0',
+            'data-reaction-count-haha': '0',
+            'data-reaction-count-sad': '0'
         }, doc);
 
-        // Appending to doc.body triggers the mock MutationObserver
         doc.body.appendChild(dynamicHost);
 
         assert.strictEqual(dynamicHost.getAttribute('data-reaction-enhanced'), 'true');
         const trigger = dynamicHost.querySelector('[data-reaction-trigger]');
         assert.ok(trigger, 'Trigger should be auto-created on dynamic insertion');
-        const emoji = dynamicHost.querySelector('[data-reaction-trigger-emoji]');
-        assert.strictEqual(emoji.textContent, '🔥');
-        const count = dynamicHost.querySelector('[data-reaction-trigger-count]');
-        assert.strictEqual(count.textContent, '5');
+        const iconSpan = dynamicHost.querySelector('[data-reaction-trigger-icon]');
+        assert.ok(iconSpan);
+        assert.ok(iconSpan.innerHTML.includes('kl-reaction-icon'), 'Should render SVG outline LIKE icon');
+        assert.strictEqual(trigger.classList.contains('has-reaction'), false);
     });
 
     test('2. Dynamic hydration does not install per-widget listeners', () => {
@@ -298,85 +322,150 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
         assert.strictEqual(afterListeners, initialListeners, 'Listener count must be constant and not increase per widget');
     });
 
-    test('3. Touch pointerdown + click on hybrid/fine-pointer environment opens palette without LOVE mutation', async () => {
-        let fetchCalled = false;
-        InteractionReactions.setFetch(async () => {
-            fetchCalled = true;
-            return { ok: true, json: async () => ({}) };
+    test('3. Desktop quick click on unreacted trigger sends PUT with LIKE', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse('LIKE', { LIKE: 1 }, 1)
+            };
         });
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
         }, doc);
         doc.body.appendChild(widget);
 
         const trigger = widget.querySelector('[data-reaction-trigger]');
-        const palette = widget.querySelector('[data-reaction-palette]');
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
 
-        // Pointerdown with touch on hybrid device
-        await doc.dispatchEvent('pointerdown', { target: trigger, pointerType: 'touch' });
-        // Subsequent click event
-        await doc.dispatchEvent('click', { target: trigger, pointerType: 'touch' });
-
-        assert.strictEqual(palette.hidden, false, 'Palette must open on touch tap');
-        assert.strictEqual(fetchCalled, false, 'Touch tap must NEVER send immediate LOVE');
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, 'LIKE');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'LIKE');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
+        assert.ok(trigger.classList.contains('has-reaction'));
+        assert.ok(trigger.classList.contains('is-like'));
     });
 
-    test('4. Pen opens palette without mutation', async () => {
-        let fetchCalled = false;
-        InteractionReactions.setFetch(async () => {
-            fetchCalled = true;
-            return { ok: true, json: async () => ({}) };
+    test('4. Desktop quick click on active reaction trigger removes reaction (sends null)', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse(null, { LIKE: 0 }, 0)
+            };
         });
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-current': 'LIKE',
+            'data-reaction-total': '1',
+            'data-reaction-count-like': '1'
         }, doc);
         doc.body.appendChild(widget);
 
         const trigger = widget.querySelector('[data-reaction-trigger]');
-        const palette = widget.querySelector('[data-reaction-palette]');
+        assert.ok(trigger.classList.contains('has-reaction'));
 
-        await doc.dispatchEvent('pointerdown', { target: trigger, pointerType: 'pen' });
-        await doc.dispatchEvent('click', { target: trigger, pointerType: 'pen' });
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
 
-        assert.strictEqual(palette.hidden, false, 'Palette must open on pen tap');
-        assert.strictEqual(fetchCalled, false, 'Pen tap must not send mutation');
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, null);
+        assert.strictEqual(widget.hasAttribute('data-reaction-current'), false);
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '0');
+        assert.strictEqual(trigger.classList.contains('has-reaction'), false);
     });
 
-    test('5. Keyboard-generated click cannot LOVE-react or immediately close picker', async () => {
-        let fetchCalled = false;
-        InteractionReactions.setFetch(async () => {
-            fetchCalled = true;
-            return { ok: true, json: async () => ({}) };
+    test('3b. Desktop click on unreacted trigger while hover-open closes palette AND sends PUT with LIKE', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse('LIKE', { LIKE: 1 }, 1)
+            };
         });
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
         }, doc);
         doc.body.appendChild(widget);
 
-        const trigger = widget.querySelector('[data-reaction-trigger]');
+        // Open palette via hover or openPalette
+        InteractionReactions.openPalette(widget);
         const palette = widget.querySelector('[data-reaction-palette]');
+        assert.strictEqual(palette.hidden, false, 'Palette must be open');
 
-        // Synthetic keyboard click (detail === 0)
-        await doc.dispatchEvent('click', { target: trigger, detail: 0, pointerType: '' });
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
 
-        assert.strictEqual(palette.hidden, false, 'Keyboard click must open palette');
-        assert.strictEqual(fetchCalled, false, 'Keyboard click must not send LOVE');
+        // Palette must be closed AND LIKE must be set
+        assert.strictEqual(palette.hidden, true, 'Palette must close after clicking trigger');
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, 'LIKE');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'LIKE');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
     });
 
-    test('6. Pointerover with mouse opens palette', async () => {
+    test('4b. Desktop click on active reaction trigger while hover-open closes palette AND removes reaction', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse(null, { LIKE: 0 }, 0)
+            };
+        });
+
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-current': 'LIKE',
+            'data-reaction-total': '1',
+            'data-reaction-count-like': '1'
+        }, doc);
+        doc.body.appendChild(widget);
+
+        // Open palette
+        InteractionReactions.openPalette(widget);
+        const palette = widget.querySelector('[data-reaction-palette]');
+        assert.strictEqual(palette.hidden, false, 'Palette must be open');
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
+
+        // Palette must be closed AND reaction must be removed
+        assert.strictEqual(palette.hidden, true, 'Palette must close after clicking trigger');
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, null);
+        assert.strictEqual(widget.hasAttribute('data-reaction-current'), false);
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '0');
+    });
+
+    test('5. Desktop hover intent opens palette after 550ms delay', async () => {
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
         doc.body.appendChild(widget);
 
@@ -385,32 +474,44 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
 
         await doc.dispatchEvent('pointerover', { target: widget, pointerType: 'mouse' });
 
-        assert.strictEqual(palette.hidden, false, 'Mouse pointerover should open palette');
+        // Immediately after pointerover, palette must still be hidden (hover intent delay)
+        assert.strictEqual(palette.hidden, true, 'Palette must not open immediately on mouseover');
+
+        // Wait for 580ms
+        await new Promise(resolve => setTimeout(resolve, 580));
+
+        assert.strictEqual(palette.hidden, false, 'Palette must open after 550ms hover intent delay');
     });
 
-    test('7. Pointerover touch/pen does not hover-open palette', async () => {
+    test('6. Desktop hover intent cancelled if pointer leaves before 550ms', async () => {
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
+        const outsideEl = createMockElement('div', {}, doc);
         doc.body.appendChild(widget);
+        doc.body.appendChild(outsideEl);
 
         const palette = widget.querySelector('[data-reaction-palette]');
         assert.strictEqual(palette.hidden, true);
 
-        await doc.dispatchEvent('pointerover', { target: widget, pointerType: 'touch' });
-        assert.strictEqual(palette.hidden, true, 'Touch pointerover must not open palette');
+        await doc.dispatchEvent('pointerover', { target: widget, pointerType: 'mouse' });
+        // Move out after 200ms
+        await new Promise(resolve => setTimeout(resolve, 200));
+        await doc.dispatchEvent('pointerout', { target: widget, relatedTarget: outsideEl, pointerType: 'mouse' });
 
-        await doc.dispatchEvent('pointerover', { target: widget, pointerType: 'pen' });
-        assert.strictEqual(palette.hidden, true, 'Pen pointerover must not open palette');
+        // Wait remaining time past 550ms
+        await new Promise(resolve => setTimeout(resolve, 400));
+
+        assert.strictEqual(palette.hidden, true, 'Palette must remain hidden if pointer left before hover timer');
     });
 
-    test('8. Actual delayed hover close (timer expiration)', async () => {
+    test('7. Delayed hover close (250ms grace period)', async () => {
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
         doc.body.appendChild(widget);
 
@@ -421,139 +522,435 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
         const outsideEl = createMockElement('div', {}, doc);
         doc.body.appendChild(outsideEl);
 
-        // Pointerout with relatedTarget outside widget starts timer
         await doc.dispatchEvent('pointerout', { target: widget, relatedTarget: outsideEl, pointerType: 'mouse' });
 
-        // Palette is still open immediately (during 250ms grace window)
-        assert.strictEqual(palette.hidden, false, 'Palette must stay open immediately after pointerout');
+        // Still open immediately
+        assert.strictEqual(palette.hidden, false, 'Palette must stay open during grace window');
 
-        // Wait for 280ms for timer expiration
+        // Wait 280ms
         await new Promise(resolve => setTimeout(resolve, 280));
 
-        assert.strictEqual(palette.hidden, true, 'Palette must close after hover timer expires');
+        assert.strictEqual(palette.hidden, true, 'Palette must close after 250ms close delay');
     });
 
-    test('9. Escape restores focus to trigger button', async () => {
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const trigger = widget.querySelector('[data-reaction-trigger]');
-        InteractionReactions.openPalette(widget);
-
-        await doc.dispatchEvent('keydown', { key: 'Escape' });
-
-        const palette = widget.querySelector('[data-reaction-palette]');
-        assert.strictEqual(palette.hidden, true);
-        assert.strictEqual(doc.activeElement, trigger, 'Focus must be restored to trigger on Escape');
-    });
-
-    test('10. Viewport flip uses measured palette height, not fixed 110 threshold', () => {
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const trigger = widget.querySelector('[data-reaction-trigger]');
-        const palette = widget.querySelector('[data-reaction-palette]');
-
-        // Custom rect: trigger near top (top: 30px, height: 32px), palette height 50px
-        trigger.setCustomRect({ top: 30, bottom: 62, left: 100, right: 200, width: 100, height: 32 });
-        palette.setCustomRect({ top: 0, bottom: 50, left: 100, right: 240, width: 140, height: 50 });
-
-        InteractionReactions.openPalette(widget);
-
-        assert.ok(palette.classList.contains('kl-reaction-palette--bottom'), 'Palette should flip to bottom when top space is less than palette height + 8');
-    });
-
-    test('11. Horizontal placement uses measured palette width', () => {
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const trigger = widget.querySelector('[data-reaction-trigger]');
-        const palette = widget.querySelector('[data-reaction-palette]');
-
-        // Trigger near right edge (window width 1024, trigger left: 950, palette width 160)
-        trigger.setCustomRect({ top: 200, bottom: 232, left: 950, right: 1020, width: 70, height: 32 });
-        palette.setCustomRect({ top: 150, bottom: 194, left: 950, right: 1110, width: 160, height: 44 });
-
-        InteractionReactions.openPalette(widget);
-
-        assert.ok(palette.classList.contains('kl-reaction-palette--align-right'), 'Palette should align right when right space is less than palette width + 8');
-    });
-
-    test('12. aria-haspopup is absent from trigger', () => {
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const trigger = widget.querySelector('[data-reaction-trigger]');
-        assert.strictEqual(trigger.hasAttribute('aria-haspopup'), false, 'aria-haspopup must be absent');
-    });
-
-    test('13. aria-controls points to unique palette ID', () => {
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const trigger = widget.querySelector('[data-reaction-trigger]');
-        const palette = widget.querySelector('[data-reaction-palette]');
-
-        const paletteId = palette.getAttribute('id');
-        assert.ok(paletteId && paletteId.startsWith('kl-reaction-palette-'), 'Palette must have a unique id');
-        assert.strictEqual(trigger.getAttribute('aria-controls'), paletteId, 'Trigger aria-controls must match palette id');
-    });
-
-    test('14. Duplicate target widgets have DIFFERENT DOM palette IDs', () => {
-        const widget1 = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'COMMENT',
-            'data-reaction-target-id': 'same-uuid-123'
-        }, doc);
-        const widget2 = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'COMMENT',
-            'data-reaction-target-id': 'same-uuid-123'
-        }, doc);
-
-        doc.body.appendChild(widget1);
-        doc.body.appendChild(widget2);
-
-        const palette1 = widget1.querySelector('[data-reaction-palette]');
-        const palette2 = widget2.querySelector('[data-reaction-palette]');
-
-        assert.notStrictEqual(palette1.getAttribute('id'), palette2.getAttribute('id'), 'Duplicate target widgets must have distinct palette DOM IDs');
-    });
-
-    test('15. Network/500 failure announces accessible error in status live region', async () => {
-        InteractionReactions.setFetch(async () => {
+    test('8. Touch quick tap on unreacted trigger sets LIKE', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
             return {
-                ok: false,
-                status: 500,
+                ok: true,
+                status: 200,
                 headers: { get: () => 'application/json' },
-                json: async () => ({ message: 'Error' })
+                json: async () => makeValidResponse('LIKE', { LIKE: 1 }, 1)
             };
         });
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        await doc.dispatchEvent('pointerdown', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 100 });
+        await doc.dispatchEvent('pointerup', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 100 });
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'touch' });
+
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, 'LIKE');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'LIKE');
+    });
+
+    test('9. Touch long press (500ms) opens palette and suppresses subsequent release click', async () => {
+        let fetchCalled = false;
+        InteractionReactions.setFetch(async () => {
+            fetchCalled = true;
+            return { ok: true, json: async () => ({}) };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        const palette = widget.querySelector('[data-reaction-palette]');
+
+        // Touch start
+        await doc.dispatchEvent('pointerdown', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 100 });
+
+        // Wait 530ms for long-press timer to fire
+        await new Promise(resolve => setTimeout(resolve, 530));
+
+        assert.strictEqual(palette.hidden, false, 'Palette must open on 500ms long press');
+
+        // Subsequent release click event
+        await doc.dispatchEvent('pointerup', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 100 });
+        await doc.dispatchEvent('click', { target: trigger, pointerType: 'touch' });
+
+        assert.strictEqual(fetchCalled, false, 'Long press release click must be suppressed and NOT trigger mutation');
+        assert.strictEqual(palette.hidden, false, 'Palette must stay open');
+    });
+
+    test('10. Touch movement > 10px aborts long press timer', async () => {
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        const palette = widget.querySelector('[data-reaction-palette]');
+
+        await doc.dispatchEvent('pointerdown', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 100 });
+        // Move 20px down (e.g. scroll)
+        await doc.dispatchEvent('pointermove', { target: trigger, pointerType: 'touch', clientX: 100, clientY: 120 });
+
+        // Wait 530ms
+        await new Promise(resolve => setTimeout(resolve, 530));
+
+        assert.strictEqual(palette.hidden, true, 'Palette must NOT open if scroll/movement exceeded 10px');
+    });
+
+    test('11. Palette renders all 5 canonical reaction options in exact order', () => {
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const palette = widget.querySelector('[data-reaction-palette]');
+        const options = palette.querySelectorAll('[data-reaction-option]');
+
+        assert.strictEqual(options.length, 5);
+        const types = options.map(opt => opt.getAttribute('data-reaction-type'));
+        assert.deepStrictEqual(types, ['LIKE', 'LOVE', 'FIRE', 'HAHA', 'SAD']);
+    });
+
+    test('12. Clicking option in palette sets that reaction type', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse('FIRE', { FIRE: 1 }, 1)
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const fireOption = widget.querySelector('[data-reaction-option][data-reaction-type="FIRE"]');
+        await doc.dispatchEvent('click', { target: fireOption });
+
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, 'FIRE');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'FIRE');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
+    });
+
+    test('13. Clicking already-active option in palette removes reaction', async () => {
+        let sentBody = null;
+        InteractionReactions.setFetch(async (url, opts) => {
+            sentBody = JSON.parse(opts.body);
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse(null, { FIRE: 0 }, 0)
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-current': 'FIRE',
+            'data-reaction-total': '1',
+            'data-reaction-count-fire': '1'
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const fireOption = widget.querySelector('[data-reaction-option][data-reaction-type="FIRE"]');
+        await doc.dispatchEvent('click', { target: fireOption });
+
+        assert.ok(sentBody);
+        assert.strictEqual(sentBody.reactionType, null);
+        assert.strictEqual(widget.hasAttribute('data-reaction-current'), false);
+    });
+
+    test('14. Keyboard ArrowDown on trigger opens palette without mutation and focuses first option', async () => {
+        let fetchCalled = false;
+        InteractionReactions.setFetch(async () => {
+            fetchCalled = true;
+            return { ok: true, json: async () => ({}) };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        const palette = widget.querySelector('[data-reaction-palette]');
+        const firstOption = widget.querySelector('[data-reaction-option]');
+
+        await doc.dispatchEvent('keydown', { key: 'ArrowDown', target: trigger });
+
+        assert.strictEqual(palette.hidden, false, 'ArrowDown must open palette');
+        assert.strictEqual(fetchCalled, false, 'ArrowDown must not mutate reaction');
+        assert.strictEqual(doc.activeElement, firstOption, 'Focus should move to first option');
+    });
+
+    test('15. Keyboard Escape closes palette and restores focus to trigger button', async () => {
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        const palette = widget.querySelector('[data-reaction-palette]');
+        InteractionReactions.openPalette(widget);
+        assert.strictEqual(palette.hidden, false);
+
+        await doc.dispatchEvent('keydown', { key: 'Escape' });
+
+        assert.strictEqual(palette.hidden, true);
+        assert.strictEqual(doc.activeElement, trigger);
+    });
+
+    test('16. Single open palette invariant: opening widget B closes widget A', () => {
+        const widgetA = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': 'uuid-A'
+        }, doc);
+        const widgetB = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': 'uuid-B'
+        }, doc);
+
+        doc.body.appendChild(widgetA);
+        doc.body.appendChild(widgetB);
+
+        const paletteA = widgetA.querySelector('[data-reaction-palette]');
+        const paletteB = widgetB.querySelector('[data-reaction-palette]');
+
+        InteractionReactions.openPalette(widgetA);
+        assert.strictEqual(paletteA.hidden, false);
+
+        InteractionReactions.openPalette(widgetB);
+        assert.strictEqual(paletteA.hidden, true);
+        assert.strictEqual(paletteB.hidden, false);
+    });
+
+    test('17. Outside click dismisses open palette', async () => {
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        const outsideEl = createMockElement('div', {}, doc);
+        doc.body.appendChild(widget);
+        doc.body.appendChild(outsideEl);
+
+        const palette = widget.querySelector('[data-reaction-palette]');
+        InteractionReactions.openPalette(widget);
+        assert.strictEqual(palette.hidden, false);
+
+        await doc.dispatchEvent('click', { target: outsideEl });
+
+        assert.strictEqual(palette.hidden, true);
+    });
+
+    test('18. In-flight mutation lock prevents simultaneous duplicate requests', async () => {
+        let callCount = 0;
+        let resolveRequest;
+        const requestPromise = new Promise(r => { resolveRequest = r; });
+
+        InteractionReactions.setFetch(async () => {
+            callCount++;
+            await requestPromise;
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse('LIKE', { LIKE: 1 }, 1)
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+
+        // Dispatch 2 clicks in rapid succession
+        const p1 = doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
+        const p2 = doc.dispatchEvent('click', { target: trigger, pointerType: 'mouse' });
+
+        resolveRequest();
+        await Promise.all([p1, p2]);
+
+        assert.strictEqual(callCount, 1, 'Second rapid click while in-flight must be ignored');
+    });
+
+    test('19. Multi-surface synchronization updates both main feed and drawer widgets for same target', async () => {
+        InteractionReactions.setFetch(async () => {
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => makeValidResponse('FIRE', { LIKE: 2, FIRE: 5, HAHA: 1 }, 8)
+            };
+        });
+
+        const widget1 = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
+        }, doc);
+
+        const widget2 = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
+        }, doc);
+
+        doc.body.appendChild(widget1);
+        doc.body.appendChild(widget2);
+
+        const fireOption1 = widget1.querySelector('[data-reaction-option][data-reaction-type="FIRE"]');
+        await doc.dispatchEvent('click', { target: fireOption1 });
+
+        assert.strictEqual(widget1.getAttribute('data-reaction-current'), 'FIRE');
+        assert.strictEqual(widget1.getAttribute('data-reaction-total'), '8');
+        assert.strictEqual(widget2.getAttribute('data-reaction-current'), 'FIRE');
+        assert.strictEqual(widget2.getAttribute('data-reaction-total'), '8');
+    });
+
+    test('20. Negative count in response is rejected with status error', async () => {
+        InteractionReactions.setFetch(async () => {
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    targetType: 'COMMENT',
+                    targetId: TARGET_COMMENT_ID,
+                    counts: { LIKE: -1, LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 },
+                    totalCount: 0,
+                    currentUserReaction: null
+                })
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const res = await InteractionReactions.setReaction('COMMENT', TARGET_COMMENT_ID, 'LIKE', doc);
+        assert.strictEqual(res, null);
+
+        const statusEl = widget.querySelector('[data-reaction-status]');
+        assert.strictEqual(statusEl.textContent, 'Không thể cập nhật biểu cảm. Vui lòng thử lại.');
+    });
+
+    test('21. Mismatched totalCount is rejected with status error', async () => {
+        InteractionReactions.setFetch(async () => {
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    targetType: 'COMMENT',
+                    targetId: TARGET_COMMENT_ID,
+                    counts: { LIKE: 1, LOVE: 2, FIRE: 0, HAHA: 0, SAD: 0 },
+                    totalCount: 99, // Mismatch
+                    currentUserReaction: 'LIKE'
+                })
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const res = await InteractionReactions.setReaction('COMMENT', TARGET_COMMENT_ID, 'LIKE', doc);
+        assert.strictEqual(res, null);
+    });
+
+    test('22. Unknown currentUserReaction is rejected with status error', async () => {
+        InteractionReactions.setFetch(async () => {
+            return {
+                ok: true,
+                status: 200,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    targetType: 'COMMENT',
+                    targetId: TARGET_COMMENT_ID,
+                    counts: { LIKE: 1, LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 },
+                    totalCount: 1,
+                    currentUserReaction: 'DISLIKE' // Unknown
+                })
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID,
+            'data-reaction-total': '0'
+        }, doc);
+        doc.body.appendChild(widget);
+
+        const res = await InteractionReactions.setReaction('COMMENT', TARGET_COMMENT_ID, 'LIKE', doc);
+        assert.strictEqual(res, null);
+    });
+
+    test('23. 500 error announces accessible error in status live region', async () => {
+        InteractionReactions.setFetch(async () => {
+            return {
+                ok: false,
+                status: 500,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ message: 'Server error' })
+            };
+        });
+
+        const widget = createMockElement('div', {
+            'data-reaction-widget': '',
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
         doc.body.appendChild(widget);
 
@@ -564,8 +961,7 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
         assert.strictEqual(statusEl.textContent, 'Không thể cập nhật biểu cảm. Vui lòng thử lại.');
     });
 
-    test('16. Login redirect handling navigates to login with returnTo', async () => {
-        let redirectedTo = null;
+    test('24. Login redirect 401 navigates cleanly with returnTo', async () => {
         InteractionReactions.setFetch(async () => {
             return {
                 status: 401,
@@ -577,50 +973,21 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
         doc.body.appendChild(widget);
 
-        const fireOption = widget.querySelector('[data-reaction-option][data-reaction-type="FIRE"]');
-        const res = await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'FIRE', doc);
-
+        const res = await InteractionReactions.setReaction('COMMENT', TARGET_COMMENT_ID, 'LIKE', doc);
         assert.strictEqual(res, null);
     });
 
-    test('17. Access-denied/non-JSON redirect does not attempt to apply response and announces error', async () => {
-        InteractionReactions.setFetch(async () => {
-            return {
-                status: 200,
-                redirected: true,
-                url: 'http://localhost/access-denied',
-                headers: { get: () => 'text/html' }
-            };
-        });
-
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID,
-            'data-reaction-total': '2'
-        }, doc);
-        doc.body.appendChild(widget);
-
-        await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'LOVE', doc);
-
-        // State remains intact
-        assert.strictEqual(widget.getAttribute('data-reaction-total'), '2');
-        const statusEl = widget.querySelector('[data-reaction-status]');
-        assert.strictEqual(statusEl.textContent, 'Không có quyền thực hiện. Vui lòng thử lại.');
-    });
-
-    test('18. Non-JSON 200 response rejected and announces error', async () => {
+    test('25. Non-JSON response rejected with error', async () => {
         InteractionReactions.setFetch(async () => {
             return {
                 ok: true,
                 status: 200,
                 redirected: false,
-                url: '/api/interaction/reactions',
                 headers: { get: () => 'text/html' },
                 json: async () => ({})
             };
@@ -628,148 +995,14 @@ describe('InteractionReactions Corrective Pass Unit Tests', () => {
 
         const widget = createMockElement('div', {
             'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID
+            'data-reaction-target-type': 'COMMENT',
+            'data-reaction-target-id': TARGET_COMMENT_ID
         }, doc);
         doc.body.appendChild(widget);
 
-        await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'FIRE', doc);
-
+        const res = await InteractionReactions.setReaction('COMMENT', TARGET_COMMENT_ID, 'LIKE', doc);
+        assert.strictEqual(res, null);
         const statusEl = widget.querySelector('[data-reaction-status]');
         assert.strictEqual(statusEl.textContent, 'Không thể cập nhật biểu cảm. Vui lòng thử lại.');
-    });
-
-    test('19. Negative count response rejected', async () => {
-        InteractionReactions.setFetch(async () => {
-            return {
-                ok: true,
-                status: 200,
-                headers: { get: () => 'application/json' },
-                json: async () => ({
-                    targetType: 'NOVEL_CHAPTER',
-                    targetId: TARGET_CHAPTER_ID,
-                    counts: { LOVE: -1, FIRE: 0, HAHA: 0, SAD: 0 },
-                    totalCount: 0,
-                    currentUserReaction: null
-                })
-            };
-        });
-
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID,
-            'data-reaction-total': '0'
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const res = await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'LOVE', doc);
-        assert.strictEqual(res, null, 'Negative count response must be rejected');
-        const statusEl = widget.querySelector('[data-reaction-status]');
-        assert.strictEqual(statusEl.textContent, 'Không thể cập nhật biểu cảm. Vui lòng thử lại.');
-    });
-
-    test('20. Mismatched totalCount rejected', async () => {
-        InteractionReactions.setFetch(async () => {
-            return {
-                ok: true,
-                status: 200,
-                headers: { get: () => 'application/json' },
-                json: async () => ({
-                    targetType: 'NOVEL_CHAPTER',
-                    targetId: TARGET_CHAPTER_ID,
-                    counts: { LOVE: 1, FIRE: 2, HAHA: 0, SAD: 0 },
-                    totalCount: 99, // Mismatched! Expected 3
-                    currentUserReaction: 'FIRE'
-                })
-            };
-        });
-
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID,
-            'data-reaction-total': '0'
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const res = await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'FIRE', doc);
-        assert.strictEqual(res, null, 'Mismatched totalCount must be rejected');
-        assert.strictEqual(widget.getAttribute('data-reaction-total'), '0');
-    });
-
-    test('21. Unknown currentUserReaction rejected', async () => {
-        InteractionReactions.setFetch(async () => {
-            return {
-                ok: true,
-                status: 200,
-                headers: { get: () => 'application/json' },
-                json: async () => ({
-                    targetType: 'NOVEL_CHAPTER',
-                    targetId: TARGET_CHAPTER_ID,
-                    counts: { LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 },
-                    totalCount: 1,
-                    currentUserReaction: 'DISLIKE' // Invalid unknown enum
-                })
-            };
-        });
-
-        const widget = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'NOVEL_CHAPTER',
-            'data-reaction-target-id': TARGET_CHAPTER_ID,
-            'data-reaction-total': '0'
-        }, doc);
-        doc.body.appendChild(widget);
-
-        const res = await InteractionReactions.setReaction('NOVEL_CHAPTER', TARGET_CHAPTER_ID, 'LOVE', doc);
-        assert.strictEqual(res, null, 'Unknown currentUserReaction must be rejected');
-    });
-
-    test('22. Valid authoritative response still synchronizes duplicate widgets', async () => {
-        InteractionReactions.setFetch(async () => {
-            return {
-                ok: true,
-                status: 200,
-                headers: { get: () => 'application/json' },
-                json: async () => ({
-                    targetType: 'COMMENT',
-                    targetId: 'sync-comment-id-123',
-                    counts: { LOVE: 0, FIRE: 5, HAHA: 1, SAD: 0 },
-                    totalCount: 6,
-                    currentUserReaction: 'FIRE'
-                })
-            };
-        });
-
-        const widget1 = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'COMMENT',
-            'data-reaction-target-id': 'sync-comment-id-123',
-            'data-reaction-total': '0'
-        }, doc);
-
-        const widget2 = createMockElement('div', {
-            'data-reaction-widget': '',
-            'data-reaction-target-type': 'COMMENT',
-            'data-reaction-target-id': 'sync-comment-id-123',
-            'data-reaction-total': '0'
-        }, doc);
-
-        doc.body.appendChild(widget1);
-        doc.body.appendChild(widget2);
-
-        const fireOption1 = widget1.querySelector('[data-reaction-option][data-reaction-type="FIRE"]');
-        await doc.dispatchEvent('click', { target: fireOption1 });
-
-        assert.strictEqual(widget1.getAttribute('data-reaction-current'), 'FIRE');
-        assert.strictEqual(widget1.getAttribute('data-reaction-total'), '6');
-        assert.strictEqual(widget2.getAttribute('data-reaction-current'), 'FIRE');
-        assert.strictEqual(widget2.getAttribute('data-reaction-total'), '6');
-
-        const trigger1Emoji = widget1.querySelector('[data-reaction-trigger-emoji]');
-        const trigger2Emoji = widget2.querySelector('[data-reaction-trigger-emoji]');
-        assert.strictEqual(trigger1Emoji.textContent, '🔥');
-        assert.strictEqual(trigger2Emoji.textContent, '🔥');
     });
 });

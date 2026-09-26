@@ -6,18 +6,24 @@ import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
 import com.universe.interaction.entry.dto.CommentReadDTO;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.wiki.dto.WikiDiscussionFeedResponseDTO;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -37,13 +43,15 @@ import java.util.stream.Collectors;
  *   <li>Interaction application has ZERO Wiki imports;</li>
  *   <li>Wiki application has ZERO Interaction imports;</li>
  *   <li>Entry-layer composition uses only scalar cross-context references (UUIDs);</li>
- *   <li>One publication check + one target metrics aggregate query + one root Slice query + one batch visible thread query for current page roots + one Identity profile query;</li>
+ *   <li>One publication check + one target metrics aggregate query + one root Slice query + one batch visible thread query for current page roots + one Identity profile query + one batch reaction summary query;</li>
  *   <li>Zero per-root N+1 access loops;</li>
  *   <li>Read-only operation without write transactional overhead.</li>
  * </ul>
  */
 @Service
 public class WikiArticleDiscussionQueryCoordinator {
+
+    private static final Logger log = LoggerFactory.getLogger(WikiArticleDiscussionQueryCoordinator.class);
 
     private final WikiArticleQueryPort wikiArticleQueryPort;
     private final GetCommentTargetMetricsUseCase getCommentTargetMetricsUseCase;
@@ -52,6 +60,7 @@ public class WikiArticleDiscussionQueryCoordinator {
     private final GetCommentThreadUseCase getCommentThreadUseCase;
     private final ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase;
     private final UserIdentityContract userIdentityContract;
+    private final GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
 
     public WikiArticleDiscussionQueryCoordinator(
             WikiArticleQueryPort wikiArticleQueryPort,
@@ -60,7 +69,8 @@ public class WikiArticleDiscussionQueryCoordinator {
             GetCommentThreadsByRootIdsUseCase getCommentThreadsByRootIdsUseCase,
             GetCommentThreadUseCase getCommentThreadUseCase,
             ValidateCommentTargetScopeUseCase validateCommentTargetScopeUseCase,
-            UserIdentityContract userIdentityContract
+            UserIdentityContract userIdentityContract,
+            GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase
     ) {
         this.wikiArticleQueryPort = Objects.requireNonNull(
                 wikiArticleQueryPort, "WikiArticleQueryPort cannot be null"
@@ -82,6 +92,9 @@ public class WikiArticleDiscussionQueryCoordinator {
         );
         this.userIdentityContract = Objects.requireNonNull(
                 userIdentityContract, "UserIdentityContract cannot be null"
+        );
+        this.getBatchReactionSummariesUseCase = Objects.requireNonNull(
+                getBatchReactionSummariesUseCase, "GetBatchReactionSummariesUseCase cannot be null"
         );
     }
 
@@ -170,17 +183,27 @@ public class WikiArticleDiscussionQueryCoordinator {
             );
         }
 
-        // 6. Identity contract: batch lookup public profiles for unique authors (roots + active replies)
+        // 6. Identity & Reaction targets: batch lookup public profiles and reaction summaries for active comments
         Set<UUID> authorUserIds = new HashSet<>();
+        List<UUID> activeCommentIds = new ArrayList<>();
+
         for (UUID rootId : survivingRootIds) {
             CommentThreadView threadView = threadViewsByRootId.get(rootId);
-            if (threadView.root() != null && threadView.root().authorUserId() != null) {
-                authorUserIds.add(threadView.root().authorUserId());
+            if (threadView.root() != null) {
+                if (!threadView.root().tombstone()) {
+                    activeCommentIds.add(threadView.root().id());
+                }
+                if (threadView.root().authorUserId() != null) {
+                    authorUserIds.add(threadView.root().authorUserId());
+                }
             }
             if (threadView.replies() != null) {
                 for (CommentReadItem reply : threadView.replies()) {
-                    if (reply != null && !reply.tombstone() && reply.authorUserId() != null) {
-                        authorUserIds.add(reply.authorUserId());
+                    if (reply != null && !reply.tombstone()) {
+                        activeCommentIds.add(reply.id());
+                        if (reply.authorUserId() != null) {
+                            authorUserIds.add(reply.authorUserId());
+                        }
                     }
                 }
             }
@@ -189,6 +212,28 @@ public class WikiArticleDiscussionQueryCoordinator {
         Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
+
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
+        if (!activeCommentIds.isEmpty()) {
+            try {
+                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
+                        ReactionTargetType.COMMENT,
+                        activeCommentIds,
+                        viewerUserId
+                );
+                if (summaries != null && !summaries.isEmpty()) {
+                    reactionSummariesByCommentId = summaries.entrySet().stream()
+                            .filter(e -> e.getValue() != null)
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
+                            ));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to load reaction summaries for wiki article discussion feed: articleId={}", articleId, ex);
+                reactionSummariesByCommentId = Map.of();
+            }
+        }
 
         // 7. Assemble threads preserving original slice ordering
         List<CommentThreadResponseDTO> threads = new ArrayList<>(survivingRootIds.size());
@@ -203,7 +248,8 @@ public class WikiArticleDiscussionQueryCoordinator {
                     ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
                     : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
-            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId);
+            ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
+            CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary);
 
             List<CommentReadDTO> replyDTOs = new ArrayList<>();
             if (threadView.replies() != null) {
@@ -220,7 +266,8 @@ public class WikiArticleDiscussionQueryCoordinator {
                         CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
                                 ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
                                 : CommentAuthorDTO.fallback(replyItem.authorUserId());
-                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId));
+                        ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
+                        replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
                     }
                 }
             }
@@ -264,13 +311,23 @@ public class WikiArticleDiscussionQueryCoordinator {
         CommentThreadView threadView = getCommentThreadUseCase.execute(rootCommentId);
 
         Set<UUID> authorUserIds = new HashSet<>();
-        if (threadView.root() != null && threadView.root().authorUserId() != null) {
-            authorUserIds.add(threadView.root().authorUserId());
+        List<UUID> activeCommentIds = new ArrayList<>();
+
+        if (threadView.root() != null) {
+            if (!threadView.root().tombstone()) {
+                activeCommentIds.add(threadView.root().id());
+            }
+            if (threadView.root().authorUserId() != null) {
+                authorUserIds.add(threadView.root().authorUserId());
+            }
         }
         if (threadView.replies() != null) {
             for (CommentReadItem reply : threadView.replies()) {
-                if (reply != null && !reply.tombstone() && reply.authorUserId() != null) {
-                    authorUserIds.add(reply.authorUserId());
+                if (reply != null && !reply.tombstone()) {
+                    activeCommentIds.add(reply.id());
+                    if (reply.authorUserId() != null) {
+                        authorUserIds.add(reply.authorUserId());
+                    }
                 }
             }
         }
@@ -278,6 +335,28 @@ public class WikiArticleDiscussionQueryCoordinator {
         Map<UUID, UserPublicProfileDTO> authorsMap = authorUserIds.isEmpty()
                 ? Map.of()
                 : userIdentityContract.findPublicProfilesByIds(authorUserIds);
+
+        Map<UUID, ReactionSummaryResponseDTO> reactionSummariesByCommentId = Map.of();
+        if (!activeCommentIds.isEmpty()) {
+            try {
+                Map<UUID, ReactionSummary> summaries = getBatchReactionSummariesUseCase.execute(
+                        ReactionTargetType.COMMENT,
+                        activeCommentIds,
+                        viewerUserId
+                );
+                if (summaries != null && !summaries.isEmpty()) {
+                    reactionSummariesByCommentId = summaries.entrySet().stream()
+                            .filter(e -> e.getValue() != null)
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> ReactionSummaryResponseDTO.from(e.getValue())
+                            ));
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Failed to load reaction summaries for wiki article comment thread: articleId={}, rootCommentId={}", articleId, rootCommentId, ex);
+                reactionSummariesByCommentId = Map.of();
+            }
+        }
 
         CommentReadItem authoritativeRoot = threadView.root();
         UserPublicProfileDTO rootProfile = (authorsMap != null && authoritativeRoot.authorUserId() != null)
@@ -287,7 +366,8 @@ public class WikiArticleDiscussionQueryCoordinator {
                 ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
                 : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
-        CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId);
+        ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(authoritativeRoot.id());
+        CommentReadDTO rootReadDTO = CommentReadDTO.from(authoritativeRoot, rootAuthorDTO, viewerUserId, rootReactionSummary);
 
         List<CommentReadDTO> replyDTOs = new ArrayList<>();
         if (threadView.replies() != null) {
@@ -304,7 +384,8 @@ public class WikiArticleDiscussionQueryCoordinator {
                     CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
                             ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
                             : CommentAuthorDTO.fallback(replyItem.authorUserId());
-                    replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId));
+                    ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
+                    replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
                 }
             }
         }

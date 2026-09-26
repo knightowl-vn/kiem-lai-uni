@@ -529,6 +529,7 @@
             host.setAttribute('data-reaction-total', String(reactionSummary.totalCount));
         }
         const counts = reactionSummary.counts || {};
+        host.setAttribute('data-reaction-count-like', String(counts.LIKE || 0));
         host.setAttribute('data-reaction-count-love', String(counts.LOVE || 0));
         host.setAttribute('data-reaction-count-fire', String(counts.FIRE || 0));
         host.setAttribute('data-reaction-count-haha', String(counts.HAHA || 0));

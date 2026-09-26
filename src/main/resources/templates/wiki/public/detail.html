@@ -27,6 +27,7 @@
 <meta th:if="${_csrf != null}" name="_csrf_header" th:content="${_csrf.headerName}">
 
 <link rel="stylesheet" th:href="@{/css/shared/comments.css}">
+<link rel="stylesheet" th:href="@{/css/shared/interaction-reactions.css}">
 <link rel="stylesheet" th:href="@{/css/wiki/wiki-comments.css}">
 <link rel="stylesheet" th:href="@{/css/shared/comment-report-modal.css}">
 <link th:if="${isAppreciationEligible}" rel="stylesheet" th:href="@{/css/wiki/wiki-appreciation.css}">
@@ -645,7 +646,7 @@
 			<header class="wiki-discussion-header">
 				<div class="wiki-discussion-heading-row">
 					<h2 id="wikiDiscussionHeading" class="wiki-discussion-title">
-						Thảo luận
+						Bình luận
 					</h2>
 					<span class="wiki-discussion-count-badge" id="wikiDiscussionCountBadge" aria-live="polite">
 						0 bình luận
@@ -654,19 +655,19 @@
 			</header>
 
 			<!-- ROOT COMMENT COMPOSER -->
-			<div class="wiki-comment-composer wiki-comment-composer--root" id="wikiRootComposer">
-				<form class="wiki-comment-composer-form" id="wikiRootComposerForm">
+			<div class="kl-comment-composer wiki-comment-composer wiki-comment-composer--root" id="wikiRootComposer">
+				<form class="kl-comment-composer__form wiki-comment-composer-form" id="wikiRootComposerForm">
 					<label for="wikiRootComposerInput" class="visually-hidden">Viết bình luận</label>
 					<textarea id="wikiRootComposerInput"
-						class="wiki-comment-textarea"
+						class="kl-comment-composer__input wiki-comment-textarea"
 						rows="3"
 						placeholder="Chia sẻ ý kiến của bạn về bài viết này..."
 						maxlength="2000"></textarea>
-					<div class="wiki-comment-composer-footer">
-						<span class="wiki-comment-composer-error" id="wikiRootComposerError" role="alert" aria-live="polite" hidden></span>
-						<div class="wiki-comment-composer-actions">
-							<button type="submit" class="wiki-comment-btn wiki-comment-btn--primary" id="wikiRootComposerSubmit">
-								Bình luận
+					<div class="kl-comment-composer__footer wiki-comment-composer-footer">
+						<span class="kl-comment-composer__status kl-comment-composer__error wiki-comment-composer-error" id="wikiRootComposerError" role="alert" aria-live="polite" hidden></span>
+						<div class="kl-comment-composer__actions wiki-comment-composer-actions">
+							<button type="submit" class="kl-comment-composer__submit wiki-comment-btn wiki-comment-btn--primary" id="wikiRootComposerSubmit">
+								Gửi
 							</button>
 						</div>
 					</div>
@@ -895,6 +896,7 @@
 	<script th:src="@{/js/shared/ephemeral-draft-store.js}" defer></script>
 	<script th:src="@{/js/shared/comment-report-modal.js}" defer></script>
 	<script th:src="@{/js/shared/comment-presentation.js}" defer></script>
+	<script th:src="@{/js/shared/interaction-reactions.js}" defer></script>
 	<script th:src="@{/js/wiki/wiki-comments.js}" defer></script>
 	<script th:if="${isAppreciationEligible}" th:src="@{/js/wiki/wiki-appreciation.js}" defer></script>
 	<script th:src="@{/js/wiki/wiki-contribution.js}" defer></script>

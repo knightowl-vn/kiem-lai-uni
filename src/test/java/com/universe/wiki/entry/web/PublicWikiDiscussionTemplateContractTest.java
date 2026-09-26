@@ -28,21 +28,27 @@ class PublicWikiDiscussionTemplateContractTest {
 
         // 2. Heading & Count Badge
         assertThat(detailHtml).contains("id=\"wikiDiscussionHeading\"");
-        assertThat(detailHtml).contains("Thảo luận");
+        assertThat(detailHtml).contains("Bình luận");
         assertThat(detailHtml).contains("id=\"wikiDiscussionCountBadge\"");
 
         // 3. Root Composer & Thread List & Load More
         assertThat(detailHtml).contains("id=\"wikiRootComposer\"");
+        assertThat(detailHtml).contains("class=\"kl-comment-composer wiki-comment-composer wiki-comment-composer--root\"");
         assertThat(detailHtml).contains("id=\"wikiRootComposerForm\"");
+        assertThat(detailHtml).contains("class=\"kl-comment-composer__form wiki-comment-composer-form\"");
         assertThat(detailHtml).contains("id=\"wikiRootComposerInput\"");
+        assertThat(detailHtml).contains("class=\"kl-comment-composer__input wiki-comment-textarea\"");
         assertThat(detailHtml).contains("id=\"wikiRootComposerSubmit\"");
+        assertThat(detailHtml).contains("class=\"kl-comment-composer__submit wiki-comment-btn wiki-comment-btn--primary\"");
         assertThat(detailHtml).contains("id=\"wikiDiscussionStatus\"");
         assertThat(detailHtml).contains("id=\"wikiDiscussionThreadList\"");
         assertThat(detailHtml).contains("id=\"wikiDiscussionFooter\"");
         assertThat(detailHtml).contains("id=\"wikiDiscussionLoadMoreBtn\"");
 
         // 4. Asset Links
+        assertThat(detailHtml).contains("th:href=\"@{/css/shared/interaction-reactions.css}\"");
         assertThat(detailHtml).contains("th:href=\"@{/css/wiki/wiki-comments.css}\"");
+        assertThat(detailHtml).contains("th:src=\"@{/js/shared/interaction-reactions.js}\"");
         assertThat(detailHtml).contains("th:src=\"@{/js/wiki/wiki-comments.js}\"");
     }
 

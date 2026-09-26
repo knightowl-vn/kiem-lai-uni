@@ -1,13 +1,24 @@
 /**
- * KiemLai Universe — Reusable Content Reaction Component
+ * KiemLai Universe — Reusable Content Reaction Component (MS-05I)
  *
  * Provides a lightweight, accessible, progressive-enhancement Reaction Picker
- * for Novel Chapters, Comments, and Universe content targets.
+ * for Comments, Discussion Surfaces, and Universe content targets.
  *
- * Communicates with:
+ * Key behaviors:
+ * - Neutral outline LIKE button by default when unreacted;
+ * - Desktop quick click: unreacted -> LIKE; active -> remove;
+ * - Desktop hover-intent (~550ms) opens reaction palette without premature flicker;
+ * - Touch/Pen quick tap: unreacted -> LIKE; active -> remove;
+ * - Touch/Pen long press (~500ms) opens reaction palette with strict tap suppression;
+ * - Palette order: LIKE, LOVE, FIRE, HAHA, SAD;
+ * - Keyboard navigation: Enter/Space for quick action; ArrowDown to open palette; Escape to close;
+ * - Authoritative server response rendering with in-flight concurrency locks;
+ * - Same-target multi-surface synchronization (main feed + drawer).
+ *
+ * API contract:
  *   PUT /api/interaction/reactions
  * Body:
- *   { "targetType": "...", "targetId": "...", "reactionType": "LOVE" | "FIRE" | "HAHA" | "SAD" | null }
+ *   { "targetType": "...", "targetId": "...", "reactionType": "LIKE" | "LOVE" | "FIRE" | "HAHA" | "SAD" | null }
  */
 (function (root, factory) {
     'use strict';
@@ -27,6 +38,7 @@
     'use strict';
 
     const REACTION_CONFIG = [
+        { type: 'LIKE', emoji: '👍', label: 'Thích' },
         { type: 'LOVE', emoji: '❤️', label: 'Yêu thích' },
         { type: 'FIRE', emoji: '🔥', label: 'Bùng cháy' },
         { type: 'HAHA', emoji: '😂', label: 'Hài hước' },
@@ -40,16 +52,28 @@
         }, {})
     );
 
-    const VALID_REACTION_TYPES = Object.freeze(['LOVE', 'FIRE', 'HAHA', 'SAD']);
-    const DEFAULT_EMOJI = '❤️';
+    const VALID_REACTION_TYPES = Object.freeze(['LIKE', 'LOVE', 'FIRE', 'HAHA', 'SAD']);
+
+    const HOVER_OPEN_DELAY_MS = 550;
     const HOVER_CLOSE_DELAY_MS = 250;
+    const LONG_PRESS_DELAY_MS = 500;
+    const MOVE_THRESHOLD_PX = 10;
+
     const GENERIC_ERROR_MSG = 'Không thể cập nhật biểu cảm. Vui lòng thử lại.';
     const ACCESS_DENIED_MSG = 'Không có quyền thực hiện. Vui lòng thử lại.';
+
+    const SVG_LIKE_OUTLINE = '<svg class="kl-reaction-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>';
+    const SVG_LIKE_FILLED = '<svg class="kl-reaction-icon kl-reaction-icon--filled" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>';
 
     // Module-level state
     let paletteIdSeq = 0;
     let activeOpenWidget = null;
+    let hoverOpenTimer = null;
     let hoverCloseTimer = null;
+    let longPressTimer = null;
+    let longPressConsumed = false;
+    let touchStartX = 0;
+    let touchStartY = 0;
     let boundDocument = null;
     let mutationObserver = null;
     let inFlightTargets = new Set();
@@ -81,7 +105,6 @@
 
     /**
      * Extracts CSRF token and header name.
-     * Checks page-level meta tags first (primary convention), then falls back to widget attributes.
      */
     function resolveCsrf(widgetEl, doc) {
         let token = null;
@@ -170,6 +193,32 @@
     }
 
     /**
+     * Sets icon inner content on an element (SVG or Emoji text).
+     */
+    function setTriggerIcon(iconEl, currentReaction) {
+        if (!iconEl) return;
+        if (!currentReaction) {
+            // Idle state: Outline Thumbs Up
+            if (iconEl.innerHTML !== undefined) {
+                iconEl.innerHTML = SVG_LIKE_OUTLINE;
+            } else {
+                iconEl.textContent = '👍';
+            }
+        } else if (currentReaction === 'LIKE') {
+            // Active LIKE: Filled Thumbs Up
+            if (iconEl.innerHTML !== undefined) {
+                iconEl.innerHTML = SVG_LIKE_FILLED;
+            } else {
+                iconEl.textContent = '👍';
+            }
+        } else {
+            // Active other emoji: ❤️, 🔥, 😂, 😭
+            const item = REACTION_MAP[currentReaction];
+            iconEl.textContent = item ? item.emoji : '👍';
+        }
+    }
+
+    /**
      * Builds or synchronizes the inner DOM of a reaction widget.
      */
     function renderWidget(widgetEl, summaryData) {
@@ -189,6 +238,7 @@
         }
 
         const counts = (summaryData && summaryData.counts) || {
+            LIKE: Math.max(0, parseInt(widgetEl.getAttribute('data-reaction-count-like'), 10) || 0),
             LOVE: Math.max(0, parseInt(widgetEl.getAttribute('data-reaction-count-love'), 10) || 0),
             FIRE: Math.max(0, parseInt(widgetEl.getAttribute('data-reaction-count-fire'), 10) || 0),
             HAHA: Math.max(0, parseInt(widgetEl.getAttribute('data-reaction-count-haha'), 10) || 0),
@@ -200,7 +250,7 @@
             totalCount = Math.max(0, summaryData.totalCount);
         } else {
             const rawTotal = parseInt(widgetEl.getAttribute('data-reaction-total'), 10);
-            const sumOfCounts = counts.LOVE + counts.FIRE + counts.HAHA + counts.SAD;
+            const sumOfCounts = (counts.LIKE || 0) + (counts.LOVE || 0) + (counts.FIRE || 0) + (counts.HAHA || 0) + (counts.SAD || 0);
             totalCount = (!isNaN(rawTotal) && rawTotal >= 0) ? rawTotal : sumOfCounts;
         }
 
@@ -213,10 +263,11 @@
             widgetEl.removeAttribute('data-reaction-current');
         }
         widgetEl.setAttribute('data-reaction-total', String(totalCount));
-        widgetEl.setAttribute('data-reaction-count-love', String(counts.LOVE));
-        widgetEl.setAttribute('data-reaction-count-fire', String(counts.FIRE));
-        widgetEl.setAttribute('data-reaction-count-haha', String(counts.HAHA));
-        widgetEl.setAttribute('data-reaction-count-sad', String(counts.SAD));
+        widgetEl.setAttribute('data-reaction-count-like', String(counts.LIKE || 0));
+        widgetEl.setAttribute('data-reaction-count-love', String(counts.LOVE || 0));
+        widgetEl.setAttribute('data-reaction-count-fire', String(counts.FIRE || 0));
+        widgetEl.setAttribute('data-reaction-count-haha', String(counts.HAHA || 0));
+        widgetEl.setAttribute('data-reaction-count-sad', String(counts.SAD || 0));
 
         const doc = widgetEl.ownerDocument || (typeof document !== 'undefined' ? document : null);
 
@@ -240,10 +291,10 @@
             triggerBtn.setAttribute('aria-expanded', 'false');
             triggerBtn.setAttribute('aria-controls', paletteId);
 
-            const emojiSpan = doc.createElement('span');
-            emojiSpan.className = 'kl-reaction-trigger__emoji';
-            emojiSpan.setAttribute('data-reaction-trigger-emoji', '');
-            triggerBtn.appendChild(emojiSpan);
+            const iconSpan = doc.createElement('span');
+            iconSpan.className = 'kl-reaction-trigger__icon';
+            iconSpan.setAttribute('data-reaction-trigger-icon', '');
+            triggerBtn.appendChild(iconSpan);
 
             const countSpan = doc.createElement('span');
             countSpan.className = 'kl-reaction-trigger__count';
@@ -277,7 +328,7 @@
             paletteEl.className = 'kl-reaction-palette';
             paletteEl.setAttribute('data-reaction-palette', '');
             paletteEl.setAttribute('role', 'group');
-            paletteEl.setAttribute('aria-label', 'Chọn biểu cảm');
+            paletteEl.setAttribute('aria-label', 'Chọn cảm xúc');
             paletteEl.hidden = true;
 
             REACTION_CONFIG.forEach(item => {
@@ -290,7 +341,11 @@
 
                 const optEmoji = doc.createElement('span');
                 optEmoji.className = 'kl-reaction-option__emoji';
-                optEmoji.textContent = item.emoji;
+                if (item.type === 'LIKE' && optEmoji.innerHTML !== undefined) {
+                    optEmoji.innerHTML = SVG_LIKE_FILLED;
+                } else {
+                    optEmoji.textContent = item.emoji;
+                }
                 optBtn.appendChild(optEmoji);
 
                 const optCount = doc.createElement('span');
@@ -310,11 +365,11 @@
 
         // Update trigger visuals
         const activeItem = currentReaction ? REACTION_MAP[currentReaction] : null;
-        const triggerEmojiEl = triggerBtn ? triggerBtn.querySelector('[data-reaction-trigger-emoji]') : null;
+        const triggerIconEl = triggerBtn ? (triggerBtn.querySelector('[data-reaction-trigger-icon]') || triggerBtn.querySelector('[data-reaction-trigger-emoji]')) : null;
         const triggerCountEl = triggerBtn ? triggerBtn.querySelector('[data-reaction-trigger-count]') : null;
 
-        if (triggerEmojiEl) {
-            triggerEmojiEl.textContent = activeItem ? activeItem.emoji : DEFAULT_EMOJI;
+        if (triggerIconEl) {
+            setTriggerIcon(triggerIconEl, currentReaction);
         }
 
         if (triggerCountEl) {
@@ -330,15 +385,25 @@
         if (triggerBtn) {
             if (activeItem) {
                 triggerBtn.classList.add('has-reaction');
-                triggerBtn.setAttribute(
-                    'aria-label',
-                    'Biểu cảm: ' + activeItem.label + (totalCount > 0 ? ', tổng cộng ' + totalCount + ' lượt' : '')
-                );
+                if (currentReaction === 'LIKE') {
+                    triggerBtn.classList.add('is-like');
+                    triggerBtn.setAttribute(
+                        'aria-label',
+                        'Đã thích. Nhấn để gỡ; mũi tên xuống để đổi cảm xúc.' + (totalCount > 0 ? ', tổng cộng ' + totalCount + ' lượt' : '')
+                    );
+                } else {
+                    triggerBtn.classList.remove('is-like');
+                    triggerBtn.setAttribute(
+                        'aria-label',
+                        'Đã chọn ' + activeItem.label + '. Nhấn để gỡ; mũi tên xuống để đổi cảm xúc.' + (totalCount > 0 ? ', tổng cộng ' + totalCount + ' lượt' : '')
+                    );
+                }
             } else {
                 triggerBtn.classList.remove('has-reaction');
+                triggerBtn.classList.remove('is-like');
                 triggerBtn.setAttribute(
                     'aria-label',
-                    totalCount > 0 ? 'Thả cảm xúc, tổng cộng ' + totalCount + ' lượt' : 'Thả cảm xúc'
+                    'Thích. Nhấn để thích; mũi tên xuống để chọn cảm xúc.' + (totalCount > 0 ? ', tổng cộng ' + totalCount + ' lượt' : '')
                 );
             }
         }
@@ -449,7 +514,7 @@
         }
 
         if (!paletteHeight) paletteHeight = 44;
-        if (!paletteWidth) paletteWidth = 140;
+        if (!paletteWidth) paletteWidth = 175;
 
         const triggerRect = triggerBtn.getBoundingClientRect();
         const spaceAbove = triggerRect.top;
@@ -522,9 +587,17 @@
      * Closes all open palettes in the document.
      */
     function closeAllPalettes(doc) {
+        if (hoverOpenTimer) {
+            clearTimeout(hoverOpenTimer);
+            hoverOpenTimer = null;
+        }
         if (hoverCloseTimer) {
             clearTimeout(hoverCloseTimer);
             hoverCloseTimer = null;
+        }
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
         }
         if (activeOpenWidget) {
             closePalette(activeOpenWidget);
@@ -677,17 +750,66 @@
 
         boundDocument = d;
 
-        // 1. Pointerdown tracking for actual input mode resolution
+        // 1. Pointerdown: track pointer modality and initiate long press for touch/pen
         d.addEventListener('pointerdown', function (e) {
             const target = e.target;
             if (!target) return;
+
             const triggerBtn = target.closest ? target.closest('[data-reaction-trigger]') : null;
             if (triggerBtn) {
                 lastPointerType = e.pointerType || 'mouse';
+
+                if (lastPointerType === 'touch' || lastPointerType === 'pen') {
+                    const widgetEl = triggerBtn.closest('[data-reaction-widget]');
+                    if (widgetEl) {
+                        touchStartX = e.clientX || 0;
+                        touchStartY = e.clientY || 0;
+                        longPressConsumed = false;
+
+                        if (longPressTimer) {
+                            clearTimeout(longPressTimer);
+                        }
+
+                        longPressTimer = setTimeout(function () {
+                            openPalette(widgetEl);
+                            longPressConsumed = true;
+                            longPressTimer = null;
+                        }, LONG_PRESS_DELAY_MS);
+                    }
+                }
             }
         });
 
-        // 2. Delegated Pointer Hover Handling (Safe hover boundary for mouse only)
+        // 2. Pointermove: cancel long-press if movement exceeds scroll tolerance
+        d.addEventListener('pointermove', function (e) {
+            if (longPressTimer) {
+                const currentX = e.clientX || 0;
+                const currentY = e.clientY || 0;
+                const dist = Math.hypot(currentX - touchStartX, currentY - touchStartY);
+                if (dist > MOVE_THRESHOLD_PX) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }
+        });
+
+        // 3. Pointerup / Pointercancel: clear long-press timer
+        d.addEventListener('pointerup', function () {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        });
+
+        d.addEventListener('pointercancel', function () {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            longPressConsumed = false;
+        });
+
+        // 4. Delegated Pointer Hover (Mouse only hover-intent ~550ms)
         d.addEventListener('pointerover', function (e) {
             const target = e.target;
             if (!target) return;
@@ -701,8 +823,15 @@
                     clearTimeout(hoverCloseTimer);
                     hoverCloseTimer = null;
                 }
+
                 if (activeOpenWidget !== widgetEl) {
-                    openPalette(widgetEl);
+                    if (hoverOpenTimer) {
+                        clearTimeout(hoverOpenTimer);
+                    }
+                    hoverOpenTimer = setTimeout(function () {
+                        openPalette(widgetEl);
+                        hoverOpenTimer = null;
+                    }, HOVER_OPEN_DELAY_MS);
                 }
             }
         });
@@ -715,19 +844,26 @@
             if (pType !== 'mouse') return;
 
             const widgetEl = target.closest ? target.closest('[data-reaction-widget]') : null;
-            if (widgetEl && activeOpenWidget === widgetEl) {
+            if (widgetEl) {
                 const related = e.relatedTarget;
                 if (!related || !widgetEl.contains(related)) {
-                    if (hoverCloseTimer) clearTimeout(hoverCloseTimer);
-                    hoverCloseTimer = setTimeout(function () {
-                        closePalette(widgetEl);
-                        hoverCloseTimer = null;
-                    }, HOVER_CLOSE_DELAY_MS);
+                    if (hoverOpenTimer) {
+                        clearTimeout(hoverOpenTimer);
+                        hoverOpenTimer = null;
+                    }
+
+                    if (activeOpenWidget === widgetEl) {
+                        if (hoverCloseTimer) clearTimeout(hoverCloseTimer);
+                        hoverCloseTimer = setTimeout(function () {
+                            closePalette(widgetEl);
+                            hoverCloseTimer = null;
+                        }, HOVER_CLOSE_DELAY_MS);
+                    }
                 }
             }
         });
 
-        // 3. Delegated Click & Pointer Events
+        // 5. Delegated Click Events
         d.addEventListener('click', async function (e) {
             const target = e.target;
             if (!target) return;
@@ -756,51 +892,33 @@
                 const widgetEl = triggerBtn.closest('[data-reaction-widget]');
                 if (!widgetEl) return;
 
+                // Long-press suppression on touch/pen
+                if (longPressConsumed) {
+                    longPressConsumed = false;
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
+                    return;
+                }
+
                 const paletteEl = widgetEl.querySelector('[data-reaction-palette]');
                 const isOpen = paletteEl && !paletteEl.hidden;
 
-                // Determine activation modality
-                const isKeyboard = (e.detail === 0 && (!e.pointerType || e.pointerType === '')) ||
-                    (e.clientX === 0 && e.clientY === 0 && !e.pointerType);
-                const resolvedPointerType = e.pointerType || lastPointerType;
-                const isTouchOrPen = (resolvedPointerType === 'touch' || resolvedPointerType === 'pen') ||
-                    (!isKeyboard && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-
-                if (isKeyboard) {
-                    // Keyboard activation: toggle palette open/closed only, NEVER send immediate LOVE
-                    if (isOpen) {
-                        closePalette(widgetEl);
-                    } else {
-                        openPalette(widgetEl);
-                        const firstOption = widgetEl.querySelector('[data-reaction-option]');
-                        if (firstOption && typeof firstOption.focus === 'function') {
-                            firstOption.focus();
-                        }
-                    }
-                } else if (isTouchOrPen) {
-                    // Mobile touch / Pen: first tap ALWAYS opens palette (never immediately creates LOVE)
-                    if (isOpen) {
-                        closePalette(widgetEl);
-                    } else {
-                        openPalette(widgetEl);
-                    }
-                } else {
-                    // Desktop mouse:
-                    if (isOpen) {
-                        closePalette(widgetEl);
-                    } else {
-                        const current = widgetEl.getAttribute('data-reaction-current');
-                        if (!current) {
-                            // Default LOVE on unreacted mouse click
-                            const targetType = widgetEl.getAttribute('data-reaction-target-type');
-                            const targetId = widgetEl.getAttribute('data-reaction-target-id');
-                            await setReaction(targetType, targetId, 'LOVE', d);
-                        } else {
-                            // If already reacted, open palette
-                            openPalette(widgetEl);
-                        }
-                    }
+                if (isOpen) {
+                    closePalette(widgetEl);
                 }
+
+                const currentReaction = widgetEl.getAttribute('data-reaction-current');
+                const targetType = widgetEl.getAttribute('data-reaction-target-type');
+                const targetId = widgetEl.getAttribute('data-reaction-target-id');
+
+                if (!currentReaction) {
+                    // Quick click / tap on unreacted: SET LIKE immediately
+                    await setReaction(targetType, targetId, 'LIKE', d);
+                } else {
+                    // Quick click / tap on active reaction: REMOVE reaction immediately
+                    await setReaction(targetType, targetId, null, d);
+                }
+
                 lastPointerType = null;
                 return;
             }
@@ -812,7 +930,7 @@
             }
         });
 
-        // 4. Delegated Keyboard Navigation
+        // 6. Delegated Keyboard Navigation
         d.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
                 if (activeOpenWidget) {
@@ -821,33 +939,55 @@
                     if (tr && typeof tr.focus === 'function') {
                         tr.focus();
                     }
-                    e.preventDefault();
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
                 }
                 return;
             }
 
+            // Enter / Space on trigger: Quick Action (LIKE or Remove)
             if (e.key === 'Enter' || e.key === ' ') {
                 const target = e.target;
                 if (target && target.matches && target.matches('[data-reaction-trigger]')) {
                     const widgetEl = target.closest('[data-reaction-widget]');
                     if (widgetEl) {
-                        e.preventDefault();
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
                         const paletteEl = widgetEl.querySelector('[data-reaction-palette]');
                         if (paletteEl && !paletteEl.hidden) {
                             closePalette(widgetEl);
+                        }
+
+                        const currentReaction = widgetEl.getAttribute('data-reaction-current');
+                        const targetType = widgetEl.getAttribute('data-reaction-target-type');
+                        const targetId = widgetEl.getAttribute('data-reaction-target-id');
+
+                        if (!currentReaction) {
+                            setReaction(targetType, targetId, 'LIKE', d);
                         } else {
-                            openPalette(widgetEl);
-                            const firstOption = widgetEl.querySelector('[data-reaction-option]');
-                            if (firstOption && typeof firstOption.focus === 'function') {
-                                firstOption.focus();
-                            }
+                            setReaction(targetType, targetId, null, d);
+                        }
+                    }
+                }
+                return;
+            }
+
+            // ArrowDown on trigger: Open palette without mutating & focus first option
+            if (e.key === 'ArrowDown' || e.key === 'Down') {
+                const target = e.target;
+                if (target && target.matches && target.matches('[data-reaction-trigger]')) {
+                    const widgetEl = target.closest('[data-reaction-widget]');
+                    if (widgetEl) {
+                        if (typeof e.preventDefault === 'function') e.preventDefault();
+                        openPalette(widgetEl);
+                        const firstOption = widgetEl.querySelector('[data-reaction-option]');
+                        if (firstOption && typeof firstOption.focus === 'function') {
+                            firstOption.focus();
                         }
                     }
                 }
             }
         });
 
-        // 5. Dynamic MutationObserver for automatic DOM insertion hydration
+        // 7. Dynamic MutationObserver for automatic DOM insertion hydration
         const ObserverClass = (d.defaultView && d.defaultView.MutationObserver) ||
             (typeof MutationObserver !== 'undefined' ? MutationObserver : null) ||
             d.MutationObserver;
@@ -884,10 +1024,19 @@
             mutationObserver.disconnect();
             mutationObserver = null;
         }
+        if (hoverOpenTimer) {
+            clearTimeout(hoverOpenTimer);
+            hoverOpenTimer = null;
+        }
         if (hoverCloseTimer) {
             clearTimeout(hoverCloseTimer);
             hoverCloseTimer = null;
         }
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        longPressConsumed = false;
         activeOpenWidget = null;
         boundDocument = null;
         inFlightTargets.clear();
@@ -919,6 +1068,14 @@
         getConfig: function () { return REACTION_CONFIG.slice(); },
         _getInFlightTargets: function () { return inFlightTargets; },
         _getActiveOpenWidget: function () { return activeOpenWidget; },
-        _validateReactionSummary: validateReactionSummary
+        _validateReactionSummary: validateReactionSummary,
+        _getDelays: function () {
+            return {
+                hoverOpen: HOVER_OPEN_DELAY_MS,
+                hoverClose: HOVER_CLOSE_DELAY_MS,
+                longPress: LONG_PRESS_DELAY_MS,
+                moveThreshold: MOVE_THRESHOLD_PX
+            };
+        }
     };
 }));

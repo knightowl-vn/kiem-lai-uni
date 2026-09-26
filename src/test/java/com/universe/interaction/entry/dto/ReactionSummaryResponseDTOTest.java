@@ -31,6 +31,7 @@ class ReactionSummaryResponseDTOTest {
     void shouldMapAllReactionTypesToStringKeys() {
         ReactionTarget target = ReactionTarget.novelChapter(TARGET_ID);
         Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+        counts.put(ReactionType.LIKE, 3L);
         counts.put(ReactionType.LOVE, 12L);
         counts.put(ReactionType.FIRE, 4L);
         counts.put(ReactionType.HAHA, 2L);
@@ -39,16 +40,17 @@ class ReactionSummaryResponseDTOTest {
         ReactionSummary summary = ReactionSummary.of(
                 target,
                 counts,
-                ReactionType.LOVE
+                ReactionType.LIKE
         );
 
         ReactionSummaryResponseDTO dto = ReactionSummaryResponseDTO.from(summary);
 
         assertThat(dto.targetType()).isEqualTo("NOVEL_CHAPTER");
         assertThat(dto.targetId()).isEqualTo(TARGET_ID);
-        assertThat(dto.totalCount()).isEqualTo(19L);
-        assertThat(dto.currentUserReaction()).isEqualTo("LOVE");
+        assertThat(dto.totalCount()).isEqualTo(22L);
+        assertThat(dto.currentUserReaction()).isEqualTo("LIKE");
         assertThat(dto.counts())
+                .containsEntry("LIKE", 3L)
                 .containsEntry("LOVE", 12L)
                 .containsEntry("FIRE", 4L)
                 .containsEntry("HAHA", 2L)
@@ -72,6 +74,7 @@ class ReactionSummaryResponseDTOTest {
         assertThat(dto.totalCount()).isEqualTo(0L);
         assertThat(dto.currentUserReaction()).isNull();
         assertThat(dto.counts())
+                .containsEntry("LIKE", 0L)
                 .containsEntry("LOVE", 0L)
                 .containsEntry("FIRE", 0L)
                 .containsEntry("HAHA", 0L)

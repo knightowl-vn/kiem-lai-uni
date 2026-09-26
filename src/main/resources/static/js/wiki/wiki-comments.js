@@ -1835,6 +1835,7 @@
             author: comment.author,
             createdAt: comment.createdAt,
             edited: isEdited,
+            reactionSummary: comment.reactionSummary,
             body: function (bodyEl, bodyDoc) {
                 const targetDoc = bodyDoc || d;
                 bodyEl.setAttribute('data-body-container', strCommentId);
@@ -1953,10 +1954,10 @@
         const strRootId = String(rootCommentId);
 
         const composerBox = d.createElement('div');
-        composerBox.className = 'wiki-inline-composer';
+        composerBox.className = 'kl-comment-composer wiki-inline-composer';
 
         const form = d.createElement('form');
-        form.className = 'wiki-comment-composer-form';
+        form.className = 'kl-comment-composer__form wiki-comment-composer-form';
 
         const label = d.createElement('label');
         label.className = 'visually-hidden';
@@ -1967,7 +1968,7 @@
 
         const textarea = d.createElement('textarea');
         textarea.id = textareaId;
-        textarea.className = 'wiki-comment-textarea';
+        textarea.className = 'kl-comment-composer__input wiki-comment-textarea';
         textarea.rows = 2;
         textarea.placeholder = authorName ? ('Trả lời @' + authorName + '...') : 'Viết phản hồi...';
         textarea.maxLength = 2000;
@@ -2001,20 +2002,20 @@
         });
 
         const footer = d.createElement('div');
-        footer.className = 'wiki-comment-composer-footer';
+        footer.className = 'kl-comment-composer__footer wiki-comment-composer-footer';
 
         const errorSpan = d.createElement('span');
-        errorSpan.className = 'wiki-comment-composer-error';
+        errorSpan.className = 'kl-comment-composer__status kl-comment-composer__error wiki-comment-composer-error';
         errorSpan.setAttribute('role', 'alert');
         errorSpan.hidden = true;
         footer.appendChild(errorSpan);
 
         const actionsDiv = d.createElement('div');
-        actionsDiv.className = 'wiki-comment-composer-actions';
+        actionsDiv.className = 'kl-comment-composer__actions wiki-comment-composer-actions';
 
         const cancelBtn = d.createElement('button');
         cancelBtn.type = 'button';
-        cancelBtn.className = 'wiki-comment-btn wiki-comment-btn--secondary';
+        cancelBtn.className = 'kl-comment-composer__cancel wiki-comment-btn wiki-comment-btn--secondary';
         cancelBtn.textContent = 'Hủy';
         cancelBtn.addEventListener('click', function () {
             if (activeReplyDebounceTimer) {
@@ -2037,7 +2038,7 @@
 
         const submitBtn = d.createElement('button');
         submitBtn.type = 'submit';
-        submitBtn.className = 'wiki-comment-btn wiki-comment-btn--primary';
+        submitBtn.className = 'kl-comment-composer__submit wiki-comment-btn wiki-comment-btn--primary';
         submitBtn.textContent = 'Gửi phản hồi';
         actionsDiv.appendChild(submitBtn);
 
@@ -2178,7 +2179,7 @@
         clearElement(bodyContainer);
 
         const form = d.createElement('form');
-        form.className = 'wiki-inline-edit-form';
+        form.className = 'kl-comment-composer__form wiki-inline-edit-form';
 
         const label = d.createElement('label');
         label.className = 'visually-hidden';
@@ -2189,7 +2190,7 @@
 
         const textarea = d.createElement('textarea');
         textarea.id = textareaId;
-        textarea.className = 'wiki-comment-textarea';
+        textarea.className = 'kl-comment-composer__input wiki-comment-textarea';
         textarea.rows = 3;
         textarea.value = initialTextareaValue;
         textarea.maxLength = 2000;
@@ -2221,20 +2222,20 @@
         });
 
         const footer = d.createElement('div');
-        footer.className = 'wiki-comment-composer-footer';
+        footer.className = 'kl-comment-composer__footer wiki-comment-composer-footer';
 
         const errorSpan = d.createElement('span');
-        errorSpan.className = 'wiki-comment-composer-error';
+        errorSpan.className = 'kl-comment-composer__status kl-comment-composer__error wiki-comment-composer-error';
         errorSpan.setAttribute('role', 'alert');
         errorSpan.hidden = true;
         footer.appendChild(errorSpan);
 
         const actionsDiv = d.createElement('div');
-        actionsDiv.className = 'wiki-comment-composer-actions';
+        actionsDiv.className = 'kl-comment-composer__actions wiki-comment-composer-actions';
 
         const cancelBtn = d.createElement('button');
         cancelBtn.type = 'button';
-        cancelBtn.className = 'wiki-comment-btn wiki-comment-btn--secondary';
+        cancelBtn.className = 'kl-comment-composer__cancel wiki-comment-btn wiki-comment-btn--secondary';
         cancelBtn.textContent = 'Hủy';
         cancelBtn.addEventListener('click', function () {
             if (activeEditDebounceTimer) {
@@ -2268,7 +2269,7 @@
 
         const submitBtn = d.createElement('button');
         submitBtn.type = 'submit';
-        submitBtn.className = 'wiki-comment-btn wiki-comment-btn--primary';
+        submitBtn.className = 'kl-comment-composer__submit wiki-comment-btn wiki-comment-btn--primary';
         submitBtn.textContent = 'Lưu';
         actionsDiv.appendChild(submitBtn);
 

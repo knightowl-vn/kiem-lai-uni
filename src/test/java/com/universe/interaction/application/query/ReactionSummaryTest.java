@@ -25,14 +25,15 @@ class ReactionSummaryTest {
     class InvariantValidationTests {
 
         @Test
-        @DisplayName("1 & 2. Missing reaction keys normalize to zero, and all four keys are present")
+        @DisplayName("1 & 2. Missing reaction keys normalize to zero, and all five keys are present")
         void shouldNormalizeMissingKeysToZeroAndIncludeAllFourKeys() {
             ReactionTarget target = ReactionTarget.novelChapter(TARGET_ID);
             Map<ReactionType, Long> sparse = Map.of(ReactionType.LOVE, 5L);
 
             ReactionSummary summary = ReactionSummary.of(target, sparse, null);
 
-            assertThat(summary.counts()).hasSize(4)
+            assertThat(summary.counts()).hasSize(5)
+                    .containsEntry(ReactionType.LIKE, 0L)
                     .containsEntry(ReactionType.LOVE, 5L)
                     .containsEntry(ReactionType.FIRE, 0L)
                     .containsEntry(ReactionType.HAHA, 0L)
@@ -45,6 +46,7 @@ class ReactionSummaryTest {
         void shouldAcceptValidSummaryAndMatchTotalCount() {
             ReactionTarget target = ReactionTarget.comment(TARGET_ID);
             Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+            counts.put(ReactionType.LIKE, 4L);
             counts.put(ReactionType.LOVE, 10L);
             counts.put(ReactionType.FIRE, 2L);
             counts.put(ReactionType.HAHA, 3L);
@@ -52,9 +54,10 @@ class ReactionSummaryTest {
 
             ReactionSummary summary = ReactionSummary.of(target, counts, ReactionType.LOVE);
 
-            assertThat(summary.totalCount()).isEqualTo(16L);
+            assertThat(summary.totalCount()).isEqualTo(20L);
             assertThat(summary.currentUserReaction()).isEqualTo(ReactionType.LOVE);
             assertThat(summary.counts())
+                    .containsEntry(ReactionType.LIKE, 4L)
                     .containsEntry(ReactionType.LOVE, 10L)
                     .containsEntry(ReactionType.FIRE, 2L)
                     .containsEntry(ReactionType.HAHA, 3L)

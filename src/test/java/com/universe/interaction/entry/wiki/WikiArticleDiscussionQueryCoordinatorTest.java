@@ -7,14 +7,19 @@ import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.CommentThreadView;
+import com.universe.interaction.application.query.GetBatchReactionSummariesUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.entry.dto.CommentThreadResponseDTO;
+import com.universe.interaction.entry.dto.ReactionSummaryResponseDTO;
 import com.universe.interaction.entry.wiki.dto.WikiDiscussionFeedResponseDTO;
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
@@ -35,6 +40,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +71,9 @@ class WikiArticleDiscussionQueryCoordinatorTest {
     @Mock
     private UserIdentityContract userIdentityContract;
 
+    @Mock
+    private GetBatchReactionSummariesUseCase getBatchReactionSummariesUseCase;
+
     private WikiArticleDiscussionQueryCoordinator coordinator;
 
     private static final UUID ARTICLE_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
@@ -86,7 +95,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                 getCommentThreadsByRootIdsUseCase,
                 getCommentThreadUseCase,
                 validateCommentTargetScopeUseCase,
-                userIdentityContract
+                userIdentityContract,
+                getBatchReactionSummariesUseCase
         );
     }
 
@@ -274,5 +284,135 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         verify(getCommentThreadUseCase, never()).execute(any());
         verify(userIdentityContract, never()).findPublicProfilesByIds(any());
+    }
+
+    @Test
+    @DisplayName("Feed queries batch reactions for active roots and active replies, omitting tombstones")
+    void shouldQueryBatchReactionsForActiveCommentsInFeed() {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+
+        when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 2));
+
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
+        CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
+        when(listCommentRootsUseCase.execute(target, 0, 10))
+                .thenReturn(new CommentReadSlice(List.of(root1Item), 0, 10, false));
+
+        Comment reply1 = Comment.createReply(REPLY_1_ID, root1, AUTHOR_2_ID, "Active reply", NOW.plusSeconds(5));
+        CommentReadItem reply1Item = CommentReadItem.fromActiveReply(reply1, AUTHOR_1_ID);
+
+        Comment reply2 = Comment.createReply(REPLY_2_ID, root1, TOMBSTONE_AUTHOR_ID, "Deleted reply", NOW.plusSeconds(10));
+        reply2.delete(NOW.plusSeconds(15));
+        CommentReadItem reply2Item = CommentReadItem.fromTombstoneReply(reply2, null);
+
+        CommentThreadView thread1View = new CommentThreadView(root1Item, List.of(reply1Item, reply2Item));
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                .thenReturn(List.of(thread1View));
+
+        when(userIdentityContract.findPublicProfilesByIds(any()))
+                .thenReturn(Map.of(
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                ));
+
+        ReactionSummary rootSummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(ROOT_1_ID),
+                Map.of(ReactionType.LIKE, 2L, ReactionType.LOVE, 1L),
+                ReactionType.LIKE
+        );
+        ReactionSummary reply1Summary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(REPLY_1_ID),
+                Map.of(ReactionType.FIRE, 1L),
+                null
+        );
+
+        when(getBatchReactionSummariesUseCase.execute(eq(ReactionTargetType.COMMENT), any(), eq(AUTHOR_1_ID)))
+                .thenReturn(Map.of(
+                        ROOT_1_ID, rootSummary,
+                        REPLY_1_ID, reply1Summary
+                ));
+
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, AUTHOR_1_ID);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UUID>> activeCommentsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(getBatchReactionSummariesUseCase).execute(eq(ReactionTargetType.COMMENT), activeCommentsCaptor.capture(), eq(AUTHOR_1_ID));
+        assertThat(activeCommentsCaptor.getValue()).containsExactlyInAnyOrder(ROOT_1_ID, REPLY_1_ID);
+        assertThat(activeCommentsCaptor.getValue()).doesNotContain(REPLY_2_ID);
+
+        CommentThreadResponseDTO thread = response.threads().get(0);
+        assertThat(thread.root().reactionSummary()).isNotNull();
+        assertThat(thread.root().reactionSummary().totalCount()).isEqualTo(3);
+        assertThat(thread.root().reactionSummary().currentUserReaction()).isEqualTo("LIKE");
+
+        assertThat(thread.replies().get(0).reactionSummary()).isNotNull();
+        assertThat(thread.replies().get(0).reactionSummary().totalCount()).isEqualTo(1);
+        assertThat(thread.replies().get(0).reactionSummary().currentUserReaction()).isNull();
+
+        assertThat(thread.replies().get(1).reactionSummary()).isNull();
+    }
+
+    @Test
+    @DisplayName("Single thread queries batch reactions for active root and active replies")
+    void shouldQueryBatchReactionsForSingleThread() {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
+        CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
+        Comment reply1 = Comment.createReply(REPLY_1_ID, root1, AUTHOR_2_ID, "Active reply", NOW.plusSeconds(5));
+        CommentReadItem reply1Item = CommentReadItem.fromActiveReply(reply1, AUTHOR_1_ID);
+
+        CommentThreadView threadView = new CommentThreadView(root1Item, List.of(reply1Item));
+        when(getCommentThreadUseCase.execute(ROOT_1_ID)).thenReturn(threadView);
+
+        when(userIdentityContract.findPublicProfilesByIds(any()))
+                .thenReturn(Map.of(
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                ));
+
+        ReactionSummary rootSummary = ReactionSummary.of(
+                com.universe.interaction.domain.reaction.ReactionTarget.comment(ROOT_1_ID),
+                Map.of(ReactionType.LIKE, 1L),
+                null
+        );
+        when(getBatchReactionSummariesUseCase.execute(eq(ReactionTargetType.COMMENT), any(), any()))
+                .thenReturn(Map.of(ROOT_1_ID, rootSummary));
+
+        CommentThreadResponseDTO response = coordinator.getCommentThread(ARTICLE_ID, ROOT_1_ID, null);
+
+        assertThat(response.root().reactionSummary()).isNotNull();
+        assertThat(response.root().reactionSummary().totalCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Reaction query failure degrades gracefully without failing feed load")
+    void shouldDegradeGracefullyWhenReactionQueryFails() {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+
+        when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(1, 1));
+
+        Comment root1 = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root 1 Body", NOW);
+        CommentReadItem root1Item = CommentReadItem.fromRoot(root1);
+        when(listCommentRootsUseCase.execute(target, 0, 10))
+                .thenReturn(new CommentReadSlice(List.of(root1Item), 0, 10, false));
+
+        CommentThreadView thread1View = new CommentThreadView(root1Item, List.of());
+        when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
+                .thenReturn(List.of(thread1View));
+
+        when(userIdentityContract.findPublicProfilesByIds(any()))
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null)));
+
+        when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
+                .thenThrow(new RuntimeException("Transient DB timeout"));
+
+        WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null);
+
+        assertThat(response.threads()).hasSize(1);
+        assertThat(response.threads().get(0).root().reactionSummary()).isNull();
     }
 }

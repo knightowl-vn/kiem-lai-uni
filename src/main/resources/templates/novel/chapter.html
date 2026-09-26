@@ -343,39 +343,7 @@
     </nav>
 
 
-    <!-- =====================================================
-         CHAPTER EMOTIONAL REACTIONS (MS-05I6)
-         ===================================================== -->
-    <section th:if="${reactionSummary != null}"
-             class="novel-chapter-reactions"
-             id="novelChapterReactions"
-             aria-label="Cảm xúc chương">
-        <div class="kl-reaction-widget"
-             data-reaction-widget
-             data-reaction-target-type="NOVEL_CHAPTER"
-             th:attr="data-reaction-target-id=${chapter.id},
-                      data-reaction-current=${reactionSummary.currentUserReaction != null ? reactionSummary.currentUserReaction.name() : null},
-                      data-reaction-total=${reactionSummary.totalCount},
-                      data-reaction-count-love=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).LOVE) : 0},
-                      data-reaction-count-fire=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).FIRE) : 0},
-                      data-reaction-count-haha=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).HAHA) : 0},
-                      data-reaction-count-sad=${reactionSummary.counts != null ? reactionSummary.counts.get(T(com.universe.interaction.domain.reaction.ReactionType).SAD) : 0}">
-            <button type="button"
-                    class="kl-reaction-trigger"
-                    data-reaction-trigger
-                    th:classappend="${reactionSummary.currentUserReaction != null} ? ' has-reaction' : ''"
-                    th:attr="aria-expanded='false',
-                             aria-label=${reactionSummary.currentUserReaction != null ? 'Biểu cảm: ' + reactionSummary.currentUserReaction.name() + ', tổng cộng ' + reactionSummary.totalCount + ' lượt' : (reactionSummary.totalCount > 0 ? 'Thả cảm xúc, tổng cộng ' + reactionSummary.totalCount + ' lượt' : 'Thả cảm xúc')}">
-                <span class="kl-reaction-trigger__emoji"
-                      data-reaction-trigger-emoji
-                      th:text="${reactionSummary.currentUserReaction != null ? (reactionSummary.currentUserReaction.name() == 'LOVE' ? '❤️' : (reactionSummary.currentUserReaction.name() == 'FIRE' ? '🔥' : (reactionSummary.currentUserReaction.name() == 'HAHA' ? '😂' : (reactionSummary.currentUserReaction.name() == 'SAD' ? '😭' : '❤️')))) : '❤️'}">❤️</span>
-                <span class="kl-reaction-trigger__count"
-                      data-reaction-trigger-count
-                      th:hidden="${reactionSummary.totalCount == 0}"
-                      th:text="${reactionSummary.totalCount > 0 ? reactionSummary.totalCount : ''}"></span>
-            </button>
-        </div>
-    </section>
+
 
 
     <!-- =====================================================
@@ -395,27 +363,29 @@
         </header>
 
         <!-- Authenticated Chapter Root Comment Composer (MS-05E5H2F1) -->
-        <div class="novel-chapter-comment-composer-wrapper" sec:authorize="isAuthenticated()">
+        <div class="kl-comment-composer novel-chapter-comment-composer-wrapper" sec:authorize="isAuthenticated()">
             <form id="novelChapterCommentComposer"
-                  class="novel-chapter-comment-composer"
+                  class="kl-comment-composer__form novel-chapter-comment-composer"
                   novalidate>
                 <label for="novelChapterCommentComposerInput"
-                       class="novel-chapter-comment-composer-label">Viết bình luận</label>
+                       class="kl-comment-composer__label novel-chapter-comment-composer-label">Viết bình luận</label>
                 <textarea id="novelChapterCommentComposerInput"
-                          class="novel-chapter-comment-composer-input"
+                          class="kl-comment-composer__input novel-chapter-comment-composer-input"
                           placeholder="Chia sẻ suy nghĩ của bạn về chương này..."
                           rows="3"
                           maxlength="2000"></textarea>
-                <div id="novelChapterCommentComposerStatus"
-                     class="novel-chapter-comment-composer-status"
-                     role="status"
-                     aria-live="polite"></div>
-                <div class="novel-chapter-comment-composer-actions">
-                    <button type="submit"
-                            id="novelChapterCommentComposerSubmit"
-                            class="novel-chapter-comment-composer-submit">
-                        Gửi
-                    </button>
+                <div class="kl-comment-composer__footer">
+                    <div id="novelChapterCommentComposerStatus"
+                         class="kl-comment-composer__status novel-chapter-comment-composer-status"
+                         role="status"
+                         aria-live="polite"></div>
+                    <div class="kl-comment-composer__actions novel-chapter-comment-composer-actions">
+                        <button type="submit"
+                                id="novelChapterCommentComposerSubmit"
+                                class="kl-comment-composer__submit novel-chapter-comment-composer-submit">
+                            Gửi
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>

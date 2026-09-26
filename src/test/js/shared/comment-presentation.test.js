@@ -1005,8 +1005,8 @@ describe('CommentPresentation Module', () => {
                 targetType: 'COMMENT',
                 targetId: 'comment-123',
                 currentUserReaction: 'LOVE',
-                totalCount: 7,
-                counts: { LOVE: 5, FIRE: 2, HAHA: 0, SAD: 0 }
+                totalCount: 10,
+                counts: { LIKE: 3, LOVE: 5, FIRE: 2, HAHA: 0, SAD: 0 }
             },
             primaryActions: [
                 {
@@ -1026,7 +1026,8 @@ describe('CommentPresentation Module', () => {
         assert.strictEqual(widgetEl.getAttribute('data-reaction-target-type'), 'COMMENT');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-target-id'), 'comment-123');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-current'), 'LOVE');
-        assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '7');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '10');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-like'), '3');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-love'), '5');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-fire'), '2');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-haha'), '0');
@@ -1044,11 +1045,12 @@ describe('CommentPresentation Module', () => {
             targetId: 'comment-fire-1',
             currentUserReaction: 'FIRE',
             totalCount: 3,
-            counts: { LOVE: 0, FIRE: 3, HAHA: 0, SAD: 0 }
+            counts: { LIKE: 0, LOVE: 0, FIRE: 3, HAHA: 0, SAD: 0 }
         }, doc);
         assert.ok(hostFire);
         assert.strictEqual(hostFire.getAttribute('data-reaction-current'), 'FIRE');
         assert.strictEqual(hostFire.getAttribute('data-reaction-total'), '3');
+        assert.strictEqual(hostFire.getAttribute('data-reaction-count-like'), '0');
         assert.strictEqual(hostFire.getAttribute('data-reaction-count-fire'), '3');
 
         const hostNull = CommentPresentation.createReactionHost('comment-unreacted-2', {
@@ -1056,7 +1058,7 @@ describe('CommentPresentation Module', () => {
             targetId: 'comment-unreacted-2',
             currentUserReaction: null,
             totalCount: 1,
-            counts: { LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
+            counts: { LIKE: 0, LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
         }, doc);
         assert.ok(hostNull);
         assert.strictEqual(hostNull.hasAttribute('data-reaction-current'), false);
@@ -1075,7 +1077,7 @@ describe('CommentPresentation Module', () => {
                 targetId: 'reply-uuid-999',
                 currentUserReaction: 'LOVE',
                 totalCount: 1,
-                counts: { LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
+                counts: { LIKE: 0, LOVE: 1, FIRE: 0, HAHA: 0, SAD: 0 }
             }
         }, doc);
 
@@ -1093,7 +1095,7 @@ describe('CommentPresentation Module', () => {
             targetId: 'comment-shared-777',
             currentUserReaction: 'HAHA',
             totalCount: 4,
-            counts: { LOVE: 1, FIRE: 0, HAHA: 3, SAD: 0 }
+            counts: { LIKE: 0, LOVE: 1, FIRE: 0, HAHA: 3, SAD: 0 }
         };
 
         const mainEl = CommentPresentation.renderComment({
@@ -1133,7 +1135,7 @@ describe('CommentPresentation Module', () => {
                 targetId: 'comment-zero-000',
                 currentUserReaction: null,
                 totalCount: 0,
-                counts: { LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 }
+                counts: { LIKE: 0, LOVE: 0, FIRE: 0, HAHA: 0, SAD: 0 }
             }
         }, doc);
 
@@ -1143,6 +1145,7 @@ describe('CommentPresentation Module', () => {
         assert.strictEqual(widgetEl.getAttribute('data-reaction-target-id'), 'comment-zero-000');
         assert.strictEqual(widgetEl.hasAttribute('data-reaction-current'), false);
         assert.strictEqual(widgetEl.getAttribute('data-reaction-total'), '0');
+        assert.strictEqual(widgetEl.getAttribute('data-reaction-count-like'), '0');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-love'), '0');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-fire'), '0');
         assert.strictEqual(widgetEl.getAttribute('data-reaction-count-haha'), '0');
