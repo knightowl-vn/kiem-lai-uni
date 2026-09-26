@@ -218,4 +218,34 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
         long activeReplies = row[1] != null ? ((Number) row[1]).longValue() : 0L;
         return new CommentTargetMetrics(threadCount, threadCount + activeReplies);
     }
+
+    @Override
+    public boolean hasDescendants(UUID commentId) {
+        if (commentId == null) {
+            throw new IllegalArgumentException("Comment ID cannot be null.");
+        }
+        String idStr = commentId.toString();
+        return repository.existsByParentCommentId(idStr) || repository.existsByThreadRootCommentId(idStr);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void deleteById(UUID commentId) {
+        if (commentId == null) {
+            throw new IllegalArgumentException("Comment ID cannot be null.");
+        }
+        repository.deleteAllByIds(List.of(commentId.toString()));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void deleteAllByIds(Collection<UUID> commentIds) {
+        if (commentIds == null || commentIds.isEmpty()) {
+            return;
+        }
+        List<String> ids = commentIds.stream().filter(Objects::nonNull).map(UUID::toString).toList();
+        if (!ids.isEmpty()) {
+            repository.deleteAllByIds(ids);
+        }
+    }
 }

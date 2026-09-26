@@ -10,6 +10,8 @@ import com.universe.interaction.infrastructure.persistence.CommentPersistenceAda
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQueryPersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
@@ -52,6 +54,8 @@ import static org.mockito.Mockito.when;
         CommentPersistenceMapper.class,
         CommentRevisionPersistenceAdapter.class,
         CommentRevisionPersistenceMapper.class,
+        ReactionPersistenceAdapter.class,
+        ReactionPersistenceMapper.class,
         CommentTargetEligibilityAdapter.class,
         ReaderChapterAccessQueryPersistenceAdapter.class,
         CreateRootCommentUseCase.class,
@@ -343,7 +347,7 @@ class CommentMutationSpringWiringIntegrationTest {
     }
 
     @Test
-    @DisplayName("Should execute DeleteCommentUseCase through Spring proxy with mandatory lock passing")
+    @DisplayName("Should execute DeleteCommentUseCase through Spring proxy with physical deletion")
     void shouldExecuteDeleteThroughSpringProxyWithLock() {
         CommentTarget target = CommentTarget.novelChapter(CH_PUB_ID);
         Comment root = createRootCommentUseCase.execute(
@@ -352,18 +356,14 @@ class CommentMutationSpringWiringIntegrationTest {
 
         // Delete via usecase through Spring proxy
         DeleteCommentCommand deleteCmd = new DeleteCommentCommand(USER_1_ID, root.getId());
-        Comment deleted = deleteCommentUseCase.execute(deleteCmd);
+        deleteCommentUseCase.execute(deleteCmd);
 
-        assertThat(deleted.isDeleted()).isTrue();
-        assertThat(deleted.getStatus()).isEqualTo(CommentStatus.DELETED);
-        assertThat(deleted.getDeletedAt()).isNotNull();
-
-        String dbStatus = jdbcTemplate.queryForObject(
-                "SELECT status FROM interaction_comments WHERE id = ?",
-                String.class,
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM interaction_comments WHERE id = ?",
+                Integer.class,
                 root.getId().toString()
         );
-        assertThat(dbStatus).isEqualTo("DELETED");
+        assertThat(count).isEqualTo(0);
     }
 
     @Test

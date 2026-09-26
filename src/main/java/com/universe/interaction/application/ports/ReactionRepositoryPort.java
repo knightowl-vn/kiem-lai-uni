@@ -76,4 +76,9 @@ public interface ReactionRepositoryPort {
      * Counts the total number of reactions across all types for a given target.
      */
     long countTotalReactionsByTarget(ReactionTarget target);
+
+    /**
+     * Deletes all reactions associated with a collection of target IDs under a specific target type.
+     */
+    void deleteAllByTargetIds(ReactionTargetType targetType, Collection<UUID> targetIds);
 }

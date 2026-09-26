@@ -122,4 +122,16 @@ public class CommentRevisionPersistenceAdapter implements CommentRevisionReposit
         }
         repository.deleteAllByCommentId(commentId.toString());
     }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void deleteAllByCommentIds(java.util.Collection<UUID> commentIds) {
+        if (commentIds == null || commentIds.isEmpty()) {
+            return;
+        }
+        List<String> ids = commentIds.stream().filter(Objects::nonNull).map(UUID::toString).toList();
+        if (!ids.isEmpty()) {
+            repository.deleteAllByCommentIdIn(ids);
+        }
+    }
 }

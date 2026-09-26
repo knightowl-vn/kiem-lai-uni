@@ -51,4 +51,11 @@ public interface SpringDataReactionRepository extends JpaRepository<ReactionJpaE
             @Param("targetType") String targetType,
             @Param("targetId") String targetId
     );
+
+    @Modifying
+    @Query("DELETE FROM ReactionJpaEntity r WHERE r.targetType = :targetType AND r.targetId IN :targetIds")
+    int deleteAllByTargetTypeAndTargetIdIn(
+            @Param("targetType") String targetType,
+            @Param("targetIds") Collection<String> targetIds
+    );
 }

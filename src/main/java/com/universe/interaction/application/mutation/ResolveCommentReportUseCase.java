@@ -6,7 +6,9 @@ import com.universe.interaction.application.exceptions.ReportAlreadyResolvedExce
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
+import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.shared.time.ClockPort;
@@ -14,7 +16,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Atomic application use case for resolving comment reports with moderation actions.
@@ -27,14 +34,14 @@ import java.util.Objects;
  *   <li>For {@link ReportModerationAction#DELETE_COMMENT}:
  *     <ul>
  *       <li>Pessimistically locks the target comment via {@link CommentRepositoryPort#findByIdForUpdate};</li>
- *       <li>If active: soft-deletes comment, purges revisions, and persists updated comment;</li>
- *       <li>If already deleted: treats deletion as idempotently satisfied without mutating comment or revisions;</li>
+ *       <li>If present: physically removes comment, descendant replies, revisions, and reactions;</li>
+ *       <li>If already deleted: treats deletion as idempotently satisfied without mutating comment;</li>
  *       <li>Transitions report to {@code RESOLVED_ACTION_TAKEN} and saves report;</li>
  *     </ul>
  *   </li>
  *   <li>For {@link ReportModerationAction#NO_ACTION}:
  *     <ul>
- *       <li>Does not interact with comment or revision repositories;</li>
+ *       <li>Does not interact with comment, reaction, or revision repositories;</li>
  *       <li>Transitions report to {@code RESOLVED_NO_ACTION} and saves report;</li>
  *     </ul>
  *   </li>
@@ -48,17 +55,20 @@ public class ResolveCommentReportUseCase {
     private final InteractionReportRepositoryPort reportRepositoryPort;
     private final CommentRepositoryPort commentRepositoryPort;
     private final CommentRevisionRepositoryPort commentRevisionRepositoryPort;
+    private final ReactionRepositoryPort reactionRepositoryPort;
     private final ClockPort clockPort;
 
     public ResolveCommentReportUseCase(
             InteractionReportRepositoryPort reportRepositoryPort,
             CommentRepositoryPort commentRepositoryPort,
             CommentRevisionRepositoryPort commentRevisionRepositoryPort,
+            ReactionRepositoryPort reactionRepositoryPort,
             ClockPort clockPort
     ) {
         this.reportRepositoryPort = Objects.requireNonNull(reportRepositoryPort, "reportRepositoryPort cannot be null");
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "commentRepositoryPort cannot be null");
         this.commentRevisionRepositoryPort = Objects.requireNonNull(commentRevisionRepositoryPort, "commentRevisionRepositoryPort cannot be null");
+        this.reactionRepositoryPort = Objects.requireNonNull(reactionRepositoryPort, "reactionRepositoryPort cannot be null");
         this.clockPort = Objects.requireNonNull(clockPort, "clockPort cannot be null");
     }
 
@@ -82,17 +92,40 @@ public class ResolveCommentReportUseCase {
 
         switch (command.action()) {
             case DELETE_COMMENT -> {
-                Comment comment = commentRepositoryPort.findByIdForUpdate(report.getCommentId())
-                        .orElseThrow(() -> new CommentNotFoundException(report.getCommentId()));
-
-                Instant now = clockPort.now();
-
-                if (comment.isActive()) {
-                    comment.delete(now);
-                    commentRevisionRepositoryPort.deleteAllByCommentId(comment.getId());
-                    commentRepositoryPort.save(comment);
+                Optional<Comment> commentOptional = commentRepositoryPort.findByIdForUpdate(report.getCommentId());
+                if (commentOptional.isEmpty()) {
+                    throw new CommentNotFoundException(report.getCommentId());
                 }
 
+                Comment comment = commentOptional.get();
+                Set<UUID> commentIdsToDelete = new LinkedHashSet<>();
+                commentIdsToDelete.add(comment.getId());
+
+                if (comment.isRoot()) {
+                    List<Comment> replies = commentRepositoryPort.findThreadReplies(comment.getId());
+                    for (Comment reply : replies) {
+                        commentIdsToDelete.add(reply.getId());
+                    }
+                } else {
+                    List<Comment> replies = commentRepositoryPort.findThreadReplies(comment.getThreadRootCommentId());
+                    boolean expanded = true;
+                    while (expanded) {
+                        expanded = false;
+                        for (Comment r : replies) {
+                            if (r.getParentCommentId() != null && commentIdsToDelete.contains(r.getParentCommentId())) {
+                                if (commentIdsToDelete.add(r.getId())) {
+                                    expanded = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                reactionRepositoryPort.deleteAllByTargetIds(ReactionTargetType.COMMENT, commentIdsToDelete);
+                commentRevisionRepositoryPort.deleteAllByCommentIds(commentIdsToDelete);
+                commentRepositoryPort.deleteAllByIds(commentIdsToDelete);
+
+                Instant now = clockPort.now();
                 report.resolveActionTaken(command.moderatorUserId(), now);
                 reportRepositoryPort.save(report);
             }

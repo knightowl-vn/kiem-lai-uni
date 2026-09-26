@@ -6,9 +6,10 @@ import com.universe.interaction.application.exceptions.ReportAlreadyResolvedExce
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
+import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.Comment;
-import com.universe.interaction.domain.CommentStatus;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
@@ -27,12 +28,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -41,7 +45,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("ResolveCommentReportUseCase Unit Tests")
+@DisplayName("ResolveCommentReportUseCase Unit Tests — Hard Deletion")
 class ResolveCommentReportUseCaseTest {
 
     @Mock
@@ -52,6 +56,9 @@ class ResolveCommentReportUseCaseTest {
 
     @Mock
     private CommentRevisionRepositoryPort commentRevisionRepositoryPort;
+
+    @Mock
+    private ReactionRepositoryPort reactionRepositoryPort;
 
     @Mock
     private ClockPort clockPort;
@@ -76,6 +83,7 @@ class ResolveCommentReportUseCaseTest {
                 reportRepositoryPort,
                 commentRepositoryPort,
                 commentRevisionRepositoryPort,
+                reactionRepositoryPort,
                 clockPort
         );
     }
@@ -109,19 +117,23 @@ class ResolveCommentReportUseCaseTest {
         @Test
         @DisplayName("Should reject null dependencies in constructor")
         void shouldRejectNullDependencies() {
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(null, commentRepositoryPort, commentRevisionRepositoryPort, clockPort))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(null, commentRepositoryPort, commentRevisionRepositoryPort, reactionRepositoryPort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("reportRepositoryPort cannot be null");
 
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, null, commentRevisionRepositoryPort, clockPort))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, null, commentRevisionRepositoryPort, reactionRepositoryPort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("commentRepositoryPort cannot be null");
 
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, null, clockPort))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, null, reactionRepositoryPort, clockPort))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("commentRevisionRepositoryPort cannot be null");
 
-            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, commentRevisionRepositoryPort, null))
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, commentRevisionRepositoryPort, null, clockPort))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessageContaining("reactionRepositoryPort cannot be null");
+
+            assertThatThrownBy(() -> new ResolveCommentReportUseCase(reportRepositoryPort, commentRepositoryPort, commentRevisionRepositoryPort, reactionRepositoryPort, null))
                     .isInstanceOf(NullPointerException.class)
                     .hasMessageContaining("clockPort cannot be null");
         }
@@ -159,6 +171,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
+            verifyNoInteractions(reactionRepositoryPort);
         }
 
         @Test
@@ -185,6 +198,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
+            verifyNoInteractions(reactionRepositoryPort);
         }
 
         @Test
@@ -211,6 +225,7 @@ class ResolveCommentReportUseCaseTest {
             verify(reportRepositoryPort, never()).save(any());
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
+            verifyNoInteractions(reactionRepositoryPort);
         }
     }
 
@@ -219,7 +234,7 @@ class ResolveCommentReportUseCaseTest {
     class DeleteCommentActionTests {
 
         @Test
-        @DisplayName("Should soft-delete active comment, purge revisions, save comment, and resolve report as ACTION_TAKEN")
+        @DisplayName("Should physically delete active comment, purge revisions and reactions, and resolve report as ACTION_TAKEN")
         void shouldSuccessfullyDeleteActiveCommentAndResolveReport() {
             InteractionReport report = createPendingReport(REPORT_ID, COMMENT_ID, REPORTER_USER_ID);
             Comment comment = createActiveComment(COMMENT_ID);
@@ -233,75 +248,36 @@ class ResolveCommentReportUseCaseTest {
             when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
-            when(commentRepositoryPort.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(commentRepositoryPort.findThreadReplies(COMMENT_ID)).thenReturn(List.of());
             when(reportRepositoryPort.save(any(InteractionReport.class))).thenAnswer(inv -> inv.getArgument(0));
 
             useCase.execute(command);
 
-            // Verify lock and timestamp orchestration order
+            // Verify lock orchestration order
             InOrder inOrder = inOrder(reportRepositoryPort, commentRepositoryPort, clockPort);
             inOrder.verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
             inOrder.verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
             inOrder.verify(clockPort).now();
 
             verify(clockPort, times(1)).now();
-            verify(commentRevisionRepositoryPort).deleteAllByCommentId(COMMENT_ID);
 
-            ArgumentCaptor<Comment> commentCaptor = ArgumentCaptor.forClass(Comment.class);
-            verify(commentRepositoryPort).save(commentCaptor.capture());
-            Comment savedComment = commentCaptor.getValue();
-            assertThat(savedComment.getStatus()).isEqualTo(CommentStatus.DELETED);
-            assertThat(savedComment.isDeleted()).isTrue();
-            assertThat(savedComment.getBody()).isNull();
-            assertThat(savedComment.getDeletedAt()).isEqualTo(FIXED_NOW);
-            assertThat(savedComment.getUpdatedAt()).isEqualTo(FIXED_NOW);
+            // Verify reactions, revisions, comments physical deletion
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<Collection<UUID>> reactionCaptor = ArgumentCaptor.forClass(Collection.class);
+            verify(reactionRepositoryPort).deleteAllByTargetIds(eq(ReactionTargetType.COMMENT), reactionCaptor.capture());
+            assertThat(reactionCaptor.getValue()).containsExactly(COMMENT_ID);
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<Collection<UUID>> revisionCaptor = ArgumentCaptor.forClass(Collection.class);
+            verify(commentRevisionRepositoryPort).deleteAllByCommentIds(revisionCaptor.capture());
+            assertThat(revisionCaptor.getValue()).containsExactly(COMMENT_ID);
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<Collection<UUID>> commentCaptor = ArgumentCaptor.forClass(Collection.class);
+            verify(commentRepositoryPort).deleteAllByIds(commentCaptor.capture());
+            assertThat(commentCaptor.getValue()).containsExactly(COMMENT_ID);
 
             // Verify report mutation & persistence
-            ArgumentCaptor<InteractionReport> reportCaptor = ArgumentCaptor.forClass(InteractionReport.class);
-            verify(reportRepositoryPort).save(reportCaptor.capture());
-            InteractionReport savedReport = reportCaptor.getValue();
-            assertThat(savedReport.getStatus()).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN);
-            assertThat(savedReport.getModerationAction()).isEqualTo(ReportModerationAction.DELETE_COMMENT);
-            assertThat(savedReport.getResolvedByUserId()).isEqualTo(MODERATOR_USER_ID);
-            assertThat(savedReport.getResolvedAt()).isEqualTo(FIXED_NOW);
-        }
-
-        @Test
-        @DisplayName("Should preserve idempotency when comment is already DELETED without re-deleting or purging revisions")
-        void shouldBeIdempotentWhenCommentAlreadyDeleted() {
-            InteractionReport report = createPendingReport(REPORT_ID, COMMENT_ID, REPORTER_USER_ID);
-            Comment comment = createActiveComment(COMMENT_ID);
-            Instant originalDeletedAt = Instant.parse("2026-09-21T08:30:00Z");
-            comment.delete(originalDeletedAt);
-
-            ResolveCommentReportCommand command = new ResolveCommentReportCommand(
-                    REPORT_ID,
-                    MODERATOR_USER_ID,
-                    ReportModerationAction.DELETE_COMMENT
-            );
-
-            when(clockPort.now()).thenReturn(FIXED_NOW);
-            when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
-            when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
-            when(reportRepositoryPort.save(any(InteractionReport.class))).thenAnswer(inv -> inv.getArgument(0));
-
-            useCase.execute(command);
-
-            // Verify lock and timestamp orchestration order
-            InOrder inOrder = inOrder(reportRepositoryPort, commentRepositoryPort, clockPort);
-            inOrder.verify(reportRepositoryPort).findByIdForUpdate(REPORT_ID);
-            inOrder.verify(commentRepositoryPort).findByIdForUpdate(COMMENT_ID);
-            inOrder.verify(clockPort).now();
-
-            verify(clockPort, times(1)).now();
-            verify(commentRevisionRepositoryPort, never()).deleteAllByCommentId(any());
-            verify(commentRepositoryPort, never()).save(any());
-
-            // Comment timestamps should remain untouched
-            assertThat(comment.getDeletedAt()).isEqualTo(originalDeletedAt);
-            assertThat(comment.getUpdatedAt()).isEqualTo(originalDeletedAt);
-
-            // Report should still be resolved as RESOLVED_ACTION_TAKEN
             ArgumentCaptor<InteractionReport> reportCaptor = ArgumentCaptor.forClass(InteractionReport.class);
             verify(reportRepositoryPort).save(reportCaptor.capture());
             InteractionReport savedReport = reportCaptor.getValue();
@@ -335,8 +311,8 @@ class ResolveCommentReportUseCaseTest {
             verifyNoInteractions(clockPort);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.PENDING);
             verify(reportRepositoryPort, never()).save(any());
-            verify(commentRevisionRepositoryPort, never()).deleteAllByCommentId(any());
-            verify(commentRepositoryPort, never()).save(any());
+            verifyNoInteractions(commentRevisionRepositoryPort);
+            verifyNoInteractions(reactionRepositoryPort);
         }
     }
 
@@ -345,7 +321,7 @@ class ResolveCommentReportUseCaseTest {
     class NoActionActionTests {
 
         @Test
-        @DisplayName("Should resolve report as NO_ACTION and NEVER touch comment or revision repositories")
+        @DisplayName("Should resolve report as NO_ACTION and NEVER touch comment, revision, or reaction repositories")
         void shouldSuccessfullyResolveReportWithNoAction() {
             InteractionReport report = createPendingReport(REPORT_ID, COMMENT_ID, REPORTER_USER_ID);
 
@@ -380,35 +356,13 @@ class ResolveCommentReportUseCaseTest {
             // Absolutely ZERO interaction with comment repositories
             verifyNoInteractions(commentRepositoryPort);
             verifyNoInteractions(commentRevisionRepositoryPort);
+            verifyNoInteractions(reactionRepositoryPort);
         }
     }
 
     @Nested
     @DisplayName("Invariants and Structural Tests")
     class StructuralAndInvariantTests {
-
-        @Test
-        @DisplayName("Should maintain timestamp consistency between comment delete and report resolution")
-        void shouldMaintainTimestampConsistency() {
-            InteractionReport report = createPendingReport(REPORT_ID, COMMENT_ID, REPORTER_USER_ID);
-            Comment comment = createActiveComment(COMMENT_ID);
-
-            ResolveCommentReportCommand command = new ResolveCommentReportCommand(
-                    REPORT_ID,
-                    MODERATOR_USER_ID,
-                    ReportModerationAction.DELETE_COMMENT
-            );
-
-            when(clockPort.now()).thenReturn(FIXED_NOW);
-            when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(report));
-            when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
-            when(commentRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
-            when(reportRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-            useCase.execute(command);
-
-            assertThat(comment.getDeletedAt()).isEqualTo(report.getResolvedAt()).isEqualTo(FIXED_NOW);
-        }
 
         @Test
         @DisplayName("Should leave sibling reports on same comment untouched")
@@ -426,7 +380,7 @@ class ResolveCommentReportUseCaseTest {
             when(clockPort.now()).thenReturn(FIXED_NOW);
             when(reportRepositoryPort.findByIdForUpdate(REPORT_ID)).thenReturn(Optional.of(targetReport));
             when(commentRepositoryPort.findByIdForUpdate(COMMENT_ID)).thenReturn(Optional.of(comment));
-            when(commentRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            when(commentRepositoryPort.findThreadReplies(COMMENT_ID)).thenReturn(List.of());
             when(reportRepositoryPort.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             useCase.execute(command);

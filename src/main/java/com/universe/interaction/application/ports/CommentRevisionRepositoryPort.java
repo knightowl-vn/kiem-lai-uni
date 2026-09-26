@@ -49,9 +49,16 @@ public interface CommentRevisionRepositoryPort {
     /**
      * Deletes all revisions associated with the specified comment.
      *
-     * <p>Intended for invocation within the logical comment deletion transaction.
+     * <p>Intended for invocation within the comment deletion transaction.
      *
      * @param commentId the ID of the comment whose revisions should be purged
      */
     void deleteAllByCommentId(UUID commentId);
+
+    /**
+     * Deletes all revisions associated with a collection of comments.
+     *
+     * @param commentIds collection of comment IDs whose revisions should be purged
+     */
+    void deleteAllByCommentIds(java.util.Collection<UUID> commentIds);
 }

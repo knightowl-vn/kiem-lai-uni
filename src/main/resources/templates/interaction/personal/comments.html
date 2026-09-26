@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Bình luận của tôi | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/shared/my-comments.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='')}"></div>
+
+<main class="kl-my-comments-page">
+
+    <div class="kl-my-comments-container">
+
+        <!-- Breadcrumb -->
+        <nav class="kl-my-comments-breadcrumb mb-4" aria-label="Breadcrumb">
+            <a th:href="@{/home}">Trang chủ</a>
+            <span class="kl-my-comments-breadcrumb-separator" aria-hidden="true">/</span>
+            <a th:href="@{/novel/history}">Tài khoản</a>
+            <span class="kl-my-comments-breadcrumb-separator" aria-hidden="true">/</span>
+            <span aria-current="page">Bình luận của tôi</span>
+        </nav>
+
+        <!-- Context Filter Switcher Navigation -->
+        <nav class="kl-my-comments-nav" aria-label="Bộ lọc ngữ cảnh bình luận">
+            <div class="kl-my-comments-nav-list">
+                <a th:href="@{/comments/my(context='all')}"
+                   class="kl-my-comments-nav-item"
+                   th:classappend="${activeFilter == 'all'} ? ' is-active' : ''"
+                   th:attr="aria-current=${activeFilter == 'all'} ? 'page' : null">
+                    <span>Tất cả</span>
+                </a>
+                <a th:href="@{/comments/my(context='novel')}"
+                   class="kl-my-comments-nav-item"
+                   th:classappend="${activeFilter == 'novel'} ? ' is-active' : ''"
+                   th:attr="aria-current=${activeFilter == 'novel'} ? 'page' : null">
+                    <span>Novel</span>
+                </a>
+                <a th:href="@{/comments/my(context='wiki')}"
+                   class="kl-my-comments-nav-item"
+                   th:classappend="${activeFilter == 'wiki'} ? ' is-active' : ''"
+                   th:attr="aria-current=${activeFilter == 'wiki'} ? 'page' : null">
+                    <span>Wiki</span>
+                </a>
+            </div>
+        </nav>
+
+        <!-- Header -->
+        <header class="kl-my-comments-header">
+            <h1 class="kl-my-comments-title">
+                <svg class="kl-my-comments-header-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="28"
+                     height="28"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+                <span>Bình luận của tôi</span>
+            </h1>
+            <p class="kl-my-comments-subtitle">
+                Danh sách các bình luận bạn đã viết trên Kiếm Lai Universe, sắp xếp theo thời gian mới nhất.
+            </p>
+        </header>
+
+        <!-- Comments List -->
+        <div th:if="${!commentsPage.isEmpty()}"
+             id="myCommentsList"
+             class="kl-my-comments-list"
+             th:attr="data-current-page=${commentsPage.page}"
+             role="list">
+
+            <article th:each="item : ${commentsPage.items}"
+                     class="kl-my-comment-card"
+                     th:classappend="${!item.targetAvailable} ? ' is-unavailable' : ''"
+                     role="listitem">
+
+                <!-- Meta Header -->
+                <div class="kl-my-comment-meta">
+                    <span class="kl-my-comment-context-badge"
+                          th:classappend="${item.contextLabel == 'Wiki'} ? ' is-wiki' : ''"
+                          th:text="${item.contextLabel}">
+                        Novel
+                    </span>
+
+                    <span class="kl-my-comment-separator" aria-hidden="true">•</span>
+
+                    <span class="kl-my-comment-type-badge"
+                          th:text="${item.typeLabel}">
+                        Bình luận
+                    </span>
+
+                    <span class="kl-my-comment-separator" aria-hidden="true">•</span>
+
+                    <time class="kl-my-comment-time"
+                          data-relative-time
+                          th:datetime="${item.createdAt}"
+                          th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">
+                        15/08/2026 10:30
+                    </time>
+                </div>
+
+                <!-- Target Heading -->
+                <div class="kl-my-comment-target">
+                    <!-- Available Target -->
+                    <h2 th:if="${item.targetAvailable}"
+                        class="kl-my-comment-target-title"
+                        th:text="${item.targetTitle}">
+                        Chương 1: Kinh Trập
+                    </h2>
+
+                    <!-- Unavailable Target -->
+                    <div th:unless="${item.targetAvailable}"
+                         class="kl-my-comment-target-unavailable">
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="16"
+                             height="16"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                        <span th:text="${item.targetUnavailableLabel}">
+                            Nội dung không còn khả dụng
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Comment Body -->
+                <p class="kl-my-comment-body"
+                   th:text="${item.body}">
+                    Nội dung bình luận...
+                </p>
+
+                <!-- Actions Footer -->
+                <div th:if="${item.targetAvailable and item.contextUrl != null}"
+                     class="kl-my-comment-footer">
+                    <a th:href="@{${item.contextUrl}}"
+                       class="kl-my-comment-context-btn">
+                        <span>Xem trong ngữ cảnh</span>
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="14"
+                             height="14"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </a>
+                </div>
+
+            </article>
+
+        </div>
+
+        <!-- Empty State -->
+        <div id="myCommentsEmpty"
+             class="kl-my-comments-empty"
+             th:if="${commentsPage.isEmpty()}">
+            <div class="kl-my-comments-empty-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="48"
+                     height="48"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+            </div>
+
+            <h2 class="kl-my-comments-empty-title">
+                <span th:if="${activeFilter == 'all'}">Bạn chưa viết bình luận nào.</span>
+                <span th:if="${activeFilter == 'novel'}">Bạn chưa có bình luận trong Novel.</span>
+                <span th:if="${activeFilter == 'wiki'}">Bạn chưa có bình luận trong Wiki.</span>
+            </h2>
+
+            <p class="kl-my-comments-empty-text">
+                <span th:if="${activeFilter == 'all'}">Khi bạn tham gia thảo luận các chương truyện hoặc bài viết Wiki, bình luận của bạn sẽ được hiển thị tại đây.</span>
+                <span th:if="${activeFilter == 'novel'}">Bạn chưa tham gia thảo luận ở các chương truyện Novel.</span>
+                <span th:if="${activeFilter == 'wiki'}">Bạn chưa tham gia thảo luận ở các bài viết Wiki.</span>
+            </p>
+
+            <div class="kl-my-comments-empty-cta-group">
+                <a th:href="@{/novel}" class="kl-my-comments-empty-cta">
+                    Khám phá Novel
+                </a>
+                <a th:href="@{/wiki}" class="kl-my-comments-empty-cta kl-my-comments-empty-cta--secondary">
+                    Khám phá Wiki
+                </a>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <nav th:if="${commentsPage.totalPages > 1}"
+             class="kl-my-comments-pagination"
+             aria-label="Phân trang bình luận của tôi">
+
+            <!-- PREVIOUS -->
+            <a th:if="${!commentsPage.first}"
+               class="kl-my-comments-pagination-btn"
+               th:href="@{/comments/my(context=${activeFilter}, page=${commentsPage.page - 1})}">
+                ← Trang trước
+            </a>
+            <span th:if="${commentsPage.first}"
+                  class="kl-my-comments-pagination-btn is-disabled"
+                  aria-disabled="true">
+                ← Trang trước
+            </span>
+
+            <!-- CURRENT PAGE -->
+            <div class="kl-my-comments-pagination-status">
+                <span>Trang</span>
+                <strong th:text="${commentsPage.page + 1}">1</strong>
+                <span>/</span>
+                <strong th:text="${commentsPage.totalPages}">2</strong>
+            </div>
+
+            <!-- NEXT -->
+            <a th:if="${!commentsPage.last}"
+               class="kl-my-comments-pagination-btn"
+               th:href="@{/comments/my(context=${activeFilter}, page=${commentsPage.page + 1})}">
+                Trang sau →
+            </a>
+            <span th:if="${commentsPage.last}"
+                  class="kl-my-comments-pagination-btn is-disabled"
+                  aria-disabled="true">
+                Trang sau →
+            </span>
+
+        </nav>
+
+    </div>
+
+</main>
+
+<script th:src="@{/js/theme.js}"></script>
+<script>
+(function () {
+    function formatRelativeTime(date) {
+        const now = new Date();
+        const diffMs = now - date;
+        if (diffMs < 0) return "vừa xong";
+        const diffSec = Math.floor(diffMs / 1000);
+        if (diffSec < 60) return "vừa xong";
+        const diffMin = Math.floor(diffSec / 60);
+        if (diffMin < 60) return diffMin + " phút trước";
+        const diffHours = Math.floor(diffMin / 60);
+        if (diffHours < 24) return diffHours + " giờ trước";
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays === 1) return "hôm qua";
+        if (diffDays < 7) return diffDays + " ngày trước";
+        const diffWeeks = Math.floor(diffDays / 7);
+        if (diffWeeks < 4) return diffWeeks + " tuần trước";
+        const diffMonths = Math.floor(diffDays / 30);
+        if (diffMonths < 12) return diffMonths + " tháng trước";
+        const diffYears = Math.floor(diffDays / 365);
+        return diffYears + " năm trước";
+    }
+
+    function initRelativeTime() {
+        document.querySelectorAll("time[data-relative-time]").forEach(function (el) {
+            const dt = el.getAttribute("datetime");
+            if (dt) {
+                const parsed = new Date(dt);
+                if (!isNaN(parsed.getTime())) {
+                    el.textContent = formatRelativeTime(parsed);
+                }
+            }
+        });
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", initRelativeTime);
+    } else {
+        initRelativeTime();
+    }
+})();
+</script>
+
+</body>
+</html>

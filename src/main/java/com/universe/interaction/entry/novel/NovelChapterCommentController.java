@@ -2,6 +2,7 @@ package com.universe.interaction.entry.novel;
 
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
+import com.universe.interaction.application.exceptions.CommentHasRepliesException;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
@@ -670,7 +671,8 @@ public class NovelChapterCommentController {
 
     @ExceptionHandler({
             ChapterCommentAnchorVersionConflictException.class,
-            DuplicatePendingReportException.class
+            DuplicatePendingReportException.class,
+            CommentHasRepliesException.class
     })
     public ResponseEntity<Void> handleConflict(Exception ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();

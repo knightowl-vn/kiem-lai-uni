@@ -127,4 +127,26 @@ public interface CommentRepositoryPort {
      * @return immutable metrics for the target
      */
     CommentTargetMetrics getMetricsForTarget(CommentTarget target);
+
+    /**
+     * Checks whether the specified comment has any direct or indirect descendants (replies).
+     *
+     * @param commentId unique identifier of the comment (cannot be null)
+     * @return true if one or more descendant replies exist, false otherwise
+     */
+    boolean hasDescendants(UUID commentId);
+
+    /**
+     * Physically deletes a single comment row by its unique ID.
+     *
+     * @param commentId unique identifier of the comment to delete (cannot be null)
+     */
+    void deleteById(UUID commentId);
+
+    /**
+     * Physically deletes multiple comment rows by their unique IDs.
+     *
+     * @param commentIds collection of comment IDs to delete
+     */
+    void deleteAllByIds(Collection<UUID> commentIds);
 }

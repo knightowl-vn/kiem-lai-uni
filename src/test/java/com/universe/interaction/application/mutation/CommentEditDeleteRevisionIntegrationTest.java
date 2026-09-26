@@ -10,6 +10,8 @@ import com.universe.interaction.infrastructure.persistence.CommentPersistenceAda
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
 import com.universe.test.TestDatabaseSupport;
@@ -67,6 +69,8 @@ import static org.mockito.Mockito.reset;
         CommentPersistenceMapper.class,
         CommentRevisionPersistenceAdapter.class,
         CommentRevisionPersistenceMapper.class,
+        ReactionPersistenceAdapter.class,
+        ReactionPersistenceMapper.class,
         EditCommentUseCase.class,
         DeleteCommentUseCase.class,
         UuidGeneratorAdapter.class,
@@ -315,28 +319,17 @@ class CommentEditDeleteRevisionIntegrationTest {
         );
         assertThat(countBeforeDelete).isEqualTo(2);
 
-        // Execute logical delete
+        // Execute hard delete
         DeleteCommentCommand deleteCmd = new DeleteCommentCommand(AUTHOR_1_ID, comment.getId());
-        Comment tombstone = deleteCommentUseCase.execute(deleteCmd);
+        deleteCommentUseCase.execute(deleteCmd);
 
-        assertThat(tombstone.isDeleted()).isTrue();
-        assertThat(tombstone.getStatus()).isEqualTo(CommentStatus.DELETED);
-        assertThat(tombstone.getBody()).isNull();
-
-        // Verify Comment in MySQL is DELETED with NULL body
-        String statusInDb = jdbcTemplate.queryForObject(
-                "SELECT status FROM interaction_comments WHERE id = ?",
-                String.class,
+        // Verify Comment in MySQL is physically deleted
+        Integer countInDb = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM interaction_comments WHERE id = ?",
+                Integer.class,
                 comment.getId().toString()
         );
-        assertThat(statusInDb).isEqualTo("DELETED");
-
-        String bodyInDb = jdbcTemplate.queryForObject(
-                "SELECT body FROM interaction_comments WHERE id = ?",
-                String.class,
-                comment.getId().toString()
-        );
-        assertThat(bodyInDb).isNull();
+        assertThat(countInDb).isEqualTo(0);
 
         // Verify all revisions for this Comment are purged
         Integer countAfterDelete = jdbcTemplate.queryForObject(
@@ -393,7 +386,7 @@ class CommentEditDeleteRevisionIntegrationTest {
         // Force revision purge to fail within a transaction so Propagation.MANDATORY is satisfied during stubbing
         txTemplate.execute(status -> {
             doThrow(new RuntimeException("Simulated purge failure"))
-                    .when(revisionAdapter).deleteAllByCommentId(comment.getId());
+                    .when(revisionAdapter).deleteAllByCommentIds(any());
             return null;
         });
 
@@ -428,8 +421,8 @@ class CommentEditDeleteRevisionIntegrationTest {
     }
 
     @Test
-    @DisplayName("9. Comment save failure after purge: revision purge rolls back in DB")
-    void shouldRollbackRevisionPurgeWhenCommentSaveFailsOnDelete() {
+    @DisplayName("9. Comment delete failure after purge: revision purge rolls back in DB")
+    void shouldRollbackRevisionPurgeWhenCommentDeleteFailsOnDelete() {
         Comment comment = createAndSaveRootComment(AUTHOR_1_ID, "Body A");
         editCommentUseCase.execute(new EditCommentCommand(AUTHOR_1_ID, comment.getId(), "Body B"));
 
@@ -441,15 +434,18 @@ class CommentEditDeleteRevisionIntegrationTest {
         );
         assertThat(initialRevCount).isEqualTo(1);
 
-        // Force comment save to fail during delete
-        doThrow(new RuntimeException("Simulated comment save failure during delete"))
-                .when(commentAdapter).save(any());
+        // Force comment delete to fail during delete
+        txTemplate.execute(status -> {
+            doThrow(new RuntimeException("Simulated comment delete failure"))
+                    .when(commentAdapter).deleteById(any());
+            return null;
+        });
 
         DeleteCommentCommand deleteCmd = new DeleteCommentCommand(AUTHOR_1_ID, comment.getId());
 
         assertThatThrownBy(() -> deleteCommentUseCase.execute(deleteCmd))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessage("Simulated comment save failure during delete");
+                .hasMessage("Simulated comment delete failure");
 
         // Verify comment in DB is still ACTIVE
         String statusInDb = jdbcTemplate.queryForObject(
@@ -469,29 +465,22 @@ class CommentEditDeleteRevisionIntegrationTest {
     }
 
     @Test
-    @DisplayName("10. Delete idempotency preserved on already-deleted comment")
-    void shouldPreserveDeleteIdempotencyOnAlreadyDeletedComment() {
+    @DisplayName("10. Delete comment physically removes row and subsequent delete fails with CommentNotFoundException")
+    void shouldPhysicallyDeleteCommentAndSubsequentDeleteFailsNotFound() {
         Comment comment = createAndSaveRootComment(AUTHOR_1_ID, "Body A");
 
         // First delete
-        Comment tombstone1 = deleteCommentUseCase.execute(new DeleteCommentCommand(AUTHOR_1_ID, comment.getId()));
-        assertThat(tombstone1.isDeleted()).isTrue();
+        deleteCommentUseCase.execute(new DeleteCommentCommand(AUTHOR_1_ID, comment.getId()));
 
-        Timestamp firstDeletedAt = jdbcTemplate.queryForObject(
-                "SELECT deleted_at FROM interaction_comments WHERE id = ?",
-                Timestamp.class,
+        Integer countInDb = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM interaction_comments WHERE id = ?",
+                Integer.class,
                 comment.getId().toString()
         );
+        assertThat(countInDb).isEqualTo(0);
 
-        // Second delete (idempotent)
-        Comment tombstone2 = deleteCommentUseCase.execute(new DeleteCommentCommand(AUTHOR_1_ID, comment.getId()));
-        assertThat(tombstone2.isDeleted()).isTrue();
-
-        Timestamp secondDeletedAt = jdbcTemplate.queryForObject(
-                "SELECT deleted_at FROM interaction_comments WHERE id = ?",
-                Timestamp.class,
-                comment.getId().toString()
-        );
-        assertThat(secondDeletedAt).isEqualTo(firstDeletedAt);
+        // Second delete fails because comment no longer exists
+        assertThatThrownBy(() -> deleteCommentUseCase.execute(new DeleteCommentCommand(AUTHOR_1_ID, comment.getId())))
+                .isInstanceOf(com.universe.interaction.application.exceptions.CommentNotFoundException.class);
     }
 }

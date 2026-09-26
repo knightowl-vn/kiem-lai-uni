@@ -9,6 +9,7 @@ import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.interaction.application.exceptions.CommentHasRepliesException;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.CommentNotReportableException;
@@ -439,7 +440,7 @@ class WikiArticleCommentControllerIntegrationTest {
 
     @Test
     @WithMockUser
-    @DisplayName("Authenticated owner can soft-delete their comment")
+    @DisplayName("Authenticated owner can delete their comment with 204 No Content")
     void shouldDeleteComment() throws Exception {
         when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
         CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
@@ -454,6 +455,25 @@ class WikiArticleCommentControllerIntegrationTest {
         verify(deleteCommentUseCase).execute(captor.capture());
         assertThat(captor.getValue().commentId()).isEqualTo(ROOT_COMMENT_ID);
         assertThat(captor.getValue().actorUserId()).isEqualTo(USER_1_ID);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("Should reject delete with 409 Conflict when comment has replies on Wiki")
+    void shouldRejectDeleteWith409ConflictWhenCommentHasReplies() throws Exception {
+        when(wikiArticleQueryPort.isPublished(ARTICLE_ID)).thenReturn(true);
+        CommentTarget target = CommentTarget.wikiArticle(ARTICLE_ID);
+
+        doThrow(new CommentHasRepliesException(ROOT_COMMENT_ID))
+                .when(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
+
+        mockMvc.perform(delete("/api/wiki/articles/" + ARTICLE_ID + "/comments/" + ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID)))
+                .andExpect(status().isConflict());
+
+        verify(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
+        verify(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
     }
 
     // =========================================================================

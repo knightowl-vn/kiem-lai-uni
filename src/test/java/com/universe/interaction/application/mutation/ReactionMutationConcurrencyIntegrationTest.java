@@ -380,5 +380,13 @@ class ReactionMutationConcurrencyIntegrationTest {
         public long countTotalReactionsByTarget(ReactionTarget target) {
             return delegate.countTotalReactionsByTarget(target);
         }
+
+        @Override
+        public void deleteAllByTargetIds(
+                com.universe.interaction.domain.reaction.ReactionTargetType targetType,
+                java.util.Collection<UUID> targetIds
+        ) {
+            delegate.deleteAllByTargetIds(targetType, targetIds);
+        }
     }
 }

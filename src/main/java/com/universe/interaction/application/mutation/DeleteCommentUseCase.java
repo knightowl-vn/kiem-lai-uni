@@ -1,39 +1,49 @@
 package com.universe.interaction.application.mutation;
 
+import com.universe.interaction.application.exceptions.CommentHasRepliesException;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
+import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.Comment;
-import com.universe.shared.time.ClockPort;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 /**
- * Use case to soft-delete (tombstone) a comment by its author, purging all public revision history for that comment.
+ * Use case to physically hard-delete a comment by its author.
+ *
+ * <p>Ownership & Hard-Delete Policies:
+ * <ul>
+ *   <li>Normal author delete is allowed ONLY for leaf comments (comments with zero descendants);</li>
+ *   <li>If the comment has one or more replies/descendants, the deletion is rejected with {@link CommentHasRepliesException};</li>
+ *   <li>Reactions and revisions for the deleted leaf comment are physically purged;</li>
+ *   <li>The leaf comment row is physically removed from {@code interaction_comments}.</li>
+ * </ul>
  */
 @Service
 public class DeleteCommentUseCase {
 
     private final CommentRepositoryPort commentRepositoryPort;
     private final CommentRevisionRepositoryPort commentRevisionRepositoryPort;
-    private final ClockPort clockPort;
+    private final ReactionRepositoryPort reactionRepositoryPort;
 
     public DeleteCommentUseCase(
             CommentRepositoryPort commentRepositoryPort,
             CommentRevisionRepositoryPort commentRevisionRepositoryPort,
-            ClockPort clockPort
+            ReactionRepositoryPort reactionRepositoryPort
     ) {
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "CommentRepositoryPort cannot be null.");
         this.commentRevisionRepositoryPort = Objects.requireNonNull(commentRevisionRepositoryPort, "CommentRevisionRepositoryPort cannot be null.");
-        this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
+        this.reactionRepositoryPort = Objects.requireNonNull(reactionRepositoryPort, "ReactionRepositoryPort cannot be null.");
     }
 
     @Transactional
-    public Comment execute(DeleteCommentCommand command) {
+    public void execute(DeleteCommentCommand command) {
         Objects.requireNonNull(command, "DeleteCommentCommand cannot be null.");
 
         // 1. Load current comment with row lock
@@ -47,19 +57,18 @@ public class DeleteCommentUseCase {
             );
         }
 
-        // 3. Idempotency check: if already deleted, preserve first deletion timestamp and return
-        if (comment.isDeleted()) {
-            return comment;
+        // 3. Ownership invariant: normal author cannot delete comment if descendants exist
+        if (commentRepositoryPort.hasDescendants(comment.getId())) {
+            throw new CommentHasRepliesException(comment.getId());
         }
 
-        // 4. Purge all revisions for this comment in the same transaction
-        commentRevisionRepositoryPort.deleteAllByCommentId(comment.getId());
+        // 4. Clean up decoupled reactions for this single leaf comment
+        reactionRepositoryPort.deleteAllByTargetIds(ReactionTargetType.COMMENT, List.of(comment.getId()));
 
-        // 5. Capture delete timestamp once and tombstone
-        Instant deletedAt = clockPort.now();
-        comment.delete(deletedAt);
+        // 5. Clean up comment revisions for this single leaf comment
+        commentRevisionRepositoryPort.deleteAllByCommentIds(List.of(comment.getId()));
 
-        // 6. Save and return tombstone
-        return commentRepositoryPort.save(comment);
+        // 6. Physically remove the leaf comment row
+        commentRepositoryPort.deleteById(comment.getId());
     }
 }

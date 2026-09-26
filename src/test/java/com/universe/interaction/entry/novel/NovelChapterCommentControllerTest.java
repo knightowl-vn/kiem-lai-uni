@@ -9,6 +9,7 @@ import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.interaction.application.exceptions.CommentHasRepliesException;
 import com.universe.interaction.application.exceptions.CommentMutationForbiddenException;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
@@ -1093,10 +1094,7 @@ class NovelChapterCommentControllerTest {
     void shouldDeleteCommentSuccessfully() throws Exception {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
         doNothing().when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
-
-        Comment deleted = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Body", NOW);
-        deleted.delete(NOW.plusSeconds(10));
-        when(deleteCommentUseCase.execute(any(DeleteCommentCommand.class))).thenReturn(deleted);
+        doNothing().when(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
 
         mockMvc.perform(delete("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID)
                         .with(csrf())
@@ -1118,8 +1116,8 @@ class NovelChapterCommentControllerTest {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
         doNothing().when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
 
-        when(deleteCommentUseCase.execute(any(DeleteCommentCommand.class)))
-                .thenThrow(new CommentMutationForbiddenException("User is not the author"));
+        doThrow(new CommentMutationForbiddenException("User is not the author"))
+                .when(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
 
         mockMvc.perform(delete("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID)
                         .with(csrf())
@@ -1149,10 +1147,7 @@ class NovelChapterCommentControllerTest {
     void shouldAllowDeleteOnUnpublishedChapter() throws Exception {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
         doNothing().when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
-
-        Comment deleted = Comment.createRoot(ROOT_COMMENT_ID, target, USER_1_ID, "Body", NOW);
-        deleted.delete(NOW.plusSeconds(10));
-        when(deleteCommentUseCase.execute(any(DeleteCommentCommand.class))).thenReturn(deleted);
+        doNothing().when(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
 
         mockMvc.perform(delete("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID)
                         .with(csrf())
@@ -1161,6 +1156,24 @@ class NovelChapterCommentControllerTest {
 
         verify(readerChapterAccessQueryPort, never()).findPublishedById(any());
         verify(deleteCommentUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Should reject delete with 409 Conflict when comment has replies")
+    void shouldRejectDeleteWith409ConflictWhenCommentHasReplies() throws Exception {
+        CommentTarget target = CommentTarget.novelChapter(CHAPTER_A_ID);
+        doNothing().when(validateCommentTargetScopeUseCase).execute(ROOT_COMMENT_ID, target);
+
+        doThrow(new CommentHasRepliesException(ROOT_COMMENT_ID))
+                .when(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
+
+        mockMvc.perform(delete("/api/novel/chapters/" + CHAPTER_A_ID + "/comments/" + ROOT_COMMENT_ID)
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_1_ID)))
+                .andExpect(status().isConflict());
+
+        verify(deleteCommentUseCase).execute(any(DeleteCommentCommand.class));
     }
 
     @Test

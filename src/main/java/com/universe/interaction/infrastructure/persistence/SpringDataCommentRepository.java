@@ -1,10 +1,12 @@
 package com.universe.interaction.infrastructure.persistence;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -170,4 +172,43 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
             @Param("targetType") String targetType,
             @Param("targetId") String targetId
     );
+
+    /**
+     * Retrieves a paginated page of active comments authored by a specific user scoped by target types.
+     *
+     * <p>Filters out DELETED comments entirely (status = 'ACTIVE').
+     * Deterministic ordering by {@code created_at DESC, id DESC} uses the author index
+     * {@code idx_interaction_comments_author_status_created_id}.
+     */
+    @Query("""
+            SELECT c FROM CommentJpaEntity c
+            WHERE c.authorUserId = :authorUserId
+              AND c.status = 'ACTIVE'
+              AND c.targetType IN (:targetTypes)
+            ORDER BY c.createdAt DESC, c.id DESC
+            """)
+    Page<CommentJpaEntity> findAuthoredComments(
+            @Param("authorUserId") String authorUserId,
+            @Param("targetTypes") Collection<String> targetTypes,
+            Pageable pageable
+    );
+
+    /**
+     * Bulk physically deletes comments matching the specified IDs.
+     */
+    @Modifying
+    @Query("DELETE FROM CommentJpaEntity c WHERE c.id IN :ids")
+    void deleteAllByIds(@Param("ids") Collection<String> ids);
+
+    /**
+     * Checks whether any comments exist that have the specified comment as their direct parent.
+     */
+    @Query("SELECT CASE WHEN COUNT(c) > 0 THEN TRUE ELSE FALSE END FROM CommentJpaEntity c WHERE c.parentCommentId = :parentCommentId")
+    boolean existsByParentCommentId(@Param("parentCommentId") String parentCommentId);
+
+    /**
+     * Checks whether any comments exist that belong to the specified thread root.
+     */
+    @Query("SELECT CASE WHEN COUNT(c) > 0 THEN TRUE ELSE FALSE END FROM CommentJpaEntity c WHERE c.threadRootCommentId = :threadRootCommentId")
+    boolean existsByThreadRootCommentId(@Param("threadRootCommentId") String threadRootCommentId);
 }

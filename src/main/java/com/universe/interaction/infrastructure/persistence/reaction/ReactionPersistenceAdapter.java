@@ -244,6 +244,18 @@ public class ReactionPersistenceAdapter implements ReactionRepositoryPort {
         );
     }
 
+    @Override
+    @Transactional
+    public void deleteAllByTargetIds(ReactionTargetType targetType, Collection<UUID> targetIds) {
+        if (targetType == null || targetIds == null || targetIds.isEmpty()) {
+            return;
+        }
+        List<String> ids = targetIds.stream().filter(Objects::nonNull).map(UUID::toString).toList();
+        if (!ids.isEmpty()) {
+            repository.deleteAllByTargetTypeAndTargetIdIn(targetType.name(), ids);
+        }
+    }
+
     private boolean isDuplicateConstraintViolation(DataIntegrityViolationException ex) {
         Throwable current = ex;
         while (current != null) {

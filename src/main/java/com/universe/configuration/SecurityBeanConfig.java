@@ -234,7 +234,9 @@ public class SecurityBeanConfig {
                                 "/wiki/articles/*/save",
                                 "/wiki/articles/*/contributions",
                                 "/wiki/saved",
-                                "/wiki/saved/**"
+                                "/wiki/saved/**",
+                                "/comments/my",
+                                "/comments/my/**"
                         )
                         .authenticated()
 
