@@ -164,14 +164,10 @@
 
 					<div class="profile-dropdown-divider"></div>
 
-					<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ
-						sơ </a>
-					<a th:href="@{/novel/bookmarks}" class="profile-dropdown-item"> Dấu
-						trang </a>
-					<a th:href="@{/novel/history}" class="profile-dropdown-item"> Lịch sử
-						đọc </a>
-					<a th:href="@{/wiki/saved}" class="profile-dropdown-item"> Bài viết Wiki đã lưu </a>
-
+					<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ sơ </a>
+					<a th:href="@{/novel/history}" class="profile-dropdown-item"> Novel của tôi </a>
+					<a th:href="@{/wiki/saved}" class="profile-dropdown-item"> Wiki của tôi </a>
+					<a th:href="@{/comments/my}" class="profile-dropdown-item"> Bình luận của tôi </a>
 
 					<div class="profile-dropdown-divider"></div>
 
@@ -195,8 +191,7 @@
 
 					<form th:action="@{/logout}" method="post" class="m-0">
 						<button type="submit" class="profile-dropdown-item logout-button">
-							<i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Đăng
-							xuất
+							<i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Đăng xuất
 						</button>
 					</form>
 

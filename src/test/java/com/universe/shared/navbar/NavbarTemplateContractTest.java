@@ -58,6 +58,41 @@ class NavbarTemplateContractTest {
     }
 
     @Test
+    @DisplayName("Avatar dropdown fragment định nghĩa đúng 4 liên kết cá nhân theo ngữ cảnh và không chứa các liên kết chi tiết cũ")
+    void avatarDropdownDefinesContextPersonalLinksAndRemovesGranularItems() throws Exception {
+        String navbar = read("src/main/resources/templates/fragments/navbar.html");
+
+        // 1. Profile link
+        assertThat(navbar).contains("th:href=\"@{/profile}\"");
+        assertThat(navbar).contains("Xem hồ sơ");
+
+        // 2. Novel personal entry point
+        assertThat(navbar).contains("th:href=\"@{/novel/history}\"");
+        assertThat(navbar).contains("Novel của tôi");
+
+        // 3. Wiki personal entry point
+        assertThat(navbar).contains("th:href=\"@{/wiki/saved}\"");
+        assertThat(navbar).contains("Wiki của tôi");
+
+        // 4. Interaction comments personal entry point
+        assertThat(navbar).contains("th:href=\"@{/comments/my}\"");
+        assertThat(navbar).contains("Bình luận của tôi");
+
+        // 5. Old granular links removed from global dropdown
+        assertThat(navbar).doesNotContain("th:href=\"@{/novel/bookmarks}\"");
+        assertThat(navbar).doesNotContain("Dấu trang");
+        assertThat(navbar).doesNotContain("Lịch sử đọc");
+        assertThat(navbar).doesNotContain("Bài viết Wiki đã lưu");
+
+        // 6. Theme toggle and logout controls preserved
+        assertThat(navbar).contains("id=\"themeToggleCheckbox\"");
+        assertThat(navbar).contains("Chế độ tối");
+        assertThat(navbar).contains("th:action=\"@{/logout}\"");
+        assertThat(navbar).contains("method=\"post\"");
+        assertThat(navbar).contains("Đăng xuất");
+    }
+
+    @Test
     @DisplayName("navbar.css định nghĩa styles cho .navbar-home-link, .navbar-novel-link, .navbar-wiki-link, active state và mobile responsive rules hiển thị đầy đủ")
     void navbarCssDefinesExpectedStylesAndResponsiveRules() throws Exception {
         String css = read("src/main/resources/static/css/navbar.css");
