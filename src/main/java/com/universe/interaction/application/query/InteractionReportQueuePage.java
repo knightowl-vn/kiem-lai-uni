@@ -1,0 +1,87 @@
+package com.universe.interaction.application.query;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Framework-free, immutable paginated result container for the interaction report queue.
+ *
+ * @param items defensive copy of queue items on the current page
+ * @param page zero-based page index
+ * @param size page size requested
+ * @param totalElements authoritative count of matching reports
+ */
+public record InteractionReportQueuePage(
+        List<InteractionReportQueueItem> items,
+        int page,
+        int size,
+        long totalElements
+) {
+    public InteractionReportQueuePage {
+        Objects.requireNonNull(items, "Items cannot be null.");
+        if (page < 0) {
+            throw new IllegalArgumentException("Page index cannot be negative: " + page);
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Page size must be greater than zero: " + size);
+        }
+        if (totalElements < 0) {
+            throw new IllegalArgumentException("Total elements cannot be negative: " + totalElements);
+        }
+        items = List.copyOf(items);
+    }
+
+    /**
+     * Derives total number of pages from totalElements and page size.
+     *
+     * @return 0 if totalElements is 0, otherwise ceil(totalElements / size)
+     */
+    public int totalPages() {
+        if (totalElements == 0) {
+            return 0;
+        }
+        return (int) Math.ceil((double) totalElements / (double) size);
+    }
+
+    /**
+     * Whether there is a subsequent page of results.
+     */
+    public boolean hasNext() {
+        return totalPages() > 0 && page < totalPages() - 1;
+    }
+
+    /**
+     * Whether there is a preceding page of results.
+     */
+    public boolean hasPrevious() {
+        return page > 0 && totalPages() > 0;
+    }
+
+    public List<InteractionReportQueueItem> getItems() {
+        return items();
+    }
+
+    public int getPage() {
+        return page();
+    }
+
+    public int getSize() {
+        return size();
+    }
+
+    public long getTotalElements() {
+        return totalElements();
+    }
+
+    public int getTotalPages() {
+        return totalPages();
+    }
+
+    public boolean isHasNext() {
+        return hasNext();
+    }
+
+    public boolean isHasPrevious() {
+        return hasPrevious();
+    }
+}

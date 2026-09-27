@@ -38,6 +38,9 @@ class ReaderReadingHistoryTemplateContractTest {
         assertThat(historyPage).contains("th:replace=\"~{fragments/navbar :: navbar(activeNav='novel')}\"");
         assertThat(historyPage).contains("th:href=\"@{/css/novel/reader-history.css}\"");
 
+        // 1b. Personal Area Navigation Switcher
+        assertThat(historyPage).contains("th:replace=\"~{novel/reader/fragments/personal-nav :: personalNav(activeTab='history')}\"");
+
         // 2. History list iteration
         assertThat(historyPage).contains("th:if=\"${!#lists.isEmpty(historyList)}\"");
         assertThat(historyPage).contains("th:each=\"item : ${historyList}\"");
@@ -56,12 +59,33 @@ class ReaderReadingHistoryTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /novel/history trong profile dropdown")
+    @DisplayName("Personal Nav fragment (personal-nav.html) định nghĩa switcher giữa Lịch sử đọc và Dấu trang kèm aria-current và giữ nguyên ngữ nghĩa native link")
+    void personalNavFragmentDefinesExpectedContract() throws Exception {
+        String nav = read("src/main/resources/templates/novel/reader/fragments/personal-nav.html");
+
+        assertThat(nav).contains("class=\"novel-personal-nav\"");
+        assertThat(nav).contains("th:href=\"@{/novel/history}\"");
+        assertThat(nav).contains("th:href=\"@{/novel/bookmarks}\"");
+        assertThat(nav).contains("th:classappend=\"${activeTab == 'history'} ? ' is-active' : ''\"");
+        assertThat(nav).contains("th:classappend=\"${activeTab == 'bookmarks'} ? ' is-active' : ''\"");
+        assertThat(nav).contains("th:attr=\"aria-current=${activeTab == 'history' ? 'page' : null}\"");
+        assertThat(nav).contains("th:attr=\"aria-current=${activeTab == 'bookmarks' ? 'page' : null}\"");
+        assertThat(nav).contains("Lịch sử đọc");
+        assertThat(nav).contains("Dấu trang");
+
+        // Native link semantics: no role="list", role="listitem", or role="tab" overrides
+        assertThat(nav).doesNotContain("role=\"list\"");
+        assertThat(nav).doesNotContain("role=\"listitem\"");
+        assertThat(nav).doesNotContain("role=\"tab\"");
+    }
+
+    @Test
+    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /novel/history trong profile dropdown với nhãn Novel của tôi")
     void navbarIncludesHistoryLink() throws Exception {
         String navbar = read("src/main/resources/templates/fragments/navbar.html");
 
         assertThat(navbar).contains("th:href=\"@{/novel/history}\"");
-        assertThat(navbar).contains("Lịch sử");
+        assertThat(navbar).contains("Novel của tôi");
     }
 
     @Test

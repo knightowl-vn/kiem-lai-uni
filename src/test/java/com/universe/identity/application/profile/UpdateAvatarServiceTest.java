@@ -10,6 +10,7 @@ import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
@@ -229,16 +230,58 @@ class UpdateAvatarServiceTest {
     }
 
     @Test
-    @DisplayName("uploading new avatar when user already has Media avatar calls uploadVersion and never uploadAsset")
-    void shouldUploadVersionWhenUserAlreadyHasMediaAvatar() {
+    @DisplayName("uploading identical avatar binary (UNCHANGED): calls uploadVersionIfContentChanged, zero Identity saves, stable ID")
+    void shouldUploadConditionalVersionWhenUserUploadsIdenticalAvatar() {
         User user = createUserWithExistingMediaAvatar(MEDIA_ASSET_ID);
         when(userRepository.findByEmail(new Email(USER_EMAIL))).thenReturn(Optional.of(user));
 
-        UploadMediaAssetVersionResponseDTO versionResponse = new UploadMediaAssetVersionResponseDTO(
-                MEDIA_ASSET_ID,
-                2
+        UploadMediaAssetVersionConditionalResponseDTO conditionalResponse =
+                UploadMediaAssetVersionConditionalResponseDTO.unchanged(
+                        MEDIA_ASSET_ID,
+                        1
+                );
+        when(mediaContract.uploadVersionIfContentChanged(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(conditionalResponse);
+
+        long initialAggregateVersion = user.getAggregateVersion();
+
+        byte[] content = "identical-avatar-bytes".getBytes(StandardCharsets.UTF_8);
+        service.execute(
+                USER_EMAIL,
+                new ByteArrayInputStream(content),
+                content.length,
+                "image/png",
+                "avatar.png"
         );
-        when(mediaContract.uploadVersion(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(versionResponse);
+
+        ArgumentCaptor<UploadMediaAssetVersionRequestDTO> captor = ArgumentCaptor.forClass(UploadMediaAssetVersionRequestDTO.class);
+        verify(mediaContract).uploadVersionIfContentChanged(captor.capture());
+        verify(mediaContract, never()).uploadAsset(any());
+
+        UploadMediaAssetVersionRequestDTO capturedRequest = captor.getValue();
+        assertThat(capturedRequest.assetId()).isEqualTo(MEDIA_ASSET_ID);
+        assertThat(capturedRequest.mimeType()).isEqualTo("image/png");
+        assertThat(capturedRequest.originalFilename()).isEqualTo("avatar.png");
+        assertThat(capturedRequest.sizeBytes()).isEqualTo(content.length);
+
+        // Media asset ID and URL remain stable, aggregateVersion unchanged, zero Identity saves performed
+        assertThat(user.getAvatarMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
+        assertThat(user.getAvatarUrl()).isEqualTo("/media/assets/" + MEDIA_ASSET_ID + "/content");
+        assertThat(user.getAggregateVersion()).isEqualTo(initialAggregateVersion);
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("uploading different avatar binary (VERSION_CREATED): calls uploadVersionIfContentChanged, zero Identity saves, stable ID")
+    void shouldUploadConditionalVersionWhenUserUploadsDifferentAvatar() {
+        User user = createUserWithExistingMediaAvatar(MEDIA_ASSET_ID);
+        when(userRepository.findByEmail(new Email(USER_EMAIL))).thenReturn(Optional.of(user));
+
+        UploadMediaAssetVersionConditionalResponseDTO conditionalResponse =
+                UploadMediaAssetVersionConditionalResponseDTO.versionCreated(
+                        MEDIA_ASSET_ID,
+                        2
+                );
+        when(mediaContract.uploadVersionIfContentChanged(any(UploadMediaAssetVersionRequestDTO.class))).thenReturn(conditionalResponse);
 
         long initialAggregateVersion = user.getAggregateVersion();
 
@@ -252,7 +295,7 @@ class UpdateAvatarServiceTest {
         );
 
         ArgumentCaptor<UploadMediaAssetVersionRequestDTO> captor = ArgumentCaptor.forClass(UploadMediaAssetVersionRequestDTO.class);
-        verify(mediaContract).uploadVersion(captor.capture());
+        verify(mediaContract).uploadVersionIfContentChanged(captor.capture());
         verify(mediaContract, never()).uploadAsset(any());
 
         UploadMediaAssetVersionRequestDTO capturedRequest = captor.getValue();

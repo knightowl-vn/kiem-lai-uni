@@ -16,7 +16,8 @@ import com.universe.wiki.application.article.query.published.ListPublishedWikiAr
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.entry.web.PublicWikiController;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
+import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
@@ -31,12 +32,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.test.context.support.WithAnonymousUser;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
@@ -93,6 +96,9 @@ class PublicNavbarRenderingTest {
     private WikiMarkdownRenderer wikiMarkdownRenderer;
 
     @MockBean
+    private IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
+
+    @MockBean
     private GetReaderNovelLandingUseCase getReaderNovelLandingUseCase;
 
     @MockBean
@@ -100,6 +106,15 @@ class PublicNavbarRenderingTest {
 
     @MockBean
     private com.universe.identity.contracts.interfaces.UserIdentityContract userIdentityContract;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -177,5 +192,60 @@ class PublicNavbarRenderingTest {
                 .andExpect(content().string(containsString("active")))
                 .andExpect(content().string(containsString("aria-current=\"page\"")))
                 .andExpect(content().string(containsString("class=\"novel-reader\"")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Navbar anonymous menu renders auth links with js-navbar-auth-link and includes navbar-auth.js")
+    void navbarRendersAuthLinksAndScript() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("js-navbar-auth-link")))
+                .andExpect(content().string(containsString("data-auth-type=\"login\"")))
+                .andExpect(content().string(containsString("data-auth-type=\"register\"")))
+                .andExpect(content().string(containsString("navbar-auth.js")));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Navbar renders authenticated personal navigation dropdown with context entry points")
+    void navbarRendersAuthenticatedPersonalNavigationDropdown() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("href=\"/profile\"")))
+                .andExpect(content().string(containsString("Xem hồ sơ")))
+                .andExpect(content().string(containsString("href=\"/novel/history\"")))
+                .andExpect(content().string(containsString("Novel của tôi")))
+                .andExpect(content().string(containsString("href=\"/wiki/saved\"")))
+                .andExpect(content().string(containsString("Wiki của tôi")))
+                .andExpect(content().string(containsString("href=\"/comments/my\"")))
+                .andExpect(content().string(containsString("Bình luận của tôi")))
+                .andExpect(content().string(containsString("themeToggleCheckbox")))
+                .andExpect(content().string(containsString("action=\"/logout\"")))
+                .andExpect(content().string(not(containsString("href=\"/novel/bookmarks\""))))
+                .andExpect(content().string(not(containsString("Bài viết Wiki đã lưu"))));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Navbar renders notification bell button, panel, and script for authenticated user")
+    void navbarRendersNotificationBellForAuthenticatedUser() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"navbarNotifications\"")))
+                .andExpect(content().string(containsString("id=\"navbarBellButton\"")))
+                .andExpect(content().string(containsString("id=\"navbarNotificationsPanel\"")))
+                .andExpect(content().string(containsString("navbar-notifications.js")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Navbar omits notification bell button and panel for anonymous user")
+    void navbarOmitsNotificationBellForAnonymousUser() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("id=\"navbarNotifications\""))))
+                .andExpect(content().string(not(containsString("id=\"navbarBellButton\""))))
+                .andExpect(content().string(not(containsString("id=\"navbarNotificationsPanel\""))));
     }
 }

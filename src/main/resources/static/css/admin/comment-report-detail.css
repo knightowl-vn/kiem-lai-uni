@@ -1,0 +1,712 @@
+/* =========================================================
+   COMMENT REPORT DETAIL ADMIN MODULE — STYLES
+   Scoped: .comment-report-detail-*
+   ========================================================= */
+
+/* --- Back Navigation Link --- */
+.comment-report-detail-back {
+    margin-bottom: 20px;
+}
+
+/* --- Page Heading --- */
+.comment-report-detail-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.comment-report-detail-heading h2 {
+    margin: 8px 0 6px;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-heading p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* --- Reusable Detail Card Shell --- */
+.comment-report-detail-card {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    padding: 22px 26px;
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.comment-report-detail-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.comment-report-detail-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.comment-report-detail-card-title h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-card-icon {
+    font-size: 18px;
+    color: var(--primary);
+}
+
+/* --- Status & Reason Badges --- */
+.comment-report-detail-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.comment-report-detail-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 13px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.comment-report-detail-badge.status-pending {
+    background: var(--warning-light);
+    color: var(--warning);
+    border: 1px solid #fce3a8;
+}
+
+.comment-report-detail-badge.status-action-taken {
+    background: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid #f8c7cf;
+}
+
+.comment-report-detail-badge.status-resolved-no-action {
+    background: var(--success-light);
+    color: var(--success);
+    border: 1px solid #bfe8d4;
+}
+
+.comment-report-detail-reason-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: #f1f2f6;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.comment-report-detail-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.comment-report-detail-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 11px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.comment-report-detail-status-badge.status-active {
+    background: var(--success-light);
+    color: var(--success);
+}
+
+.comment-report-detail-status-badge.status-deleted {
+    background: var(--danger-light);
+    color: var(--danger);
+}
+
+.comment-report-detail-status-badge.status-neutral {
+    background: #f1f2f6;
+    color: var(--text-secondary);
+}
+
+.comment-report-detail-target-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #eef2ff;
+    color: #3b5998;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* --- Section 1: Summary --- */
+.comment-report-detail-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.comment-report-detail-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.comment-report-detail-summary-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.comment-report-detail-meta-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.comment-report-detail-meta-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-timestamp-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.comment-report-detail-timestamp-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+}
+
+.comment-report-detail-code {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: #f4f5f8;
+    color: #434449;
+    font-family: monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    user-select: all;
+    border: 1px solid #e2e3e8;
+}
+
+.comment-report-detail-code-inline {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f4f5f8;
+    color: #434449;
+    font-family: monospace;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
+
+/* --- Section 2: Historical Evidence --- */
+.comment-report-detail-evidence-card {
+    border-left: 4px solid var(--primary);
+}
+
+.comment-report-detail-evidence-box {
+    background: #fafafd;
+    border: 1px solid #e3e1f0;
+    border-radius: 12px;
+    padding: 18px 20px;
+}
+
+.comment-report-detail-evidence-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.comment-report-detail-note-box {
+    background: #fdfbf7;
+    border: 1px solid #fae8c8;
+    border-radius: 10px;
+    padding: 14px 18px;
+}
+
+.comment-report-detail-note-title {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #8c6014;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.comment-report-detail-note-text {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #5a4215;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* --- Section 3: Current Comment State --- */
+.comment-report-detail-current-body-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.comment-report-detail-current-box {
+    background: #f9fbf9;
+    border: 1px solid #d4edd9;
+    border-radius: 12px;
+    padding: 18px 20px;
+}
+
+.comment-report-detail-current-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.comment-report-detail-notice-box {
+    padding: 16px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.comment-report-detail-notice-box.unavailable {
+    background: #f9f9fa;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
+.comment-report-detail-notice-box.unavailable.compact {
+    padding: 10px 14px;
+    font-size: 12px;
+}
+
+.comment-report-detail-notice-box.deleted {
+    background: var(--danger-light);
+    border: 1px solid #f8c7cf;
+    color: var(--danger);
+}
+
+.comment-report-detail-notice-box.pending {
+    background: #fafafc;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
+.comment-report-detail-notice-box p {
+    margin: 0;
+}
+
+.comment-report-detail-deleted-highlight {
+    color: var(--danger);
+    font-weight: 700;
+}
+
+/* --- Section 4: Users Section & Grid --- */
+.comment-report-detail-users-section {
+    margin-bottom: 24px;
+}
+
+.comment-report-detail-section-title {
+    margin: 0 0 14px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-users-grid {
+    display: grid;
+    gap: 20px;
+}
+
+.comment-report-detail-users-grid.no-resolver {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.comment-report-detail-users-grid.has-resolver {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.comment-report-detail-user-card {
+    margin-bottom: 0;
+    padding: 18px 20px;
+    gap: 12px;
+}
+
+.comment-report-detail-user-role-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.comment-report-detail-user-layout {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.comment-report-detail-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 15px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.comment-report-detail-avatar.unresolved {
+    background: #f1f2f6;
+    color: var(--text-secondary);
+}
+
+.comment-report-detail-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.comment-report-detail-user-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.comment-report-detail-user-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.comment-report-detail-user-name.unresolved {
+    color: var(--text-secondary);
+    font-style: italic;
+    font-weight: 600;
+}
+
+/* --- Section 5: Target Content --- */
+.comment-report-detail-target-resolved {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 8px 0;
+}
+
+.comment-report-detail-target-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.comment-report-detail-target-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-target-meta-tags {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.comment-report-detail-target-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.comment-report-detail-target-btn {
+    flex-shrink: 0;
+}
+
+.comment-report-detail-target-unresolved {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.comment-report-detail-unresolved-text {
+    margin: 0;
+    font-size: 13px;
+    font-style: italic;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.comment-report-detail-target-meta-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+/* --- Section 6: Resolution Information --- */
+.comment-report-detail-resolution-grid {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 24px;
+}
+
+/* --- Flash Success Alert --- */
+.admin-form-success.alert-success {
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: var(--success-light);
+    border: 1px solid #bfe8d4;
+    color: var(--success);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+/* --- Moderation Action Panel (PENDING) --- */
+.comment-report-detail-moderation-panel {
+    margin-top: 8px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.comment-report-detail-moderation-header h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.comment-report-detail-moderation-header p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.comment-report-detail-moderation-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.comment-report-detail-action-form {
+    margin: 0;
+    display: inline-block;
+}
+
+.comment-report-detail-btn-no-action {
+    min-height: 40px;
+    padding: 0 18px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.comment-report-detail-btn-delete {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 18px;
+    border: 1px solid #e05260;
+    border-radius: 10px;
+    background: var(--danger);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: filter 0.15s ease, background-color 0.15s ease;
+}
+
+.comment-report-detail-btn-delete:hover {
+    filter: brightness(0.92);
+}
+
+/* --- Terminal Resolution Summary --- */
+.comment-report-detail-terminal-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+}
+
+.comment-report-detail-terminal-status.action-taken {
+    background: var(--danger-light);
+    color: var(--danger);
+    border: 1px solid #f8c7cf;
+}
+
+.comment-report-detail-terminal-status.no-action {
+    background: var(--success-light);
+    color: var(--success);
+    border: 1px solid #bfe8d4;
+}
+
+/* =========================================================
+   RESPONSIVE DESIGN
+   Desktop (default): multi-column grids
+   Tablet (max-width: 1024px): 2 columns
+   Mobile (max-width: 760px): 1 column, safe wrap
+   ========================================================= */
+@media (max-width: 1024px) {
+    .comment-report-detail-users-grid.has-resolver {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .comment-report-detail-timestamp-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .comment-report-detail-heading {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .comment-report-detail-card {
+        padding: 16px 18px;
+    }
+
+    .comment-report-detail-summary-top {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .comment-report-detail-summary-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .comment-report-detail-timestamp-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .comment-report-detail-users-grid.no-resolver,
+    .comment-report-detail-users-grid.has-resolver {
+        grid-template-columns: 1fr;
+    }
+
+    .comment-report-detail-target-resolved {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .comment-report-detail-target-action {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .comment-report-detail-target-btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    .comment-report-detail-resolution-grid {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .comment-report-detail-moderation-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .comment-report-detail-action-form {
+        width: 100%;
+    }
+
+    .comment-report-detail-btn-no-action,
+    .comment-report-detail-btn-delete {
+        width: 100%;
+        text-align: center;
+    }
+}

@@ -33,12 +33,15 @@ public class CommonMarkReaderNarrationMarkdownRenderer implements ReaderNarratio
         var source = sourceBlocks.parse(markdown);
         // Validate the entire block mapping before annotating any node.
         if (segmentIdsByBlock.size() != source.blocks().size()) return fallback.renderToHtml(markdown);
-        Map<Node, String> attributesByNode = new IdentityHashMap<>();
+        Map<Node, String> segmentAttributesByNode = new IdentityHashMap<>();
+        Map<Node, String> blockKeysByNode = new IdentityHashMap<>();
         for (int index = 0; index < source.blocks().size(); index++) {
             List<UUID> ids = segmentIdsByBlock.get(index);
             if (ids == null || ids.isEmpty() || ids.stream().anyMatch(id -> id == null)
                     || ids.stream().distinct().count() != ids.size()) return fallback.renderToHtml(markdown);
-            attributesByNode.put(source.blocks().get(index).node(), ids.stream().map(UUID::toString).collect(Collectors.joining(" ")));
+            var block = source.blocks().get(index);
+            segmentAttributesByNode.put(block.node(), ids.stream().map(UUID::toString).collect(Collectors.joining(" ")));
+            blockKeysByNode.put(block.node(), block.blockKey());
         }
         source.document().accept(new AbstractVisitor() {
             @Override public void visit(HtmlBlock node) { node.unlink(); }
@@ -47,9 +50,12 @@ public class CommonMarkReaderNarrationMarkdownRenderer implements ReaderNarratio
         return HtmlRenderer.builder().extensions(List.of(TablesExtension.create()))
                 .escapeHtml(true).sanitizeUrls(true)
                 .attributeProviderFactory(context -> (node, tagName, attributes) -> {
-                    String ids = attributesByNode.get(node);
-                    // CommonMark renders code blocks as both pre and code; annotate the source block once.
                     boolean codeBlock = node instanceof FencedCodeBlock || node instanceof IndentedCodeBlock;
+                    String blockKey = blockKeysByNode.get(node);
+                    if (blockKey != null && (!codeBlock || "pre".equals(tagName))) {
+                        attributes.put("data-reader-block-key", blockKey);
+                    }
+                    String ids = segmentAttributesByNode.get(node);
                     if (ids != null && (!codeBlock || "pre".equals(tagName))) {
                         attributes.put("data-narration-segment-ids", ids);
                     }

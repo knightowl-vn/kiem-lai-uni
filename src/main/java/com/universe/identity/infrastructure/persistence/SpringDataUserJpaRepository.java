@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import com.universe.identity.domain.UserRole;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +33,18 @@ public interface SpringDataUserJpaRepository
             """)
     Optional<AuthenticatedRequestIdentityProjection> findRequestIdentityByEmail(
             @Param("normalizedEmail") String normalizedEmail
+    );
+
+    @Query("""
+            SELECT
+                user.id AS userId,
+                user.displayName AS displayName,
+                user.avatarUrl AS avatarUrl
+            FROM UserJpaEntity user
+            WHERE user.id IN :ids
+            """)
+    List<UserPublicProfileProjection> findPublicProfilesByIdIn(
+            @Param("ids") Collection<String> ids
     );
 
     Optional<UserJpaEntity>

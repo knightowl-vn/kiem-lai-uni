@@ -90,10 +90,9 @@ class RecordReadingProgressUseCaseTest {
         attemptExecutor = new RecordReadingProgressAttemptExecutor(
                 readerChapterAccessQueryPort,
                 readingProgressRepositoryPort,
-                idGeneratorPort,
-                clockPort
+                idGeneratorPort
         );
-        useCase = new RecordReadingProgressUseCase(attemptExecutor);
+        useCase = new RecordReadingProgressUseCase(attemptExecutor, clockPort);
     }
 
     @Nested
@@ -175,8 +174,8 @@ class RecordReadingProgressUseCaseTest {
         }
 
         @Test
-        @DisplayName("Same last Chapter causes no save call and returns cleanly")
-        void shouldNotCallSaveWhenReadingSameLastChapter() {
+        @DisplayName("Same Chapter reopened at newer timestamp advances observation watermark and saves")
+        void shouldAdvanceWatermarkAndSaveWhenReopeningSameChapterAtNewerTime() {
             UserReadingProgress initialProgress = UserReadingProgress.rehydrate(
                     PROGRESS_ID, USER_ID, CHAPTER_5_ID, 10, T1, T1
             );
@@ -185,6 +184,29 @@ class RecordReadingProgressUseCaseTest {
             when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_5_ID)).thenReturn(Optional.of(ref5));
             when(readingProgressRepositoryPort.findByUserId(USER_ID)).thenReturn(Optional.of(initialProgress));
             when(clockPort.now()).thenReturn(T2);
+
+            useCase.execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_5_ID));
+
+            ArgumentCaptor<UserReadingProgress> captor = ArgumentCaptor.forClass(UserReadingProgress.class);
+            verify(readingProgressRepositoryPort).save(captor.capture());
+
+            UserReadingProgress saved = captor.getValue();
+            assertThat(saved.getLastOpenedChapterId()).isEqualTo(CHAPTER_5_ID);
+            assertThat(saved.getHighestReachedChapterNumber()).isEqualTo(10);
+            assertThat(saved.getUpdatedAt()).isEqualTo(T2);
+        }
+
+        @Test
+        @DisplayName("Stale or duplicate event where observedAt <= updatedAt and chapterNumber <= highest triggers no save")
+        void shouldNotCallSaveWhenReadingStaleOrDuplicateEvent() {
+            UserReadingProgress initialProgress = UserReadingProgress.rehydrate(
+                    PROGRESS_ID, USER_ID, CHAPTER_5_ID, 10, T1, T2
+            );
+            ReadableChapterReference ref5 = new ReadableChapterReference(CHAPTER_5_ID, 5);
+
+            when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_5_ID)).thenReturn(Optional.of(ref5));
+            when(readingProgressRepositoryPort.findByUserId(USER_ID)).thenReturn(Optional.of(initialProgress));
+            when(clockPort.now()).thenReturn(T1); // T1 < T2 (stale)
 
             useCase.execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_5_ID));
 
@@ -223,6 +245,7 @@ class RecordReadingProgressUseCaseTest {
         @DisplayName("Throws ChapterNotFoundException when Chapter ID does not exist or is not PUBLISHED")
         void shouldThrowChapterNotFoundExceptionWhenChapterNotFoundOrNotPublished() {
             UUID unknownOrDraftChapterId = UUID.randomUUID();
+            when(clockPort.now()).thenReturn(T1);
             when(readerChapterAccessQueryPort.findPublishedById(unknownOrDraftChapterId)).thenReturn(Optional.empty());
 
             assertThatThrownBy(() -> useCase.execute(new RecordReadingProgressCommand(USER_ID, unknownOrDraftChapterId)))
@@ -238,19 +261,21 @@ class RecordReadingProgressUseCaseTest {
     class ConcurrencyAndRetryTests {
 
         @Test
-        @DisplayName("One concurrency failure retries exactly once and succeeds")
+        @DisplayName("One concurrency failure retries exactly once and succeeds with single captured observedAt")
         void shouldRetryExactlyOnceOnConcurrencyExceptionAndSucceed() {
             RecordReadingProgressAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingProgressAttemptExecutor.class);
-            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T1);
+            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor, clockPort);
 
             doThrow(new ReadingProgressConcurrencyException(USER_ID, new RuntimeException("Race conflict")))
                     .doNothing()
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
 
             retryUseCase.execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_1_ID));
 
-            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_1_ID);
+            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
@@ -258,16 +283,18 @@ class RecordReadingProgressUseCaseTest {
         void shouldSurfaceExceptionWhenSecondAttemptAlsoFailsWithConcurrencyException() {
             RecordReadingProgressAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingProgressAttemptExecutor.class);
-            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T1);
+            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor, clockPort);
 
             doThrow(new ReadingProgressConcurrencyException(USER_ID, new RuntimeException("Conflict 1")))
                     .doThrow(new ReadingProgressConcurrencyException(USER_ID, new RuntimeException("Conflict 2")))
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
 
             assertThatThrownBy(() -> retryUseCase.execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_1_ID)))
                     .isInstanceOf(ReadingProgressConcurrencyException.class);
 
-            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_1_ID);
+            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
@@ -275,36 +302,31 @@ class RecordReadingProgressUseCaseTest {
         void shouldNotRetryWhenExceptionIsNotConcurrencyException() {
             RecordReadingProgressAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingProgressAttemptExecutor.class);
-            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T1);
+            RecordReadingProgressUseCase retryUseCase = new RecordReadingProgressUseCase(mockExecutor, clockPort);
 
             doThrow(new DataIntegrityViolationException("FK failure"))
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
 
             assertThatThrownBy(() -> retryUseCase.execute(new RecordReadingProgressCommand(USER_ID, CHAPTER_1_ID)))
                     .isInstanceOf(DataIntegrityViolationException.class);
 
-            verify(mockExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_1_ID);
+            verify(mockExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_1_ID, T1);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
         @DisplayName("Retry reloads newest progress and preserves monotonic highest under concurrent update")
         void shouldPreserveMonotonicityUnderRetryWhenConcurrentUpdateCommittedBeforeRetry() {
-            // Scenario:
-            // Initial: highest = 20
-            // Request B wants to open Chapter 50.
-            // Attempt 1: loads initial progress (highest=20). When saving, concurrency exception occurs because Request A committed Chapter 100 (highest=100).
-            // Attempt 2 (Retry): reloads fresh progress (highest=100, lastOpened=100) and applies recordChapterAccess(50).
-            // Final result: lastOpened=50, highest=100 (highest never decreases to 50).
-
             ReadableChapterReference ref50 = new ReadableChapterReference(CHAPTER_50_ID, 50);
             when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_50_ID)).thenReturn(Optional.of(ref50));
-            when(clockPort.now()).thenReturn(T1, T2);
+            when(clockPort.now()).thenReturn(T2);
 
             UserReadingProgress progressObservedInAttempt1 = UserReadingProgress.rehydrate(
                     PROGRESS_ID, USER_ID, CHAPTER_1_ID, 20, T1, T1
             );
             UserReadingProgress progressCommittedByConcurrentTx = UserReadingProgress.rehydrate(
-                    PROGRESS_ID, USER_ID, CHAPTER_100_ID, 100, T1, T2
+                    PROGRESS_ID, USER_ID, CHAPTER_100_ID, 100, T1, T1
             );
 
             when(readingProgressRepositoryPort.findByUserId(USER_ID))
@@ -327,6 +349,7 @@ class RecordReadingProgressUseCaseTest {
             verify(readingProgressRepositoryPort, times(2)).findByUserId(USER_ID);
             verify(readingProgressRepositoryPort).save(progressObservedInAttempt1);
             verify(readingProgressRepositoryPort).save(progressCommittedByConcurrentTx);
+            verify(clockPort, times(1)).now();
         }
     }
 

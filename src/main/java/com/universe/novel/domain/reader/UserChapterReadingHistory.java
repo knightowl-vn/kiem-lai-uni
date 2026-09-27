@@ -106,12 +106,28 @@ public class UserChapterReadingHistory {
 
     /**
      * Cập nhật thời điểm đọc gần nhất khi người dùng mở lại chương này.
+     *
+     * Quy tắc nghiệp vụ:
+     * - lastReadAt không bao giờ lùi thời gian (monotonic).
+     * - observedAt > lastReadAt: cập nhật lastReadAt và trả về true (state changed).
+     * - observedAt <= lastReadAt: no-op và trả về false (không thay đổi).
+     * - firstReadAt luôn bất biến.
+     *
+     * @param observedAt thời điểm quan sát sự kiện đọc chương
+     * @return true nếu lastReadAt được cập nhật; false nếu là sự kiện trễ/trùng lặp
      */
-    public void recordRead(Instant now) {
-        this.lastReadAt = Objects.requireNonNull(
-                now,
+    public boolean recordRead(Instant observedAt) {
+        Objects.requireNonNull(
+                observedAt,
                 "Thời gian đọc không được để trống."
         );
+
+        if (observedAt.isAfter(this.lastReadAt)) {
+            this.lastReadAt = observedAt;
+            return true;
+        }
+
+        return false;
     }
 
     public UUID getId() {

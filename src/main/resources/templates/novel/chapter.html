@@ -32,7 +32,28 @@
           th:content="${_csrf.headerName}">
 
     <link rel="stylesheet"
+          th:href="@{/css/shared/interaction-reactions.css}">
+
+    <link rel="stylesheet"
           th:href="@{/css/novel/reader-wiki-lookup.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-comment-affordance.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-block-discussion-drawer.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/shared/comments.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-chapter-comments.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/novel/reader-comment-history.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/shared/comment-report-modal.css}">
 </head>
 
 <body>
@@ -273,7 +294,7 @@
          CHAPTER BODY (RENDERED MARKDOWN HTML)
          ===================================================== -->
     <article class="novel-reader-chapter-body"
-             th:attr="data-chapter-id=${chapter.id}"
+             th:attr="data-chapter-id=${chapter.id},data-content-version=${chapter.contentVersion}"
              th:utext="${chapter.contentHtml}">
         <p>Nội dung chương...</p>
     </article>
@@ -320,6 +341,77 @@
         </span>
 
     </nav>
+
+
+
+
+
+    <!-- =====================================================
+         BOTTOM CHAPTER COMMENTS SECTION (MS-05E5H2C)
+         ===================================================== -->
+    <section class="novel-chapter-comments"
+             id="novelChapterComments"
+             aria-labelledby="novelChapterCommentsTitle"
+             th:attr="data-chapter-id=${chapter.id}, data-chapter-slug=${chapter.slug}, data-authenticated=${#authorization.expression('isAuthenticated()')}">
+
+        <header class="novel-chapter-comments-header">
+            <h2 id="novelChapterCommentsTitle"
+                class="novel-chapter-comments-title">Bình luận</h2>
+            <span id="novelChapterCommentsCount"
+                  class="novel-chapter-comments-count"
+                  aria-live="polite"></span>
+        </header>
+
+        <!-- Authenticated Chapter Root Comment Composer (MS-05E5H2F1) -->
+        <div class="kl-comment-composer novel-chapter-comment-composer-wrapper" sec:authorize="isAuthenticated()">
+            <form id="novelChapterCommentComposer"
+                  class="kl-comment-composer__form novel-chapter-comment-composer"
+                  novalidate>
+                <label for="novelChapterCommentComposerInput"
+                       class="kl-comment-composer__label novel-chapter-comment-composer-label">Viết bình luận</label>
+                <textarea id="novelChapterCommentComposerInput"
+                          class="kl-comment-composer__input novel-chapter-comment-composer-input"
+                          placeholder="Chia sẻ suy nghĩ của bạn về chương này..."
+                          rows="3"
+                          maxlength="2000"></textarea>
+                <div class="kl-comment-composer__footer">
+                    <div id="novelChapterCommentComposerStatus"
+                         class="kl-comment-composer__status novel-chapter-comment-composer-status"
+                         role="status"
+                         aria-live="polite"></div>
+                    <div class="kl-comment-composer__actions novel-chapter-comment-composer-actions">
+                        <button type="submit"
+                                id="novelChapterCommentComposerSubmit"
+                                class="kl-comment-composer__submit novel-chapter-comment-composer-submit">
+                            Gửi
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Anonymous Participation Prompt (MS-05E5H2F1) -->
+        <div class="novel-chapter-comment-anonymous-prompt" sec:authorize="isAnonymous()">
+            <span>
+                <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug + '#novelChapterComments'})}" class="novel-chapter-comment-login-link">Đăng nhập</a> để bình luận.
+            </span>
+        </div>
+
+        <div id="novelChapterCommentsStatus"
+             class="novel-chapter-comments-status"
+             role="status"
+             aria-live="polite"></div>
+
+        <div id="novelChapterCommentsList"
+             class="novel-chapter-comments-list"
+             role="feed"
+             aria-busy="false"></div>
+
+        <div id="novelChapterCommentsMore"
+             class="novel-chapter-comments-more"
+             hidden></div>
+
+    </section>
 
     <div sec:authorize="isAuthenticated()"
          id="novelReadingProgressTracker"
@@ -734,6 +826,147 @@
 </aside>
 
 
+<!-- =====================================================
+     BLOCK DISCUSSION DRAWER & BACKDROP (MS-05E5G2)
+     ===================================================== -->
+<div id="novelBlockDiscussionBackdrop"
+     class="novel-block-discussion-backdrop"
+     hidden
+     aria-hidden="true"></div>
+
+<aside id="novelBlockDiscussionDrawer"
+       class="novel-block-discussion-drawer"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="novelBlockDiscussionTitle"
+       aria-hidden="true"
+       th:attr="data-chapter-slug=${chapter.slug},data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'}"
+       hidden>
+
+    <header class="novel-block-discussion-header">
+        <div class="novel-block-discussion-header-title">
+            <h2 id="novelBlockDiscussionTitle" class="novel-block-discussion-title">Thảo luận</h2>
+            <span id="novelBlockDiscussionCount" class="novel-block-discussion-count" aria-live="polite"></span>
+        </div>
+        <button type="button"
+                id="novelBlockDiscussionCloseBtn"
+                class="novel-block-discussion-close"
+                aria-label="Đóng thảo luận">
+            <span aria-hidden="true">✕</span>
+        </button>
+    </header>
+
+    <section class="novel-block-discussion-passage-section" aria-label="Đoạn văn đang thảo luận">
+        <div class="novel-block-discussion-passage-label">Đoạn văn</div>
+        <div id="novelBlockDiscussionPassage" class="novel-block-discussion-passage"></div>
+    </section>
+
+    <!-- Authenticated Root Comment Composer -->
+    <div class="novel-block-discussion-composer-wrapper" sec:authorize="isAuthenticated()">
+        <form id="novelBlockDiscussionComposer"
+              class="novel-block-discussion-composer"
+              novalidate>
+            <label for="novelBlockDiscussionComposerInput"
+                   class="novel-block-discussion-composer-label">Viết bình luận</label>
+            <textarea id="novelBlockDiscussionComposerInput"
+                      class="novel-block-discussion-composer-input"
+                      placeholder="Chia sẻ suy nghĩ của bạn về đoạn văn này..."
+                      rows="3"
+                      maxlength="2000"
+                      disabled></textarea>
+            <div id="novelBlockDiscussionComposerStatus"
+                 class="novel-block-discussion-composer-status"
+                 role="status"
+                 aria-live="polite"></div>
+            <div class="novel-block-discussion-composer-actions">
+                <button type="submit"
+                        id="novelBlockDiscussionComposerSubmit"
+                        class="novel-block-discussion-composer-submit"
+                        disabled>
+                    Gửi
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Anonymous Participation Prompt -->
+    <div class="novel-block-discussion-anonymous-prompt" sec:authorize="isAnonymous()">
+        <span>
+            <a th:href="@{/login(returnTo=${'/novel/chapters/' + chapter.slug})}" class="novel-block-discussion-login-link">Đăng nhập</a> để tham gia thảo luận.
+        </span>
+    </div>
+
+    <section id="novelBlockDiscussionContent" class="novel-block-discussion-content" aria-label="Danh sách thảo luận">
+        <!-- Dynamically populated: loading, empty, error, or threads -->
+    </section>
+
+    <!-- Guest Reply Auth Modal (MS-05E5G4A) -->
+    <div id="novelCommentAuthModal"
+         class="novel-comment-auth-modal"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="novelCommentAuthModalTitle"
+         hidden>
+        <div class="novel-comment-auth-modal-backdrop" data-action="close-auth-modal"></div>
+        <div class="novel-comment-auth-modal-card">
+            <h3 id="novelCommentAuthModalTitle" class="novel-comment-auth-modal-title">Đăng nhập để trả lời</h3>
+            <p class="novel-comment-auth-modal-message">Vui lòng đăng nhập hoặc tạo tài khoản để phản hồi bình luận.</p>
+            <div class="novel-comment-auth-modal-actions">
+                <a id="novelCommentAuthLoginLink"
+                   href="/login"
+                   class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--primary">Đăng nhập</a>
+                <a id="novelCommentAuthRegisterLink"
+                   href="/register"
+                   class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--secondary">Tạo tài khoản</a>
+                <button type="button"
+                        id="novelCommentAuthCancelBtn"
+                        class="novel-comment-auth-modal-btn novel-comment-auth-modal-btn--cancel">Hủy</button>
+            </div>
+        </div>
+    </div>
+
+</aside>
+
+
+<!-- =====================================================
+     COMMENT REVISION HISTORY MODAL (MS-05E5G5E)
+     ===================================================== -->
+<div id="novelCommentHistoryModal"
+     class="novel-comment-history-modal"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="novelCommentHistoryModalTitle"
+     hidden>
+    <div class="novel-comment-history-modal-backdrop" data-action="close-history-modal"></div>
+    <div class="novel-comment-history-modal-card" role="document">
+        <div class="novel-comment-history-modal-header">
+            <h3 id="novelCommentHistoryModalTitle" class="novel-comment-history-modal-title">Lịch sử chỉnh sửa</h3>
+            <button type="button"
+                    class="novel-comment-history-modal-close"
+                    data-action="close-history-modal"
+                    aria-label="Đóng">✕</button>
+        </div>
+        <div class="novel-comment-history-modal-body" id="novelCommentHistoryModalBody">
+            <div id="novelCommentHistoryStatus"
+                 class="novel-comment-history-status"
+                 role="status"
+                 aria-live="polite"></div>
+            <div id="novelCommentHistoryList"
+                 class="novel-comment-history-list"
+                 role="feed"
+                 aria-label="Danh sách các phiên bản cũ"></div>
+            <div id="novelCommentHistoryMore"
+                 class="novel-comment-history-more"
+                 hidden>
+                <button type="button"
+                        id="novelCommentHistoryMoreBtn"
+                        class="novel-comment-history-more-btn">Xem thêm</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
 <script th:src="@{/js/theme.js}"></script>
 <script th:src="@{/js/reading/reading-preferences.js}"></script>
 <script th:src="@{/js/novel/reader-reading-settings.js}"></script>
@@ -748,6 +981,42 @@
         th:src="@{/js/novel/reader-history.js}"
         defer></script>
 <script th:src="@{/js/novel/reader-wiki-lookup.js}"
+        defer></script>
+<script th:src="@{/js/novel/chapter-comment-indicators.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-comment-affordance.js}"
+        defer></script>
+<script th:src="@{/js/shared/ephemeral-draft-store.js}"></script>
+<script th:src="@{/js/shared/comment-report-modal.js}"></script>
+<script th:src="@{/js/shared/comment-presentation.js}"></script>
+<script th:src="@{/js/novel/reader-comment-drafts.js}"></script>
+<script th:src="@{/js/novel/reader-block-discussion-drawer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-comment-mutations.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-comment-history.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-reply-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-edit-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-delete.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-block-discussion-restore.js}"
+        defer></script>
+<script th:src="@{/js/shared/interaction-reactions.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comments.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-reply-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-edit-composer.js}"
+        defer></script>
+<script th:src="@{/js/novel/reader-chapter-comment-delete.js}"
         defer></script>
 <script th:src="@{/js/novel/narration-text-parser.js}"
         defer></script>

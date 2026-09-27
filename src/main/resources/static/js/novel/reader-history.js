@@ -3,11 +3,15 @@
  *
  * Tự động ghi nhận lịch sử đọc chương khi người dùng đã đăng nhập mở trang đọc chương.
  * Hỗ trợ cập nhật khi chuyển chương liền mạch qua sự kiện 'kiemlai:chapter-changed'.
+ * Tuần tự hóa các request ghi nhận theo thứ tự sự kiện (Promise queue serialization).
+ * Chụp snapshot bất biến của thông tin chương ngay khi sự kiện phát sinh.
  * Người dùng ẩn danh không gửi yêu cầu.
  * Lỗi ghi nhận (mạng, timeout, conflict) hoàn toàn im lặng, không làm gián đoạn trải nghiệm đọc truyện.
  */
 (function () {
     'use strict';
+
+    let writeQueue = Promise.resolve();
 
     function recordReadingHistory() {
         const tracker = document.getElementById("novelReadingHistoryTracker");
@@ -32,9 +36,11 @@
             headers[csrfHeader] = csrfToken;
         }
 
-        fetch(historyUrl, {
-            method: "POST",
-            headers: headers
+        writeQueue = writeQueue.then(function () {
+            return fetch(historyUrl, {
+                method: "POST",
+                headers: headers
+            });
         }).catch(function (error) {
             console.debug("Không thể ghi nhận lịch sử đọc:", error);
         });

@@ -23,7 +23,11 @@ class ReaderWikiLookupTemplateContractTest {
 
         // Chapter ID exposure on reader body
         assertThat(chapterPage).contains("class=\"novel-reader-chapter-body\"");
-        assertThat(chapterPage).contains("th:attr=\"data-chapter-id=${chapter.id}\"");
+        int bodyIndex = chapterPage.indexOf("class=\"novel-reader-chapter-body\"");
+        assertThat(bodyIndex).isGreaterThanOrEqualTo(0);
+        int tagEndIndex = chapterPage.indexOf(">", bodyIndex);
+        String chapterBodyTag = chapterPage.substring(bodyIndex, tagEndIndex);
+        assertThat(chapterBodyTag).contains("data-chapter-id=${chapter.id}");
     }
 
     @Test

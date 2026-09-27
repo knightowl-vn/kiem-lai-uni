@@ -1,5 +1,7 @@
 package com.universe.wiki.application.article.update.published;
 
+import com.universe.wiki.application.article.cover.WikiCoverIntent;
+
 import java.util.UUID;
 
 /**
@@ -12,6 +14,137 @@ public record UpdatePublishedWikiArticleCommand(
         String summary,
         String content,
         String editSummary,
-        UUID actorId
+        UUID actorId,
+        UUID coverMediaAssetId,
+        Integer coverPositionX,
+        Integer coverPositionY,
+        boolean updateCover,
+        WikiCoverIntent coverIntent,
+        UUID expectedCoverMediaAssetId,
+        UUID sourceContributionId
 ) {
+    public UpdatePublishedWikiArticleCommand {
+        if (coverPositionX == null) {
+            coverPositionX = 50;
+        }
+        if (coverPositionY == null) {
+            coverPositionY = 50;
+        }
+        if (coverIntent == null) {
+            if (!updateCover) {
+                coverIntent = WikiCoverIntent.PRESERVE;
+            } else if (coverMediaAssetId == null) {
+                coverIntent = WikiCoverIntent.REMOVE;
+            } else {
+                coverIntent = WikiCoverIntent.ATTACH_NEW_ASSET;
+            }
+        }
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId,
+            Integer coverPositionX,
+            Integer coverPositionY,
+            boolean updateCover,
+            WikiCoverIntent coverIntent,
+            UUID expectedCoverMediaAssetId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId,
+                coverPositionX, coverPositionY, updateCover, coverIntent, expectedCoverMediaAssetId, null);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId,
+            Integer coverPositionX,
+            Integer coverPositionY,
+            boolean updateCover
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId,
+                coverPositionX, coverPositionY, updateCover, null, null, null);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            Integer coverPositionX,
+            Integer coverPositionY,
+            UUID sourceContributionId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, null,
+                coverPositionX != null ? coverPositionX : 50,
+                coverPositionY != null ? coverPositionY : 50, false, null, null, sourceContributionId);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            Integer coverPositionX,
+            Integer coverPositionY
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverPositionX, coverPositionY, null);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId,
+            Integer coverPositionX,
+            Integer coverPositionY
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId,
+                coverPositionX != null ? coverPositionX : 50,
+                coverPositionY != null ? coverPositionY : 50, true);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId,
+            boolean updateCover
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId, 50, 50, updateCover);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId,
+            UUID coverMediaAssetId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, coverMediaAssetId, 50, 50, true);
+    }
+
+    public UpdatePublishedWikiArticleCommand(
+            UUID articleId,
+            String summary,
+            String content,
+            String editSummary,
+            UUID actorId
+    ) {
+        this(articleId, summary, content, editSummary, actorId, null, 50, 50, false);
+    }
 }

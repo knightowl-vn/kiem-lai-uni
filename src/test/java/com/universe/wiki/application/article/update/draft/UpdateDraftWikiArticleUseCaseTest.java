@@ -7,6 +7,7 @@ import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -83,6 +84,10 @@ class UpdateDraftWikiArticleUseCaseTest {
             revisionRepositoryPort;
 
     @Mock
+    private WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    @Mock
     private SlugGeneratorPort
             slugGeneratorPort;
 
@@ -103,6 +108,7 @@ class UpdateDraftWikiArticleUseCaseTest {
                 new UpdateDraftWikiArticleUseCase(
                         articleRepositoryPort,
                         revisionRepositoryPort,
+                        orphanRepositoryPort,
                         slugGeneratorPort,
                         idGeneratorPort,
                         clockPort
@@ -477,14 +483,192 @@ class UpdateDraftWikiArticleUseCaseTest {
                 );
 
         verify(
-                articleRepositoryPort,
-                never()
-        ).save(any());
-
-        verify(
                 revisionRepositoryPort,
                 never()
         ).save(any());
+    }
+
+    /*
+     * =====================================================
+     * COVER TRI-STATE SEMANTICS
+     * =====================================================
+     */
+
+    @Test
+    @DisplayName("Tri-state: Legacy update command (without cover info) preserves existing cover")
+    void shouldPreserveExistingCoverWhenLegacyCommandUsed() {
+        UUID existingCoverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, existingCoverId
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate("Trần Bình An")).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        // Legacy 7-arg constructor (updateCover = false)
+        UpdateDraftWikiArticleCommand legacyCommand = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "Tóm tắt mới", "Nội dung mới", "Cập nhật không chỉnh bìa", ADMIN_ID
+        );
+
+        WikiArticleDTO result = updateDraftUseCase.execute(legacyCommand);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(existingCoverId);
+        assertThat(article.getCoverMediaAssetId()).isEqualTo(existingCoverId);
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit same UUID preserves cover without fake cover mutation")
+    void shouldPreserveCoverWithoutMutationWhenSameUuidProvided() {
+        UUID existingCoverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, existingCoverId
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate("Trần Bình An")).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // 9-arg constructor with same UUID and updateCover = true, and identical text
+        UpdateDraftWikiArticleCommand sameCommand = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "", "", "Không thay đổi gì", ADMIN_ID, existingCoverId, true
+        );
+
+        WikiArticleDTO result = updateDraftUseCase.execute(sameCommand);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(existingCoverId);
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit new UUID changes cover, increments aggregateVersion, keeps contentVersion")
+    void shouldChangeCoverWhenNewUuidProvided() {
+        UUID oldCoverId = UUID.randomUUID();
+        UUID newCoverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, oldCoverId
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate("Trần Bình An")).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // Identical content, but new cover UUID with updateCover = true
+        UpdateDraftWikiArticleCommand updateCoverCmd = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "", "", "Đổi ảnh bìa", ADMIN_ID, newCoverId, true
+        );
+
+        WikiArticleDTO result = updateDraftUseCase.execute(updateCoverCmd);
+
+        assertThat(result.coverMediaAssetId()).isEqualTo(newCoverId);
+        assertThat(article.getCoverMediaAssetId()).isEqualTo(newCoverId);
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore + 1);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort).save(article);
+    }
+
+    @Test
+    @DisplayName("Tri-state: Explicit null removes cover, increments aggregateVersion, keeps contentVersion")
+    void shouldRemoveCoverWhenNullProvidedWithUpdateFlagTrue() {
+        UUID oldCoverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, oldCoverId
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate("Trần Bình An")).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        long aggBefore = article.getAggregateVersion();
+        long contentBefore = article.getContentVersion();
+
+        // Identical content, explicit null with updateCover = true
+        UpdateDraftWikiArticleCommand removeCoverCmd = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "", "", "Gỡ ảnh bìa", ADMIN_ID, null, true
+        );
+
+        WikiArticleDTO result = updateDraftUseCase.execute(removeCoverCmd);
+
+        assertThat(result.coverMediaAssetId()).isNull();
+        assertThat(article.getCoverMediaAssetId()).isNull();
+        assertThat(article.getAggregateVersion()).isEqualTo(aggBefore + 1);
+        assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+        verify(articleRepositoryPort).save(article);
+    }
+
+    @Test
+    @DisplayName("Tri-state for UpdateDraftAndPublish: legacy preserves, new changes, null removes")
+    void shouldVerifyTriStateForUpdateDraftAndPublishUseCase() {
+        UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishUseCase =
+                new UpdateDraftAndPublishWikiArticleUseCase(
+                        articleRepositoryPort,
+                        revisionRepositoryPort,
+                        orphanRepositoryPort,
+                        slugGeneratorPort,
+                        idGeneratorPort,
+                        clockPort
+                );
+
+        UUID existingCoverId = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung hoàn chỉnh", existingCoverId, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate("Trần Bình An")).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        // 1. Legacy command preserves
+        UpdateDraftAndPublishWikiArticleCommand legacyCmd = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "Tóm tắt", "Nội dung hoàn chỉnh", "Chỉ xuất bản", ADMIN_ID
+        );
+        WikiArticleDTO dto1 = updateDraftAndPublishUseCase.execute(legacyCmd);
+        assertThat(dto1.coverMediaAssetId()).isEqualTo(existingCoverId);
+
+        // 2. Explicit new UUID changes cover
+        UUID newCoverId = UUID.randomUUID();
+        WikiArticle draftArticle2 = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung hoàn chỉnh", existingCoverId, ADMIN_ID, CREATED_AT
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(draftArticle2));
+        UpdateDraftAndPublishWikiArticleCommand changeCmd = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "Tóm tắt", "Nội dung hoàn chỉnh", "Đổi bìa và xuất bản", ADMIN_ID, newCoverId, true
+        );
+        WikiArticleDTO dto2 = updateDraftAndPublishUseCase.execute(changeCmd);
+        assertThat(dto2.coverMediaAssetId()).isEqualTo(newCoverId);
+
+        // 3. Explicit null removes cover
+        WikiArticle draftArticle3 = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung hoàn chỉnh", existingCoverId, ADMIN_ID, CREATED_AT
+        );
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(draftArticle3));
+        UpdateDraftAndPublishWikiArticleCommand removeCmd = new UpdateDraftAndPublishWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER,
+                "Tóm tắt", "Nội dung hoàn chỉnh", "Gỡ bìa và xuất bản", ADMIN_ID, null, true
+        );
+        WikiArticleDTO dto3 = updateDraftAndPublishUseCase.execute(removeCmd);
+        assertThat(dto3.coverMediaAssetId()).isNull();
     }
 
     private UpdateDraftWikiArticleCommand
@@ -540,5 +724,106 @@ class UpdateDraftWikiArticleUseCaseTest {
         );
 
         return article;
+    }
+
+    @Test
+    @DisplayName("Case A: Gỡ ảnh bìa (previous=A, final=null) -> Ghi nhận orphan observation cho A, không xóa orphan")
+    void shouldRecordOrphanObservationWhenCoverRemoved() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftWikiArticleCommand command = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Remove cover", ADMIN_ID, null, 50, 50, true
+        );
+
+        updateDraftUseCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, UPDATED_AT);
+        verify(orphanRepositoryPort, never()).deleteByMediaAssetId(any());
+    }
+
+    @Test
+    @DisplayName("Case B: Giữ nguyên ảnh bìa (previous=A, final=A) -> Không ghi nhận orphan, xóa stale orphan cho A")
+    void shouldClearStaleOrphanWhenCoverUnchanged() {
+        UUID coverA = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftWikiArticleCommand command = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Keep cover", ADMIN_ID, coverA, 50, 50, true
+        );
+
+        updateDraftUseCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverA);
+    }
+
+    @Test
+    @DisplayName("Case C: Gán ảnh bìa cho bài chưa có cover (previous=null, final=B) -> Xóa stale orphan cho B")
+    void shouldClearStaleOrphanWhenCoverAddedToCoverlessArticle() {
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", null, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftWikiArticleCommand command = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Add cover", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        updateDraftUseCase.execute(command);
+
+        verify(orphanRepositoryPort, never()).recordOrphanObservation(any(), any());
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
+    }
+
+    @Test
+    @DisplayName("Case D: Thay thế ảnh bìa bằng asset khác (previous=A, final=B) -> Ghi nhận orphan cho A, xóa stale orphan cho B")
+    void shouldRecordOrphanForPreviousAndClearStaleOrphanForFinalWhenCoverReplaced() {
+        UUID coverA = UUID.randomUUID();
+        UUID coverB = UUID.randomUUID();
+        WikiArticle article = WikiArticle.createDraft(
+                ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+                ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverA, ADMIN_ID, CREATED_AT
+        );
+
+        when(articleRepositoryPort.findById(ARTICLE_ID)).thenReturn(Optional.of(article));
+        when(slugGeneratorPort.generate(any())).thenReturn(new Slug("tran-binh-an"));
+        when(clockPort.now()).thenReturn(UPDATED_AT);
+        when(idGeneratorPort.generate()).thenReturn(REVISION_ID);
+
+        UpdateDraftWikiArticleCommand command = new UpdateDraftWikiArticleCommand(
+                ARTICLE_ID, "Trần Bình An", ArticleType.CHARACTER, "Tóm tắt mới", "Nội dung mới",
+                "Replace cover", ADMIN_ID, coverB, 50, 50, true
+        );
+
+        updateDraftUseCase.execute(command);
+
+        verify(orphanRepositoryPort).recordOrphanObservation(coverA, UPDATED_AT);
+        verify(orphanRepositoryPort).deleteByMediaAssetId(coverB);
     }
 }

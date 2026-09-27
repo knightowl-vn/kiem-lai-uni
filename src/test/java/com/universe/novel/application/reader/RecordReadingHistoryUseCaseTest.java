@@ -71,10 +71,9 @@ class RecordReadingHistoryUseCaseTest {
         RecordReadingHistoryAttemptExecutor attemptExecutor = new RecordReadingHistoryAttemptExecutor(
                 readerChapterAccessQueryPort,
                 readingHistoryRepositoryPort,
-                idGeneratorPort,
-                clockPort
+                idGeneratorPort
         );
-        useCase = new RecordReadingHistoryUseCase(attemptExecutor);
+        useCase = new RecordReadingHistoryUseCase(attemptExecutor, clockPort);
     }
 
     @Nested
@@ -135,6 +134,28 @@ class RecordReadingHistoryUseCaseTest {
             assertThat(existing.getFirstReadAt()).isEqualTo(T0);
             assertThat(existing.getLastReadAt()).isEqualTo(T1);
         }
+
+        @Test
+        @DisplayName("Không gọi save khi đọc lại cùng chương với timestamp cũ hơn hoặc bằng (stale/duplicate no-op)")
+        void shouldNotCallSaveWhenReadingSameChapterWithStaleOrEqualTimestamp() {
+            UserChapterReadingHistory existing = UserChapterReadingHistory.createInitial(
+                    GENERATED_ID,
+                    USER_ID,
+                    CHAPTER_ID,
+                    T1
+            );
+
+            when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
+                    .thenReturn(Optional.of(new ReadableChapterReference(CHAPTER_ID, 1)));
+            when(clockPort.now()).thenReturn(T0); // T0 < T1
+            when(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_ID, CHAPTER_ID))
+                    .thenReturn(Optional.of(existing));
+
+            useCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID));
+
+            verify(readingHistoryRepositoryPort, never()).save(any());
+            assertThat(existing.getLastReadAt()).isEqualTo(T1);
+        }
     }
 
     @Nested
@@ -144,6 +165,7 @@ class RecordReadingHistoryUseCaseTest {
         @Test
         @DisplayName("Ném ChapterNotFoundException khi chương không tồn tại hoặc chưa được publish")
         void shouldThrowChapterNotFoundExceptionWhenChapterNotPublished() {
+            when(clockPort.now()).thenReturn(T0);
             when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID))
                     .thenReturn(Optional.empty());
 
@@ -164,15 +186,17 @@ class RecordReadingHistoryUseCaseTest {
         void shouldRetryOnDuplicateExceptionAndSucceed() {
             RecordReadingHistoryAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingHistoryAttemptExecutor.class);
-            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T0);
+            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor, clockPort);
 
             doThrow(new DuplicateReadingHistoryException(USER_ID, CHAPTER_ID))
                     .doNothing()
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID, T0);
 
             retryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID));
 
-            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_ID);
+            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_ID, T0);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
@@ -180,15 +204,17 @@ class RecordReadingHistoryUseCaseTest {
         void shouldRetryOnCannotAcquireLockExceptionAndSucceed() {
             RecordReadingHistoryAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingHistoryAttemptExecutor.class);
-            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T0);
+            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor, clockPort);
 
             doThrow(new CannotAcquireLockException("Deadlock found"))
                     .doNothing()
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID, T0);
 
             retryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID));
 
-            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_ID);
+            verify(mockExecutor, times(2)).executeAttempt(USER_ID, CHAPTER_ID, T0);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
@@ -196,17 +222,19 @@ class RecordReadingHistoryUseCaseTest {
         void shouldSurfaceExceptionWhenMaxAttemptsExhausted() {
             RecordReadingHistoryAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingHistoryAttemptExecutor.class);
-            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T0);
+            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor, clockPort);
 
             doThrow(new CannotAcquireLockException("Deadlock found"))
                     .doThrow(new CannotAcquireLockException("Deadlock found"))
                     .doThrow(new CannotAcquireLockException("Deadlock found"))
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID, T0);
 
             assertThatThrownBy(() -> retryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID)))
                     .isInstanceOf(CannotAcquireLockException.class);
 
-            verify(mockExecutor, times(3)).executeAttempt(USER_ID, CHAPTER_ID);
+            verify(mockExecutor, times(3)).executeAttempt(USER_ID, CHAPTER_ID, T0);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
@@ -214,23 +242,25 @@ class RecordReadingHistoryUseCaseTest {
         void shouldNotRetryUnrelatedPersistenceException() {
             RecordReadingHistoryAttemptExecutor mockExecutor =
                     org.mockito.Mockito.mock(RecordReadingHistoryAttemptExecutor.class);
-            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor);
+            when(clockPort.now()).thenReturn(T0);
+            RecordReadingHistoryUseCase retryUseCase = new RecordReadingHistoryUseCase(mockExecutor, clockPort);
 
             doThrow(new DataIntegrityViolationException("Connection lost"))
-                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID);
+                    .when(mockExecutor).executeAttempt(USER_ID, CHAPTER_ID, T0);
 
             assertThatThrownBy(() -> retryUseCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID)))
                     .isInstanceOf(DataIntegrityViolationException.class);
 
-            verify(mockExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_ID);
+            verify(mockExecutor, times(1)).executeAttempt(USER_ID, CHAPTER_ID, T0);
+            verify(clockPort, times(1)).now();
         }
 
         @Test
-        @DisplayName("Lần thử lại tải bản ghi đã được commit bởi request cạnh tranh và cập nhật lastReadAt")
+        @DisplayName("Lần thử lại tải bản ghi đã được commit bởi request cạnh tranh và cập nhật lastReadAt với cùng observedAt")
         void shouldReloadAndSaveCommittedRecordOnRetry() {
             ReadableChapterReference ref = new ReadableChapterReference(CHAPTER_ID, 1);
             when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID)).thenReturn(Optional.of(ref));
-            when(clockPort.now()).thenReturn(T0, T1);
+            when(clockPort.now()).thenReturn(T1);
 
             UserChapterReadingHistory concurrentCommittedRecord = UserChapterReadingHistory.createInitial(
                     GENERATED_ID, USER_ID, CHAPTER_ID, T0
@@ -252,6 +282,33 @@ class RecordReadingHistoryUseCaseTest {
             assertThat(concurrentCommittedRecord.getFirstReadAt()).isEqualTo(T0);
             assertThat(concurrentCommittedRecord.getLastReadAt()).isEqualTo(T1);
             verify(readingHistoryRepositoryPort, times(2)).save(any());
+            verify(clockPort, times(1)).now();
+        }
+
+        @Test
+        @DisplayName("Lần thử lại tải bản ghi có lastReadAt mới hơn thời điểm quan sát thì không lưu đè (stale duplicate no-op)")
+        void shouldReloadCommittedRecordOnRetryAndNoOpIfStale() {
+            ReadableChapterReference ref = new ReadableChapterReference(CHAPTER_ID, 1);
+            when(readerChapterAccessQueryPort.findPublishedById(CHAPTER_ID)).thenReturn(Optional.of(ref));
+            when(clockPort.now()).thenReturn(T0); // Stale/earlier observedAt
+
+            UserChapterReadingHistory concurrentCommittedRecord = UserChapterReadingHistory.createInitial(
+                    GENERATED_ID, USER_ID, CHAPTER_ID, T1 // T1 > T0
+            );
+
+            when(readingHistoryRepositoryPort.findByUserIdAndChapterId(USER_ID, CHAPTER_ID))
+                    .thenReturn(Optional.empty()) // Attempt 1
+                    .thenReturn(Optional.of(concurrentCommittedRecord)); // Attempt 2
+
+            when(idGeneratorPort.generate()).thenReturn(GENERATED_ID);
+            when(readingHistoryRepositoryPort.save(any(UserChapterReadingHistory.class)))
+                    .thenThrow(new DuplicateReadingHistoryException(USER_ID, CHAPTER_ID)); // Attempt 1 fails
+
+            useCase.execute(new RecordReadingHistoryCommand(USER_ID, CHAPTER_ID));
+
+            assertThat(concurrentCommittedRecord.getLastReadAt()).isEqualTo(T1); // preserved
+            verify(readingHistoryRepositoryPort, times(1)).save(any()); // only attempt 1 called save
+            verify(clockPort, times(1)).now();
         }
     }
 

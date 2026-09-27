@@ -3,6 +3,7 @@ package com.universe.novel;
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase;
 import com.universe.media.application.asset.GetMediaAssetContentQuery;
 import com.universe.media.application.asset.GetMediaAssetContentResult;
 import com.universe.media.application.asset.GetMediaAssetContentUseCase;
@@ -16,7 +17,9 @@ import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.facade.MediaFacade;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
@@ -101,8 +104,11 @@ import static org.assertj.core.api.Assertions.assertThat;
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
+        AssignMediaAssetClientTagUseCase.class,
+        FindActiveMediaAssetsByClientTagKeysetUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
+        UploadMediaAssetVersionConditionalUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
         RasterContentSignatureValidator.class,

@@ -320,6 +320,57 @@ class ReaderNovelTemplateContractTest {
         assertThat(notFound).contains("th:href=\"@{/novel}\"");
     }
 
+    @Test
+    @DisplayName("Novel chapter reading page (chapter.html) includes shared comment revision history modal outside of block discussion drawer")
+    void chapterReadingPageIncludesSharedCommentRevisionHistoryModalOutsideDrawerContract() throws Exception {
+        String chapterPage = read("src/main/resources/templates/novel/chapter.html");
+
+        // 1. Assets
+        assertThat(chapterPage).contains("th:href=\"@{/css/novel/reader-comment-history.css}\"");
+        assertThat(chapterPage).contains("th:src=\"@{/js/novel/reader-comment-history.js}\"");
+
+        // 2. Exactly one modal instance
+        int modalCount = countOccurrences(chapterPage, "id=\"novelCommentHistoryModal\"");
+        assertThat(modalCount).as("Must contain exactly one #novelCommentHistoryModal").isEqualTo(1);
+
+        // 3. Must be outside / after #novelBlockDiscussionDrawer </aside>
+        int drawerOpenIdx = chapterPage.indexOf("id=\"novelBlockDiscussionDrawer\"");
+        assertThat(drawerOpenIdx).as("Drawer must exist in chapter.html").isGreaterThan(-1);
+
+        int drawerCloseIdx = chapterPage.indexOf("</aside>", drawerOpenIdx);
+        assertThat(drawerCloseIdx).as("Drawer closing tag must exist").isGreaterThan(-1);
+
+        int modalIdx = chapterPage.indexOf("id=\"novelCommentHistoryModal\"");
+        assertThat(modalIdx)
+                .as("#novelCommentHistoryModal must appear after closing </aside> of #novelBlockDiscussionDrawer")
+                .isGreaterThan(drawerCloseIdx);
+    }
+
+    @Test
+    @DisplayName("Novel chapter comment revision history CSS (reader-comment-history.css) uses canonical Reader theme tokens and defines keyboard focus contracts")
+    void chapterCommentRevisionHistoryCssUsesCanonicalReaderThemeTokensContract() throws Exception {
+        String historyCss = read("src/main/resources/static/css/novel/reader-comment-history.css");
+
+        // 1. Must use canonical surface tokens and NOT non-existent --reader-bg-subtle
+        assertThat(historyCss).doesNotContain("--reader-bg-subtle");
+        assertThat(historyCss).contains("var(--reader-surface");
+        assertThat(historyCss).contains("var(--reader-surface-soft");
+
+        // 2. Revision entry card must use secondary/soft surface token
+        assertThat(historyCss).containsPattern("\\.novel-comment-history-entry\\s*\\{[^}]*background-color:\\s*var\\(--reader-surface-soft");
+
+        // 3. Badge must use canonical reader primary & primary-light tokens without hardcoded blues
+        assertThat(historyCss).containsPattern("\\.novel-comment-history-badge\\s*\\{[^}]*color:\\s*var\\(--reader-primary");
+        assertThat(historyCss).containsPattern("\\.novel-comment-history-badge\\s*\\{[^}]*background-color:\\s*var\\(--reader-primary-light");
+        assertThat(historyCss).doesNotContain("#2563eb");
+        assertThat(historyCss).doesNotContain("#eff6ff");
+
+        // 4. Focus-visible styles must be defined with visible outline/ring (not outline: none)
+        assertThat(historyCss).containsPattern("\\.novel-comment-history-modal-close:focus-visible\\s*\\{[^}]*outline:\\s*2px\\s+solid\\s+var\\(--reader-primary");
+        assertThat(historyCss).containsPattern("\\.novel-comment-history-more-btn:focus-visible\\s*\\{[^}]*outline:\\s*2px\\s+solid\\s+var\\(--reader-primary");
+        assertThat(historyCss).containsPattern("button\\.novel-comment-edited:focus-visible\\s*\\{[^}]*outline:\\s*2px\\s+solid\\s+var\\(--reader-primary");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8).replace("\r\n", "\n");
     }

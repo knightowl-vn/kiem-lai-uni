@@ -9,9 +9,17 @@ public record ReaderChapterDetailDTO(
         String title,
         String slug,
         String contentHtml,
+        long contentVersion,
         ReaderVolumeSummaryDTO volume,
         ReaderChapterNavigationDTO previousChapter,
         ReaderChapterNavigationDTO nextChapter,
         List<ReaderChapterTocItemDTO> tableOfContents
 ) {
+    public ReaderChapterDetailDTO {
+        if (contentVersion < 1L) {
+            throw new IllegalArgumentException(
+                    "Content version phải lớn hơn hoặc bằng 1."
+            );
+        }
+    }
 }

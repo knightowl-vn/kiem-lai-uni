@@ -36,12 +36,26 @@
                     : ''">
 
 				<span class="menu-icon">♙</span> <span>Người dùng</span>
+			</a> <a th:href="@{/admin/comments/reports}" class="sidebar-link"
+				th:classappend="${activeMenu == 'comment-reports'} ? ' active' : ''">
+
+				<span class="menu-icon">⚑</span> <span>Báo cáo bình luận</span>
 			</a> <a th:href="@{/admin/wiki/articles}" class="sidebar-link"
 				th:classappend="${activeMenu == 'wiki'}
             ? ' active'
             : ''">
 
 				<span class="menu-icon">▤</span> <span>Quản lý Wiki</span>
+			</a> <a th:href="@{/admin/wiki/contributions}" class="sidebar-link"
+				th:classappend="${activeMenu == 'wiki-contributions'}
+            ? ' active'
+            : ''">
+
+				<span class="menu-icon">✎</span> <span>Đóng góp Wiki</span>
+				<span th:if="${newContributionCount != null and newContributionCount > 0}"
+					class="admin-badge-pill status-pending"
+					style="margin-left: auto; padding: 2px 7px; font-size: 10px;"
+					th:text="${newContributionCount}">0</span>
 			</a> <a th:href="@{/admin/novel/profile}" class="sidebar-link"
 				th:classappend="${activeMenu == 'novel'}
 ? ' active'

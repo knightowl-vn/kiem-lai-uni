@@ -37,8 +37,44 @@ public record WikiArticleRevision(
         RevisionChangeType changeType,
         String editSummary,
         UUID editedBy,
-        Instant createdAt
+        Instant createdAt,
+        UUID sourceContributionId
 ) {
+
+    public WikiArticleRevision(
+            UUID id,
+            UUID articleId,
+            long revisionNumber,
+            long contentVersion,
+            String title,
+            Slug slug,
+            ArticleType articleType,
+            String summary,
+            String content,
+            ArticleStatus status,
+            RevisionChangeType changeType,
+            String editSummary,
+            UUID editedBy,
+            Instant createdAt
+    ) {
+        this(
+                id,
+                articleId,
+                revisionNumber,
+                contentVersion,
+                title,
+                slug,
+                articleType,
+                summary,
+                content,
+                status,
+                changeType,
+                editSummary,
+                editedBy,
+                createdAt,
+                null
+        );
+    }
 
     private static final int MAX_EDIT_SUMMARY_LENGTH =
             500;
@@ -168,6 +204,16 @@ public record WikiArticleRevision(
             RevisionChangeType changeType,
             String editSummary
     ) {
+        return createSnapshot(revisionId, article, changeType, editSummary, null);
+    }
+
+    public static WikiArticleRevision createSnapshot(
+            UUID revisionId,
+            WikiArticle article,
+            RevisionChangeType changeType,
+            String editSummary,
+            UUID sourceContributionId
+    ) {
         Objects.requireNonNull(
                 article,
                 "Wiki article không được để trống."
@@ -208,7 +254,8 @@ public record WikiArticleRevision(
                 changeType,
                 editSummary,
                 editedBy,
-                revisionCreatedAt
+                revisionCreatedAt,
+                sourceContributionId
         );
     }
 

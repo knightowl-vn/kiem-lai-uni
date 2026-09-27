@@ -1,8 +1,10 @@
 package com.universe.media;
 
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailUseCase;
 import com.universe.media.application.asset.GetMediaAssetCurrentMetadataUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
@@ -13,6 +15,7 @@ import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
@@ -95,8 +98,11 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         ArchiveMediaAssetUseCase.class,
         RestoreMediaAssetUseCase.class,
         DeleteMediaAssetUseCase.class,
+        AssignMediaAssetClientTagUseCase.class,
+        FindActiveMediaAssetsByClientTagKeysetUseCase.class,
         UploadMediaAssetUseCase.class,
         UploadMediaAssetVersionUseCase.class,
+        UploadMediaAssetVersionConditionalUseCase.class,
         RasterContentSignatureValidator.class,
         GenerateMediaImageVariantUseCase.class,
         LocalFilesystemStorageAdapter.class,

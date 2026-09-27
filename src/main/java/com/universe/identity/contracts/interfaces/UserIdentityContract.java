@@ -1,8 +1,11 @@
 package com.universe.identity.contracts.interfaces;
 
 import com.universe.identity.contracts.dto.UserDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,4 +43,14 @@ public interface UserIdentityContract {
      * @return true nếu người dùng tồn tại
      */
     boolean existsById(UUID userId);
+
+    /**
+     * Tra cứu thông tin hồ sơ công khai theo danh sách ID người dùng.
+     *
+     * @param userIds tập hợp ID người dùng cần tra cứu
+     * @return Map ánh xạ từ userId sang UserPublicProfileDTO (chỉ chứa các user tìm thấy)
+     */
+    default Map<UUID, UserPublicProfileDTO> findPublicProfilesByIds(Set<UUID> userIds) {
+        return Map.of();
+    }
 }

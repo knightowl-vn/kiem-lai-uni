@@ -2,10 +2,13 @@ package com.universe.media.application.facade;
 
 import com.universe.media.application.asset.ArchiveMediaAssetCommand;
 import com.universe.media.application.asset.ArchiveMediaAssetUseCase;
+import com.universe.media.application.asset.AssignMediaAssetClientTagCommand;
+import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
 import com.universe.media.application.asset.ChangeMediaVisibilityCommand;
 import com.universe.media.application.asset.ChangeMediaVisibilityUseCase;
 import com.universe.media.application.asset.DeleteMediaAssetCommand;
 import com.universe.media.application.asset.DeleteMediaAssetUseCase;
+import com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotQuery;
 import com.universe.media.application.asset.GetCurrentMediaAssetVersionSnapshotUseCase;
 import com.universe.media.application.asset.GetMediaAssetDetailQuery;
@@ -25,13 +28,18 @@ import com.universe.media.application.asset.UploadMediaAssetCommand;
 import com.universe.media.application.asset.UploadMediaAssetResult;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.ports.MediaAssetCandidate;
 import com.universe.media.application.variant.GenerateMediaImageVariantCommand;
 import com.universe.media.application.variant.GenerateMediaImageVariantUseCase;
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
+import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
@@ -43,6 +51,7 @@ import com.universe.media.contracts.dto.MediaVersionDTO;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
@@ -52,6 +61,7 @@ import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -76,6 +86,9 @@ public class MediaFacade implements MediaContract {
     private final GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase;
     private final GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase;
     private final OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
+    private final AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
+    private final FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
+    private final UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
 
     public MediaFacade(
             GetMediaAssetDetailUseCase getMediaAssetDetailUseCase,
@@ -88,7 +101,10 @@ public class MediaFacade implements MediaContract {
             UploadMediaAssetVersionUseCase uploadMediaAssetVersionUseCase,
             GenerateMediaImageVariantUseCase generateMediaImageVariantUseCase,
             GetCurrentMediaAssetVersionSnapshotUseCase getCurrentMediaAssetVersionSnapshotUseCase,
-            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase
+            OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase,
+            AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase,
+            FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase,
+            UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase
     ) {
         this.getMediaAssetDetailUseCase = Objects.requireNonNull(
                 getMediaAssetDetailUseCase,
@@ -134,6 +150,18 @@ public class MediaFacade implements MediaContract {
                 openMediaAssetVersionContentUseCase,
                 "OpenMediaAssetVersionContentUseCase cannot be null."
         );
+        this.assignMediaAssetClientTagUseCase = Objects.requireNonNull(
+                assignMediaAssetClientTagUseCase,
+                "AssignMediaAssetClientTagUseCase cannot be null."
+        );
+        this.findActiveMediaAssetsByClientTagKeysetUseCase = Objects.requireNonNull(
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                "FindActiveMediaAssetsByClientTagKeysetUseCase cannot be null."
+        );
+        this.uploadMediaAssetVersionConditionalUseCase = Objects.requireNonNull(
+                uploadMediaAssetVersionConditionalUseCase,
+                "UploadMediaAssetVersionConditionalUseCase cannot be null."
+        );
     }
 
     @Override
@@ -148,7 +176,8 @@ public class MediaFacade implements MediaContract {
                 request.mimeType(),
                 toDomainMediaType(request.mediaType()),
                 toDomainVisibility(request.visibility()),
-                request.originalFilename()
+                request.originalFilename(),
+                request.clientTag()
         );
         UploadMediaAssetResult result = uploadMediaAssetUseCase.execute(command);
         return new UploadMediaAssetResponseDTO(result.assetId());
@@ -171,6 +200,27 @@ public class MediaFacade implements MediaContract {
         return new UploadMediaAssetVersionResponseDTO(
                 result.assetId(),
                 result.versionNumber()
+        );
+    }
+
+    @Override
+    public UploadMediaAssetVersionConditionalResponseDTO uploadVersionIfContentChanged(UploadMediaAssetVersionRequestDTO request) {
+        Objects.requireNonNull(
+                request,
+                "UploadMediaAssetVersionRequestDTO cannot be null."
+        );
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                request.assetId(),
+                request.content(),
+                request.sizeBytes(),
+                request.mimeType(),
+                request.originalFilename()
+        );
+        UploadMediaAssetVersionConditionalResult result = uploadMediaAssetVersionConditionalUseCase.execute(command);
+        return new UploadMediaAssetVersionConditionalResponseDTO(
+                result.assetId(),
+                result.versionNumber(),
+                result.outcome()
         );
     }
 
@@ -312,6 +362,44 @@ public class MediaFacade implements MediaContract {
         deleteMediaAssetUseCase.execute(
                 new DeleteMediaAssetCommand(assetId)
         );
+    }
+
+    @Override
+    public void assignClientTagIfAbsent(UUID assetId, String clientTag) {
+        Objects.requireNonNull(
+                assetId,
+                "Asset ID cannot be null."
+        );
+        Objects.requireNonNull(
+                clientTag,
+                "Client tag cannot be null."
+        );
+        assignMediaAssetClientTagUseCase.execute(
+                new AssignMediaAssetClientTagCommand(assetId, clientTag)
+        );
+    }
+
+    @Override
+    public List<MediaAssetCandidateDTO> findActiveAssetsByClientTagKeyset(
+            FindActiveMediaAssetsKeysetQuery query
+    ) {
+        Objects.requireNonNull(
+                query,
+                "FindActiveMediaAssetsKeysetQuery cannot be null."
+        );
+        com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery applicationQuery =
+                new com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery(
+                        query.clientTag(),
+                        query.createdBeforeUpperBound(),
+                        query.lastCreatedAt(),
+                        query.lastAssetId(),
+                        query.pageSize()
+                );
+        List<MediaAssetCandidate> candidates =
+                findActiveMediaAssetsByClientTagKeysetUseCase.execute(applicationQuery);
+        return candidates.stream()
+                .map(c -> new MediaAssetCandidateDTO(c.assetId(), c.createdAt()))
+                .toList();
     }
 
     private MediaAssetDetailDTO toMediaAssetDetailDTO(MediaAssetDetailResult result) {

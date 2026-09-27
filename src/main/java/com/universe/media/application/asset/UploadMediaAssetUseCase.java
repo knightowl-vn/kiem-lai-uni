@@ -75,7 +75,8 @@ public class UploadMediaAssetUseCase {
                 contentHash,
                 mimeType.value(),
                 command.sizeBytes(),
-                command.originalFilename()
+                command.originalFilename(),
+                command.clientTag()
         );
 
         RegisterMediaAssetResult registerResult;

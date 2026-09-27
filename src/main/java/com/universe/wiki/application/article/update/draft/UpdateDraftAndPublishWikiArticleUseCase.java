@@ -4,13 +4,16 @@ import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 
 import com.universe.wiki.application.article.common.WikiArticleDTOMapper;
+import com.universe.wiki.application.article.cover.WikiCoverIntent;
 
 import com.universe.wiki.application.exceptions.ArticleSlugAlreadyExistsException;
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
+import com.universe.wiki.application.exceptions.WikiCoverStaleMutationException;
 
 import com.universe.wiki.application.ports.SlugGeneratorPort;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.application.ports.WikiArticleRevisionRepositoryPort;
+import com.universe.wiki.application.ports.WikiCoverOrphanRepositoryPort;
 
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 
@@ -24,9 +27,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Service
 public class UpdateDraftAndPublishWikiArticleUseCase {
@@ -46,6 +51,9 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
     private final WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    private final WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
     private final SlugGeneratorPort
             slugGeneratorPort;
 
@@ -59,6 +67,7 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
     public UpdateDraftAndPublishWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
             WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+            WikiCoverOrphanRepositoryPort orphanRepositoryPort,
             SlugGeneratorPort slugGeneratorPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
@@ -68,6 +77,9 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
 
         this.revisionRepositoryPort =
                 revisionRepositoryPort;
+
+        this.orphanRepositoryPort =
+                orphanRepositoryPort;
 
         this.slugGeneratorPort =
                 slugGeneratorPort;
@@ -113,6 +125,8 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
         Instant now =
                 clockPort.now();
 
+        UUID previousCoverId =
+                article.getCoverMediaAssetId();
 
         /*
          * true:
@@ -122,6 +136,59 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
          * dữ liệu giữ nguyên,
          * chỉ chuyển DRAFT -> PUBLISHED.
          */
+        UUID targetCoverMediaAssetId;
+        Integer targetCoverPositionX;
+        Integer targetCoverPositionY;
+
+        WikiCoverIntent intent = command.coverIntent() != null
+                ? command.coverIntent()
+                : (!command.updateCover()
+                        ? WikiCoverIntent.PRESERVE
+                        : (command.coverMediaAssetId() == null ? WikiCoverIntent.REMOVE : WikiCoverIntent.ATTACH_NEW_ASSET));
+
+        switch (intent) {
+            case PRESERVE -> {
+                targetCoverMediaAssetId = article.getCoverMediaAssetId();
+                targetCoverPositionX = article.getCoverPositionX();
+                targetCoverPositionY = article.getCoverPositionY();
+            }
+            case REMOVE -> {
+                targetCoverMediaAssetId = null;
+                targetCoverPositionX = 50;
+                targetCoverPositionY = 50;
+            }
+            case FOCAL_ONLY -> {
+                targetCoverMediaAssetId = article.getCoverMediaAssetId();
+                if (targetCoverMediaAssetId == null) {
+                    targetCoverPositionX = 50;
+                    targetCoverPositionY = 50;
+                } else {
+                    targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : article.getCoverPositionX();
+                    targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : article.getCoverPositionY();
+                }
+            }
+            case REPLACE_EXISTING_BINARY -> {
+                UUID expectedCoverId = command.expectedCoverMediaAssetId();
+                if (!Objects.equals(article.getCoverMediaAssetId(), expectedCoverId)) {
+                    throw new WikiCoverStaleMutationException(
+                            "Ảnh bìa của bài viết đã bị thay đổi đồng thời trong lúc tải ảnh mới: " + article.getId());
+                }
+                targetCoverMediaAssetId = command.coverMediaAssetId();
+                targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : article.getCoverPositionX();
+                targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : article.getCoverPositionY();
+            }
+            case ATTACH_NEW_ASSET -> {
+                targetCoverMediaAssetId = command.coverMediaAssetId();
+                targetCoverPositionX = command.coverPositionX() != null ? command.coverPositionX() : 50;
+                targetCoverPositionY = command.coverPositionY() != null ? command.coverPositionY() : 50;
+            }
+            default -> throw new IllegalStateException("Unknown cover intent: " + intent);
+        }
+
+        if (targetCoverMediaAssetId != null && !Objects.equals(previousCoverId, targetCoverMediaAssetId)) {
+            orphanRepositoryPort.coordinateCoverAttachment(targetCoverMediaAssetId);
+        }
+
         boolean contentChanged =
                 article.updateDraftAndPublish(
                         command.title(),
@@ -129,15 +196,25 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
                         command.articleType(),
                         command.summary(),
                         command.content(),
+                        targetCoverMediaAssetId,
+                        targetCoverPositionX,
+                        targetCoverPositionY,
                         command.actorId(),
                         now
                 );
 
+        UUID finalCoverId =
+                article.getCoverMediaAssetId();
+
+        if (!Objects.equals(previousCoverId, finalCoverId)) {
+            lockCoverReferenceKeys(previousCoverId, finalCoverId);
+        }
 
         articleRepositoryPort.save(
                 article
         );
 
+        articleRepositoryPort.flush();
 
         saveRevision(
                 article,
@@ -145,6 +222,10 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
                 command.editSummary()
         );
 
+        reconcileCoverOrphanState(
+                previousCoverId,
+                finalCoverId
+        );
 
         return WikiArticleDTOMapper.toDTO(
                 article
@@ -251,5 +332,32 @@ public class UpdateDraftAndPublishWikiArticleUseCase {
         return contentChanged
                 ? DEFAULT_UPDATE_AND_PUBLISH_SUMMARY
                 : DEFAULT_PUBLISH_SUMMARY;
+    }
+
+    private void lockCoverReferenceKeys(UUID... assetIds) {
+        Stream.of(assetIds)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted(Comparator.comparing(UUID::toString))
+                .forEach(articleRepositoryPort::lockCoverReferenceKey);
+    }
+
+    private void reconcileCoverOrphanState(
+            UUID previousCoverId,
+            UUID finalCoverId
+    ) {
+        if (previousCoverId != null && !previousCoverId.equals(finalCoverId)) {
+            if (!articleRepositoryPort.hasCoverReference(previousCoverId)) {
+                orphanRepositoryPort.recordOrphanObservation(
+                        previousCoverId,
+                        clockPort.now()
+                );
+            } else {
+                orphanRepositoryPort.deleteByMediaAssetId(previousCoverId);
+            }
+        }
+        if (finalCoverId != null) {
+            orphanRepositoryPort.deleteByMediaAssetId(finalCoverId);
+        }
     }
 }

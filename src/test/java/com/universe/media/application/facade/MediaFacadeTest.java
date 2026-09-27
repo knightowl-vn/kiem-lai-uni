@@ -25,6 +25,8 @@ import com.universe.media.application.asset.UploadMediaAssetCommand;
 import com.universe.media.application.asset.UploadMediaAssetResult;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
+import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
@@ -38,9 +40,11 @@ import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
 import com.universe.media.contracts.dto.MediaVersionDTO;
+import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.contracts.dto.MediaVisibilityDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.domain.MediaAssetStatus;
@@ -117,6 +121,15 @@ class MediaFacadeTest {
     @Mock
     private OpenMediaAssetVersionContentUseCase openMediaAssetVersionContentUseCase;
 
+    @Mock
+    private com.universe.media.application.asset.AssignMediaAssetClientTagUseCase assignMediaAssetClientTagUseCase;
+
+    @Mock
+    private com.universe.media.application.asset.FindActiveMediaAssetsByClientTagKeysetUseCase findActiveMediaAssetsByClientTagKeysetUseCase;
+
+    @Mock
+    private UploadMediaAssetVersionConditionalUseCase uploadMediaAssetVersionConditionalUseCase;
+
     private MediaFacade facade;
 
     @BeforeEach
@@ -132,7 +145,10 @@ class MediaFacadeTest {
                 uploadMediaAssetVersionUseCase,
                 generateMediaImageVariantUseCase,
                 getCurrentMediaAssetVersionSnapshotUseCase,
-                openMediaAssetVersionContentUseCase
+                openMediaAssetVersionContentUseCase,
+                assignMediaAssetClientTagUseCase,
+                findActiveMediaAssetsByClientTagKeysetUseCase,
+                uploadMediaAssetVersionConditionalUseCase
         );
     }
 
@@ -499,6 +515,79 @@ class MediaFacadeTest {
     }
 
     @Test
+    @DisplayName("uploadVersionIfContentChanged maps request DTO to command and returns UNCHANGED response")
+    void shouldDelegateUploadVersionIfContentChangedUnchanged() {
+        java.io.InputStream in = new java.io.ByteArrayInputStream("identical data".getBytes());
+        UploadMediaAssetVersionRequestDTO request = new UploadMediaAssetVersionRequestDTO(
+                ASSET_ID,
+                in,
+                14L,
+                "image/webp",
+                "cover.webp"
+        );
+
+        UploadMediaAssetVersionConditionalResult appResult =
+                UploadMediaAssetVersionConditionalResult.unchanged(ASSET_ID, 2);
+
+        when(uploadMediaAssetVersionConditionalUseCase.execute(any(UploadMediaAssetVersionCommand.class)))
+                .thenReturn(appResult);
+
+        UploadMediaAssetVersionConditionalResponseDTO response = facade.uploadVersionIfContentChanged(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.assetId()).isEqualTo(ASSET_ID);
+        assertThat(response.versionNumber()).isEqualTo(2);
+        assertThat(response.outcome()).isEqualTo(MediaVersionUploadOutcome.UNCHANGED);
+
+        ArgumentCaptor<UploadMediaAssetVersionCommand> captor =
+                ArgumentCaptor.forClass(UploadMediaAssetVersionCommand.class);
+        verify(uploadMediaAssetVersionConditionalUseCase).execute(captor.capture());
+
+        UploadMediaAssetVersionCommand cmd = captor.getValue();
+        assertThat(cmd.assetId()).isEqualTo(ASSET_ID);
+        assertThat(cmd.content()).isSameAs(in);
+        assertThat(cmd.sizeBytes()).isEqualTo(14L);
+        assertThat(cmd.mimeType()).isEqualTo("image/webp");
+        assertThat(cmd.originalFilename()).isEqualTo("cover.webp");
+    }
+
+    @Test
+    @DisplayName("uploadVersionIfContentChanged maps request DTO to command and returns VERSION_CREATED response")
+    void shouldDelegateUploadVersionIfContentChangedVersionCreated() {
+        java.io.InputStream in = new java.io.ByteArrayInputStream("new data".getBytes());
+        UploadMediaAssetVersionRequestDTO request = new UploadMediaAssetVersionRequestDTO(
+                ASSET_ID,
+                in,
+                8L,
+                "image/jpeg",
+                "cover_new.jpg"
+        );
+
+        UploadMediaAssetVersionConditionalResult appResult =
+                UploadMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_ID, 3, T2);
+
+        when(uploadMediaAssetVersionConditionalUseCase.execute(any(UploadMediaAssetVersionCommand.class)))
+                .thenReturn(appResult);
+
+        UploadMediaAssetVersionConditionalResponseDTO response = facade.uploadVersionIfContentChanged(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.assetId()).isEqualTo(ASSET_ID);
+        assertThat(response.versionNumber()).isEqualTo(3);
+        assertThat(response.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
+    }
+
+    @Test
+    @DisplayName("uploadVersionIfContentChanged fails fast on null request DTO")
+    void shouldFailFastOnNullUploadVersionIfContentChangedRequest() {
+        assertThatThrownBy(() -> facade.uploadVersionIfContentChanged(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("UploadMediaAssetVersionRequestDTO cannot be null.");
+
+        verifyNoInteractions(uploadMediaAssetVersionConditionalUseCase);
+    }
+
+    @Test
     @DisplayName("generateImageVariant delegates with mapped command")
     void shouldDelegateGenerateImageVariant() {
         com.universe.media.contracts.dto.GenerateImageVariantRequestDTO request =
@@ -555,5 +644,123 @@ class MediaFacadeTest {
                 .hasMessageContaining("Media asset ID cannot be null.");
 
         verifyNoInteractions(generateMediaImageVariantUseCase);
+    }
+
+    @Test
+    @DisplayName("uploadAsset maps request DTO with clientTag to command")
+    void shouldDelegateUploadAssetWithClientTag() {
+        java.io.InputStream in = new java.io.ByteArrayInputStream("data".getBytes());
+        UploadMediaAssetRequestDTO request = new UploadMediaAssetRequestDTO(
+                in,
+                4L,
+                "image/webp",
+                MediaTypeDTO.IMAGE,
+                MediaVisibilityDTO.PUBLIC,
+                "banner.webp",
+                "wiki.article.cover"
+        );
+
+        UploadMediaAssetResult appResult = new UploadMediaAssetResult(
+                ASSET_ID,
+                VERSION_ID,
+                1,
+                MediaType.IMAGE,
+                MediaVisibility.PUBLIC,
+                MediaAssetStatus.ACTIVE,
+                T1
+        );
+
+        when(uploadMediaAssetUseCase.execute(any(UploadMediaAssetCommand.class)))
+                .thenReturn(appResult);
+
+        UploadMediaAssetResponseDTO response = facade.uploadAsset(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.assetId()).isEqualTo(ASSET_ID);
+
+        ArgumentCaptor<UploadMediaAssetCommand> captor =
+                ArgumentCaptor.forClass(UploadMediaAssetCommand.class);
+        verify(uploadMediaAssetUseCase).execute(captor.capture());
+
+        UploadMediaAssetCommand cmd = captor.getValue();
+        assertThat(cmd.clientTag()).isEqualTo("wiki.article.cover");
+    }
+
+    @Test
+    @DisplayName("assignClientTagIfAbsent delegates to AssignMediaAssetClientTagUseCase")
+    void shouldDelegateAssignClientTagIfAbsent() {
+        facade.assignClientTagIfAbsent(ASSET_ID, "wiki.article.cover");
+
+        ArgumentCaptor<com.universe.media.application.asset.AssignMediaAssetClientTagCommand> captor =
+                ArgumentCaptor.forClass(com.universe.media.application.asset.AssignMediaAssetClientTagCommand.class);
+        verify(assignMediaAssetClientTagUseCase).execute(captor.capture());
+
+        assertThat(captor.getValue().assetId()).isEqualTo(ASSET_ID);
+        assertThat(captor.getValue().clientTag()).isEqualTo("wiki.article.cover");
+    }
+
+    @Test
+    @DisplayName("findActiveAssetsByClientTagKeyset maps public contract DTO to application query and maps candidates to DTOs")
+    void shouldMapPublicDtoToApplicationQueryAndReturnCandidateDtos() {
+        com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery publicQuery =
+                com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery.nextPage(
+                        "wiki.article.cover",
+                        T2,
+                        T1,
+                        ASSET_ID,
+                        20
+                );
+        com.universe.media.application.ports.MediaAssetCandidate candidate =
+                new com.universe.media.application.ports.MediaAssetCandidate(ASSET_ID, T1);
+        when(findActiveMediaAssetsByClientTagKeysetUseCase.execute(any(com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery.class)))
+                .thenReturn(java.util.List.of(candidate));
+
+        java.util.List<com.universe.media.contracts.dto.MediaAssetCandidateDTO> result =
+                facade.findActiveAssetsByClientTagKeyset(publicQuery);
+
+        ArgumentCaptor<com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery> captor =
+                ArgumentCaptor.forClass(com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery.class);
+        verify(findActiveMediaAssetsByClientTagKeysetUseCase).execute(captor.capture());
+
+        com.universe.media.application.asset.FindActiveMediaAssetsKeysetQuery appQuery = captor.getValue();
+        assertThat(appQuery.clientTag()).isEqualTo("wiki.article.cover");
+        assertThat(appQuery.createdBeforeUpperBound()).isEqualTo(T2);
+        assertThat(appQuery.lastCreatedAt()).isEqualTo(T1);
+        assertThat(appQuery.lastAssetId()).isEqualTo(ASSET_ID);
+        assertThat(appQuery.pageSize()).isEqualTo(20);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).assetId()).isEqualTo(ASSET_ID);
+        assertThat(result.get(0).createdAt()).isEqualTo(T1);
+    }
+
+    @Test
+    @DisplayName("findActiveAssetsByClientTagKeyset fails fast on null query")
+    void shouldFailFastOnNullQueryInFindActiveAssetsByClientTagKeyset() {
+        assertThatThrownBy(() -> facade.findActiveAssetsByClientTagKeyset(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("FindActiveMediaAssetsKeysetQuery cannot be null.");
+
+        verifyNoInteractions(findActiveMediaAssetsByClientTagKeysetUseCase);
+    }
+
+    @Test
+    @DisplayName("assignClientTagIfAbsent fails fast on null assetId")
+    void shouldFailFastOnNullAssetIdInAssignClientTagIfAbsent() {
+        assertThatThrownBy(() -> facade.assignClientTagIfAbsent(null, "wiki.article.cover"))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Asset ID cannot be null.");
+
+        verifyNoInteractions(assignMediaAssetClientTagUseCase);
+    }
+
+    @Test
+    @DisplayName("assignClientTagIfAbsent fails fast on null clientTag")
+    void shouldFailFastOnNullClientTagInAssignClientTagIfAbsent() {
+        assertThatThrownBy(() -> facade.assignClientTagIfAbsent(ASSET_ID, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Client tag cannot be null.");
+
+        verifyNoInteractions(assignMediaAssetClientTagUseCase);
     }
 }

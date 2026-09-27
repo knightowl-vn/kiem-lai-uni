@@ -146,7 +146,19 @@ class TypographyContractTest {
 
         // 4. Narrow mobile responsive left-align rules
         assertThat(wikiCss).contains("@media (max-width: 576px)");
+        int wikiMediaIndex = wikiCss.indexOf("@media (max-width: 576px)");
+        assertThat(wikiMediaIndex).isGreaterThan(-1);
+        String wikiMediaBlock = wikiCss.substring(wikiMediaIndex, wikiCss.indexOf('}', wikiMediaIndex + 30) + 1);
+        assertThat(wikiMediaBlock).contains(".wiki-article-content p");
+        assertThat(wikiMediaBlock).contains("text-align: left;");
+
         assertThat(readerCss).contains("@media (max-width: 576px)");
+        int readerMediaIndex = readerCss.indexOf("@media (max-width: 576px)");
+        assertThat(readerMediaIndex).isGreaterThan(-1);
+        String readerMediaBlock = readerCss.substring(readerMediaIndex, readerCss.indexOf('}', readerMediaIndex + 30) + 1);
+        assertThat(readerMediaBlock).contains(".novel-reader-chapter-body p");
+        assertThat(readerMediaBlock).contains("text-align: left;");
+        assertThat(readerMediaBlock).contains("text-justify: auto;");
     }
 
     @Test

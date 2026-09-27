@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="vi"
+      xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title th:text="${pageTitle + ' | Kiếm Lai Universe'}">
+        Đóng góp Wiki của tôi | Kiếm Lai Universe
+    </title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+          rel="stylesheet">
+
+    <link rel="stylesheet"
+          th:href="@{/css/theme.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/navbar.css}">
+
+    <link rel="stylesheet"
+          th:href="@{/css/wiki/wiki.css}">
+</head>
+
+<body>
+
+<div th:replace="~{fragments/navbar :: navbar(activeNav='wiki')}"></div>
+
+<main class="container py-5 wiki-saved-main">
+
+    <div class="wiki-saved-container">
+
+        <!-- Breadcrumb -->
+        <nav class="wiki-saved-breadcrumb mb-4" aria-label="Breadcrumb">
+            <a th:href="@{/home}">Trang chủ</a>
+            <span class="wiki-breadcrumb-separator" aria-hidden="true">/</span>
+            <a th:href="@{/wiki}">Wiki</a>
+            <span class="wiki-breadcrumb-separator" aria-hidden="true">/</span>
+            <span aria-current="page">Đóng góp của tôi</span>
+        </nav>
+
+        <!-- Personal Switcher -->
+        <div th:replace="~{wiki/public/fragments/personal-nav :: personalNav(activeTab='contributions')}"></div>
+
+        <!-- Header -->
+        <header class="wiki-saved-header mb-4">
+            <h1 class="wiki-saved-title">
+                <svg class="wiki-saved-header-icon"
+                     xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="28"
+                     height="28"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="2"
+                     stroke-linecap="round"
+                     stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                <span>Đóng góp của tôi</span>
+            </h1>
+            <p class="wiki-saved-subtitle text-secondary">
+                Danh sách các đề xuất đóng góp và chỉnh sửa Wiki bạn đã gửi tới ban biên tập.
+            </p>
+        </header>
+
+        <!-- Contributions List -->
+        <div th:if="${!contributionsPage.items.isEmpty()}"
+             id="wikiContributionsList"
+             class="wiki-contribution-list"
+             th:attr="data-current-page=${contributionsPage.page}"
+             role="list">
+
+            <div th:each="item : ${contributionsPage.items}"
+                 class="wiki-contribution-item"
+                 role="listitem">
+
+                <!-- TOP ROW: Type + Status + Timestamp -->
+                <div class="wiki-contribution-item-top">
+                    <div class="wiki-contribution-badges">
+                        <span class="wiki-contribution-type-badge"
+                              th:text="${item.contributionTypeLabel}">
+                            Bổ sung thông tin
+                        </span>
+                        <span class="wiki-contribution-status-badge"
+                              th:classappend="${item.statusBadgeClass}"
+                              th:text="${item.statusLabel}">
+                            Đang chờ duyệt
+                        </span>
+                    </div>
+
+                    <span th:if="${item.createdAt != null}"
+                          class="wiki-contribution-time">
+                        Gửi lúc: <time data-relative-time
+                                      th:datetime="${item.createdAt}"
+                                      th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">15/08/2026 10:30</time>
+                    </span>
+                </div>
+
+                <!-- ARTICLE TARGET -->
+                <div class="wiki-contribution-target">
+                    <span class="wiki-contribution-target-prefix">Bài viết liên quan:</span>
+                    <a th:if="${item.hasArticleLink()}"
+                       th:href="@{/wiki/{type}/{slug}(type=${item.liveArticleTypePath}, slug=${item.liveArticleSlug})}"
+                       class="wiki-contribution-article-link"
+                       th:text="${item.articleTitleSnapshot}">
+                        Tiêu đề bài viết
+                    </a>
+                    <span th:if="${!item.hasArticleLink() and item.articleTitleSnapshot != null}"
+                          class="wiki-contribution-article-title-plain"
+                          th:text="${item.articleTitleSnapshot}">
+                        Tiêu đề bài viết
+                    </span>
+                    <span th:if="${!item.hasArticleLink() and item.articleTitleSnapshot == null}"
+                          class="wiki-contribution-article-title-plain text-secondary fst-italic">
+                        Bài viết Wiki
+                    </span>
+                </div>
+
+                <!-- CONTRIBUTION CONTENT / MESSAGE -->
+                <div class="wiki-contribution-message-box">
+                    <div class="wiki-contribution-message-label">Nội dung đề xuất:</div>
+                    <p class="wiki-contribution-message-text"
+                       th:text="${item.message}">
+                        Chi tiết nội dung đóng góp của người dùng.
+                    </p>
+                </div>
+
+                <!-- EDITORIAL FEEDBACK NOTE (IF RESOLVED / REJECTED WITH NOTE) -->
+                <div th:if="${item.resolutionNote != null and !#strings.isEmpty(#strings.trim(item.resolutionNote))}"
+                     class="wiki-contribution-feedback">
+                    <div class="wiki-contribution-feedback-header">
+                        <svg class="wiki-contribution-feedback-icon"
+                             xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             width="16"
+                             height="16"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="16" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                        </svg>
+                        <span class="wiki-contribution-feedback-title">Phản hồi từ ban biên tập:</span>
+                        <span th:if="${item.resolvedAt != null}"
+                              class="wiki-contribution-feedback-time">
+                            (<time data-relative-time
+                                   th:datetime="${item.resolvedAt}"
+                                   th:text="${#temporals.format(item.resolvedAt, 'dd/MM/yyyy HH:mm')}">16/08/2026 14:00</time>)
+                        </span>
+                    </div>
+                    <p class="wiki-contribution-feedback-content"
+                       th:text="${item.resolutionNote}">
+                        Ghi chú phản hồi từ biên tập viên.
+                    </p>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Empty State -->
+        <div id="wikiContributionsEmpty"
+             class="wiki-saved-empty"
+             th:if="${contributionsPage.items.isEmpty()}">
+            <div class="wiki-saved-empty-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     viewBox="0 0 24 24"
+                     width="48"
+                     height="48"
+                     fill="none"
+                     stroke="currentColor"
+                     stroke-width="1.5"
+                     stroke-linecap="round"
+                     stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+            </div>
+            <h2 class="wiki-saved-empty-title">Bạn chưa gửi đóng góp Wiki nào.</h2>
+            <p class="wiki-saved-empty-text">
+                Khi đọc bài viết Wiki, nếu phát hiện thông tin cần bổ sung hoặc đính chính, bạn có thể bấm nút "Đóng góp nội dung" để gửi đề xuất cho ban biên tập.
+            </p>
+            <a th:href="@{/wiki}" class="wiki-saved-empty-cta">
+                Khám phá Kiếm Lai Wiki
+            </a>
+        </div>
+
+        <!-- Pagination -->
+        <nav th:if="${contributionsPage.totalPages > 1}"
+             class="wiki-public-pagination mt-5"
+             aria-label="Phân trang đóng góp của tôi">
+
+            <!-- PREVIOUS -->
+            <a th:if="${!contributionsPage.first}"
+               class="wiki-public-pagination-button"
+               th:href="@{/wiki/contributions(page=${contributionsPage.page - 1})}">
+                ← Trang trước
+            </a>
+            <span th:if="${contributionsPage.first}"
+                  class="wiki-public-pagination-button is-disabled"
+                  aria-disabled="true">
+                ← Trang trước
+            </span>
+
+            <!-- CURRENT PAGE -->
+            <div class="wiki-public-pagination-status">
+                <span>Trang</span>
+                <strong th:text="${contributionsPage.page + 1}">1</strong>
+                <span>/</span>
+                <strong th:text="${contributionsPage.totalPages}">2</strong>
+            </div>
+
+            <!-- NEXT -->
+            <a th:if="${!contributionsPage.last}"
+               class="wiki-public-pagination-button"
+               th:href="@{/wiki/contributions(page=${contributionsPage.page + 1})}">
+                Trang sau →
+            </a>
+            <span th:if="${contributionsPage.last}"
+                  class="wiki-public-pagination-button is-disabled"
+                  aria-disabled="true">
+                Trang sau →
+            </span>
+
+        </nav>
+
+    </div>
+
+</main>
+
+<script th:src="@{/js/theme.js}"></script>
+
+</body>
+</html>

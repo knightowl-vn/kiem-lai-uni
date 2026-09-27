@@ -40,7 +40,8 @@ class PublishedWikiArticleAdapterTest {
                 "Tóm tắt chi tiết",
                 "Nội dung đầy đủ",
                 Instant.now(),
-                Instant.now()
+                Instant.now(),
+                1L
         );
 
         when(wikiArticleContract.findPublishedById(ARTICLE_ID)).thenReturn(Optional.of(dto));

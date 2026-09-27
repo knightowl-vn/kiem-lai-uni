@@ -317,6 +317,26 @@ class AdminWikiArticlePageControllerTest {
 		assertThat(form.getContent()).isEqualTo("Nội dung bài viết.");
 	}
 
+	@Test
+	@DisplayName("Hiển thị trang chỉnh sửa bài Wiki với sourceContributionId khi mở từ đóng góp")
+	void shouldShowEditPageWithSourceContributionId() {
+		WikiArticleDTO article = createPublishedArticleDTO();
+		UUID sourceContributionId = UUID.randomUUID();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID))).thenReturn(article);
+
+		ExtendedModelMap model = new ExtendedModelMap();
+
+		String viewName = controller.editPage(ARTICLE_ID, sourceContributionId, model);
+
+		assertThat(viewName).isEqualTo("admin/wiki/edit");
+		assertThat(model.getAttribute("sourceContributionId")).isEqualTo(sourceContributionId);
+
+		EditWikiArticleForm form = (EditWikiArticleForm) model.getAttribute("form");
+		assertThat(form).isNotNull();
+		assertThat(form.getSourceContributionId()).isEqualTo(sourceContributionId);
+	}
+
 	/*
 	 * ===================================================== EDIT ARCHIVED PAGE
 	 * =====================================================

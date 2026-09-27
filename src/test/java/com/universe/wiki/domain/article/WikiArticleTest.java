@@ -578,4 +578,197 @@ class WikiArticleTest {
 
 		assertThat(article.getUpdatedAt()).isEqualTo(updatedBefore);
 	}
+
+	@Test
+	@DisplayName("Tạo bản nháp với coverMediaAssetId")
+	void shouldCreateDraftWithCoverMediaAssetId() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, coverId);
+
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getAggregateVersion()).isEqualTo(1L);
+		assertThat(article.getContentVersion()).isEqualTo(1L);
+	}
+
+	@Test
+	@DisplayName("Tạo và xuất bản trực tiếp với coverMediaAssetId")
+	void shouldCreatePublishedWithCoverMediaAssetId() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createPublished(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung đầy đủ", coverId, ADMIN_ID, CREATED_AT);
+
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getStatus()).isEqualTo(ArticleStatus.PUBLISHED);
+		assertThat(article.getAggregateVersion()).isEqualTo(1L);
+		assertThat(article.getContentVersion()).isEqualTo(1L);
+	}
+
+	@Test
+	@DisplayName("Thay đổi coverMediaAssetId làm tăng aggregateVersion nhưng giữ nguyên contentVersion")
+	void shouldChangeCoverMediaAssetIdAndIncrementAggregateVersionWithoutChangingContentVersion() {
+		WikiArticle article = createCompleteDraft();
+		long aggregateBefore = article.getAggregateVersion();
+		long contentBefore = article.getContentVersion();
+
+		UUID newCoverId = UUID.randomUUID();
+		boolean changed = article.changeCoverMediaAssetId(newCoverId, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isTrue();
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(newCoverId);
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore + 1);
+		assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+		assertThat(article.getUpdatedBy()).isEqualTo(OTHER_ADMIN_ID);
+		assertThat(article.getUpdatedAt()).isEqualTo(UPDATED_AT);
+	}
+
+	@Test
+	@DisplayName("Không thay đổi khi gán coverMediaAssetId trùng với giá trị hiện tại")
+	void shouldNoOpWhenChangingToSameCoverMediaAssetId() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, coverId);
+
+		long aggregateBefore = article.getAggregateVersion();
+		long contentBefore = article.getContentVersion();
+		Instant updatedBefore = article.getUpdatedAt();
+
+		boolean changed = article.changeCoverMediaAssetId(coverId, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isFalse();
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore);
+		assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+		assertThat(article.getUpdatedAt()).isEqualTo(updatedBefore);
+	}
+
+	@Test
+	@DisplayName("Gỡ bỏ coverMediaAssetId thành công")
+	void shouldRemoveCoverMediaAssetId() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, ADMIN_ID, CREATED_AT, coverId);
+
+		long aggregateBefore = article.getAggregateVersion();
+		long contentBefore = article.getContentVersion();
+
+		boolean changed = article.changeCoverMediaAssetId(null, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isTrue();
+		assertThat(article.getCoverMediaAssetId()).isNull();
+		assertThat(article.getCoverPositionX()).isEqualTo(50);
+		assertThat(article.getCoverPositionY()).isEqualTo(50);
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore + 1);
+		assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+	}
+
+	@Test
+	@DisplayName("Tạo bản nháp với tọa độ tâm ảnh tùy chọn")
+	void shouldCreateDraftWithCoverPosition() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 30, 70, ADMIN_ID, CREATED_AT);
+
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getCoverPositionX()).isEqualTo(30);
+		assertThat(article.getCoverPositionY()).isEqualTo(70);
+		assertThat(article.getAggregateVersion()).isEqualTo(1L);
+		assertThat(article.getContentVersion()).isEqualTo(1L);
+	}
+
+	@Test
+	@DisplayName("Tạo bản nháp với tọa độ tâm null thì mặc định 50/50")
+	void shouldDefaultCoverPositionTo50WhenNull() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, null, null, ADMIN_ID, CREATED_AT);
+
+		assertThat(article.getCoverPositionX()).isEqualTo(50);
+		assertThat(article.getCoverPositionY()).isEqualTo(50);
+	}
+
+	@Test
+	@DisplayName("Từ chối tọa độ tâm ngoài khoảng 0..100")
+	void shouldRejectCoverPositionOutOfBounds() {
+		UUID coverId = UUID.randomUUID();
+
+		assertThatThrownBy(() -> WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, -1, 50, ADMIN_ID, CREATED_AT))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("Vị trí tâm ảnh theo trục X");
+
+		assertThatThrownBy(() -> WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 50, 101, ADMIN_ID, CREATED_AT))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("Vị trí tâm ảnh theo trục Y");
+	}
+
+	@Test
+	@DisplayName("Thay đổi tâm ảnh làm tăng aggregateVersion nhưng giữ nguyên contentVersion")
+	void shouldChangeCoverPositionAndIncrementAggregateVersionWithoutChangingContentVersion() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 50, 50, ADMIN_ID, CREATED_AT);
+
+		long aggregateBefore = article.getAggregateVersion();
+		long contentBefore = article.getContentVersion();
+
+		boolean changed = article.changeCoverPosition(25, 75, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isTrue();
+		assertThat(article.getCoverPositionX()).isEqualTo(25);
+		assertThat(article.getCoverPositionY()).isEqualTo(75);
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore + 1);
+		assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+	}
+
+	@Test
+	@DisplayName("Không thay đổi khi thay đổi tâm ảnh trùng với giá trị hiện tại")
+	void shouldNoOpWhenChangingToSameCoverPosition() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 50, 50, ADMIN_ID, CREATED_AT);
+
+		long aggregateBefore = article.getAggregateVersion();
+
+		boolean changed = article.changeCoverPosition(50, 50, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isFalse();
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore);
+	}
+
+	@Test
+	@DisplayName("Cập nhật bản nháp thay đổi tâm ảnh")
+	void shouldUpdateDraftWithNewCoverPosition() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 50, 50, ADMIN_ID, CREATED_AT);
+
+		long aggregateBefore = article.getAggregateVersion();
+		long contentBefore = article.getContentVersion();
+
+		boolean changed = article.updateDraft("Trần Bình An", new Slug("tran-binh-an"), ArticleType.CHARACTER,
+				"Tóm tắt", "Nội dung", coverId, 20, 80, OTHER_ADMIN_ID, UPDATED_AT);
+
+		assertThat(changed).isTrue();
+		assertThat(article.getCoverPositionX()).isEqualTo(20);
+		assertThat(article.getCoverPositionY()).isEqualTo(80);
+		assertThat(article.getAggregateVersion()).isEqualTo(aggregateBefore + 1);
+		assertThat(article.getContentVersion()).isEqualTo(contentBefore);
+	}
+
+	@Test
+	@DisplayName("Khôi phục Aggregate giữ nguyên tọa độ tâm ảnh")
+	void shouldRehydrateWithCoverPosition() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.rehydrate(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, "Tóm tắt", "Nội dung", coverId, 15, 85, ArticleStatus.PUBLISHED,
+				ADMIN_ID, ADMIN_ID, ADMIN_ID, null, CREATED_AT, UPDATED_AT, UPDATED_AT, null, 5L, 3L);
+
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getCoverPositionX()).isEqualTo(15);
+		assertThat(article.getCoverPositionY()).isEqualTo(85);
+		assertThat(article.getAggregateVersion()).isEqualTo(5L);
+		assertThat(article.getContentVersion()).isEqualTo(3L);
+	}
 }

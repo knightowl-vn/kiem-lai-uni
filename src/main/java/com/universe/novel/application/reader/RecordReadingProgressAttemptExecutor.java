@@ -6,7 +6,6 @@ import com.universe.novel.application.ports.ReaderChapterAccessQueryPort.Readabl
 import com.universe.novel.application.ports.ReadingProgressRepositoryPort;
 import com.universe.novel.domain.reader.UserReadingProgress;
 import com.universe.shared.id.IdGeneratorPort;
-import com.universe.shared.time.ClockPort;
 
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,13 +22,11 @@ public class RecordReadingProgressAttemptExecutor {
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final ReadingProgressRepositoryPort readingProgressRepositoryPort;
     private final IdGeneratorPort idGeneratorPort;
-    private final ClockPort clockPort;
 
     public RecordReadingProgressAttemptExecutor(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
             ReadingProgressRepositoryPort readingProgressRepositoryPort,
-            IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            IdGeneratorPort idGeneratorPort
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -43,14 +40,10 @@ public class RecordReadingProgressAttemptExecutor {
                 idGeneratorPort,
                 "IdGeneratorPort không được để trống."
         );
-        this.clockPort = Objects.requireNonNull(
-                clockPort,
-                "ClockPort không được để trống."
-        );
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void executeAttempt(UUID userId, UUID chapterId) {
+    public void executeAttempt(UUID userId, UUID chapterId, Instant observedAt) {
         Objects.requireNonNull(
                 userId,
                 "ID người dùng không được để trống."
@@ -59,8 +52,10 @@ public class RecordReadingProgressAttemptExecutor {
                 chapterId,
                 "ID chương không được để trống."
         );
-
-        Instant now = clockPort.now();
+        Objects.requireNonNull(
+                observedAt,
+                "Thời gian quan sát không được để trống."
+        );
 
         ReadableChapterReference chapter = readerChapterAccessQueryPort
                 .findPublishedById(chapterId)
@@ -74,7 +69,7 @@ public class RecordReadingProgressAttemptExecutor {
             boolean changed = progress.recordChapterAccess(
                     chapter.chapterId(),
                     chapter.chapterNumber(),
-                    now
+                    observedAt
             );
             if (changed) {
                 readingProgressRepositoryPort.save(progress);
@@ -86,7 +81,7 @@ public class RecordReadingProgressAttemptExecutor {
                     userId,
                     chapter.chapterId(),
                     chapter.chapterNumber(),
-                    now
+                    observedAt
             );
             readingProgressRepositoryPort.save(newProgress);
         }

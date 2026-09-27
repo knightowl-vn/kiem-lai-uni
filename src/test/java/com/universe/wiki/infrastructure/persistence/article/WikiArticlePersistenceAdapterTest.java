@@ -108,6 +108,27 @@ class WikiArticlePersistenceAdapterTest {
 		assertThat(entity.getCreatedAt()).isEqualTo(NOW);
 
 		assertThat(entity.getUpdatedAt()).isEqualTo(NOW);
+
+		assertThat(entity.getCoverMediaAssetId()).isNull();
+	}
+
+	@Test
+	@DisplayName("Lưu WikiArticle có coverMediaAssetId thành JPA entity")
+	void shouldSaveArticleWithCoverMediaAssetId() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(ARTICLE_ID, "Trần Bình An", new Slug("tran-binh-an"),
+				ArticleType.CHARACTER, ADMIN_ID, NOW, coverId);
+
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.empty());
+
+		ArgumentCaptor<WikiArticleJpaEntity> entityCaptor = ArgumentCaptor.forClass(WikiArticleJpaEntity.class);
+
+		persistenceAdapter.save(article);
+
+		verify(repository).save(entityCaptor.capture());
+		WikiArticleJpaEntity entity = entityCaptor.getValue();
+
+		assertThat(entity.getCoverMediaAssetId()).isEqualTo(coverId.toString());
 	}
 
 	@Test
@@ -136,6 +157,119 @@ class WikiArticlePersistenceAdapterTest {
 		assertThat(article.getCreatedBy()).isEqualTo(ADMIN_ID);
 
 		assertThat(article.getAggregateVersion()).isEqualTo(1L);
+
+		assertThat(article.getCoverMediaAssetId()).isNull();
+	}
+
+	@Test
+	@DisplayName("Đọc JPA entity có cover_media_asset_id và khôi phục WikiArticle với coverMediaAssetId")
+	void shouldRestoreDomainArticleWithCoverMediaAssetIdFromJpaEntity() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticleJpaEntity entity = createDraftEntity();
+		entity.setCoverMediaAssetId(coverId.toString());
+
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.of(entity));
+
+		Optional<WikiArticle> result = persistenceAdapter.findById(ARTICLE_ID);
+
+		assertThat(result).isPresent();
+		WikiArticle article = result.orElseThrow();
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+	}
+
+	@Test
+	@DisplayName("Đọc JPA entity có cover focal position và khôi phục WikiArticle")
+	void shouldRestoreDomainArticleWithCoverFocalPositionFromJpaEntity() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticleJpaEntity entity = createDraftEntity();
+		entity.setCoverMediaAssetId(coverId.toString());
+		entity.setCoverPositionX((byte) 35);
+		entity.setCoverPositionY((byte) 85);
+
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.of(entity));
+
+		Optional<WikiArticle> result = persistenceAdapter.findById(ARTICLE_ID);
+
+		assertThat(result).isPresent();
+		WikiArticle article = result.orElseThrow();
+		assertThat(article.getCoverMediaAssetId()).isEqualTo(coverId);
+		assertThat(article.getCoverPositionX()).isEqualTo(35);
+		assertThat(article.getCoverPositionY()).isEqualTo(85);
+	}
+
+	@Test
+	@DisplayName("Lưu WikiArticle với boundary focal 0 và 100 chuyển đổi sang byte tương thích TINYINT")
+	void shouldSaveArticleWithCoverFocalBoundaries0And100() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticle article = WikiArticle.createDraft(
+				ARTICLE_ID,
+				"Trần Bình An",
+				new Slug("tran-binh-an"),
+				ArticleType.CHARACTER,
+				"",
+				"",
+				coverId,
+				0,
+				100,
+				ADMIN_ID,
+				NOW
+		);
+
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.empty());
+
+		ArgumentCaptor<WikiArticleJpaEntity> captor = ArgumentCaptor.forClass(WikiArticleJpaEntity.class);
+		persistenceAdapter.save(article);
+
+		verify(repository).save(captor.capture());
+		WikiArticleJpaEntity entity = captor.getValue();
+		assertThat(entity.getCoverPositionX()).isEqualTo((byte) 0);
+		assertThat(entity.getCoverPositionY()).isEqualTo((byte) 100);
+	}
+
+	@Test
+	@DisplayName("Round-trip focal positions 0, 50, 100 không bị lỗi dấu/overflow")
+	void shouldRoundTripCoverFocalPositionsWithoutSignLoss() {
+		UUID coverId = UUID.randomUUID();
+		WikiArticleJpaEntity entity0 = createDraftEntity();
+		entity0.setCoverMediaAssetId(coverId.toString());
+
+		// Test 0
+		entity0.setCoverPositionX((byte) 0);
+		entity0.setCoverPositionY((byte) 0);
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.of(entity0));
+		WikiArticle article = persistenceAdapter.findById(ARTICLE_ID).orElseThrow();
+		assertThat(article.getCoverPositionX()).isEqualTo(0);
+		assertThat(article.getCoverPositionY()).isEqualTo(0);
+
+		// Test 50
+		entity0.setCoverPositionX((byte) 50);
+		entity0.setCoverPositionY((byte) 50);
+		article = persistenceAdapter.findById(ARTICLE_ID).orElseThrow();
+		assertThat(article.getCoverPositionX()).isEqualTo(50);
+		assertThat(article.getCoverPositionY()).isEqualTo(50);
+
+		// Test 100
+		entity0.setCoverPositionX((byte) 100);
+		entity0.setCoverPositionY((byte) 100);
+		article = persistenceAdapter.findById(ARTICLE_ID).orElseThrow();
+		assertThat(article.getCoverPositionX()).isEqualTo(100);
+		assertThat(article.getCoverPositionY()).isEqualTo(100);
+	}
+
+	@Test
+	@DisplayName("Cover null không làm sai lệch hay hỏng giá trị focal position mặc định 50/50")
+	void shouldPreserveFocalPositionsWhenCoverIsNull() {
+		WikiArticleJpaEntity entity = createDraftEntity();
+		entity.setCoverMediaAssetId(null);
+		entity.setCoverPositionX((byte) 50);
+		entity.setCoverPositionY((byte) 50);
+
+		when(repository.findById(ARTICLE_ID.toString())).thenReturn(Optional.of(entity));
+
+		WikiArticle article = persistenceAdapter.findById(ARTICLE_ID).orElseThrow();
+		assertThat(article.getCoverMediaAssetId()).isNull();
+		assertThat(article.getCoverPositionX()).isEqualTo(50);
+		assertThat(article.getCoverPositionY()).isEqualTo(50);
 	}
 
 	@Test
@@ -145,6 +279,53 @@ class WikiArticlePersistenceAdapterTest {
 				.hasMessage("Wiki article không được để trống.");
 
 		verify(repository, never()).save(org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	@DisplayName("Tìm kiếm ID ảnh bìa lớn nhất qua JPA repository")
+	void shouldFindMaxCoverMediaAssetId() {
+		when(repository.findMaxCoverMediaAssetId()).thenReturn(Optional.of("ffffffff-ffff-ffff-ffff-ffffffffffff"));
+
+		Optional<String> result = persistenceAdapter.findMaxCoverMediaAssetId();
+
+		assertThat(result).contains("ffffffff-ffff-ffff-ffff-ffffffffffff");
+		verify(repository).findMaxCoverMediaAssetId();
+	}
+
+	@Test
+	@DisplayName("Duyệt keyset trang đầu tiên của ID ảnh bìa không null")
+	void shouldFindDistinctCoverMediaAssetIdsFirstPage() {
+		com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery query =
+				com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery.firstPage(
+						"ffffffff-ffff-ffff-ffff-ffffffffffff", 10
+				);
+		org.springframework.data.domain.Pageable expectedPageable = org.springframework.data.domain.PageRequest.of(0, 10);
+		when(repository.findDistinctCoverMediaAssetIdsFirstPage("ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable))
+				.thenReturn(java.util.List.of("11111111-1111-1111-1111-111111111111"));
+
+		java.util.List<String> result = persistenceAdapter.findDistinctCoverMediaAssetIdsKeyset(query);
+
+		assertThat(result).containsExactly("11111111-1111-1111-1111-111111111111");
+		verify(repository).findDistinctCoverMediaAssetIdsFirstPage("ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable);
+	}
+
+	@Test
+	@DisplayName("Duyệt keyset trang tiếp theo của ID ảnh bìa không null")
+	void shouldFindDistinctCoverMediaAssetIdsSubsequentPage() {
+		com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery query =
+				com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery.nextPage(
+						"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", 10
+				);
+		org.springframework.data.domain.Pageable expectedPageable = org.springframework.data.domain.PageRequest.of(0, 10);
+		when(repository.findDistinctCoverMediaAssetIdsSubsequentPage(
+				"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable))
+				.thenReturn(java.util.List.of("22222222-2222-2222-2222-222222222222"));
+
+		java.util.List<String> result = persistenceAdapter.findDistinctCoverMediaAssetIdsKeyset(query);
+
+		assertThat(result).containsExactly("22222222-2222-2222-2222-222222222222");
+		verify(repository).findDistinctCoverMediaAssetIdsSubsequentPage(
+				"11111111-1111-1111-1111-111111111111", "ffffffff-ffff-ffff-ffff-ffffffffffff", expectedPageable);
 	}
 
 	private WikiArticleJpaEntity createDraftEntity() {

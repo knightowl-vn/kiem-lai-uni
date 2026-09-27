@@ -48,6 +48,9 @@
             <span aria-current="page">Lịch sử đọc</span>
         </nav>
 
+        <!-- Personal Navigation Switcher -->
+        <div th:replace="~{novel/reader/fragments/personal-nav :: personalNav(activeTab='history')}"></div>
+
         <!-- Header -->
         <header class="novel-history-header">
             <h1 class="novel-history-title">
@@ -101,9 +104,10 @@
                     </a>
 
                     <div class="novel-history-meta">
-                        <span class="novel-history-time"
-                              th:text="${'Đọc lần cuối: ' + #temporals.format(item.lastReadAt, 'dd/MM/yyyy HH:mm')}">
-                            Đọc lần cuối: 26/08/2026 10:30
+                        <span class="novel-history-time">
+                            Đọc lần cuối: <time data-relative-time
+                                               th:datetime="${item.lastReadAt}"
+                                               th:text="${#temporals.format(item.lastReadAt, 'dd/MM/yyyy HH:mm')}">26/08/2026 10:30</time>
                         </span>
                     </div>
                 </div>

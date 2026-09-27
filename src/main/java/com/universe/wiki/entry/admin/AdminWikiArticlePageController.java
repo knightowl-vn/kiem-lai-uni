@@ -239,9 +239,13 @@ public class AdminWikiArticlePageController {
 		return "admin/wiki/detail";
 	}
 
+	public String editPage(UUID id, Model model) {
+		return editPage(id, null, model);
+	}
+
 	@GetMapping("/{id}/edit")
 	public String editPage(@PathVariable UUID id,
-
+			@RequestParam(required = false) UUID sourceContributionId,
 			Model model) {
 		WikiArticleDTO article = getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(id));
 
@@ -258,6 +262,11 @@ public class AdminWikiArticlePageController {
 		form.setSummary(article.summary());
 
 		form.setContent(article.content());
+
+		if (sourceContributionId != null) {
+			form.setSourceContributionId(sourceContributionId);
+			model.addAttribute("sourceContributionId", sourceContributionId);
+		}
 
 		model.addAttribute("article", article);
 

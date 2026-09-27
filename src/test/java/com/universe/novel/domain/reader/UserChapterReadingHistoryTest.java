@@ -45,7 +45,7 @@ class UserChapterReadingHistoryTest {
     }
 
     @Test
-    @DisplayName("recordRead updates only lastReadAt and preserves firstReadAt")
+    @DisplayName("recordRead advances lastReadAt and returns true when observedAt is newer")
     void shouldUpdateOnlyLastReadAtOnRecordRead() {
         UserChapterReadingHistory history = UserChapterReadingHistory.createInitial(
                 HISTORY_ID,
@@ -54,9 +54,44 @@ class UserChapterReadingHistoryTest {
                 T0
         );
 
-        history.recordRead(T1);
+        boolean changed = history.recordRead(T1);
 
+        assertThat(changed).isTrue();
         assertThat(history.getFirstReadAt()).isEqualTo(T0);
+        assertThat(history.getLastReadAt()).isEqualTo(T1);
+    }
+
+    @Test
+    @DisplayName("recordRead rejects stale older observedAt, does not regress lastReadAt, and returns false")
+    void shouldNotRegressLastReadAtWhenObservedAtIsOlder() {
+        UserChapterReadingHistory history = UserChapterReadingHistory.createInitial(
+                HISTORY_ID,
+                USER_ID,
+                CHAPTER_ID,
+                T1
+        );
+
+        // Incoming stale event at T0 < T1
+        boolean changed = history.recordRead(T0);
+
+        assertThat(changed).isFalse();
+        assertThat(history.getFirstReadAt()).isEqualTo(T1);
+        assertThat(history.getLastReadAt()).isEqualTo(T1); // Not regressed to T0!
+    }
+
+    @Test
+    @DisplayName("recordRead on exact duplicate timestamp returns false and does not mutate state")
+    void shouldBeNoOpWhenObservedAtEqualsCurrentLastReadAt() {
+        UserChapterReadingHistory history = UserChapterReadingHistory.createInitial(
+                HISTORY_ID,
+                USER_ID,
+                CHAPTER_ID,
+                T1
+        );
+
+        boolean changed = history.recordRead(T1);
+
+        assertThat(changed).isFalse();
         assertThat(history.getLastReadAt()).isEqualTo(T1);
     }
 

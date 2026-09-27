@@ -1,7 +1,7 @@
 package com.universe.wiki.entry.web;
 
 import com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException;
-import com.universe.wiki.entry.web.support.InvalidArticleTypePathException;
+import com.universe.wiki.contracts.path.InvalidArticleTypePathException;
 
 import org.springframework.http.HttpStatus;
 

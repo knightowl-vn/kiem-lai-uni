@@ -12,8 +12,20 @@ public record UploadMediaAssetCommand(
         String mimeType,
         MediaType mediaType,
         MediaVisibility visibility,
-        String originalFilename
+        String originalFilename,
+        String clientTag
 ) {
+    public UploadMediaAssetCommand(
+            InputStream content,
+            long sizeBytes,
+            String mimeType,
+            MediaType mediaType,
+            MediaVisibility visibility,
+            String originalFilename
+    ) {
+        this(content, sizeBytes, mimeType, mediaType, visibility, originalFilename, null);
+    }
+
     public UploadMediaAssetCommand {
         Objects.requireNonNull(content, "Content InputStream cannot be null.");
         Objects.requireNonNull(mimeType, "MimeType cannot be null.");

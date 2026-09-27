@@ -1,0 +1,846 @@
+/* =========================================================
+   BOTTOM-OF-CHAPTER COMMENT SECTION READ UI (MS-05E5H2C)
+   ========================================================= */
+
+/* Main Container: Sits directly in the reader flow below chapter navigation */
+.novel-chapter-comments {
+    max-width: var(--reader-max-width, 820px);
+    margin: 3.5rem auto 2.5rem auto;
+    padding: 2.25rem 0 3rem;
+    border-top: 1px solid var(--reader-border, #e5e7eb);
+    font-family: var(--font-ui, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    color: var(--reader-text, #1f2937);
+    box-sizing: border-box;
+}
+
+/* Header: Title and Count */
+.novel-chapter-comments-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.novel-chapter-comments-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--reader-text, #111827);
+}
+
+.novel-chapter-comments-count {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--reader-text-muted, #6b7280);
+}
+
+/* Status announcements: loading, errors */
+.novel-chapter-comments-status {
+    margin-bottom: 1rem;
+}
+
+/* Loading State */
+.novel-chapter-comments-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2.5rem 1rem;
+    color: var(--reader-text-muted, #6b7280);
+    font-size: 0.95rem;
+}
+
+.novel-chapter-comments-spinner {
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid var(--reader-border, #e5e7eb);
+    border-top-color: var(--color-primary, #2563eb);
+    border-radius: 50%;
+    animation: novelCommentsSpin 0.8s linear infinite;
+}
+
+@keyframes novelCommentsSpin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.novel-chapter-comments-loading-text {
+    font-weight: 500;
+}
+
+/* Empty State */
+.novel-chapter-comments-empty {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px dashed var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    margin: 1rem 0;
+}
+
+.novel-chapter-comments-empty-text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--reader-text-muted, #6b7280);
+}
+
+/* Error State */
+.novel-chapter-comments-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.85rem;
+    padding: 2rem 1.25rem;
+    background: var(--color-danger-surface, #fef2f2);
+    border: 1px solid var(--color-danger-border, #fecaca);
+    border-radius: 8px;
+    text-align: center;
+    margin: 1rem 0;
+}
+
+.novel-chapter-comments-error-text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--color-danger, #dc2626);
+    font-weight: 500;
+}
+
+.novel-chapter-comments-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: 1px solid var(--color-danger, #dc2626);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-danger, #dc2626);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-chapter-comments-retry-btn:hover {
+    background: var(--color-danger, #dc2626);
+    color: #ffffff;
+}
+
+.novel-chapter-comments-retry-btn:focus-visible {
+    outline: 2px solid var(--color-danger, #dc2626);
+    outline-offset: 2px;
+}
+
+/* List of comment threads - Single Shared Frame */
+.novel-chapter-comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--reader-surface, #ffffff);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.novel-chapter-comments-list:empty {
+    display: none;
+}
+
+.novel-chapter-comments-list:has(.novel-chapter-comments-empty) {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+/* Root Thread Presentation inside Shared Frame */
+.novel-chapter-comments .novel-block-discussion-thread {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 1.25rem;
+    box-shadow: none;
+    transition: background-color 0.15s ease;
+}
+
+/* Subtle Divider Between Consecutive Root Threads */
+.novel-chapter-comments .novel-block-discussion-thread + .novel-block-discussion-thread {
+    border-top: 1px solid var(--reader-border, #e5e7eb);
+}
+
+.novel-chapter-comments .novel-comment-replies {
+    margin-top: 0.85rem;
+    margin-left: 0;
+    padding-left: 1rem;
+    border-left: 2px solid var(--reader-border, #e5e7eb);
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+@media (max-width: 640px) {
+    .novel-chapter-comments {
+        margin-top: 2.5rem;
+        padding: 1.5rem 0 2.5rem;
+    }
+
+    .novel-chapter-comments .novel-block-discussion-thread {
+        padding: 1rem;
+    }
+
+    .novel-chapter-comments .novel-comment-replies {
+        margin-left: 0;
+        padding-left: 0.75rem;
+    }
+}
+
+/* =========================================================
+   ACTIONS OVERFLOW MENU (MS-05E / E8C4-UX1)
+   Base card, header, avatar, edited badge, and overflow menu
+   are defined in shared /css/shared/comments.css
+   ========================================================= */
+
+/* =========================================================
+   ROOT COMMENT PAGINATION (MS-05E5H2E)
+   ========================================================= */
+
+.novel-chapter-comments-more {
+    margin-top: 1.75rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.novel-chapter-comments-more[hidden] {
+    display: none !important;
+}
+
+.novel-chapter-comments-more-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.75rem;
+    font-size: 0.925rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-chapter-comments-more-btn:hover:not(:disabled) {
+    background: var(--reader-surface-soft, #f9fafb);
+    border-color: var(--color-primary, #2563eb);
+    color: var(--color-primary, #2563eb);
+}
+
+.novel-chapter-comments-more-btn:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 2px;
+}
+
+.novel-chapter-comments-more-btn:disabled,
+.novel-chapter-comments-more-btn.is-loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comments-more-spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid var(--reader-border, #e5e7eb);
+    border-top-color: var(--color-primary, #2563eb);
+    border-radius: 50%;
+    animation: novelCommentsSpin 0.8s linear infinite;
+}
+
+.novel-chapter-comments-more-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    text-align: center;
+}
+
+.novel-chapter-comments-more-error-text {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-danger, #dc2626);
+    font-weight: 500;
+}
+
+.novel-chapter-comments-more-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 1rem;
+    font-size: 0.825rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1px solid var(--color-danger, #dc2626);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-danger, #dc2626);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-chapter-comments-more-retry-btn:hover {
+    background: var(--color-danger, #dc2626);
+    color: #ffffff;
+}
+
+.novel-chapter-comments-more-retry-btn:focus-visible {
+    outline: 2px solid var(--color-danger, #dc2626);
+    outline-offset: 2px;
+}
+
+/* =========================================================
+   PER-THREAD REPLY PROGRESSIVE REVEAL (MS-05E5H2E)
+   ========================================================= */
+
+.novel-comment-replies-more {
+    margin-top: 0.35rem;
+    display: flex;
+    align-items: center;
+}
+
+.novel-comment-replies-more-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    margin-left: -0.65rem;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-primary, #2563eb);
+    font-size: 0.825rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.novel-comment-replies-more-btn:hover {
+    background: var(--reader-surface-soft, rgba(0, 0, 0, 0.04));
+    text-decoration: underline;
+}
+
+.novel-comment-replies-more-btn:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 1px;
+}
+
+/* =========================================================
+   BOTTOM CHAPTER ROOT COMMENT COMPOSER (MS-05E5H2F1)
+   ========================================================= */
+
+.novel-chapter-comment-composer-wrapper {
+    margin-bottom: 2rem;
+}
+
+.novel-chapter-comment-composer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    padding: 1.25rem;
+    box-sizing: border-box;
+}
+
+.novel-chapter-comment-composer-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--reader-text, #111827);
+    margin: 0;
+}
+
+.novel-chapter-comment-composer-input {
+    width: 100%;
+    min-height: 5rem;
+    max-height: 15rem;
+    resize: vertical;
+    padding: 0.75rem 0.875rem;
+    font-family: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    color: var(--reader-text, #111827);
+    background: var(--reader-surface, #ffffff);
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 8px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.novel-chapter-comment-composer-input:focus {
+    outline: none;
+    border-color: var(--color-primary, #2563eb);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.novel-chapter-comment-composer-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--reader-surface-disabled, #f3f4f6);
+}
+
+.novel-chapter-comment-composer-status {
+    font-size: 0.875rem;
+    line-height: 1.4;
+    min-height: 0;
+}
+
+.novel-chapter-comment-composer-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-composer-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-composer-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-composer-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.novel-chapter-comment-composer-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 0.45rem 1.15rem;
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary, #2563eb);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-composer-submit:hover:not(:disabled) {
+    background: var(--color-primary-hover, #1d4ed8);
+}
+
+.novel-chapter-comment-composer-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-anonymous-prompt {
+    margin-bottom: 2rem;
+    padding: 1.25rem 1.5rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    color: var(--reader-text-muted, #4b5563);
+    text-align: center;
+}
+
+.novel-chapter-comment-login-link {
+    color: var(--color-primary, #2563eb);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.novel-chapter-comment-login-link:hover {
+    color: var(--color-primary-hover, #1d4ed8);
+}
+
+/* =========================================================
+   BOTTOM CHAPTER COMMENT REPLY UI (MS-05E5H2F2B)
+   Base actions row, reply button, and report button styling
+   are defined in shared /css/shared/comments.css
+   ========================================================= */
+
+.novel-chapter-comment-reply-composer {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-reply-composer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-reply-target-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.novel-chapter-comment-reply-close-btn {
+    background: none;
+    border: none;
+    font-size: 0.875rem;
+    line-height: 1;
+    color: var(--reader-text-muted, #9ca3af);
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+}
+
+.novel-chapter-comment-reply-close-btn:hover {
+    color: var(--reader-text, #111827);
+}
+
+.novel-chapter-comment-reply-composer-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.novel-chapter-comment-reply-composer-input:focus {
+    outline: none;
+    border-color: var(--color-primary, #2563eb);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.novel-chapter-comment-reply-composer-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--reader-surface-disabled, #f3f4f6);
+}
+
+.novel-chapter-comment-reply-composer-status {
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    min-height: 0;
+}
+
+.novel-chapter-comment-reply-composer-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-reply-composer-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-reply-composer-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-reply-composer-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-reply-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    padding: 0.375rem 0.875rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text, #374151);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.novel-chapter-comment-reply-cancel-btn:hover:not(:disabled) {
+    background: var(--reader-surface-hover, #e5e7eb);
+}
+
+.novel-chapter-comment-reply-cancel-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-reply-submit-btn {
+    background: var(--color-primary, #2563eb);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.375rem 1rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-reply-submit-btn:hover:not(:disabled) {
+    background: var(--color-primary-hover, #1d4ed8);
+}
+
+.novel-chapter-comment-reply-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-reply-guest-prompt {
+    margin-top: 0.5rem;
+    padding: 0.625rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: var(--reader-text-muted, #4b5563);
+}
+
+/* =========================================================
+   BOTTOM CHAPTER COMMENT EDIT COMPOSER (MS-05E5H2F3B)
+   ========================================================= */
+
+.novel-chapter-comment-edit-composer {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-edit-input {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    background: var(--reader-surface, #ffffff);
+    color: var(--reader-text, #1f2937);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.novel-chapter-comment-edit-input:focus {
+    outline: none;
+    border-color: var(--color-primary, #2563eb);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.novel-chapter-comment-edit-input:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: var(--reader-surface-disabled, #f3f4f6);
+}
+
+.novel-chapter-comment-edit-status {
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    min-height: 0;
+}
+
+.novel-chapter-comment-edit-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-edit-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-edit-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-edit-cancel {
+    background: transparent;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    padding: 0.375rem 0.875rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text, #374151);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.novel-chapter-comment-edit-cancel:hover:not(:disabled) {
+    background: var(--reader-surface-hover, #e5e7eb);
+}
+
+.novel-chapter-comment-edit-cancel:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-edit-submit {
+    background: var(--color-primary, #2563eb);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.375rem 1rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-edit-submit:hover:not(:disabled) {
+    background: var(--color-primary-hover, #1d4ed8);
+}
+
+.novel-chapter-comment-edit-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   BOTTOM CHAPTER COMMENT DELETE CONFIRMATION (MS-05E5H2F3B)
+   ========================================================= */
+
+.novel-chapter-comment-delete-confirmation {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: var(--reader-surface-soft, #f9fafb);
+    border: 1px solid var(--reader-border, #e5e7eb);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-delete-message {
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--reader-text, #1f2937);
+    font-weight: 500;
+}
+
+.novel-chapter-comment-delete-status {
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    min-height: 0;
+}
+
+.novel-chapter-comment-delete-status:empty {
+    display: none;
+}
+
+.novel-chapter-comment-delete-status.is-error {
+    color: var(--color-danger, #dc2626);
+}
+
+.novel-chapter-comment-delete-status.is-info {
+    color: var(--reader-text-muted, #6b7280);
+}
+
+.novel-chapter-comment-delete-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.novel-chapter-comment-delete-cancel {
+    background: transparent;
+    border: 1px solid var(--reader-border, #d1d5db);
+    border-radius: 6px;
+    padding: 0.375rem 0.875rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--reader-text, #374151);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.novel-chapter-comment-delete-cancel:hover:not(:disabled) {
+    background: var(--reader-surface-hover, #e5e7eb);
+}
+
+.novel-chapter-comment-delete-cancel:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.novel-chapter-comment-delete-confirm {
+    background: var(--color-danger, #dc2626);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.375rem 1rem;
+    font-family: inherit;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.novel-chapter-comment-delete-confirm:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+.novel-chapter-comment-delete-confirm:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* =========================================================
+   RESTORED INTERACTION TARGET HIGHLIGHT (MS-05E5C2A)
+   ========================================================= */
+.novel-chapter-comments .novel-block-discussion-thread.is-restored-target,
+.novel-chapter-comments .novel-comment.is-restored-target {
+    border-radius: 6px;
+    outline: 2px solid var(--accent, #b45309);
+    outline-offset: 2px;
+    background-color: var(--reader-target-bg, rgba(180, 83, 9, 0.08));
+    transition: outline-color 0.4s ease, background-color 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .novel-chapter-comments .novel-block-discussion-thread.is-restored-target,
+    .novel-chapter-comments .novel-comment.is-restored-target {
+        transition: none;
+    }
+}

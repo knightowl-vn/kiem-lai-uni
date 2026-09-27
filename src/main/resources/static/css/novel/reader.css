@@ -1150,6 +1150,17 @@ textarea {
     background: var(--reader-surface-soft);
 }
 
+/* =====================================================
+   CHAPTER REACTIONS CONTAINER (MS-05I6)
+   ===================================================== */
+.novel-chapter-reactions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 32px 0 24px 0;
+    padding: 16px 0;
+}
+
 /* Chapter Prose Typography */
 .novel-reader-chapter-body {
     font-family: var(--font-reading);
@@ -1196,6 +1207,7 @@ textarea {
 @media (max-width: 576px) {
     .novel-reader-chapter-body p {
         text-align: left;
+        text-justify: auto;
     }
 }
 
@@ -1441,6 +1453,63 @@ body.has-toc-open {
 .novel-chapter-bookmark-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+}
+
+/* =========================================================
+   NOVEL PERSONAL AREA SWITCHER (MS-05J2)
+   ========================================================= */
+
+.novel-personal-nav {
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--reader-border);
+}
+
+.novel-personal-nav-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.novel-personal-nav-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--reader-text-secondary);
+    text-decoration: none;
+    border-radius: var(--reader-radius-sm) var(--reader-radius-sm) 0 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.novel-personal-nav-item:hover {
+    color: var(--reader-text);
+    background-color: var(--reader-surface-soft);
+}
+
+.novel-personal-nav-item:focus-visible {
+    outline: 2px solid var(--reader-primary);
+    outline-offset: 2px;
+}
+
+.novel-personal-nav-item.is-active {
+    color: var(--reader-primary);
+    font-weight: 600;
+    border-bottom-color: var(--reader-primary);
+}
+
+.novel-personal-nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: currentColor;
 }
 
 /* =========================================================
@@ -2386,6 +2455,3 @@ html[data-bs-theme="dark"] .novel-narration-select {
     box-shadow: inset 3px 0 0 var(--reader-primary);
     transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
-
-
-

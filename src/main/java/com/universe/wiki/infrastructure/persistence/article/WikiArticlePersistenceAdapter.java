@@ -1,5 +1,6 @@
 package com.universe.wiki.infrastructure.persistence.article;
 
+import com.universe.wiki.application.article.cover.backfill.WikiReferencedCoverKeysetQuery;
 import com.universe.wiki.application.ports.WikiArticleRepositoryPort;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
@@ -7,8 +8,12 @@ import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.WikiArticle;
 import com.universe.wiki.infrastructure.persistence.image.WikiImageReferenceSynchronizer;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -142,6 +147,63 @@ public class WikiArticlePersistenceAdapter
         );
     }
 
+    @Override
+    public boolean hasCoverReference(
+            UUID mediaAssetId
+    ) {
+        if (mediaAssetId == null) {
+            return false;
+        }
+
+        List<String> referenceIds = repository.findCoverReferenceIdsCurrentRead(
+                mediaAssetId.toString()
+        );
+        return !referenceIds.isEmpty();
+    }
+
+    @Override
+    public void lockCoverReferenceKey(
+            UUID mediaAssetId
+    ) {
+        if (mediaAssetId == null) {
+            return;
+        }
+
+        String assetIdStr = mediaAssetId.toString();
+        List<String> existing = repository.findCoverReferenceIds(assetIdStr);
+        if (!existing.isEmpty()) {
+            repository.lockArticleIds(existing);
+        }
+    }
+
+    @Override
+    public Optional<String> findMaxCoverMediaAssetId() {
+        return repository.findMaxCoverMediaAssetId();
+    }
+
+    @Override
+    public List<String> findDistinctCoverMediaAssetIdsKeyset(WikiReferencedCoverKeysetQuery query) {
+        Objects.requireNonNull(query, "WikiReferencedCoverKeysetQuery cannot be null.");
+        Pageable pageable = PageRequest.of(0, query.pageSize());
+        if (query.lastAssetId() == null) {
+            return repository.findDistinctCoverMediaAssetIdsFirstPage(
+                    query.runUpperBound(),
+                    pageable
+            );
+        } else {
+            return repository.findDistinctCoverMediaAssetIdsSubsequentPage(
+                    query.lastAssetId(),
+                    query.runUpperBound(),
+                    pageable
+            );
+        }
+    }
+
+    @Override
+    public void flush() {
+        repository.flush();
+    }
+
     private void mapToEntity(
             WikiArticle article,
             WikiArticleJpaEntity entity
@@ -219,6 +281,26 @@ public class WikiArticlePersistenceAdapter
         entity.setArchivedAt(
                 article.getArchivedAt()
         );
+
+        entity.setCoverMediaAssetId(
+                toNullableString(
+                        article.getCoverMediaAssetId()
+                )
+        );
+
+        entity.setCoverPositionX(
+                toPersistenceByte(
+                        article.getCoverPositionX(),
+                        "coverPositionX"
+                )
+        );
+
+        entity.setCoverPositionY(
+                toPersistenceByte(
+                        article.getCoverPositionY(),
+                        "coverPositionY"
+                )
+        );
     }
 
     private WikiArticle toDomain(
@@ -237,6 +319,15 @@ public class WikiArticlePersistenceAdapter
                 ),
                 entity.getSummary(),
                 entity.getContent(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                toDomainInt(
+                        entity.getCoverPositionX()
+                ),
+                toDomainInt(
+                        entity.getCoverPositionY()
+                ),
                 ArticleStatus.valueOf(
                         entity.getStatus()
                 ),
@@ -276,5 +367,29 @@ public class WikiArticlePersistenceAdapter
                 || value.isBlank()
                 ? null
                 : UUID.fromString(value);
+    }
+
+    private byte toPersistenceByte(
+            int value,
+            String fieldName
+    ) {
+        if (value < 0 || value > 100) {
+            throw new IllegalArgumentException(
+                    fieldName + " phải nằm trong khoảng 0 đến 100: " + value
+            );
+        }
+        return (byte) value;
+    }
+
+    private int toDomainInt(
+            byte value
+    ) {
+        int intVal = Byte.toUnsignedInt(value);
+        if (intVal < 0 || intVal > 100) {
+            throw new IllegalStateException(
+                    "Dữ liệu cover focal position không hợp lệ từ persistence: " + intVal
+            );
+        }
+        return intVal;
     }
 }

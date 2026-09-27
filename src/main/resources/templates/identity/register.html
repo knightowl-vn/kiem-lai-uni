@@ -65,7 +65,18 @@
 							<hr class="flex-grow-1">
 						</div>
 
-						<a th:href="@{/oauth2/authorization/google}"
+						<a th:if="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+							th:href="@{/oauth2/authorization/google(returnTo=${param.returnTo})}"
+							class="btn btn-outline-dark w-100
+           d-flex align-items-center justify-content-center gap-2">
+
+							<img
+							src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+							alt="Google" width="20" height="20"> <span>Đăng ký
+								bằng Google</span>
+						</a>
+						<a th:unless="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+							th:href="@{/oauth2/authorization/google}"
 							class="btn btn-outline-dark w-100
            d-flex align-items-center justify-content-center gap-2">
 
@@ -78,7 +89,11 @@
 						<div id="alertBox" class="mt-3" style="display: none;"></div>
 
 						<p class="text-center mt-4 mb-0">
-							Đã có tài khoản? <a th:href="@{/login}"> Đăng nhập </a>
+							Đã có tài khoản?
+							<a th:if="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+								th:href="@{/login(returnTo=${param.returnTo})}"> Đăng nhập </a>
+							<a th:unless="${param.returnTo != null and !#strings.isEmpty(param.returnTo)}"
+								th:href="@{/login}"> Đăng nhập </a>
 						</p>
 
 						<p class="text-center mt-2 mb-0">
@@ -92,6 +107,7 @@
 		</div>
 	</main>
 
+	<script th:src="@{/js/navbar-auth.js}"></script>
 	<script>
 document
     .getElementById("registerForm")
@@ -141,7 +157,25 @@ document
             alertBox.style.display = "block";
 
             setTimeout(function () {
-            	window.location.href = "/login?registered";
+                const helper = window.NavbarAuth || (window.KiemLai && window.KiemLai.NavbarAuth);
+                if (helper && typeof helper.computeRegistrationSuccessUrl === "function") {
+                    window.location.href = helper.computeRegistrationSuccessUrl(
+                        window.location.search,
+                        window.location.origin
+                    );
+                } else {
+                    const targetUrl = new URL("/login", window.location.origin);
+                    const currentParams = new URLSearchParams(window.location.search);
+                    const returnTo = currentParams.get("returnTo");
+                    if (returnTo && returnTo.trim().length > 0) {
+                        const params = new URLSearchParams();
+                        params.set("returnTo", returnTo.trim());
+                        targetUrl.search = "?registered&" + params.toString();
+                    } else {
+                        targetUrl.search = "?registered";
+                    }
+                    window.location.href = targetUrl.toString();
+                }
             }, 1500);
 
         } catch (error) {

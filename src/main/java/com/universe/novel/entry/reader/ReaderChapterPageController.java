@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 @Controller
 @RequestMapping("/novel")
@@ -72,14 +73,19 @@ public class ReaderChapterPageController {
                         + chapter.title()
         );
 
-        boolean isBookmarked = false;
+        UUID currentUserId = null;
         Optional<AuthenticatedRequestIdentity> identityOptional =
                 AuthenticatedRequestIdentityAccessor.find(request);
         if (identityOptional.isPresent()) {
+            currentUserId = identityOptional.get().userId();
+        }
+
+        boolean isBookmarked = false;
+        if (currentUserId != null) {
             try {
                 isBookmarked =
                         isChapterBookmarkedUseCase.execute(
-                                identityOptional.get().userId(),
+                                currentUserId,
                                 chapter.id()
                         );
             } catch (Exception ex) {

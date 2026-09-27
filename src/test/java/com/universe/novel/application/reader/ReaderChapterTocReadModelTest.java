@@ -78,7 +78,7 @@ class ReaderChapterTocReadModelTest {
 
         com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO volume = new com.universe.novel.contracts.dto.reader.ReaderVolumeSummaryDTO(volumeId, "Quyển 1", "quyen-1", 1);
         com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO snapshot = new com.universe.novel.contracts.dto.reader.ReaderChapterRenderedSnapshotDTO(
-                chapterId, 3, "Chương 3", slug, "<p>HTML</p>", volume
+                chapterId, 3, "Chương 3", slug, "<p>HTML</p>", 1L, volume
         );
 
         List<ReaderChapterTocItemDTO> toc = List.of(

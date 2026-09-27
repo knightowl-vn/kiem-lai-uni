@@ -25,4 +25,12 @@ public interface WikiArticleRevisionRepositoryPort {
     void deleteAllByArticleId(
             UUID articleId
     );
+
+    Optional<WikiArticleRevision> findLatestBySourceContributionId(
+            UUID contributionId
+    );
+
+    java.util.List<WikiArticleRevision> findBySourceContributionId(
+            UUID contributionId
+    );
 }

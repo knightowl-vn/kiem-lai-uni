@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -18,25 +19,49 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.security.web.DefaultRedirectStrategy;
+import org.springframework.security.web.RedirectStrategy;
+import org.springframework.security.web.WebAttributes;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 
 @Component
 public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 	private final GoogleOAuthUserService googleOAuthUserService;
-
+	private final OAuth2ReturnToStore returnToStore;
+	private final SafeReturnToValidator returnToValidator;
+	private final RequestCache requestCache;
 	private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
+	private final RedirectStrategy redirectStrategy = new DefaultRedirectStrategy();
+
+	@Autowired
+	public GoogleOAuthSuccessHandler(
+			GoogleOAuthUserService googleOAuthUserService,
+			OAuth2ReturnToStore returnToStore,
+			SafeReturnToValidator returnToValidator,
+			RequestCache requestCache
+	) {
+		this.googleOAuthUserService = Objects.requireNonNull(googleOAuthUserService, "GoogleOAuthUserService cannot be null");
+		this.returnToStore = Objects.requireNonNull(returnToStore, "OAuth2ReturnToStore cannot be null");
+		this.returnToValidator = Objects.requireNonNull(returnToValidator, "SafeReturnToValidator cannot be null");
+		this.requestCache = Objects.requireNonNull(requestCache, "RequestCache cannot be null");
+	}
 
 	public GoogleOAuthSuccessHandler(GoogleOAuthUserService googleOAuthUserService) {
-		this.googleOAuthUserService = googleOAuthUserService;
+		this(googleOAuthUserService, new OAuth2ReturnToStore(), new SafeReturnToValidator(), new HttpSessionRequestCache());
 	}
 
 	@Override
@@ -58,6 +83,10 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 		User user = googleOAuthUserService.findOrCreateGoogleUser(googleUserInfo);
 
+		String state = request.getParameter("state");
+		String returnTo = (state != null) ? returnToStore.consume(request, state).orElse(null) : null;
+		boolean isReturnToValid = returnTo != null && returnToValidator.isValid(returnTo);
+
 		/*
 		 * Tài khoản bị khóa.
 		 */
@@ -65,7 +94,12 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 			clearAuthentication(request);
 
-			response.sendRedirect(request.getContextPath() + "/login?blocked");
+			String redirectUrl = "/login?blocked";
+			if (isReturnToValid) {
+				redirectUrl += "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8);
+			}
+
+			redirectStrategy.sendRedirect(request, response, redirectUrl);
 
 			return;
 		}
@@ -77,7 +111,12 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 			clearAuthentication(request);
 
-			response.sendRedirect(request.getContextPath() + "/login?disabled");
+			String redirectUrl = "/login?disabled";
+			if (isReturnToValid) {
+				redirectUrl += "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8);
+			}
+
+			redirectStrategy.sendRedirect(request, response, redirectUrl);
 
 			return;
 		}
@@ -108,6 +147,13 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 		request.getSession().setAttribute("currentUserId", user.getId().toString());
 
+		if (isReturnToValid) {
+			requestCache.removeRequest(request, response);
+			clearAuthenticationAttributes(request);
+			redirectStrategy.sendRedirect(request, response, returnTo);
+			return;
+		}
+
 		/*
 		 * Nếu trước khi đăng nhập có SavedRequest: quay lại trang đó.
 		 *
@@ -118,6 +164,8 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 		String defaultTargetUrl = isAdministrator ? "/admin/dashboard" : "/home";
 
 		SavedRequestAwareAuthenticationSuccessHandler successHandler = new SavedRequestAwareAuthenticationSuccessHandler();
+
+		successHandler.setRequestCache(requestCache);
 
 		successHandler.setDefaultTargetUrl(defaultTargetUrl);
 
@@ -133,6 +181,14 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
 
 		if (session != null) {
 			session.invalidate();
+		}
+	}
+
+	private void clearAuthenticationAttributes(HttpServletRequest request) {
+		HttpSession session = request.getSession(false);
+
+		if (session != null) {
+			session.removeAttribute(WebAttributes.AUTHENTICATION_EXCEPTION);
 		}
 	}
 }

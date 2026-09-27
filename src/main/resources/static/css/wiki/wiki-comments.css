@@ -1,0 +1,541 @@
+/* ==========================================================================
+   KIEM LAI WIKI — ARTICLE DISCUSSION / COMMENTS STYLES
+   MS-05E6C — Article-level discussion styling for public Wiki article detail
+   ========================================================================== */
+
+.wiki-discussion-section {
+    margin-top: 32px;
+    padding: 28px 32px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--surface-bg);
+    box-shadow: 0 1px 3px var(--shadow-color, rgba(0, 0, 0, 0.03));
+}
+
+/* =========================================================
+   HEADER & TITLE
+   ========================================================= */
+
+.wiki-discussion-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+}
+
+.wiki-discussion-heading-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-start;
+    gap: 0.75rem;
+}
+
+.wiki-discussion-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.25;
+    color: var(--text-primary, #111827);
+}
+
+.wiki-discussion-count-badge,
+.wiki-discussion-count {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary, #6b7280);
+    background: none;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+}
+
+/* =========================================================
+   ROOT COMPOSER
+   ========================================================= */
+
+.wiki-comment-composer {
+    margin-bottom: 2rem;
+}
+
+.wiki-comment-composer--root {
+    padding: 1.25rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-secondary, #f9fafb);
+}
+
+.wiki-comment-composer-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.wiki-comment-textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 8px;
+    background: var(--input-bg, #ffffff);
+    color: var(--input-text, inherit);
+    font-family: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    resize: vertical;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.wiki-comment-textarea:focus {
+    outline: none;
+    border-color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.2);
+}
+
+.wiki-comment-textarea::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+
+.wiki-comment-composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.wiki-comment-composer-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.wiki-comment-composer-error {
+    font-size: 0.85rem;
+    color: #dc3545;
+    font-weight: 500;
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.wiki-comment-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 7px 18px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.wiki-comment-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wiki-comment-btn--primary {
+    border: 1px solid transparent;
+    background-color: var(--bs-primary, #0d6efd);
+    color: #ffffff;
+}
+
+.wiki-comment-btn--primary:hover:not(:disabled),
+.wiki-comment-btn--primary:focus-visible:not(:disabled) {
+    filter: brightness(0.92);
+}
+
+.wiki-comment-btn--secondary {
+    border: 1px solid var(--border-color);
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+}
+
+.wiki-comment-btn--secondary:hover:not(:disabled),
+.wiki-comment-btn--secondary:focus-visible:not(:disabled) {
+    background-color: var(--surface-secondary);
+}
+
+/* =========================================================
+   STATUS / EMPTY / LOADING
+   ========================================================= */
+
+.wiki-discussion-status {
+    padding: 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.wiki-discussion-status:empty {
+    display: none;
+}
+
+.wiki-discussion-status--empty {
+    padding: 32px 16px;
+    font-style: italic;
+}
+
+.wiki-discussion-status--error {
+    padding: 16px 20px;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+    border-radius: 10px;
+    background: rgba(220, 53, 69, 0.08);
+    color: #dc3545;
+    font-weight: 500;
+}
+
+.wiki-discussion-status--success {
+    padding: 16px 20px;
+    border: 1px solid rgba(25, 135, 84, 0.3);
+    border-radius: 10px;
+    background: rgba(25, 135, 84, 0.08);
+    color: #198754;
+    font-weight: 500;
+}
+
+/* =========================================================
+   THREAD LIST & THREADS (Single Shared Frame)
+   ========================================================= */
+
+.wiki-discussion-thread-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.wiki-discussion-thread-list:empty {
+    display: none;
+}
+
+.wiki-thread {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 1.25rem;
+    box-shadow: none;
+    transition: background-color 0.15s ease;
+}
+
+.wiki-thread + .wiki-thread {
+    border-top: 1px solid var(--border-color);
+}
+
+/* =========================================================
+   FLAT REPLIES CONTAINER (LEVEL 1 ONLY)
+   ========================================================= */
+
+.wiki-thread-replies {
+    margin-top: 0.85rem;
+    margin-left: 0;
+    padding-left: 1rem;
+    border-left: 2px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.wiki-comment--reply {
+    padding-top: 4px;
+}
+
+.wiki-comment-reply-mention {
+    display: inline;
+    font-weight: 600;
+    color: var(--bs-primary, #0d6efd);
+    margin-right: 6px;
+    user-select: text;
+}
+
+.wiki-comment-reply-text {
+    display: inline;
+}
+
+/* =========================================================
+   INLINE COMPOSERS (REPLY & EDIT)
+   ========================================================= */
+
+.wiki-inline-composer {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-secondary, #f9fafb);
+}
+
+.wiki-inline-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+/* =========================================================
+   FOOTER / LOAD MORE
+   ========================================================= */
+
+.wiki-discussion-footer {
+    margin-top: 24px;
+    text-align: center;
+}
+
+.wiki-discussion-footer[hidden] {
+    display: none !important;
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+    .wiki-discussion-section {
+        padding: 20px 16px;
+        margin-top: 24px;
+        border-radius: 10px;
+    }
+
+    .wiki-thread {
+        padding: 1rem;
+    }
+
+    .wiki-thread-replies {
+        margin-left: 0;
+        padding-left: 0.75rem;
+    }
+}
+
+/* =========================================================
+   REVISION HISTORY MODAL (MS-05E6D)
+   ========================================================= */
+
+.wiki-comment-history-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.wiki-comment-history-modal[hidden] {
+    display: none !important;
+}
+
+.wiki-comment-history-backdrop {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1061;
+}
+
+.wiki-comment-history-card {
+    position: relative;
+    z-index: 1062;
+    background: var(--surface-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: 0 20px 40px var(--shadow-color, rgba(0, 0, 0, 0.2));
+    width: 100%;
+    max-width: 520px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: wikiCommentHistoryFadeIn 0.15s ease-out;
+}
+
+@keyframes wikiCommentHistoryFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.wiki-comment-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.wiki-comment-history-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+}
+
+.wiki-comment-history-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.wiki-comment-history-close-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--surface-secondary);
+}
+
+.wiki-comment-history-close-btn:focus-visible {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 2px;
+}
+
+.wiki-comment-history-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex: 1;
+}
+
+.wiki-comment-history-status {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 16px;
+}
+
+.wiki-comment-history-status--error {
+    color: #dc3545;
+    background-color: rgba(220, 53, 69, 0.08);
+    border: 1px solid rgba(220, 53, 69, 0.2);
+    border-radius: 8px;
+}
+
+.wiki-comment-history-status--empty,
+.wiki-comment-history-status--unavailable {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.wiki-comment-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.wiki-comment-history-entry {
+    background-color: var(--surface-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wiki-comment-history-entry-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.wiki-comment-history-badge {
+    font-size: 0.78rem;
+    font-weight: 700;
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.wiki-comment-history-time {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.wiki-comment-history-entry-body {
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.wiki-comment-history-more {
+    display: flex;
+    justify-content: center;
+    padding-top: 8px;
+}
+
+.wiki-comment-history-more-btn {
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    background-color: var(--surface-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.wiki-comment-history-more-btn:hover:not(:disabled) {
+    background-color: var(--border-color);
+}
+
+.wiki-comment-history-more-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.wiki-comment-history-more-btn:focus-visible {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 2px;
+}
+
+/* =========================================================
+   RESTORED INTERACTION TARGET HIGHLIGHT (MS-05E5C2B)
+   ========================================================= */
+.wiki-discussion-section .wiki-thread.is-restored-target,
+.wiki-discussion-section .wiki-comment.is-restored-target,
+#wikiDiscussion .wiki-thread.is-restored-target,
+#wikiDiscussion .wiki-comment.is-restored-target {
+    border-radius: 6px;
+    outline: 2px solid var(--accent, #b45309);
+    outline-offset: 2px;
+    background-color: var(--wiki-target-bg, rgba(180, 83, 9, 0.08));
+    transition: outline-color 0.4s ease, background-color 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wiki-discussion-section .wiki-thread.is-restored-target,
+    .wiki-discussion-section .wiki-comment.is-restored-target,
+    #wikiDiscussion .wiki-thread.is-restored-target,
+    #wikiDiscussion .wiki-comment.is-restored-target {
+        transition: none;
+    }
+}
+

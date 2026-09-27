@@ -23,7 +23,6 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -102,6 +101,7 @@ class ReaderChapterPageControllerTest {
                 "Khởi Đầu",
                 slug,
                 "<p>Nội dung chương 1.</p>",
+                1L,
                 volume,
                 null,
                 next,
@@ -125,7 +125,7 @@ class ReaderChapterPageControllerTest {
     }
 
     @Test
-    @DisplayName("1. Anonymous Reader: Trả về 200 OK và isBookmarked=false mà không truy vấn bookmark state")
+    @DisplayName("1. Anonymous Reader: Trả về 200 OK và isBookmarked=false")
     void shouldRenderChapterReadingPageForAnonymous() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
@@ -144,8 +144,8 @@ class ReaderChapterPageControllerTest {
     }
 
     @Test
-    @DisplayName("2. Authenticated Reader: Gán isBookmarked=true khi người dùng đã đánh dấu chương")
-    void shouldPopulateIsBookmarkedTrueWhenAuthenticatedAndBookmarked() throws Exception {
+    @DisplayName("2. Authenticated Reader: Gán isBookmarked=true khi đã đánh dấu")
+    void shouldPopulateIsBookmarkedTrueWhenAuthenticated() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
 
@@ -163,7 +163,7 @@ class ReaderChapterPageControllerTest {
 
     @Test
     @DisplayName("3. Graceful Degradation: Không chặn hiển thị chương khi kiểm tra bookmark gặp lỗi bất ngờ")
-    void shouldDegradeIsBookmarkedFalseWhenBookmarkLookupFails() throws Exception {
+    void shouldDegradeGracefullyWhenBookmarkLookupFails() throws Exception {
         String slug = "chuong-1-khoi-dau";
         ReaderChapterDetailDTO chapter = createChapterDetail(slug);
 

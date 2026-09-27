@@ -12,6 +12,20 @@ public record RegisterMediaAssetCommand(
         String contentHash,
         String mimeType,
         long sizeBytes,
-        String originalFilename
+        String originalFilename,
+        String clientTag
 ) {
+    public RegisterMediaAssetCommand(
+            MediaType mediaType,
+            MediaVisibility visibility,
+            String storageProviderId,
+            String storageKey,
+            String publicUrl,
+            String contentHash,
+            String mimeType,
+            long sizeBytes,
+            String originalFilename
+    ) {
+        this(mediaType, visibility, storageProviderId, storageKey, publicUrl, contentHash, mimeType, sizeBytes, originalFilename, null);
+    }
 }

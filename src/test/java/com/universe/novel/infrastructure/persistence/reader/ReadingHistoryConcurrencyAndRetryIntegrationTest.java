@@ -94,6 +94,9 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private SpringDataReadingHistoryJpaRepository springDataReadingHistoryJpaRepository;
+
+    @Autowired
     private ReadingHistoryRepositoryPort readingHistoryRepositoryPort;
 
     @Autowired
@@ -315,5 +318,70 @@ class ReadingHistoryConcurrencyAndRetryIntegrationTest {
                 USER_2_ID.toString()
         );
         assertThat(finalUser2Count).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("3. Đọc lại chương: Atomic monotonic update ngăn chặn cập nhật lùi lastReadAt kể cả khi entity bị stale")
+    void shouldNeverRegressLastReadAtWhenUpdatingExistingHistoryRow() {
+        Instant t1 = Instant.parse("2026-08-25T10:00:00Z");
+        Instant t2 = Instant.parse("2026-08-25T10:30:00Z");
+        Instant t3 = Instant.parse("2026-08-25T11:00:00Z");
+
+        UUID historyId = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                historyId.toString(), USER_ID.toString(), CHAPTER_ID.toString(), Timestamp.from(t1), Timestamp.from(t3)
+        );
+
+        // Stale entity tries to persist t2 (< t3)
+        UserChapterReadingHistory staleHistory = UserChapterReadingHistory.rehydrate(
+                historyId, USER_ID, CHAPTER_ID, t1, t2
+        );
+
+        readingHistoryRepositoryPort.save(staleHistory);
+
+        // Verify DB still holds t3
+        Timestamp persistedLastRead = jdbcTemplate.queryForObject(
+                "SELECT last_read_at FROM novel_reading_history WHERE id = ?",
+                Timestamp.class,
+                historyId.toString()
+        );
+        assertThat(persistedLastRead.toInstant()).isEqualTo(t3);
+    }
+
+    @Test
+    @DisplayName("4. Deterministic ordering: ORDER BY last_read_at DESC, id DESC giải quyết đồng hạng chính xác và nhất quán")
+    void shouldOrderReadingHistoryDeterministicallyWhenTimestampsAreTied() {
+        Instant tiedTime = Instant.parse("2026-08-25T12:00:00Z");
+
+        UUID chapterA = UUID.randomUUID();
+        seedChapter(chapterA, 8_000_301, "Chương A", "chuong-a-tie");
+        UUID chapterB = UUID.randomUUID();
+        seedChapter(chapterB, 8_000_302, "Chương B", "chuong-b-tie");
+
+        UUID idLow = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID idHigh = UUID.fromString("99999999-9999-9999-9999-999999999999");
+
+        jdbcTemplate.update(
+                "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                idLow.toString(), USER_ID.toString(), chapterA.toString(), Timestamp.from(tiedTime), Timestamp.from(tiedTime)
+        );
+        jdbcTemplate.update(
+                "INSERT INTO novel_reading_history (id, user_id, chapter_id, first_read_at, last_read_at) VALUES (?, ?, ?, ?, ?)",
+                idHigh.toString(), USER_ID.toString(), chapterB.toString(), Timestamp.from(tiedTime), Timestamp.from(tiedTime)
+        );
+
+        var list = springDataReadingHistoryJpaRepository.findPublishedReadingHistoryByUserId(USER_ID.toString());
+        assertThat(list).hasSize(2);
+        // idHigh must be first because of id DESC tie-breaker
+        assertThat(list.get(0).getChapterId()).isEqualTo(chapterB.toString());
+        assertThat(list.get(1).getChapterId()).isEqualTo(chapterA.toString());
+
+        // Also test retention pruning with tied timestamps:
+        // Pruning to 1 should retain chapterB (higher id) and drop chapterA (lower id)
+        readingHistoryRepositoryPort.pruneOldestEntriesExceedingLimit(USER_ID, 1);
+
+        assertThat(springDataReadingHistoryJpaRepository.findByUserIdAndChapterId(USER_ID.toString(), chapterB.toString())).isPresent();
+        assertThat(springDataReadingHistoryJpaRepository.findByUserIdAndChapterId(USER_ID.toString(), chapterA.toString())).isEmpty();
     }
 }

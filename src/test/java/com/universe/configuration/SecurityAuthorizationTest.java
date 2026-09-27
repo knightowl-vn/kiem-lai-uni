@@ -48,6 +48,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.web.servlet.View;
+import org.thymeleaf.spring6.view.ThymeleafViewResolver;
 
 import java.time.Instant;
 import java.util.List;
@@ -103,7 +105,15 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         AdminNovelProfileCommandController.class,
         MediaDeliveryController.class,
         com.universe.novel.entry.reader.PublicNovelManagedVoiceCatalogController.class,
-        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class
+        com.universe.novel.entry.reader.PublicNovelChapterNarrationPlaybackController.class,
+        com.universe.wiki.entry.web.SavedWikiArticleController.class,
+        com.universe.wiki.entry.web.PublicWikiController.class,
+        com.universe.wiki.entry.web.PublicWikiContextualLookupController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportQueueController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportDetailController.class,
+        com.universe.interaction.entry.admin.AdminCommentReportModerationController.class,
+        com.universe.wiki.entry.admin.AdminWikiContributionPageController.class,
+        com.universe.wiki.entry.admin.AdminWikiContributionCommandController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -209,6 +219,69 @@ class SecurityAuthorizationTest {
     @MockBean
     private com.universe.novel.application.narration.GetPublicManagedVoiceCatalogUseCase getPublicManagedVoiceCatalogUseCase;
 
+    @MockBean
+    private com.universe.wiki.application.saved.SaveWikiArticleUseCase saveWikiArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.saved.UnsaveWikiArticleUseCase unsaveWikiArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.ListPublishedWikiArticlesUseCase listPublishedArticlesUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.published.GetPublishedWikiArticleUseCase getPublishedArticleUseCase;
+
+    @MockBean
+    private com.universe.wiki.contracts.path.ArticleTypePathMapper articleTypePathMapper;
+
+    @MockBean
+    private com.universe.wiki.application.article.render.WikiMarkdownRenderer wikiMarkdownRenderer;
+
+    @MockBean
+    private com.universe.wiki.application.saved.ListSavedWikiArticlesUseCase listSavedWikiArticlesUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.saved.IsWikiArticleSavedUseCase isWikiArticleSavedUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationDetailStateUseCase getWikiAppreciationDetailStateUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.appreciation.GetWikiAppreciationSummariesUseCase getWikiAppreciationSummariesUseCase;
+
+    @MockBean
+    private com.universe.wiki.contracts.interfaces.WikiContextualLookupContract wikiContextualLookupContract;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
+
+    @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
+
+    @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportDetailCoordinator adminCommentReportDetailCoordinator;
+
+    @MockBean
+    private com.universe.interaction.entry.admin.AdminCommentReportContextNavigationCoordinator adminCommentReportContextNavigationCoordinator;
+
+    @MockBean
+    private com.universe.interaction.application.mutation.ResolveCommentReportUseCase resolveCommentReportUseCase;
+
+    @MockBean
+    private com.universe.wiki.entry.admin.AdminWikiContributionCoordinator adminWikiContributionCoordinator;
+
+    @MockBean
+    private com.universe.wiki.application.contribution.workflow.AdminWikiContributionWorkflowUseCase adminWikiContributionWorkflowUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.contribution.credit.GrantWikiContributionCreditUseCase grantWikiContributionCreditUseCase;
+
+    @MockBean
+    private com.universe.wiki.application.contribution.credit.RevokeWikiContributionCreditUseCase revokeWikiContributionCreditUseCase;
+
+    @MockBean
+    private ThymeleafViewResolver thymeleafViewResolver;
+
     @BeforeEach
     void setUp() throws Exception {
         doAnswer(invocation -> {
@@ -218,6 +291,9 @@ class SecurityAuthorizationTest {
             chain.doFilter(request, response);
             return null;
         }).when(accountStatusFilter).doFilter(any(), any(), any());
+
+        View noOpView = (model, request, response) -> {};
+        when(thymeleafViewResolver.resolveViewName(any(), any())).thenReturn(noOpView);
     }
 
     @Test
@@ -341,6 +417,7 @@ class SecurityAuthorizationTest {
                 "Khởi Đầu",
                 slug,
                 "<p>Nội dung chương</p>",
+                1L,
                 volume,
                 null,
                 null,
@@ -520,6 +597,21 @@ class SecurityAuthorizationTest {
         };
     }
 
+    private RequestPostProcessor requestIdentity(UUID userId, UserRole role) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
+                userId,
+                role == UserRole.SUPER_ADMIN ? "superadmin@universe.local" : "admin@universe.local",
+                role == UserRole.SUPER_ADMIN ? "SuperAdmin" : "Admin",
+                null,
+                UserStatus.ACTIVE,
+                role
+        );
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
+    }
+
     @Test
     @WithAnonymousUser
     @DisplayName("Khách ẩn danh được phép tra cứu Wiki công khai /novel/api/wiki/lookup")
@@ -619,5 +711,731 @@ class SecurityAuthorizationTest {
                         .content("{\"voiceKey\": \"kiemlai-male-01\"}"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép truy cập danh sách Wiki công khai /wiki")
+    void shouldAllowAnonymousAccessToPublicWiki() throws Exception {
+        when(listPublishedArticlesUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO(
+                        List.of(), 0, 20, 0, 0, true, true
+                ));
+
+        mockMvc.perform(get("/wiki"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép truy cập chi tiết bài viết Wiki công khai /wiki/{type}/{slug}")
+    void shouldAllowAnonymousAccessToPublicWikiArticleDetail() throws Exception {
+        when(articleTypePathMapper.fromPath("character"))
+                .thenReturn(com.universe.wiki.domain.article.ArticleType.CHARACTER);
+        when(getPublishedArticleUseCase.execute(any()))
+                .thenReturn(new com.universe.wiki.contracts.dto.PublishedWikiArticleDTO(
+                        UUID.randomUUID(),
+                        "Trần Bình An",
+                        "tran-binh-an",
+                        "CHARACTER",
+                        "Tóm tắt",
+                        "Nội dung",
+                        Instant.now(),
+                        Instant.now(),
+                        1L
+                ));
+        when(wikiMarkdownRenderer.render(any()))
+                .thenReturn(new com.universe.wiki.application.article.render.RenderedWikiContent("html", List.of()));
+        when(articleTypePathMapper.toPath(any()))
+                .thenReturn("character");
+
+        mockMvc.perform(get("/wiki/character/tran-binh-an"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép tra cứu Wiki công khai GET /wiki/contextual-lookup")
+    void shouldAllowAnonymousAccessToPublicWikiContextualLookup() throws Exception {
+        when(wikiContextualLookupContract.lookupByTitle("kiem-lai"))
+                .thenReturn(new com.universe.wiki.contracts.dto.WikiContextualLookupResultDTO(
+                        "kiem-lai",
+                        false,
+                        List.of()
+                ));
+
+        mockMvc.perform(get("/wiki/contextual-lookup").param("q", "kiem-lai"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi lưu bài viết Wiki POST /wiki/articles/{articleId}/save (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingSaveWikiArticle() throws Exception {
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi bỏ lưu bài viết Wiki DELETE /wiki/articles/{articleId}/save (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenDeletingSaveWikiArticle() throws Exception {
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("POST /wiki/articles/{articleId}/save không có CSRF bị chuyển hướng sang /access-denied")
+    void shouldRedirectToAccessDeniedWhenPostingSaveWikiArticleWithoutCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save")
+                        .with(requestIdentity(userId)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("DELETE /wiki/articles/{articleId}/save không có CSRF bị chuyển hướng sang /access-denied")
+    void shouldRedirectToAccessDeniedWhenDeletingSaveWikiArticleWithoutCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save")
+                        .with(requestIdentity(userId)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập lưu bài viết Wiki hợp lệ với CSRF trả về 204 No Content")
+    void shouldAllowAuthenticatedUserToSaveWikiArticleWithCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(post("/wiki/articles/" + articleId + "/save")
+                        .with(csrf())
+                        .with(requestIdentity(userId)))
+                .andExpect(status().isNoContent());
+
+        verify(saveWikiArticleUseCase).execute(new com.universe.wiki.application.saved.SaveWikiArticleCommand(userId, articleId));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập bỏ lưu bài viết Wiki hợp lệ với CSRF trả về 204 No Content")
+    void shouldAllowAuthenticatedUserToUnsaveWikiArticleWithCsrf() throws Exception {
+        UUID userId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+
+        mockMvc.perform(delete("/wiki/articles/" + articleId + "/save")
+                        .with(csrf())
+                        .with(requestIdentity(userId)))
+                .andExpect(status().isNoContent());
+
+        verify(unsaveWikiArticleUseCase).execute(new com.universe.wiki.application.saved.UnsaveWikiArticleCommand(userId, articleId));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /wiki/saved (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingWikiSavedPage() throws Exception {
+        mockMvc.perform(get("/wiki/saved"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Người dùng đã đăng nhập được phép truy cập /wiki/saved")
+    void shouldAllowAuthenticatedUserToAccessWikiSavedPage() throws Exception {
+        UUID userId = UUID.randomUUID();
+        when(listSavedWikiArticlesUseCase.execute(userId, 0, 20))
+                .thenReturn(new com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO(
+                        List.of(), 0, 20, 0, 0, true, true
+                ));
+
+        mockMvc.perform(get("/wiki/saved").with(requestIdentity(userId)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportQueue() throws Exception {
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportQueueForUser() throws Exception {
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports")
+    void shouldAllowAccessToAdminCommentReportQueueForAdmin() throws Exception {
+        when(adminCommentReportQueueCoordinator.getReportQueue(any()))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO.empty(0, 20));
+
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports")
+    void shouldAllowAccessToAdminCommentReportQueueForSuperAdmin() throws Exception {
+        when(adminCommentReportQueueCoordinator.getReportQueue(any()))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO.empty(0, 20));
+
+        mockMvc.perform(get("/admin/comments/reports"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports/{reportId} (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportDetail() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports/{reportId} (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportDetailForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports/{reportId}")
+    void shouldAllowAccessToAdminCommentReportDetailForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportDetailCoordinator.getDetail(reportId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO.class));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports/{reportId}")
+    void shouldAllowAccessToAdminCommentReportDetailForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportDetailCoordinator.getDetail(reportId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO.class));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi truy cập /admin/comments/reports/{reportId}/context (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportContext() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối truy cập /admin/comments/reports/{reportId}/context (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportContextForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập /admin/comments/reports/{reportId}/context")
+    void shouldAllowAccessToAdminCommentReportContextForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportContextNavigationCoordinator.resolveNavigation(reportId))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO.unavailable(reportId));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập /admin/comments/reports/{reportId}/context")
+    void shouldAllowAccessToAdminCommentReportContextForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        when(adminCommentReportContextNavigationCoordinator.resolveNavigation(reportId))
+                .thenReturn(com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO.unavailable(reportId));
+
+        mockMvc.perform(get("/admin/comments/reports/" + reportId + "/context"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/comments/reports/{reportId}/resolve (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenAccessingAdminCommentReportResolve() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/comments/reports/{reportId}/resolve (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminCommentReportResolveForUser() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/comments/reports/{reportId}/resolve")
+    void shouldAllowAccessToAdminCommentReportResolveForAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(moderatorId, UserRole.ADMIN))
+                        .param("action", "DELETE_COMMENT"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+
+        verify(resolveCommentReportUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/comments/reports/{reportId}/resolve")
+    void shouldAllowAccessToAdminCommentReportResolveForSuperAdmin() throws Exception {
+        UUID reportId = UUID.randomUUID();
+        UUID moderatorId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/comments/reports/" + reportId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(moderatorId, UserRole.SUPER_ADMIN))
+                        .param("action", "NO_ACTION"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/comments/reports/" + reportId));
+
+        verify(resolveCommentReportUseCase).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chuyển hướng sang /login khi truy cập /admin/wiki/contributions")
+    void shouldRedirectAnonymousUserWhenAccessingAdminWikiContributions() throws Exception {
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng với role USER bị từ chối truy cập /admin/wiki/contributions (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminWikiContributionsForRegularUser() throws Exception {
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập GET /admin/wiki/contributions")
+    void shouldAllowAccessToAdminWikiContributionsForAdmin() throws Exception {
+        when(adminWikiContributionCoordinator.getInboxPage(any()))
+                .thenReturn(com.universe.wiki.entry.admin.dto.AdminWikiContributionQueuePageDTO.empty(0, 20));
+        when(adminWikiContributionCoordinator.getNewContributionCount()).thenReturn(0L);
+
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập GET /admin/wiki/contributions")
+    void shouldAllowAccessToAdminWikiContributionsForSuperAdmin() throws Exception {
+        when(adminWikiContributionCoordinator.getInboxPage(any()))
+                .thenReturn(com.universe.wiki.entry.admin.dto.AdminWikiContributionQueuePageDTO.empty(0, 20));
+        when(adminWikiContributionCoordinator.getNewContributionCount()).thenReturn(0L);
+
+        mockMvc.perform(get("/admin/wiki/contributions"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chuyển hướng sang /login khi truy cập GET /admin/wiki/contributions/{id}")
+    void shouldRedirectAnonymousUserWhenAccessingAdminWikiContributionDetail() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/wiki/contributions/" + contributionId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng với role USER bị từ chối truy cập GET /admin/wiki/contributions/{id} (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToAdminWikiContributionDetailForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(get("/admin/wiki/contributions/" + contributionId))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép truy cập GET /admin/wiki/contributions/{id}")
+    void shouldAllowAccessToAdminWikiContributionDetailForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        when(adminWikiContributionCoordinator.getDetail(contributionId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO.class));
+
+        mockMvc.perform(get("/admin/wiki/contributions/" + contributionId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép truy cập GET /admin/wiki/contributions/{id}")
+    void shouldAllowAccessToAdminWikiContributionDetailForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        when(adminWikiContributionCoordinator.getDetail(contributionId))
+                .thenReturn(org.mockito.Mockito.mock(com.universe.wiki.entry.admin.dto.AdminWikiContributionDetailDTO.class));
+
+        mockMvc.perform(get("/admin/wiki/contributions/" + contributionId))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/review (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingReviewWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/review")
+                        .with(csrf())
+                        .param("expectedVersion", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/review (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToReviewWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/review")
+                        .with(csrf())
+                        .param("expectedVersion", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/review")
+    void shouldAllowAccessToReviewWikiContributionForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/review")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("expectedVersion", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).review(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/review")
+    void shouldAllowAccessToReviewWikiContributionForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/review")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("expectedVersion", "1"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).review(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/resolve (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingResolveWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/resolve")
+                        .with(csrf())
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/resolve (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToResolveWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/resolve")
+                        .with(csrf())
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/resolve")
+    void shouldAllowAccessToResolveWikiContributionForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Đã xác minh và áp dụng"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).resolve(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/resolve")
+    void shouldAllowAccessToResolveWikiContributionForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/resolve")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Đã xác minh và áp dụng"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).resolve(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/reject (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingRejectWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/reject")
+                        .with(csrf())
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Không đúng"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/reject (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToRejectWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/reject")
+                        .with(csrf())
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Không đúng"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/reject")
+    void shouldAllowAccessToRejectWikiContributionForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/reject")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Không phù hợp nội dung"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).reject(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/reject")
+    void shouldAllowAccessToRejectWikiContributionForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/reject")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("expectedVersion", "1")
+                        .param("resolutionNote", "Không phù hợp nội dung"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(adminWikiContributionWorkflowUseCase).reject(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/credit (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingCreditWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .param("creditNote", "Ghi chú hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/credit (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToCreditWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .param("creditNote", "Ghi chú hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/credit")
+    void shouldAllowAccessToCreditWikiContributionForAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("creditNote", "Ghi nhận công trạng chuẩn xác"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(grantWikiContributionCreditUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Quản trị viên role ADMIN bị từ chối thực hiện POST /credit khi thiếu CSRF token (chuyển hướng sang /access-denied)")
+    void shouldRejectCreditWikiContributionWithoutCsrf() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit")
+                        .with(requestIdentity(adminId, UserRole.ADMIN))
+                        .param("creditNote", "Ghi nhận công trạng chuẩn xác"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(grantWikiContributionCreditUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh bị chặn khi thực hiện POST /admin/wiki/contributions/{id}/credit/revoke (chuyển hướng sang /login)")
+    void shouldRedirectAnonymousWhenPostingRevokeCreditWikiContribution() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .param("revocationReason", "Lý do thu hồi hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")
+    @DisplayName("Người dùng role USER bị từ chối thực hiện POST /admin/wiki/contributions/{id}/credit/revoke (chuyển hướng sang /access-denied)")
+    void shouldDenyAccessToRevokeCreditWikiContributionForRegularUser() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .param("revocationReason", "Lý do thu hồi hợp lệ"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN được phép thực hiện POST /admin/wiki/contributions/{id}/credit/revoke")
+    void shouldAllowAccessToRevokeCreditWikiContributionForSuperAdmin() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(csrf())
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("revocationReason", "Phát hiện nội dung có sai sót lớn"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/wiki/contributions/" + contributionId));
+
+        verify(revokeWikiContributionCreditUseCase).execute(any());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPER_ADMIN")
+    @DisplayName("Quản trị viên role SUPER_ADMIN bị từ chối thực hiện POST /credit/revoke khi thiếu CSRF token (chuyển hướng sang /access-denied)")
+    void shouldRejectRevokeCreditWikiContributionWithoutCsrf() throws Exception {
+        UUID contributionId = UUID.randomUUID();
+        UUID adminId = UUID.randomUUID();
+
+        mockMvc.perform(post("/admin/wiki/contributions/" + contributionId + "/credit/revoke")
+                        .with(requestIdentity(adminId, UserRole.SUPER_ADMIN))
+                        .param("revocationReason", "Phát hiện nội dung có sai sót lớn"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(revokeWikiContributionCreditUseCase, never()).execute(any());
     }
 }

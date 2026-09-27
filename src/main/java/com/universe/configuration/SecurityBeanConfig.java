@@ -6,12 +6,23 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.web.AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
+import com.universe.identity.infrastructure.security.BrowserNavigationRequestMatcher;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
+import com.universe.identity.infrastructure.security.FormLoginAuthenticationSuccessHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
+import com.universe.identity.infrastructure.security.OAuth2AuthenticationFailureHandler;
+import com.universe.identity.infrastructure.security.OAuth2ReturnToStore;
+import com.universe.identity.infrastructure.security.SafeReturnToValidator;
+import com.universe.identity.infrastructure.security.StateCorrelationOAuth2AuthorizationRequestRepository;
 
 @Configuration
 public class SecurityBeanConfig {
@@ -19,23 +30,15 @@ public class SecurityBeanConfig {
     private static final int REMEMBER_ME_VALIDITY_SECONDS =
             14 * 24 * 60 * 60;
 
-    private final GoogleOAuthSuccessHandler
-            googleOAuthSuccessHandler;
-
     private final AccountStatusFilter
             accountStatusFilter;
-
-    private final CustomAuthenticationFailureHandler
-            authenticationFailureHandler;
 
     private final String rememberMeKey;
 
     private final boolean secureCookie;
 
     public SecurityBeanConfig(
-            GoogleOAuthSuccessHandler googleOAuthSuccessHandler,
             AccountStatusFilter accountStatusFilter,
-            CustomAuthenticationFailureHandler authenticationFailureHandler,
 
             @Value("${security.remember-me.key}")
             String rememberMeKey,
@@ -43,14 +46,8 @@ public class SecurityBeanConfig {
             @Value("${security.remember-me.secure-cookie:false}")
             boolean secureCookie
     ) {
-        this.googleOAuthSuccessHandler =
-                googleOAuthSuccessHandler;
-
         this.accountStatusFilter =
                 accountStatusFilter;
-
-        this.authenticationFailureHandler =
-                authenticationFailureHandler;
 
         this.rememberMeKey =
                 rememberMeKey;
@@ -65,11 +62,72 @@ public class SecurityBeanConfig {
     }
 
     @Bean
+    public SafeReturnToValidator safeReturnToValidator() {
+        return new SafeReturnToValidator();
+    }
+
+    @Bean
+    public RequestMatcher browserNavigationRequestMatcher() {
+        return new BrowserNavigationRequestMatcher();
+    }
+
+    @Bean
+    public RequestCache requestCache(RequestMatcher browserNavigationRequestMatcher) {
+        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+        requestCache.setRequestMatcher(browserNavigationRequestMatcher);
+        return requestCache;
+    }
+
+    @Bean
+    public OAuth2ReturnToStore oAuth2ReturnToStore() {
+        return new OAuth2ReturnToStore();
+    }
+
+    @Bean
+    public AuthorizationRequestRepository<OAuth2AuthorizationRequest> oAuth2AuthorizationRequestRepository(
+            OAuth2ReturnToStore oAuth2ReturnToStore,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new StateCorrelationOAuth2AuthorizationRequestRepository(
+                oAuth2ReturnToStore,
+                safeReturnToValidator
+        );
+    }
+
+    @Bean
+    public OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler(
+            OAuth2ReturnToStore oAuth2ReturnToStore,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new OAuth2AuthenticationFailureHandler(
+                oAuth2ReturnToStore,
+                safeReturnToValidator
+        );
+    }
+
+    @Bean
+    public FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler(
+            RequestCache requestCache,
+            SafeReturnToValidator safeReturnToValidator
+    ) {
+        return new FormLoginAuthenticationSuccessHandler(requestCache, safeReturnToValidator);
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http
+            HttpSecurity http,
+            RequestCache requestCache,
+            FormLoginAuthenticationSuccessHandler formLoginAuthenticationSuccessHandler,
+            CustomAuthenticationFailureHandler authenticationFailureHandler,
+            GoogleOAuthSuccessHandler googleOAuthSuccessHandler,
+            AuthorizationRequestRepository<OAuth2AuthorizationRequest> oAuth2AuthorizationRequestRepository,
+            OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler
     ) throws Exception {
 
         http
+                .requestCache(cache -> cache
+                        .requestCache(requestCache)
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/",
@@ -88,9 +146,7 @@ public class SecurityBeanConfig {
                                 "/css/**",
                                 "/js/**",
                                 "/images/**",
-                                "/error",
-                                "/wiki",
-                                "/wiki/**"
+                                "/error"
                         )
                         .permitAll()
 
@@ -105,7 +161,18 @@ public class SecurityBeanConfig {
                                 "/media/assets/*/content",
                                 "/media/assets/*/variants/*",
                                 "/api/novel/narration/voices",
-                                "/api/novel/chapters/*/narration/playback"
+                                "/api/novel/chapters/*/narration/playback",
+                                "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/feed",
+                                "/api/novel/chapters/*/comments/*/thread",
+                                "/api/novel/chapters/*/comments/*/revisions",
+                                "/api/novel/chapters/*/comments/indicators",
+                                "/api/novel/chapters/*/comments/blocks/*",
+                                "/api/wiki/articles/*/comments",
+                                "/api/wiki/articles/*/comments/feed",
+                                "/api/wiki/articles/*/comments/*/thread",
+                                "/api/wiki/articles/*/comments/*/revisions",
+                                "/api/interaction/reactions"
                         )
                         .permitAll()
 
@@ -114,6 +181,46 @@ public class SecurityBeanConfig {
                                 "/api/novel/chapters/*/narration/prepare"
                         )
                         .permitAll()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/novel/chapters/*/comments",
+                                "/api/novel/chapters/*/comments/inline",
+                                "/api/novel/chapters/*/comments/*/replies",
+                                "/api/wiki/articles/*/comments",
+                                "/api/wiki/articles/*/comments/*/replies"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.PATCH,
+                                "/api/novel/chapters/*/comments/*",
+                                "/api/wiki/articles/*/comments/*"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.DELETE,
+                                "/api/novel/chapters/*/comments/*",
+                                "/api/wiki/articles/*/comments/*"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.PUT,
+                                "/api/wiki/articles/*/appreciation",
+                                "/api/interaction/reactions",
+                                "/api/notifications/*/read",
+                                "/api/notifications/read-all"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/notifications",
+                                "/api/notifications/**"
+                        )
+                        .authenticated()
 
                         .requestMatchers(
                                 "/novel/bookmarks",
@@ -129,6 +236,22 @@ public class SecurityBeanConfig {
                         .requestMatchers(
                                 "/novel",
                                 "/novel/**"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
+                                "/wiki/articles/*/save",
+                                "/wiki/articles/*/contributions",
+                                "/wiki/saved",
+                                "/wiki/saved/**",
+                                "/comments/my",
+                                "/comments/my/**"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                "/wiki",
+                                "/wiki/**"
                         )
                         .permitAll()
 
@@ -179,7 +302,9 @@ public class SecurityBeanConfig {
                         .loginPage("/login")
                         .usernameParameter("username")
                         .passwordParameter("password")
-                        .defaultSuccessUrl("/home", false)
+                        .successHandler(
+                                formLoginAuthenticationSuccessHandler
+                        )
                         .failureHandler(
                                 authenticationFailureHandler
                         )
@@ -199,10 +324,17 @@ public class SecurityBeanConfig {
 
                 .oauth2Login(oauth2 -> oauth2
                         .loginPage("/login")
+                        .authorizationEndpoint(auth -> auth
+                                .authorizationRequestRepository(
+                                        oAuth2AuthorizationRequestRepository
+                                )
+                        )
                         .successHandler(
                                 googleOAuthSuccessHandler
                         )
-                        .failureUrl("/login?oauthError")
+                        .failureHandler(
+                                oAuth2AuthenticationFailureHandler
+                        )
                 )
 
                 .logout(logout -> logout

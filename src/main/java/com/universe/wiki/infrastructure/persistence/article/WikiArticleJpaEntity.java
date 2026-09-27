@@ -92,6 +92,25 @@ public class WikiArticleJpaEntity {
     private String content;
 
     @Column(
+            name = "cover_media_asset_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String coverMediaAssetId;
+
+    @Column(
+            name = "cover_position_x",
+            nullable = false
+    )
+    private byte coverPositionX = 50;
+
+    @Column(
+            name = "cover_position_y",
+            nullable = false
+    )
+    private byte coverPositionY = 50;
+
+    @Column(
             name = "status",
             nullable = false,
             length = 20
@@ -344,5 +363,31 @@ public class WikiArticleJpaEntity {
             Instant archivedAt
     ) {
         this.archivedAt = archivedAt;
+    }
+
+    public String getCoverMediaAssetId() {
+        return coverMediaAssetId;
+    }
+
+    public void setCoverMediaAssetId(
+            String coverMediaAssetId
+    ) {
+        this.coverMediaAssetId = coverMediaAssetId;
+    }
+
+    public byte getCoverPositionX() {
+        return coverPositionX;
+    }
+
+    public void setCoverPositionX(byte coverPositionX) {
+        this.coverPositionX = coverPositionX;
+    }
+
+    public byte getCoverPositionY() {
+        return coverPositionY;
+    }
+
+    public void setCoverPositionY(byte coverPositionY) {
+        this.coverPositionY = coverPositionY;
     }
 }

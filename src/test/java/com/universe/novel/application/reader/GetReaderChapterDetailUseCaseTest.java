@@ -65,7 +65,7 @@ class GetReaderChapterDetailUseCaseTest {
 		String slug = "chuong-2";
 		ReaderVolumeSummaryDTO volume = new ReaderVolumeSummaryDTO(VOLUME_ID, "V1", "v-1", 1);
 		ReaderChapterRenderedSnapshotDTO snapshot = new ReaderChapterRenderedSnapshotDTO(
-				CHAPTER_ID, 2, "C2", slug, "<p>Text</p>", volume
+				CHAPTER_ID, 2, "C2", slug, "<p>Text</p>", 4L, volume
 		);
 
 		List<ReaderChapterTocItemDTO> toc = List.of(
@@ -82,6 +82,7 @@ class GetReaderChapterDetailUseCaseTest {
 		assertThat(result.id()).isEqualTo(CHAPTER_ID);
 		assertThat(result.chapterNumber()).isEqualTo(2);
 		assertThat(result.contentHtml()).isEqualTo("<p>Text</p>");
+		assertThat(result.contentVersion()).isEqualTo(4L);
 
 		assertThat(result.previousChapter().chapterNumber()).isEqualTo(1);
 		assertThat(result.nextChapter().chapterNumber()).isEqualTo(5);
@@ -97,7 +98,7 @@ class GetReaderChapterDetailUseCaseTest {
 		String slug = "chuong-3";
 		ReaderVolumeSummaryDTO volume = new ReaderVolumeSummaryDTO(VOLUME_ID, "V1", "v-1", 1);
 		ReaderChapterRenderedSnapshotDTO snapshot = new ReaderChapterRenderedSnapshotDTO(
-				CHAPTER_ID, 3, "C3", slug, "<p>Text</p>", volume
+				CHAPTER_ID, 3, "C3", slug, "<p>Text</p>", 2L, volume
 		);
 
 		List<ReaderChapterTocItemDTO> staleToc = List.of(
@@ -121,6 +122,7 @@ class GetReaderChapterDetailUseCaseTest {
 		inOrder.verify(navigationCachePort).invalidate();
 		inOrder.verify(navigationCachePort).getOrLoad(any());
 
+		assertThat(result.contentVersion()).isEqualTo(2L);
 		assertThat(result.previousChapter().chapterNumber()).isEqualTo(2);
 		assertThat(result.nextChapter()).isNull();
 	}

@@ -1,5 +1,6 @@
 package com.universe.wiki.application.article.delete;
 
+import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions
         .WikiArticleNotFoundException;
 
@@ -9,12 +10,16 @@ import com.universe.wiki.application.ports
 import com.universe.wiki.application.ports
         .WikiArticleRevisionRepositoryPort;
 
+import com.universe.wiki.application.ports
+        .WikiCoverOrphanRepositoryPort;
+
 import com.universe.wiki.domain.article
         .WikiArticle;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -27,15 +32,29 @@ public class DeleteWikiArticleUseCase {
     private final WikiArticleRevisionRepositoryPort
             revisionRepositoryPort;
 
+    private final WikiCoverOrphanRepositoryPort
+            orphanRepositoryPort;
+
+    private final ClockPort
+            clockPort;
+
     public DeleteWikiArticleUseCase(
             WikiArticleRepositoryPort articleRepositoryPort,
-            WikiArticleRevisionRepositoryPort revisionRepositoryPort
+            WikiArticleRevisionRepositoryPort revisionRepositoryPort,
+            WikiCoverOrphanRepositoryPort orphanRepositoryPort,
+            ClockPort clockPort
     ) {
         this.articleRepositoryPort =
                 articleRepositoryPort;
 
         this.revisionRepositoryPort =
                 revisionRepositoryPort;
+
+        this.orphanRepositoryPort =
+                orphanRepositoryPort;
+
+        this.clockPort =
+                clockPort;
     }
 
     @Transactional
@@ -69,6 +88,12 @@ public class DeleteWikiArticleUseCase {
          */
         article.ensureCanBeDeleted();
 
+        UUID coverMediaAssetId = article.getCoverMediaAssetId();
+
+        if (coverMediaAssetId != null) {
+            articleRepositoryPort.lockCoverReferenceKey(coverMediaAssetId);
+        }
+
         /*
          * FK revision → article đang ON DELETE RESTRICT,
          * vì vậy bắt buộc xóa revisions trước.
@@ -82,5 +107,18 @@ public class DeleteWikiArticleUseCase {
                 .deleteById(
                         articleId
                 );
+
+        articleRepositoryPort.flush();
+
+        if (coverMediaAssetId != null) {
+            if (!articleRepositoryPort.hasCoverReference(coverMediaAssetId)) {
+                orphanRepositoryPort.recordOrphanObservation(
+                        coverMediaAssetId,
+                        clockPort.now()
+                );
+            } else {
+                orphanRepositoryPort.deleteByMediaAssetId(coverMediaAssetId);
+            }
+        }
     }
 }

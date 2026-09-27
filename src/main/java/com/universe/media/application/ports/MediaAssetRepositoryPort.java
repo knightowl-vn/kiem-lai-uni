@@ -13,6 +13,10 @@ public interface MediaAssetRepositoryPort {
             UUID id
     );
 
+    Optional<MediaAsset> findByIdForUpdate(
+            UUID id
+    );
+
     MediaAsset save(
             MediaAsset asset
     );
@@ -23,6 +27,14 @@ public interface MediaAssetRepositoryPort {
 
     List<MediaAsset> findExpiredDeleted(
             Instant cutoff,
+            int limit
+    );
+
+    List<MediaAssetCandidate> findActiveByClientTagKeyset(
+            String clientTag,
+            Instant upperBound,
+            Instant lastCreatedAt,
+            UUID lastAssetId,
             int limit
     );
 }

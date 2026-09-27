@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,6 +37,29 @@ public interface SpringDataWikiArticleJpaRepository
             String id,
             String status
     );
+
+    boolean existsByIdAndStatus(
+            String id,
+            String status
+    );
+
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE cover_media_asset_id = :mediaAssetId ORDER BY id",
+            nativeQuery = true
+    )
+    List<String> findCoverReferenceIds(@Param("mediaAssetId") String mediaAssetId);
+
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE cover_media_asset_id = :mediaAssetId LOCK IN SHARE MODE",
+            nativeQuery = true
+    )
+    List<String> findCoverReferenceIdsCurrentRead(@Param("mediaAssetId") String mediaAssetId);
+
+    @Query(
+            value = "SELECT id FROM wiki_articles WHERE id IN (:ids) ORDER BY id FOR UPDATE",
+            nativeQuery = true
+    )
+    List<String> lockArticleIds(@Param("ids") List<String> ids);
 
     /**
      * Truy vấn danh sách bài Wiki dành cho trang quản trị.
@@ -141,6 +165,71 @@ public interface SpringDataWikiArticleJpaRepository
             """)
     List<WikiArticleJpaEntity> findPublishedArticlesByNormalizedAlias(
             @Param("normalizedAlias") String normalizedAlias,
+            Pageable pageable
+    );
+
+    /**
+     * Batch lookup of lightweight Wiki article metadata by IDs.
+     */
+    @Query("""
+            SELECT
+                article.id AS id,
+                article.title AS title,
+                article.slug AS slug,
+                article.articleType AS articleType,
+                article.status AS status,
+                article.updatedBy AS updatedBy,
+                article.createdAt AS createdAt,
+                article.updatedAt AS updatedAt,
+                article.contentVersion AS contentVersion
+            FROM WikiArticleJpaEntity article
+            WHERE article.id IN :ids
+            """)
+    List<WikiArticleListItemProjection> findListItemsByIds(@Param("ids") Collection<String> ids);
+
+    /**
+     * Single lookup of lightweight Wiki article eligibility metadata by ID.
+     */
+    @Query("""
+            SELECT
+                article.id AS id,
+                article.articleType AS articleType,
+                article.status AS status
+            FROM WikiArticleJpaEntity article
+            WHERE article.id = :id
+            """)
+    Optional<WikiArticleEligibilityProjection> findEligibilityById(@Param("id") String id);
+
+    @Query("""
+            SELECT MAX(a.coverMediaAssetId)
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+            """)
+    Optional<String> findMaxCoverMediaAssetId();
+
+    @Query("""
+            SELECT DISTINCT a.coverMediaAssetId
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+              AND a.coverMediaAssetId <= :upperBound
+            ORDER BY a.coverMediaAssetId ASC
+            """)
+    List<String> findDistinctCoverMediaAssetIdsFirstPage(
+            @Param("upperBound") String upperBound,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT DISTINCT a.coverMediaAssetId
+            FROM WikiArticleJpaEntity a
+            WHERE a.coverMediaAssetId IS NOT NULL
+              AND a.coverMediaAssetId > :lastAssetId
+              AND a.coverMediaAssetId <= :upperBound
+            ORDER BY a.coverMediaAssetId ASC
+            """)
+    List<String> findDistinctCoverMediaAssetIdsSubsequentPage(
+            @Param("lastAssetId") String lastAssetId,
+            @Param("upperBound") String upperBound,
             Pageable pageable
     );
 }

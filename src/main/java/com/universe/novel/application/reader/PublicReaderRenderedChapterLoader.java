@@ -86,6 +86,7 @@ public class PublicReaderRenderedChapterLoader {
                 chapterRecord.title(),
                 chapterRecord.slug(),
                 contentHtml,
+                chapterRecord.contentVersion(),
                 volume
         );
 

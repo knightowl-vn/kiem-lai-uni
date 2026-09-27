@@ -10,10 +10,9 @@ import com.universe.wiki.application.article.alias.RemoveWikiArticleAliasUseCase
 import com.universe.wiki.application.exceptions.WikiArticleNotFoundException;
 import com.universe.wiki.contracts.dto.WikiArticleAliasDTO;
 
+import com.universe.wiki.application.article.cover.WikiArticleCoverOrchestrator;
 import com.universe.wiki.application.article.create.CreateAndPublishWikiArticleCommand;
-import com.universe.wiki.application.article.create.CreateAndPublishWikiArticleUseCase;
 import com.universe.wiki.application.article.create.CreateWikiArticleCommand;
-import com.universe.wiki.application.article.create.CreateWikiArticleUseCase;
 
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.domain.article.ArticleType;
@@ -25,9 +24,6 @@ import com.universe.wiki.entry.admin.form.EditWikiArticleAction;
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleCommand;
 import com.universe.wiki.application.article.archive.ArchiveWikiArticleUseCase;
 
-import com.universe.wiki.application.article.delete.DeleteWikiArticleCommand;
-import com.universe.wiki.application.article.delete.DeleteWikiArticleUseCase;
-
 import com.universe.wiki.application.article.publish.PublishWikiArticleCommand;
 import com.universe.wiki.application.article.publish.PublishWikiArticleUseCase;
 import com.universe.wiki.application.article.query.detail.GetWikiArticleDetailQuery;
@@ -37,11 +33,8 @@ import com.universe.wiki.application.article.restore.RestoreWikiArticleUseCase;
 import com.universe.wiki.application.article.unpublish.UnpublishWikiArticleCommand;
 import com.universe.wiki.application.article.unpublish.UnpublishWikiArticleUseCase;
 import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleCommand;
-import com.universe.wiki.application.article.update.draft.UpdateDraftWikiArticleUseCase;
 import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleCommand;
-import com.universe.wiki.application.article.update.draft.UpdateDraftAndPublishWikiArticleUseCase;
 import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleCommand;
-import com.universe.wiki.application.article.update.published.UpdatePublishedWikiArticleUseCase;
 
 import com.universe.shared.security.AuthenticatedEmailResolver;
 
@@ -67,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -87,10 +81,7 @@ class AdminWikiArticleCommandControllerTest {
 	private static final Instant NOW = Instant.parse("2026-08-07T02:00:00Z");
 
 	@Mock
-	private CreateWikiArticleUseCase createWikiArticleUseCase;
-
-	@Mock
-	private CreateAndPublishWikiArticleUseCase createAndPublishWikiArticleUseCase;
+	private WikiArticleCoverOrchestrator wikiArticleCoverOrchestrator;
 
 	@Mock
 	private UserIdentityContract userIdentityContract;
@@ -110,18 +101,6 @@ class AdminWikiArticleCommandControllerTest {
 	private ArchiveWikiArticleUseCase archiveWikiArticleUseCase;
 
 	@Mock
-	private DeleteWikiArticleUseCase deleteWikiArticleUseCase;
-
-	@Mock
-	private UpdateDraftWikiArticleUseCase updateDraftWikiArticleUseCase;
-
-	@Mock
-	private UpdateDraftAndPublishWikiArticleUseCase updateDraftAndPublishWikiArticleUseCase;
-
-	@Mock
-	private UpdatePublishedWikiArticleUseCase updatePublishedWikiArticleUseCase;
-
-	@Mock
 	private GetWikiArticleDetailUseCase getWikiArticleDetailUseCase;
 
 	@Mock
@@ -139,18 +118,15 @@ class AdminWikiArticleCommandControllerTest {
 	void setUp() {
 		authenticatedEmailResolver = new AuthenticatedEmailResolver();
 
-		controller = new AdminWikiArticleCommandController(createWikiArticleUseCase, createAndPublishWikiArticleUseCase,
-
-				updateDraftWikiArticleUseCase, updateDraftAndPublishWikiArticleUseCase,
-				updatePublishedWikiArticleUseCase,
-
+		controller = new AdminWikiArticleCommandController(
+				wikiArticleCoverOrchestrator,
 				getWikiArticleDetailUseCase,
-
-				publishWikiArticleUseCase, unpublishWikiArticleUseCase, archiveWikiArticleUseCase,
-				restoreWikiArticleUseCase, deleteWikiArticleUseCase,
-
-				addWikiArticleAliasUseCase, removeWikiArticleAliasUseCase,
-
+				publishWikiArticleUseCase,
+				unpublishWikiArticleUseCase,
+				archiveWikiArticleUseCase,
+				restoreWikiArticleUseCase,
+				addWikiArticleAliasUseCase,
+				removeWikiArticleAliasUseCase,
 				authenticatedEmailResolver,
 				userIdentityContract);
 	}
@@ -167,9 +143,10 @@ class AdminWikiArticleCommandControllerTest {
 
 		prepareAuthenticatedAdmin();
 
-		when(createWikiArticleUseCase.execute(
+		when(wikiArticleCoverOrchestrator.createDraft(
 				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
-						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID)))
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID),
+				null))
 				.thenReturn(createDraftArticleDTO());
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
@@ -184,11 +161,12 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
 
-		verify(createWikiArticleUseCase).execute(
+		verify(wikiArticleCoverOrchestrator).createDraft(
 				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
-						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID));
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID),
+				null);
 
-		verify(createAndPublishWikiArticleUseCase, never()).execute(any(CreateAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createAndPublish(any(CreateAndPublishWikiArticleCommand.class), any());
 	}
 
 	/*
@@ -203,9 +181,9 @@ class AdminWikiArticleCommandControllerTest {
 
 		prepareAuthenticatedAdmin();
 
-		when(createAndPublishWikiArticleUseCase.execute(new CreateAndPublishWikiArticleCommand("Trần Bình An",
+		when(wikiArticleCoverOrchestrator.createAndPublish(new CreateAndPublishWikiArticleCommand("Trần Bình An",
 				ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.", "Nội dung ban đầu của bài viết.",
-				"Khởi tạo bài Trần Bình An", ADMIN_ID))).thenReturn(createPublishedArticleDTO());
+				"Khởi tạo bài Trần Bình An", ADMIN_ID), null)).thenReturn(createPublishedArticleDTO());
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
@@ -219,11 +197,11 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
 
-		verify(createAndPublishWikiArticleUseCase).execute(new CreateAndPublishWikiArticleCommand("Trần Bình An",
+		verify(wikiArticleCoverOrchestrator).createAndPublish(new CreateAndPublishWikiArticleCommand("Trần Bình An",
 				ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.", "Nội dung ban đầu của bài viết.",
-				"Khởi tạo bài Trần Bình An", ADMIN_ID));
+				"Khởi tạo bài Trần Bình An", ADMIN_ID), null);
 
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 	}
 
 	/*
@@ -246,9 +224,9 @@ class AdminWikiArticleCommandControllerTest {
 
 		verify(userIdentityContract, never()).findByEmail(any());
 
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 
-		verify(createAndPublishWikiArticleUseCase, never()).execute(any(CreateAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createAndPublish(any(CreateAndPublishWikiArticleCommand.class), any());
 	}
 
 	@Test
@@ -265,9 +243,9 @@ class AdminWikiArticleCommandControllerTest {
 				new RedirectAttributesModelMap())).isInstanceOf(IllegalStateException.class)
 				.hasMessage("Không tìm thấy người dùng đang đăng nhập.");
 
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 
-		verify(createAndPublishWikiArticleUseCase, never()).execute(any(CreateAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createAndPublish(any(CreateAndPublishWikiArticleCommand.class), any());
 	}
 
 	/*
@@ -300,9 +278,9 @@ class AdminWikiArticleCommandControllerTest {
 				"CHARACTER", "Tóm tắt mới", "Nội dung mới", "DRAFT", ADMIN_ID, ADMIN_ID, null, null, NOW, NOW, null,
 				null, 2L, 2L);
 
-		when(updateDraftWikiArticleUseCase
-				.execute(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
-						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID)))
+		when(wikiArticleCoverOrchestrator
+				.updateDraft(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
+						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID), null, false))
 				.thenReturn(updatedArticle);
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
@@ -315,14 +293,14 @@ class AdminWikiArticleCommandControllerTest {
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
 				.isEqualTo("Đã cập nhật bài Wiki \"Trần Bình An cập nhật\".");
 
-		verify(updateDraftWikiArticleUseCase)
-				.execute(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
-						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID));
+		verify(wikiArticleCoverOrchestrator)
+				.updateDraft(new UpdateDraftWikiArticleCommand(ARTICLE_ID, "Trần Bình An cập nhật", ArticleType.CHARACTER,
+						"Tóm tắt mới", "Nội dung mới", "Cập nhật bản nháp", ADMIN_ID), null, false);
 
-		verify(updateDraftAndPublishWikiArticleUseCase, never())
-				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never())
+				.updateDraftAndPublish(any(UpdateDraftAndPublishWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updatePublished(any(UpdatePublishedWikiArticleCommand.class), any(), anyBoolean());
 	}
 
 	/*
@@ -355,9 +333,9 @@ class AdminWikiArticleCommandControllerTest {
 				"tran-binh-an-hoan-thien", "CHARACTER", "Tóm tắt hoàn thiện", "Nội dung hoàn thiện để xuất bản",
 				"PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW, NOW, NOW, null, 2L, 2L);
 
-		when(updateDraftAndPublishWikiArticleUseCase.execute(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
+		when(wikiArticleCoverOrchestrator.updateDraftAndPublish(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
 				"Trần Bình An hoàn thiện", ArticleType.CHARACTER, "Tóm tắt hoàn thiện",
-				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID))).thenReturn(publishedArticle);
+				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID), null, false)).thenReturn(publishedArticle);
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
 
@@ -372,13 +350,13 @@ class AdminWikiArticleCommandControllerTest {
 		assertThat(redirectAttributes.getFlashAttributes().get("wikiAutosaveCleanupKey"))
 				.isEqualTo("kiemlai:wiki:autosave:edit:" + ARTICLE_ID);
 
-		verify(updateDraftAndPublishWikiArticleUseCase).execute(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
+		verify(wikiArticleCoverOrchestrator).updateDraftAndPublish(new UpdateDraftAndPublishWikiArticleCommand(ARTICLE_ID,
 				"Trần Bình An hoàn thiện", ArticleType.CHARACTER, "Tóm tắt hoàn thiện",
-				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID));
+				"Nội dung hoàn thiện để xuất bản", "Hoàn thiện và xuất bản", ADMIN_ID), null, false);
 
-		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(UpdateDraftWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updatePublished(any(UpdatePublishedWikiArticleCommand.class), any(), anyBoolean());
 	}
 
 	@Test
@@ -407,12 +385,12 @@ class AdminWikiArticleCommandControllerTest {
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
 
-		verify(updateDraftAndPublishWikiArticleUseCase, never())
-				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never())
+				.updateDraftAndPublish(any(UpdateDraftAndPublishWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(UpdateDraftWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updatePublished(any(UpdatePublishedWikiArticleCommand.class), any(), anyBoolean());
 	}
 
 	/*
@@ -450,8 +428,8 @@ class AdminWikiArticleCommandControllerTest {
 				"Tóm tắt published mới", "Nội dung published mới", "PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW,
 				NOW, NOW, null, 2L, 2L);
 
-		when(updatePublishedWikiArticleUseCase.execute(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
-				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID)))
+		when(wikiArticleCoverOrchestrator.updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID), null, false))
 				.thenReturn(updatedArticle);
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
@@ -461,13 +439,47 @@ class AdminWikiArticleCommandControllerTest {
 
 		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
 
-		verify(updatePublishedWikiArticleUseCase).execute(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
-				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID));
+		verify(wikiArticleCoverOrchestrator).updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt published mới", "Nội dung published mới", "Bổ sung nội dung", ADMIN_ID), null, false);
 
-		verify(updateDraftAndPublishWikiArticleUseCase, never())
-				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never())
+				.updateDraftAndPublish(any(UpdateDraftAndPublishWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(UpdateDraftWikiArticleCommand.class), any(), anyBoolean());
+	}
+
+	@Test
+	@DisplayName("Chỉnh sửa bài Wiki PUBLISHED với sourceContributionId sẽ chuyển tiếp ID và redirect về chi tiết đóng góp")
+	void shouldUpdatePublishedWikiArticleWithSourceContributionId() {
+		UUID sourceContributionId = UUID.randomUUID();
+		EditWikiArticleForm form = new EditWikiArticleForm();
+		form.setSummary("Tóm tắt theo đóng góp");
+		form.setContent("Nội dung theo đóng góp");
+		form.setEditSummary("Cập nhật theo ý kiến độc giả");
+		form.setSourceContributionId(sourceContributionId);
+
+		prepareAuthenticatedAdmin();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createPublishedArticleDTO());
+
+		WikiArticleDTO updatedArticle = new WikiArticleDTO(ARTICLE_ID, "Trần Bình An", "tran-binh-an", "CHARACTER",
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "PUBLISHED", ADMIN_ID, ADMIN_ID, ADMIN_ID, null, NOW,
+				NOW, NOW, null, 2L, 2L);
+
+		when(wikiArticleCoverOrchestrator.updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "Cập nhật theo ý kiến độc giả", ADMIN_ID, 50, 50, sourceContributionId), null, false))
+				.thenReturn(updatedArticle);
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES, authentication,
+				redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/contributions/" + sourceContributionId);
+
+		verify(wikiArticleCoverOrchestrator).updatePublished(new UpdatePublishedWikiArticleCommand(ARTICLE_ID,
+				"Tóm tắt theo đóng góp", "Nội dung theo đóng góp", "Cập nhật theo ý kiến độc giả", ADMIN_ID, 50, 50, sourceContributionId), null, false);
 	}
 
 	/*
@@ -501,12 +513,12 @@ class AdminWikiArticleCommandControllerTest {
 				.isEqualTo("Bài Wiki đã lưu trữ không thể chỉnh sửa trực tiếp.");
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isNull();
-		verify(updateDraftAndPublishWikiArticleUseCase, never())
-				.execute(any(UpdateDraftAndPublishWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never())
+				.updateDraftAndPublish(any(UpdateDraftAndPublishWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updateDraftWikiArticleUseCase, never()).execute(any(UpdateDraftWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(UpdateDraftWikiArticleCommand.class), any(), anyBoolean());
 
-		verify(updatePublishedWikiArticleUseCase, never()).execute(any(UpdatePublishedWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).updatePublished(any(UpdatePublishedWikiArticleCommand.class), any(), anyBoolean());
 	}
 
 	@Test
@@ -666,7 +678,7 @@ class AdminWikiArticleCommandControllerTest {
 
 		assertThat(redirectAttributes.getFlashAttributes().get("successMessage")).isEqualTo("Đã xóa bài Wiki.");
 
-		verify(deleteWikiArticleUseCase).execute(new DeleteWikiArticleCommand(ARTICLE_ID));
+		verify(wikiArticleCoverOrchestrator).deleteArticle(ARTICLE_ID);
 	}
 
 	@Test
@@ -782,7 +794,7 @@ class AdminWikiArticleCommandControllerTest {
 		lenient().when(authentication.getName()).thenReturn("104829374019283746152");
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
-		when(createWikiArticleUseCase.execute(any(CreateWikiArticleCommand.class)))
+		when(wikiArticleCoverOrchestrator.createDraft(any(CreateWikiArticleCommand.class), any()))
 				.thenReturn(createDraftArticleDTO());
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
@@ -795,9 +807,9 @@ class AdminWikiArticleCommandControllerTest {
 				.isEqualTo("Đã lưu bản nháp Wiki \"Trần Bình An\".");
 
 		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
-		verify(createWikiArticleUseCase).execute(
+		verify(wikiArticleCoverOrchestrator).createDraft(
 				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
-						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID));
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID), null);
 	}
 
 	@Test
@@ -810,7 +822,7 @@ class AdminWikiArticleCommandControllerTest {
 		when(authentication.getPrincipal()).thenReturn(ADMIN_EMAIL);
 
 		when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(createAdminDTO()));
-		when(createWikiArticleUseCase.execute(any(CreateWikiArticleCommand.class)))
+		when(wikiArticleCoverOrchestrator.createDraft(any(CreateWikiArticleCommand.class), any()))
 				.thenReturn(createDraftArticleDTO());
 
 		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
@@ -823,9 +835,9 @@ class AdminWikiArticleCommandControllerTest {
 				.isEqualTo("Đã lưu bản nháp Wiki \"Trần Bình An\".");
 
 		verify(userIdentityContract).findByEmail(ADMIN_EMAIL);
-		verify(createWikiArticleUseCase).execute(
+		verify(wikiArticleCoverOrchestrator).createDraft(
 				new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
-						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID));
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID), null);
 	}
 
 	@Test
@@ -839,7 +851,7 @@ class AdminWikiArticleCommandControllerTest {
 				.hasMessage("Không xác định được người dùng đang đăng nhập.");
 
 		verify(userIdentityContract, never()).findByEmail(any());
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 	}
 
 	@Test
@@ -855,7 +867,7 @@ class AdminWikiArticleCommandControllerTest {
 				.hasMessage("Không xác định được người dùng đang đăng nhập.");
 
 		verify(userIdentityContract, never()).findByEmail(any());
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 	}
 
 	@Test
@@ -871,7 +883,7 @@ class AdminWikiArticleCommandControllerTest {
 				.hasMessage("Không xác định được người dùng đang đăng nhập.");
 
 		verify(userIdentityContract, never()).findByEmail(any());
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
 	}
 
 	@Test
@@ -891,7 +903,120 @@ class AdminWikiArticleCommandControllerTest {
 				.hasMessage("Không xác định được người dùng đang đăng nhập.");
 
 		verify(userIdentityContract, never()).findByEmail(any());
-		verify(createWikiArticleUseCase, never()).execute(any(CreateWikiArticleCommand.class));
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(CreateWikiArticleCommand.class), any());
+	}
+
+	@Test
+	@DisplayName("Tạo bản nháp bài Wiki kèm ảnh bìa hợp lệ")
+	void shouldCreateWikiDraftWithCoverImage() {
+		CreateWikiArticleForm form = createValidForm();
+		org.springframework.mock.web.MockMultipartFile coverFile =
+				new org.springframework.mock.web.MockMultipartFile("coverImageFile", "cover.webp", "image/webp", new byte[]{1, 2, 3, 4});
+		form.setCoverImageFile(coverFile);
+
+		prepareAuthenticatedAdmin();
+
+		when(wikiArticleCoverOrchestrator.createDraft(any(CreateWikiArticleCommand.class), any()))
+				.thenReturn(createDraftArticleDTO());
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication, redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles");
+		assertThat(redirectAttributes.getFlashAttributes().get("successMessage"))
+				.isEqualTo("Đã lưu bản nháp Wiki \"Trần Bình An\".");
+
+		verify(wikiArticleCoverOrchestrator).createDraft(
+				org.mockito.ArgumentMatchers.eq(new CreateWikiArticleCommand("Trần Bình An", ArticleType.CHARACTER, "Nhân vật chính của Kiếm Lai.",
+						"Nội dung ban đầu của bài viết.", "Khởi tạo bài Trần Bình An", ADMIN_ID)),
+				org.mockito.ArgumentMatchers.argThat(upload -> upload != null
+						&& upload.sizeBytes() == 4
+						&& "image/webp".equals(upload.contentType())
+						&& "cover.webp".equals(upload.originalFilename()))
+		);
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài Wiki khi ảnh bìa vượt quá 5MB")
+	void shouldRejectCoverImageOver5MB() {
+		CreateWikiArticleForm form = createValidForm();
+		byte[] largeBytes = new byte[5 * 1024 * 1024 + 1];
+		org.springframework.mock.web.MockMultipartFile coverFile =
+				new org.springframework.mock.web.MockMultipartFile("coverImageFile", "large.png", "image/png", largeBytes);
+		form.setCoverImageFile(coverFile);
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("Kích thước ảnh bìa không được vượt quá 5MB.");
+
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(), any());
+	}
+
+	@Test
+	@DisplayName("Từ chối tạo bài Wiki khi định dạng ảnh bìa không được hỗ trợ")
+	void shouldRejectUnsupportedCoverImageType() {
+		CreateWikiArticleForm form = createValidForm();
+		org.springframework.mock.web.MockMultipartFile coverFile =
+				new org.springframework.mock.web.MockMultipartFile("coverImageFile", "anim.gif", "image/gif", new byte[]{1, 2, 3});
+		form.setCoverImageFile(coverFile);
+
+		assertThatThrownBy(() -> controller.createArticle(form, CreateWikiArticleAction.SAVE_DRAFT, authentication,
+				new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("Định dạng ảnh bìa không được hỗ trợ. Chỉ chấp nhận JPG, PNG hoặc WebP.");
+
+		verify(wikiArticleCoverOrchestrator, never()).createDraft(any(), any());
+	}
+
+	@Test
+	@DisplayName("Từ chối cập nhật bài Wiki khi vừa chọn xóa ảnh bìa vừa tải lên ảnh bìa mới")
+	void shouldRejectSimultaneousCoverRemovalAndUploadInUpdate() {
+		EditWikiArticleForm form = new EditWikiArticleForm();
+		form.setTitle("Tiêu đề");
+		form.setArticleType(ArticleType.CHARACTER);
+		form.setRemoveCover(true);
+		org.springframework.mock.web.MockMultipartFile coverFile =
+				new org.springframework.mock.web.MockMultipartFile("coverImageFile", "new.jpg", "image/jpeg", new byte[]{1, 2});
+		form.setCoverImageFile(coverFile);
+
+		assertThatThrownBy(() -> controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES,
+				authentication, new RedirectAttributesModelMap()))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("Không thể đồng thời vừa xóa ảnh bìa vừa tải lên ảnh bìa mới.");
+
+		verify(wikiArticleCoverOrchestrator, never()).updateDraft(any(), any(), anyBoolean());
+		verify(wikiArticleCoverOrchestrator, never()).updatePublished(any(), any(), anyBoolean());
+	}
+
+	@Test
+	@DisplayName("Cập nhật bài Wiki với cờ xóa ảnh bìa")
+	void shouldUpdateDraftWithCoverRemoval() {
+		EditWikiArticleForm form = new EditWikiArticleForm();
+		form.setTitle("Trần Bình An");
+		form.setArticleType(ArticleType.CHARACTER);
+		form.setSummary("Tóm tắt");
+		form.setContent("Nội dung");
+		form.setEditSummary("Gỡ ảnh bìa");
+		form.setRemoveCover(true);
+
+		prepareAuthenticatedAdmin();
+
+		when(getWikiArticleDetailUseCase.execute(new GetWikiArticleDetailQuery(ARTICLE_ID)))
+				.thenReturn(createDraftArticleDTO());
+
+		WikiArticleDTO updated = createDraftArticleDTO();
+		when(wikiArticleCoverOrchestrator.updateDraft(any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(true)))
+				.thenReturn(updated);
+
+		RedirectAttributesModelMap redirectAttributes = new RedirectAttributesModelMap();
+
+		String result = controller.updateArticle(ARTICLE_ID, form, EditWikiArticleAction.SAVE_CHANGES,
+				authentication, redirectAttributes);
+
+		assertThat(result).isEqualTo("redirect:/admin/wiki/articles/" + ARTICLE_ID);
+		verify(wikiArticleCoverOrchestrator).updateDraft(any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(true));
 	}
 
 	private void prepareAuthenticatedAdmin() {

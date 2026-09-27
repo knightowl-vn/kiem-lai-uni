@@ -21,6 +21,12 @@ public class WikiArticle {
 
 	private static final int MAX_CONTENT_LENGTH = 500_000;
 
+	public static final int DEFAULT_COVER_POSITION = 50;
+
+	public static final int MIN_COVER_POSITION = 0;
+
+	public static final int MAX_COVER_POSITION = 100;
+
 	/*
 	 * ===================================================== IDENTITY
 	 * =====================================================
@@ -77,6 +83,27 @@ public class WikiArticle {
 	private Instant archivedAt;
 
 	/*
+	 * ===================================================== COVER MEDIA
+	 * =====================================================
+	 */
+
+	/**
+	 * Reference to optional Media-backed digital asset for article cover.
+	 * Wiki stores only this scalar UUID; binary lifecycle is owned by Media.
+	 */
+	private UUID coverMediaAssetId;
+
+	/**
+	 * Horizontal focal position of article cover in percentage (0..100). Default is 50.
+	 */
+	private int coverPositionX = DEFAULT_COVER_POSITION;
+
+	/**
+	 * Vertical focal position of article cover in percentage (0..100). Default is 50.
+	 */
+	private int coverPositionY = DEFAULT_COVER_POSITION;
+
+	/*
 	 * ===================================================== VERSIONS
 	 * =====================================================
 	 */
@@ -105,8 +132,9 @@ public class WikiArticle {
 	 */
 
 	private WikiArticle(UUID id, String title, Slug slug, ArticleType articleType, String summary, String content,
-			ArticleStatus status, UUID createdBy, UUID updatedBy, UUID publishedBy, UUID archivedBy, Instant createdAt,
-			Instant updatedAt, Instant publishedAt, Instant archivedAt, long aggregateVersion, long contentVersion) {
+			UUID coverMediaAssetId, int coverPositionX, int coverPositionY, ArticleStatus status, UUID createdBy,
+			UUID updatedBy, UUID publishedBy, UUID archivedBy, Instant createdAt, Instant updatedAt,
+			Instant publishedAt, Instant archivedAt, long aggregateVersion, long contentVersion) {
 		this.id = Objects.requireNonNull(id, "Article ID không được để trống.");
 
 		this.title = validateTitle(title);
@@ -118,6 +146,16 @@ public class WikiArticle {
 		this.summary = validateSummary(summary);
 
 		this.content = validateContent(content);
+
+		this.coverMediaAssetId = coverMediaAssetId;
+
+		if (coverMediaAssetId == null) {
+			this.coverPositionX = DEFAULT_COVER_POSITION;
+			this.coverPositionY = DEFAULT_COVER_POSITION;
+		} else {
+			this.coverPositionX = validateCoverPosition(coverPositionX, "Vị trí tâm ảnh theo trục X");
+			this.coverPositionY = validateCoverPosition(coverPositionY, "Vị trí tâm ảnh theo trục Y");
+		}
 
 		this.status = Objects.requireNonNull(status, "Article status không được để trống.");
 
@@ -162,28 +200,50 @@ public class WikiArticle {
 	 */
 	public static WikiArticle createDraft(UUID id, String title, Slug slug, ArticleType articleType, UUID createdBy,
 			Instant now) {
-		return createDraft(id, title, slug, articleType, "", "", createdBy, now);
+		return createDraft(id, title, slug, articleType, "", "", null, DEFAULT_COVER_POSITION, DEFAULT_COVER_POSITION,
+				createdBy, now);
 	}
 
 	/**
-	 * Tạo một bài viết mới ở trạng thái DRAFT cùng với nội dung ban đầu.
+	 * Tạo bản nháp rỗng với ảnh bìa tùy chọn.
+	 */
+	public static WikiArticle createDraft(UUID id, String title, Slug slug, ArticleType articleType, UUID createdBy,
+			Instant now, UUID coverMediaAssetId) {
+		return createDraft(id, title, slug, articleType, "", "", coverMediaAssetId, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, createdBy, now);
+	}
+
+	/**
+	 * Tạo một bài viết mới ở trạng thái DRAFT cùng với nội dung ban đầu, ảnh bìa và tọa độ tâm ảnh tùy chọn.
+	 */
+	public static WikiArticle createDraft(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, Integer coverPositionX, Integer coverPositionY, UUID createdBy,
+			Instant now) {
+		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian tạo bài viết không được để trống.");
+		int posX = validateCoverPosition(coverPositionX, "Vị trí tâm ảnh theo trục X");
+		int posY = validateCoverPosition(coverPositionY, "Vị trí tâm ảnh theo trục Y");
+
+		return new WikiArticle(id, title, slug, articleType, summary, content, coverMediaAssetId, posX, posY,
+				ArticleStatus.DRAFT, createdBy, createdBy, null, null, normalizedNow, normalizedNow, null, null,
+				1L, 1L);
+	}
+
+	/**
+	 * Tạo một bài viết mới ở trạng thái DRAFT cùng với nội dung ban đầu và ảnh bìa tùy chọn (mặc định 50/50).
+	 */
+	public static WikiArticle createDraft(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, UUID createdBy, Instant now) {
+		return createDraft(id, title, slug, articleType, summary, content, coverMediaAssetId, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, createdBy, now);
+	}
+
+	/**
+	 * Tạo một bài viết mới ở trạng thái DRAFT cùng với nội dung ban đầu (không có ảnh bìa).
 	 */
 	public static WikiArticle createDraft(UUID id, String title, Slug slug, ArticleType articleType, String summary,
 			String content, UUID createdBy, Instant now) {
-		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian tạo bài viết không được để trống.");
-
-		return new WikiArticle(id, title, slug, articleType, summary, content, ArticleStatus.DRAFT, createdBy,
-				createdBy, null, null, normalizedNow, normalizedNow, null, null,
-
-				/*
-				 * Aggregate đầu tiên.
-				 */
-				1L,
-
-				/*
-				 * Nội dung đầu tiên.
-				 */
-				1L);
+		return createDraft(id, title, slug, articleType, summary, content, null, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, createdBy, now);
 	}
 
 	/*
@@ -192,20 +252,21 @@ public class WikiArticle {
 	 */
 
 	/**
-	 * Tạo một bài viết mới và xuất bản ngay.
+	 * Tạo một bài viết mới và xuất bản ngay với ảnh bìa và tọa độ tâm ảnh tùy chọn.
 	 *
-	 * Đây là một thao tác nghiệp vụ duy nhất, không tạo một DRAFT được lưu trung
-	 * gian.
+	 * Đây là một thao tác nghiệp vụ duy nhất, không tạo một DRAFT được lưu trung gian.
 	 */
 	public static WikiArticle createPublished(UUID id, String title, Slug slug, ArticleType articleType, String summary,
-			String content, UUID createdBy, Instant now) {
+			String content, UUID coverMediaAssetId, Integer coverPositionX, Integer coverPositionY, UUID createdBy,
+			Instant now) {
 		UUID normalizedCreatedBy = Objects.requireNonNull(createdBy, "Người tạo bài viết không được để trống.");
-
 		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian tạo bài viết không được để trống.");
+		int posX = validateCoverPosition(coverPositionX, "Vị trí tâm ảnh theo trục X");
+		int posY = validateCoverPosition(coverPositionY, "Vị trí tâm ảnh theo trục Y");
 
-		WikiArticle article = new WikiArticle(id, title, slug, articleType, summary, content, ArticleStatus.PUBLISHED,
-				normalizedCreatedBy, normalizedCreatedBy, normalizedCreatedBy, null, normalizedNow, normalizedNow,
-				normalizedNow, null, 1L, 1L);
+		WikiArticle article = new WikiArticle(id, title, slug, articleType, summary, content, coverMediaAssetId, posX,
+				posY, ArticleStatus.PUBLISHED, normalizedCreatedBy, normalizedCreatedBy, normalizedCreatedBy, null,
+				normalizedNow, normalizedNow, normalizedNow, null, 1L, 1L);
 
 		/*
 		 * Publish yêu cầu content. Summary là tùy chọn.
@@ -215,23 +276,65 @@ public class WikiArticle {
 		return article;
 	}
 
+	/**
+	 * Tạo một bài viết mới và xuất bản ngay với ảnh bìa tùy chọn (mặc định 50/50).
+	 */
+	public static WikiArticle createPublished(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, UUID createdBy, Instant now) {
+		return createPublished(id, title, slug, articleType, summary, content, coverMediaAssetId, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, createdBy, now);
+	}
+
+	/**
+	 * Tạo một bài viết mới và xuất bản ngay (không có ảnh bìa).
+	 */
+	public static WikiArticle createPublished(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID createdBy, Instant now) {
+		return createPublished(id, title, slug, articleType, summary, content, null, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, createdBy, now);
+	}
+
 	/*
 	 * ===================================================== REHYDRATE
 	 * =====================================================
 	 */
 
 	/**
-	 * Khôi phục Aggregate từ persistence.
+	 * Khôi phục Aggregate từ persistence với coverMediaAssetId và tọa độ tâm ảnh.
 	 *
 	 * Không sinh ra mutation nghiệp vụ mới.
+	 */
+	public static WikiArticle rehydrate(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, int coverPositionX, int coverPositionY, ArticleStatus status,
+			UUID createdBy, UUID updatedBy, UUID publishedBy, UUID archivedBy, Instant createdAt, Instant updatedAt,
+			Instant publishedAt, Instant archivedAt, long aggregateVersion, long contentVersion) {
+		return new WikiArticle(id, title, slug, articleType, summary, content, coverMediaAssetId, coverPositionX,
+				coverPositionY, status, createdBy, updatedBy, publishedBy, archivedBy, createdAt, updatedAt,
+				publishedAt, archivedAt, aggregateVersion, contentVersion);
+	}
+
+	/**
+	 * Khôi phục Aggregate từ persistence với coverMediaAssetId (mặc định 50/50).
+	 */
+	public static WikiArticle rehydrate(UUID id, String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, ArticleStatus status, UUID createdBy, UUID updatedBy,
+			UUID publishedBy, UUID archivedBy, Instant createdAt, Instant updatedAt, Instant publishedAt,
+			Instant archivedAt, long aggregateVersion, long contentVersion) {
+		return rehydrate(id, title, slug, articleType, summary, content, coverMediaAssetId, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, status, createdBy, updatedBy, publishedBy, archivedBy, createdAt, updatedAt,
+				publishedAt, archivedAt, aggregateVersion, contentVersion);
+	}
+
+	/**
+	 * Khôi phục Aggregate từ persistence (caller cũ không có coverMediaAssetId).
 	 */
 	public static WikiArticle rehydrate(UUID id, String title, Slug slug, ArticleType articleType, String summary,
 			String content, ArticleStatus status, UUID createdBy, UUID updatedBy, UUID publishedBy, UUID archivedBy,
 			Instant createdAt, Instant updatedAt, Instant publishedAt, Instant archivedAt, long aggregateVersion,
 			long contentVersion) {
-		return new WikiArticle(id, title, slug, articleType, summary, content, status, createdBy, updatedBy,
-				publishedBy, archivedBy, createdAt, updatedAt, publishedAt, archivedAt, aggregateVersion,
-				contentVersion);
+		return rehydrate(id, title, slug, articleType, summary, content, null, DEFAULT_COVER_POSITION,
+				DEFAULT_COVER_POSITION, status, createdBy, updatedBy, publishedBy, archivedBy, createdAt, updatedAt,
+				publishedAt, archivedAt, aggregateVersion, contentVersion);
 	}
 
 	/*
@@ -249,7 +352,7 @@ public class WikiArticle {
 	 * contentVersion; - không đổi updatedBy / updatedAt.
 	 */
 	public boolean updateDraft(String title, Slug slug, ArticleType articleType, String summary, String content,
-			UUID editorId, Instant now) {
+			UUID coverMediaAssetId, Integer coverPositionX, Integer coverPositionY, UUID editorId, Instant now) {
 		requireStatus(ArticleStatus.DRAFT, "Chỉ được thay đổi tiêu đề, slug và loại bài khi bài viết còn là bản nháp.");
 
 		/*
@@ -269,30 +372,56 @@ public class WikiArticle {
 
 		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian cập nhật không được để trống.");
 
-		boolean changed = hasEditorialContentChanged(normalizedTitle, normalizedSlug, normalizedArticleType,
+		int posX = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionX != null ? coverPositionX : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionX : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục X");
+		int posY = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionY != null ? coverPositionY : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionY : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục Y");
+
+		boolean contentChanged = hasEditorialContentChanged(normalizedTitle, normalizedSlug, normalizedArticleType,
 				normalizedSummary, normalizedContent);
+		boolean coverChanged = !Objects.equals(this.coverMediaAssetId, coverMediaAssetId);
+		boolean positionChanged = this.coverPositionX != posX || this.coverPositionY != posY;
 
 		/*
-		 * Save mà không sửa gì thì không tạo version mới.
+		 * Save mà không sửa gì (cả nội dung lẫn ảnh bìa và vị trí tâm) thì không tạo version mới.
 		 */
-		if (!changed) {
+		if (!contentChanged && !coverChanged && !positionChanged) {
 			return false;
 		}
 
 		this.title = normalizedTitle;
-
 		this.slug = normalizedSlug;
-
 		this.articleType = normalizedArticleType;
-
 		this.summary = normalizedSummary;
-
 		this.content = normalizedContent;
+		this.coverMediaAssetId = coverMediaAssetId;
+		this.coverPositionX = posX;
+		this.coverPositionY = posY;
+		this.updatedBy = normalizedEditorId;
+		this.updatedAt = normalizedNow;
 
-		markContentUpdated(normalizedEditorId, normalizedNow);
+		increaseVersion();
+		if (contentChanged) {
+			increaseContentVersion();
+		}
 
 		return true;
 	}
+
+	public boolean updateDraft(String title, Slug slug, ArticleType articleType, String summary, String content,
+			UUID coverMediaAssetId, UUID editorId, Instant now) {
+		return updateDraft(title, slug, articleType, summary, content, coverMediaAssetId, this.coverPositionX,
+				this.coverPositionY, editorId, now);
+	}
+
+	public boolean updateDraft(String title, Slug slug, ArticleType articleType, String summary, String content,
+			UUID editorId, Instant now) {
+		return updateDraft(title, slug, articleType, summary, content, this.coverMediaAssetId, this.coverPositionX,
+				this.coverPositionY, editorId, now);
+	}
+
 	/*
 	 * ===================================================== UPDATE DRAFT + PUBLISH
 	 * =====================================================
@@ -309,7 +438,8 @@ public class WikiArticle {
 	 * contentVersion: - chỉ tăng khi nội dung biên tập thực sự thay đổi.
 	 */
 	public boolean updateDraftAndPublish(String title, Slug slug, ArticleType articleType, String summary,
-			String content, UUID actorId, Instant now) {
+			String content, UUID coverMediaAssetId, Integer coverPositionX, Integer coverPositionY, UUID actorId,
+			Instant now) {
 		requireStatus(ArticleStatus.DRAFT, "Chỉ bài viết ở trạng thái DRAFT " + "mới được cập nhật và xuất bản.");
 
 		/*
@@ -339,6 +469,13 @@ public class WikiArticle {
 			throw new IllegalStateException("Bài viết phải có nội dung trước khi xuất bản.");
 		}
 
+		int posX = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionX != null ? coverPositionX : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionX : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục X");
+		int posY = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionY != null ? coverPositionY : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionY : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục Y");
+
 		boolean contentChanged = hasEditorialContentChanged(normalizedTitle, normalizedSlug, normalizedArticleType,
 				normalizedSummary, normalizedContent);
 
@@ -354,6 +491,12 @@ public class WikiArticle {
 		this.summary = normalizedSummary;
 
 		this.content = normalizedContent;
+
+		this.coverMediaAssetId = coverMediaAssetId;
+
+		this.coverPositionX = posX;
+
+		this.coverPositionY = posY;
 
 		/*
 		 * Apply lifecycle state.
@@ -387,17 +530,30 @@ public class WikiArticle {
 		return contentChanged;
 	}
 
+	public boolean updateDraftAndPublish(String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID coverMediaAssetId, UUID actorId, Instant now) {
+		return updateDraftAndPublish(title, slug, articleType, summary, content, coverMediaAssetId,
+				this.coverPositionX, this.coverPositionY, actorId, now);
+	}
+
+	public boolean updateDraftAndPublish(String title, Slug slug, ArticleType articleType, String summary,
+			String content, UUID actorId, Instant now) {
+		return updateDraftAndPublish(title, slug, articleType, summary, content, this.coverMediaAssetId,
+				this.coverPositionX, this.coverPositionY, actorId, now);
+	}
+
 	/*
 	 * ===================================================== UPDATE PUBLISHED
 	 * =====================================================
 	 */
 
 	/**
-	 * Cập nhật summary/content của bài đã PUBLISHED.
+	 * Cập nhật summary/content của bài đã PUBLISHED cùng với ảnh bìa và tọa độ tâm ảnh tùy chọn.
 	 *
 	 * Tiêu đề, slug và articleType không thay đổi trong flow này.
 	 */
-	public boolean updatePublishedContent(String summary, String content, UUID editorId, Instant now) {
+	public boolean updatePublishedContent(String summary, String content, UUID coverMediaAssetId,
+			Integer coverPositionX, Integer coverPositionY, UUID editorId, Instant now) {
 		requireStatus(ArticleStatus.PUBLISHED, "Chỉ bài viết ở trạng thái PUBLISHED mới được cập nhật theo luồng này.");
 
 		String normalizedSummary = validateSummary(summary);
@@ -412,10 +568,19 @@ public class WikiArticle {
 
 		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian cập nhật không được để trống.");
 
-		boolean changed = !Objects.equals(this.summary, normalizedSummary)
-				|| !Objects.equals(this.content, normalizedContent);
+		int posX = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionX != null ? coverPositionX : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionX : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục X");
+		int posY = (coverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(coverPositionY != null ? coverPositionY : (Objects.equals(this.coverMediaAssetId, coverMediaAssetId) ? this.coverPositionY : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục Y");
 
-		if (!changed) {
+		boolean contentChanged = !Objects.equals(this.summary, normalizedSummary)
+				|| !Objects.equals(this.content, normalizedContent);
+		boolean coverChanged = !Objects.equals(this.coverMediaAssetId, coverMediaAssetId);
+		boolean positionChanged = this.coverPositionX != posX || this.coverPositionY != posY;
+
+		if (!contentChanged && !coverChanged && !positionChanged) {
 			return false;
 		}
 
@@ -423,9 +588,95 @@ public class WikiArticle {
 
 		this.content = normalizedContent;
 
-		markContentUpdated(normalizedEditorId, normalizedNow);
+		this.coverMediaAssetId = coverMediaAssetId;
+
+		this.coverPositionX = posX;
+
+		this.coverPositionY = posY;
+
+		this.updatedBy = normalizedEditorId;
+
+		this.updatedAt = normalizedNow;
+
+		increaseVersion();
+		if (contentChanged) {
+			increaseContentVersion();
+		}
 
 		return true;
+	}
+
+	public boolean updatePublishedContent(String summary, String content, UUID coverMediaAssetId, UUID editorId, Instant now) {
+		return updatePublishedContent(summary, content, coverMediaAssetId, this.coverPositionX, this.coverPositionY,
+				editorId, now);
+	}
+
+	public boolean updatePublishedContent(String summary, String content, UUID editorId, Instant now) {
+		return updatePublishedContent(summary, content, this.coverMediaAssetId, this.coverPositionX,
+				this.coverPositionY, editorId, now);
+	}
+
+	/*
+	 * ===================================================== COVER REFERENCE MUTATION
+	 * =====================================================
+	 */
+
+	/**
+	 * Thay đổi tham chiếu ảnh bìa Media của bài viết (gắn mới, gỡ bỏ, đổi sang asset khác, hoặc đổi tâm ảnh).
+	 *
+	 * - null -> UUID (gắn mới): aggregateVersion tăng, contentVersion giữ nguyên.
+	 * - UUID -> null (gỡ bỏ): aggregateVersion tăng, contentVersion giữ nguyên, tâm ảnh reset về 50/50.
+	 * - UUID1 -> UUID2 (đổi asset): aggregateVersion tăng, contentVersion giữ nguyên.
+	 * - cùng UUID và cùng tâm ảnh: trả về false, không tạo mutation giả.
+	 * - cùng UUID nhưng đổi tâm ảnh: aggregateVersion tăng, contentVersion giữ nguyên.
+	 */
+	public boolean changeCoverMedia(UUID newCoverMediaAssetId, Integer newCoverPositionX, Integer newCoverPositionY,
+			UUID editorId, Instant now) {
+		int posX = (newCoverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(newCoverPositionX != null ? newCoverPositionX : (Objects.equals(this.coverMediaAssetId, newCoverMediaAssetId) ? this.coverPositionX : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục X");
+		int posY = (newCoverMediaAssetId == null)
+				? DEFAULT_COVER_POSITION
+				: validateCoverPosition(newCoverPositionY != null ? newCoverPositionY : (Objects.equals(this.coverMediaAssetId, newCoverMediaAssetId) ? this.coverPositionY : DEFAULT_COVER_POSITION), "Vị trí tâm ảnh theo trục Y");
+
+		boolean coverChanged = !Objects.equals(this.coverMediaAssetId, newCoverMediaAssetId);
+		boolean positionChanged = this.coverPositionX != posX || this.coverPositionY != posY;
+
+		if (!coverChanged && !positionChanged) {
+			return false;
+		}
+
+		UUID normalizedEditorId = Objects.requireNonNull(editorId, "Người cập nhật không được để trống.");
+		Instant normalizedNow = Objects.requireNonNull(now, "Thời gian cập nhật không được để trống.");
+
+		this.coverMediaAssetId = newCoverMediaAssetId;
+		this.coverPositionX = posX;
+		this.coverPositionY = posY;
+		this.updatedBy = normalizedEditorId;
+		this.updatedAt = normalizedNow;
+
+		increaseVersion();
+		return true;
+	}
+
+	public boolean changeCoverMediaAssetId(UUID newCoverMediaAssetId, UUID editorId, Instant now) {
+		return changeCoverMedia(newCoverMediaAssetId, this.coverPositionX, this.coverPositionY, editorId, now);
+	}
+
+	public boolean changeCoverPosition(int newCoverPositionX, int newCoverPositionY, UUID editorId, Instant now) {
+		return changeCoverMedia(this.coverMediaAssetId, newCoverPositionX, newCoverPositionY, editorId, now);
+	}
+
+	public UUID getCoverMediaAssetId() {
+		return coverMediaAssetId;
+	}
+
+	public int getCoverPositionX() {
+		return coverPositionX;
+	}
+
+	public int getCoverPositionY() {
+		return coverPositionY;
 	}
 
 	/*
@@ -751,6 +1002,17 @@ public class WikiArticle {
 		}
 
 		return normalizedContent;
+	}
+
+	public static int validateCoverPosition(Integer position, String fieldName) {
+		if (position == null) {
+			return DEFAULT_COVER_POSITION;
+		}
+		if (position < MIN_COVER_POSITION || position > MAX_COVER_POSITION) {
+			throw new IllegalArgumentException(
+					fieldName + " phải nằm trong khoảng từ " + MIN_COVER_POSITION + " đến " + MAX_COVER_POSITION + ".");
+		}
+		return position;
 	}
 
 	/*

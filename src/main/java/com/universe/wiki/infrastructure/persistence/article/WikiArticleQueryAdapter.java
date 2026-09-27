@@ -2,6 +2,7 @@ package com.universe.wiki.infrastructure.persistence.article;
 
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
@@ -17,9 +18,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 public class WikiArticleQueryAdapter
@@ -33,6 +39,23 @@ public class WikiArticleQueryAdapter
     ) {
         this.repository =
                 repository;
+    }
+
+    @Override
+    public Optional<WikiArticleEligibilitySnapshot> findEligibilityById(
+            UUID articleId
+    ) {
+        if (articleId == null) {
+            return Optional.empty();
+        }
+
+        return repository
+                .findEligibilityById(articleId.toString())
+                .map(p -> new WikiArticleEligibilitySnapshot(
+                        UUID.fromString(p.getId()),
+                        p.getArticleType(),
+                        p.getStatus()
+                ));
     }
 
     @Override
@@ -64,6 +87,18 @@ public class WikiArticleQueryAdapter
                         ArticleStatus.PUBLISHED.name()
                 )
                 .map(this::toPublishedDTO);
+    }
+
+    @Override
+    public boolean isPublished(UUID articleId) {
+        if (articleId == null) {
+            return false;
+        }
+
+        return repository.existsByIdAndStatus(
+                articleId.toString(),
+                ArticleStatus.PUBLISHED.name()
+        );
     }
     @Override
     public Optional<PublishedWikiArticleDTO>
@@ -265,7 +300,15 @@ public class WikiArticleQueryAdapter
                 entity.getSummary(),
                 entity.getContent(),
                 entity.getPublishedAt(),
-                entity.getUpdatedAt()
+                entity.getUpdatedAt(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY()),
+                entity.getContentVersion(),
+                toNullableUuid(entity.getCreatedBy()),
+                toNullableUuid(entity.getUpdatedBy())
         );
     }
     private PublishedWikiArticleListItemDTO
@@ -273,18 +316,23 @@ public class WikiArticleQueryAdapter
             WikiArticleJpaEntity entity
     ) {
 
-return new PublishedWikiArticleListItemDTO(
-        UUID.fromString(
-                entity.getId()
-        ),
-        entity.getTitle(),
-        entity.getSlug(),
-        entity.getArticleType(),
-        entity.getSummary(),
-        entity.getPublishedAt(),
-        entity.getUpdatedAt()
-);
-}
+        return new PublishedWikiArticleListItemDTO(
+                UUID.fromString(
+                        entity.getId()
+                ),
+                entity.getTitle(),
+                entity.getSlug(),
+                entity.getArticleType(),
+                entity.getSummary(),
+                entity.getPublishedAt(),
+                entity.getUpdatedAt(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
+        );
+    }
 
     private WikiArticleDTO toDTO(
             WikiArticleJpaEntity entity
@@ -316,7 +364,12 @@ return new PublishedWikiArticleListItemDTO(
                 entity.getPublishedAt(),
                 entity.getArchivedAt(),
                 entity.getAggregateVersion(),
-                entity.getContentVersion()
+                entity.getContentVersion(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
         );
     }
 
@@ -337,6 +390,51 @@ return new PublishedWikiArticleListItemDTO(
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
                 entity.getContentVersion()
+        );
+    }
+
+    @Override
+    public Map<UUID, WikiArticleListItemDTO> findListItemsByIds(Set<UUID> articleIds) {
+        if (articleIds == null || articleIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Set<String> idStrings = articleIds.stream()
+                .filter(Objects::nonNull)
+                .map(UUID::toString)
+                .collect(Collectors.toSet());
+
+        if (idStrings.isEmpty()) {
+            return Map.of();
+        }
+
+        return repository.findListItemsByIds(idStrings).stream()
+                .map(this::toListItemDTO)
+                .collect(Collectors.toMap(
+                        WikiArticleListItemDTO::id,
+                        dto -> dto,
+                        (existing, replacement) -> existing,
+                        LinkedHashMap::new
+                ));
+    }
+
+    private WikiArticleListItemDTO toListItemDTO(
+            WikiArticleListItemProjection projection
+    ) {
+        return new WikiArticleListItemDTO(
+                UUID.fromString(
+                        projection.getId()
+                ),
+                projection.getTitle(),
+                projection.getSlug(),
+                projection.getArticleType(),
+                projection.getStatus(),
+                toNullableUuid(
+                        projection.getUpdatedBy()
+                ),
+                projection.getCreatedAt(),
+                projection.getUpdatedAt(),
+                projection.getContentVersion()
         );
     }
 

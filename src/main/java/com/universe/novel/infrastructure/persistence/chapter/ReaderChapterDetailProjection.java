@@ -14,6 +14,8 @@ public interface ReaderChapterDetailProjection {
 
     String getContent();
 
+    Long getContentVersion();
+
     String getVolumeTitle();
 
     String getVolumeSlug();

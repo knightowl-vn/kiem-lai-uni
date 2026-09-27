@@ -5,7 +5,6 @@ import com.universe.novel.application.ports.ReaderChapterAccessQueryPort;
 import com.universe.novel.application.ports.ReadingHistoryRepositoryPort;
 import com.universe.novel.domain.reader.UserChapterReadingHistory;
 import com.universe.shared.id.IdGeneratorPort;
-import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,13 +28,11 @@ public class RecordReadingHistoryAttemptExecutor {
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final ReadingHistoryRepositoryPort readingHistoryRepositoryPort;
     private final IdGeneratorPort idGeneratorPort;
-    private final ClockPort clockPort;
 
     public RecordReadingHistoryAttemptExecutor(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
             ReadingHistoryRepositoryPort readingHistoryRepositoryPort,
-            IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            IdGeneratorPort idGeneratorPort
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -49,14 +46,10 @@ public class RecordReadingHistoryAttemptExecutor {
                 idGeneratorPort,
                 "IdGeneratorPort không được để trống."
         );
-        this.clockPort = Objects.requireNonNull(
-                clockPort,
-                "ClockPort không được để trống."
-        );
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void executeAttempt(UUID userId, UUID chapterId) {
+    public void executeAttempt(UUID userId, UUID chapterId, Instant observedAt) {
         Objects.requireNonNull(
                 userId,
                 "ID người dùng không được để trống."
@@ -65,29 +58,32 @@ public class RecordReadingHistoryAttemptExecutor {
                 chapterId,
                 "ID chương không được để trống."
         );
+        Objects.requireNonNull(
+                observedAt,
+                "Thời gian quan sát không được để trống."
+        );
 
         // 1. Kiểm tra tính công khai khả dụng của chương
         readerChapterAccessQueryPort.findPublishedById(chapterId)
                 .orElseThrow(() -> new ChapterNotFoundException(chapterId));
 
-        // 2. Lấy thời điểm hiện tại
-        Instant now = clockPort.now();
-
-        // 3. Tìm kiếm bản ghi hiện có
+        // 2. Tìm kiếm bản ghi hiện có
         Optional<UserChapterReadingHistory> existingHistoryOpt =
                 readingHistoryRepositoryPort.findByUserIdAndChapterId(userId, chapterId);
 
         if (existingHistoryOpt.isPresent()) {
             UserChapterReadingHistory history = existingHistoryOpt.get();
-            history.recordRead(now);
-            readingHistoryRepositoryPort.save(history);
+            boolean changed = history.recordRead(observedAt);
+            if (changed) {
+                readingHistoryRepositoryPort.save(history);
+            }
         } else {
             UUID historyId = idGeneratorPort.generate();
             UserChapterReadingHistory newHistory = UserChapterReadingHistory.createInitial(
                     historyId,
                     userId,
                     chapterId,
-                    now
+                    observedAt
             );
             readingHistoryRepositoryPort.save(newHistory);
             readingHistoryRepositoryPort.pruneOldestEntriesExceedingLimit(userId, MAX_HISTORY_RETENTION);

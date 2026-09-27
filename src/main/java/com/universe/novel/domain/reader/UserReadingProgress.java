@@ -126,21 +126,23 @@ public class UserReadingProgress {
     }
 
     /**
-     * Ghi nhận hành động mở/truy cập một chương của người dùng.
+     * Ghi nhận hành động mở/truy cập một chương của người dùng với thời điểm quan sát (observedAt).
      *
      * Quy tắc nghiệp vụ:
-     * - Mở chương mới hơn: cập nhật lastOpenedChapterId và nâng highestReachedChapterNumber lên số chương mới.
-     * - Mở lại chương cũ: cập nhật lastOpenedChapterId, giữ nguyên highestReachedChapterNumber.
-     * - Mở lại đúng chương vừa mở gần nhất: không thay đổi trạng thái, không cập nhật updatedAt, trả về false.
-     * - Mở nhảy cóc (ví dụ chương 800): highestReachedChapterNumber được đặt trực tiếp là 800.
-     * - highestReachedChapterNumber không bao giờ giảm.
+     * - highestReachedChapterNumber luôn tăng đơn điệu không giảm (monotonic high-water mark).
+     * - lastOpenedChapterId và mốc watermark updatedAt chỉ cập nhật khi observedAt mới hơn updatedAt hiện tại.
+     * - Khi mở lại một chương cũ với observedAt mới hơn: lastOpenedChapterId chuyển về chương cũ, highest giữ nguyên.
+     * - Khi một sự kiện đọc bị trễ (observedAt cũ hơn updatedAt hiện tại): lastOpenedChapterId và updatedAt
+     *   KHÔNG bị ghi đè lùi thời gian; highest chỉ tăng nếu số chương trễ này cao hơn highest hiện tại.
+     * - Mở lại cùng chương ở thời điểm mới hơn: nâng mốc watermark updatedAt (trả về true).
+     * - Sự kiện trùng lặp hoàn toàn cùng mốc thời gian: trả về false (idempotent no-op).
      *
      * @return true nếu có sự thay đổi trạng thái cần lưu trữ; false nếu là thao tác no-op idempotent.
      */
     public boolean recordChapterAccess(
             UUID chapterId,
             int chapterNumber,
-            Instant now
+            Instant observedAt
     ) {
         Objects.requireNonNull(
                 chapterId,
@@ -153,35 +155,27 @@ public class UserReadingProgress {
                 );
 
         Objects.requireNonNull(
-                now,
-                "Thời gian truy cập chương không được để trống."
+                observedAt,
+                "Thời gian quan sát không được để trống."
         );
 
-        boolean isSameLastOpened =
-                Objects.equals(
-                        this.lastOpenedChapterId,
-                        chapterId
-                );
+        boolean stateChanged = false;
 
-        boolean isHigherProgress =
-                validatedChapterNumber > this.highestReachedChapterNumber;
-
-        if (isSameLastOpened && !isHigherProgress) {
-            return false;
-        }
-
-        this.lastOpenedChapterId =
-                chapterId;
-
-        if (isHigherProgress) {
+        if (validatedChapterNumber > this.highestReachedChapterNumber) {
             this.highestReachedChapterNumber =
                     validatedChapterNumber;
+            stateChanged = true;
         }
 
-        this.updatedAt =
-                now;
+        if (observedAt.isAfter(this.updatedAt)) {
+            this.lastOpenedChapterId =
+                    chapterId;
+            this.updatedAt =
+                    observedAt;
+            stateChanged = true;
+        }
 
-        return true;
+        return stateChanged;
     }
 
     private static int validateChapterNumber(

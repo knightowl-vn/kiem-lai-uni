@@ -2,6 +2,8 @@ package com.universe.wiki.application.ports;
 
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
+import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
+import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
@@ -10,13 +12,23 @@ import com.universe.wiki.domain.article.ArticleType;
 import com.universe.wiki.domain.article.Slug;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Read port dành cho các truy vấn WikiArticle.
  */
 public interface WikiArticleQueryPort {
+
+    /**
+     * Tra cứu snapshot thông tin trạng thái và loại bài viết tối giản theo ID.
+     * Phục vụ kiểm tra tính đủ điều kiện (eligibility) mà không tải nội dung hay thông tin kiểm toán lớn.
+     */
+    Optional<WikiArticleEligibilitySnapshot> findEligibilityById(
+            UUID articleId
+    );
 
     /**
      * Lấy chi tiết bài viết theo ID cho trang quản trị.
@@ -29,6 +41,14 @@ public interface WikiArticleQueryPort {
      * Lấy bài viết công khai theo ID chỉ khi đang ở trạng thái PUBLISHED.
      */
     Optional<PublishedWikiArticleDTO> findPublishedById(
+            UUID articleId
+    );
+
+    /**
+     * Kiểm tra nhanh bài viết theo ID có đang ở trạng thái PUBLISHED hay không.
+     * Tối ưu hiệu năng: không hydrate toàn bộ nội dung (content) bài viết.
+     */
+    boolean isPublished(
             UUID articleId
     );
 
@@ -83,5 +103,15 @@ public interface WikiArticleQueryPort {
     List<PublishedWikiArticleListItemDTO> findPublishedArticlesByNormalizedAlias(
             String normalizedAlias,
             int maxResults
+    );
+
+    /**
+     * Tra cứu hàng loạt thông tin rút gọn của bài viết theo danh sách ID (không lọc trạng thái xuất bản).
+     *
+     * @param articleIds tập hợp các UUID bài viết cần tra cứu
+     * @return Map ánh xạ từ articleId sang WikiArticleListItemDTO
+     */
+    Map<UUID, WikiArticleListItemDTO> findListItemsByIds(
+            Set<UUID> articleIds
     );
 }

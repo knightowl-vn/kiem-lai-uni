@@ -11,10 +11,19 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 @Component
 public class CustomAuthenticationFailureHandler
         implements AuthenticationFailureHandler {
+
+    private final SafeReturnToValidator returnToValidator;
+
+    public CustomAuthenticationFailureHandler(SafeReturnToValidator returnToValidator) {
+        this.returnToValidator = Objects.requireNonNull(returnToValidator, "SafeReturnToValidator cannot be null");
+    }
 
     @Override
     public void onAuthenticationFailure(
@@ -44,6 +53,11 @@ public class CustomAuthenticationFailureHandler
             redirectUrl =
                     request.getContextPath()
                             + "/login?error";
+        }
+
+        String returnTo = request.getParameter("returnTo");
+        if (returnTo != null && returnToValidator.isValid(returnTo)) {
+            redirectUrl += "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8);
         }
 
         response.sendRedirect(redirectUrl);

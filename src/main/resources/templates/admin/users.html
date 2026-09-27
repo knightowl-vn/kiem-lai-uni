@@ -239,12 +239,22 @@
                                                 : ' status-pending')"
 										th:text="${user.status}"> ACTIVE </span></td>
 
-									<td class="users-date-cell"><span
-											th:text="${#temporals.format(
+									<td class="users-date-cell"><time
+										class="admin-time-pair__exact"
+										th:datetime="${user.createdAt}"
+										th:text="${#temporals.format(
                                             user.createdAt,
                                             'dd/MM/yyyy HH:mm'
                                         )}">
-											02/08/2026 08:00 </span></td>
+										02/08/2026 08:00 </time><span class="admin-time-pair__relative" aria-hidden="true">
+										· <time
+										data-relative-time
+										th:datetime="${user.createdAt}"
+										th:text="${#temporals.format(
+                                            user.createdAt,
+                                            'dd/MM/yyyy HH:mm'
+                                        )}">
+										02/08/2026 08:00 </time></span></td>
 									<td class="admin-actions-cell">
 										<a th:href="@{/admin/users/{id}(id=${user.id})}"
 											class="view-detail-button">

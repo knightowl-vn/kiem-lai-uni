@@ -120,91 +120,157 @@
 
 					<div class="profile-dropdown-divider"></div>
 
-					<a th:href="@{/login}" class="profile-dropdown-item"> Đăng nhập
-					</a> <a th:href="@{/register}" class="profile-dropdown-item"> Đăng
+					<a th:href="@{/login}" class="profile-dropdown-item js-navbar-auth-link" data-auth-type="login"> Đăng nhập
+					</a> <a th:href="@{/register}" class="profile-dropdown-item js-navbar-auth-link" data-auth-type="register"> Đăng
 						ký </a>
 
 				</div>
 			</div>
 
 			<!-- Đã đăng nhập -->
-			<div sec:authorize="isAuthenticated()" class="profile-menu">
+			<div sec:authorize="isAuthenticated()" class="navbar-authenticated-group">
 
-				<button class="profile-avatar-button" type="button"
-					aria-label="Mở menu tài khoản">
-					<img
-						th:src="${currentUser != null
-                        and currentUser.avatarUrl != null
-                        and !currentUser.avatarUrl.isBlank()
-                        ? currentUser.avatarUrl
-                        : '/images/default_avatar.jpg'}"
-						src="/images/default_avatar.jpg" alt="Ảnh đại diện"
-						th:attr="referrerpolicy='no-referrer'" class="profile-avatar"
-						onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
-				</button>
+				<!-- Nút chuông thông báo & Popover/Panel -->
+				<div class="navbar-notifications" id="navbarNotifications"
+					th:attr="data-csrf-token=${_csrf != null ? _csrf.token : ''},data-csrf-header=${_csrf != null ? _csrf.headerName : ''}">
 
-				<div class="profile-dropdown">
+					<button class="navbar-bell-button" id="navbarBellButton" type="button"
+						aria-label="Thông báo"
+						aria-expanded="false"
+						aria-controls="navbarNotificationsPanel">
+						<svg class="navbar-bell-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+							<path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+						</svg>
+						<span class="navbar-bell-badge" id="navbarBellBadge" hidden aria-hidden="true">0</span>
+						<span class="visually-hidden" id="navbarBellBadgeSr">0 thông báo chưa đọc</span>
+					</button>
 
-					<div class="profile-dropdown-header">
-
-						<strong
-							th:text="${currentUser != null
-                            and currentUser.displayName != null
-                            and !currentUser.displayName.isBlank()
-                            ? currentUser.displayName
-                            : 'Người dùng'}">
-							Người dùng </strong> <span
-							th:text="${currentUser != null
-                            and currentUser.email != null
-                            ? currentUser.email
-                            : #authentication.name}">
-							email@example.com </span>
-
-					</div>
-
-					<div class="profile-dropdown-divider"></div>
-
-					<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ
-						sơ </a>
-					<a th:href="@{/novel/bookmarks}" class="profile-dropdown-item"> Dấu
-						trang </a>
-					<a th:href="@{/novel/history}" class="profile-dropdown-item"> Lịch sử
-						đọc </a>
-
-
-					<div class="profile-dropdown-divider"></div>
-
-					<div class="theme-section">
-						<div class="theme-section-title">GIAO DIỆN</div>
-
-						<div class="theme-toggle-row">
-							<div class="theme-toggle-label">
-								<i class="fa-solid fa-moon"></i> <span>Chế độ tối</span>
+					<!-- Panel / Popover Thông báo -->
+					<div class="navbar-notifications-panel" id="navbarNotificationsPanel" role="region" aria-label="Bảng thông báo" hidden>
+						<div class="notif-panel-header">
+							<div class="notif-header-title-row">
+								<button type="button" class="notif-mobile-back-button" id="notifMobileBackButton" aria-label="Đóng bảng thông báo">
+									<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+										<line x1="19" y1="12" x2="5" y2="12"></line>
+										<polyline points="12 19 5 12 12 5"></polyline>
+									</svg>
+								</button>
+								<h2 class="notif-header-title">Thông báo</h2>
+								<button type="button" class="notif-mark-all-btn" id="notifMarkAllBtn" disabled>
+									Đánh dấu tất cả đã đọc
+								</button>
 							</div>
 
-							<label class="theme-switch"> <input type="checkbox"
-								id="themeToggleCheckbox" aria-label="Bật hoặc tắt chế độ tối">
+							<div class="notif-filter-tabs" role="tablist" aria-label="Bộ lọc thông báo">
+								<button type="button" class="notif-filter-btn is-active" id="notifFilterAll" data-filter="all" role="tab" aria-selected="true" aria-controls="notifFeedList">
+									Tất cả
+								</button>
+								<button type="button" class="notif-filter-btn" id="notifFilterUnread" data-filter="unread" role="tab" aria-selected="false" aria-controls="notifFeedList">
+									Chưa đọc
+								</button>
+							</div>
+						</div>
 
-								<span class="theme-slider"></span>
-							</label>
+						<div class="notif-panel-body" id="notifPanelBody">
+							<div class="notif-feed-list" id="notifFeedList" tabindex="-1">
+								<!-- Dynamically populated by navbar-notifications.js -->
+							</div>
+							<div class="notif-feed-footer" id="notifFeedFooter" hidden>
+								<button type="button" class="notif-load-more-btn" id="notifLoadMoreBtn">
+									Xem thêm
+								</button>
+							</div>
 						</div>
 					</div>
+				</div>
 
-					<div class="profile-dropdown-divider"></div>
+				<div class="profile-menu">
 
-					<form th:action="@{/logout}" method="post" class="m-0">
-						<button type="submit" class="profile-dropdown-item logout-button">
-							<i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Đăng
-							xuất
-						</button>
-					</form>
+					<button class="profile-avatar-button" type="button"
+						aria-label="Mở menu tài khoản">
+						<img
+							th:src="${currentUser != null
+	                        and currentUser.avatarUrl != null
+	                        and !currentUser.avatarUrl.isBlank()
+	                        ? currentUser.avatarUrl
+	                        : '/images/default_avatar.jpg'}"
+							src="/images/default_avatar.jpg" alt="Ảnh đại diện"
+							th:attr="referrerpolicy='no-referrer'" class="profile-avatar"
+							onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+					</button>
 
+					<div class="profile-dropdown">
+
+						<div class="profile-dropdown-header">
+
+							<strong
+								th:text="${currentUser != null
+	                            and currentUser.displayName != null
+	                            and !currentUser.displayName.isBlank()
+	                            ? currentUser.displayName
+	                            : 'Người dùng'}">
+								Người dùng </strong> <span
+								th:text="${currentUser != null
+	                            and currentUser.email != null
+	                            ? currentUser.email
+	                            : #authentication.name}">
+								email@example.com </span>
+
+						</div>
+
+						<div class="profile-dropdown-divider"></div>
+
+						<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ sơ </a>
+						<a th:href="@{/novel/history}" class="profile-dropdown-item"> Novel của tôi </a>
+						<a th:href="@{/wiki/saved}" class="profile-dropdown-item"> Wiki của tôi </a>
+						<a th:href="@{/comments/my}" class="profile-dropdown-item"> Bình luận của tôi </a>
+
+						<div class="profile-dropdown-divider"></div>
+
+						<div class="theme-section">
+							<div class="theme-section-title">GIAO DIỆN</div>
+
+							<div class="theme-toggle-row">
+								<div class="theme-toggle-label">
+									<i class="fa-solid fa-moon"></i> <span>Chế độ tối</span>
+								</div>
+
+								<label class="theme-switch"> <input type="checkbox"
+									id="themeToggleCheckbox" aria-label="Bật hoặc tắt chế độ tối">
+
+									<span class="theme-slider"></span>
+								</label>
+							</div>
+						</div>
+
+						<div class="profile-dropdown-divider"></div>
+
+						<form th:action="@{/logout}" method="post" class="m-0">
+							<button type="submit" class="profile-dropdown-item logout-button">
+								<i class="fa-solid fa-arrow-right-from-bracket me-2"></i> Đăng xuất
+							</button>
+						</form>
+
+					</div>
 				</div>
 			</div>
 
 		</div>
 		<script
+        th:src="@{/js/shared/relative-time.js}"
+        defer>
+</script>
+		<script
         th:src="@{/js/navbar-search.js}"
+        defer>
+</script>
+		<script
+        th:src="@{/js/navbar-notifications.js}"
+        defer>
+</script>
+		<script
+        th:src="@{/js/navbar-auth.js}"
         defer>
 </script>
 	</nav>

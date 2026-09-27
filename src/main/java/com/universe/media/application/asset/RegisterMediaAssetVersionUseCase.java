@@ -116,4 +116,138 @@ public class RegisterMediaAssetVersionUseCase {
                 now
         );
     }
+
+    @Transactional
+    public AuthoritativeDuplicateProbeResult probeAuthoritativeDuplicate(
+            UUID assetId,
+            String contentHash
+    ) {
+        Objects.requireNonNull(
+                assetId,
+                "Asset ID cannot be null."
+        );
+        Objects.requireNonNull(
+                contentHash,
+                "Content hash cannot be null."
+        );
+
+        MediaAsset asset =
+                mediaAssetRepositoryPort
+                        .findByIdForUpdate(assetId)
+                        .orElseThrow(() ->
+                                new MediaAssetNotFoundException(assetId)
+                        );
+
+        if (asset.getStatus() != com.universe.media.domain.MediaAssetStatus.ACTIVE) {
+            throw new IllegalStateException(
+                    "Cannot register a new version for a media asset with status: "
+                            + asset.getStatus()
+            );
+        }
+
+        var currentVersionOpt =
+                mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(
+                        asset.getId(),
+                        asset.getCurrentVersionNumber()
+                );
+
+        if (currentVersionOpt.isPresent()
+                && currentVersionOpt.get().getContentHash() != null
+                && currentVersionOpt.get().getContentHash().value().equalsIgnoreCase(contentHash)) {
+            return AuthoritativeDuplicateProbeResult.duplicate(asset.getCurrentVersionNumber());
+        }
+
+        return AuthoritativeDuplicateProbeResult.different(asset.getCurrentVersionNumber());
+    }
+
+    @Transactional
+    public RegisterMediaAssetVersionConditionalResult registerConditionalVersion(
+            RegisterMediaAssetVersionCommand command
+    ) {
+        Objects.requireNonNull(
+                command,
+                "RegisterMediaAssetVersionCommand cannot be null."
+        );
+
+        UUID assetId =
+                Objects.requireNonNull(
+                        command.assetId(),
+                        "Asset ID cannot be null."
+                );
+
+        MediaAsset asset =
+                mediaAssetRepositoryPort
+                        .findByIdForUpdate(assetId)
+                        .orElseThrow(() ->
+                                new MediaAssetNotFoundException(assetId)
+                        );
+
+        if (asset.getStatus() != com.universe.media.domain.MediaAssetStatus.ACTIVE) {
+            throw new IllegalStateException(
+                    "Cannot register a new version for a media asset with status: "
+                            + asset.getStatus()
+            );
+        }
+
+        var currentVersionOpt =
+                mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(
+                        asset.getId(),
+                        asset.getCurrentVersionNumber()
+                );
+        if (currentVersionOpt.isPresent()
+                && currentVersionOpt.get().getContentHash() != null
+                && currentVersionOpt.get().getContentHash().value().equalsIgnoreCase(command.contentHash())) {
+            return RegisterMediaAssetVersionConditionalResult.unchanged(
+                    asset.getId(),
+                    asset.getCurrentVersionNumber(),
+                    asset.getUpdatedAt()
+            );
+        }
+
+        StorageLocation storageLocation =
+                StorageLocation.of(
+                        StorageProviderId.of(command.storageProviderId()),
+                        StorageKey.of(command.storageKey())
+                );
+
+        if (mediaAssetVersionRepositoryPort.existsByStorageLocation(storageLocation)) {
+            throw new DuplicateStorageLocationException(storageLocation);
+        }
+
+        ContentHash contentHash =
+                ContentHash.of(command.contentHash());
+
+        MimeType mimeType =
+                MimeType.of(command.mimeType());
+
+        Instant now = clockPort.now();
+
+        int newVersionNumber = asset.registerNextVersion(now);
+
+        UUID versionId = UUID.randomUUID();
+
+        MediaAssetVersion version =
+                MediaAssetVersion.create(
+                        versionId,
+                        asset.getId(),
+                        newVersionNumber,
+                        storageLocation,
+                        command.publicUrl(),
+                        contentHash,
+                        mimeType,
+                        command.sizeBytes(),
+                        command.originalFilename(),
+                        now
+                );
+
+        mediaAssetRepositoryPort.save(asset);
+        mediaAssetVersionRepositoryPort.save(version);
+
+        return RegisterMediaAssetVersionConditionalResult.versionCreated(
+                asset.getId(),
+                version.getId(),
+                newVersionNumber,
+                now
+        );
+    }
 }

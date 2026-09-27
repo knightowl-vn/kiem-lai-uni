@@ -38,4 +38,14 @@ public interface SpringDataWikiArticleRevisionJpaRepository
             @Param("articleId")
             String articleId
     );
+
+    Optional<WikiArticleRevisionJpaEntity>
+            findFirstBySourceContributionIdOrderByContentVersionDesc(
+                    String sourceContributionId
+            );
+
+    java.util.List<WikiArticleRevisionJpaEntity>
+            findBySourceContributionIdOrderByCreatedAtAscIdAsc(
+                    String sourceContributionId
+            );
 }

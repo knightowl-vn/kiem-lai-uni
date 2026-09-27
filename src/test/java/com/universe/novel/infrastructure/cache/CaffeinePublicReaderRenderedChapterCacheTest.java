@@ -33,7 +33,7 @@ class CaffeinePublicReaderRenderedChapterCacheTest {
     private ReaderChapterRenderedSnapshotDTO createSnapshot(String title, UUID narrationSegmentId) {
         String html = "<p data-narration-id=\"" + narrationSegmentId + "\">" + title + " content</p>";
         return new ReaderChapterRenderedSnapshotDTO(
-                UUID.randomUUID(), 1, title, SLUG, html, null
+                UUID.randomUUID(), 1, title, SLUG, html, 1L, null
         );
     }
 
@@ -194,10 +194,10 @@ class CaffeinePublicReaderRenderedChapterCacheTest {
         String newHtml = "<p data-narration-id=\"" + newNarrationId + "\">New content</p>";
 
         ReaderChapterRenderedSnapshotDTO oldSnapshot = new ReaderChapterRenderedSnapshotDTO(
-                UUID.randomUUID(), 1, "Old Title", SLUG, oldHtml, null
+                UUID.randomUUID(), 1, "Old Title", SLUG, oldHtml, 1L, null
         );
         ReaderChapterRenderedSnapshotDTO newSnapshot = new ReaderChapterRenderedSnapshotDTO(
-                UUID.randomUUID(), 1, "New Title", SLUG, newHtml, null
+                UUID.randomUUID(), 1, "New Title", SLUG, newHtml, 1L, null
         );
 
         CountDownLatch oldInLoader = new CountDownLatch(1);

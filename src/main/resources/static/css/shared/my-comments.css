@@ -1,0 +1,493 @@
+/**
+ * KiemLai Universe — Personal Authored Comments Styles (MS-05J4)
+ *
+ * Scoped to .kl-my-comments-* namespace.
+ * Visually aligned with Novel Personal UI (/novel/history, /novel/bookmarks).
+ * Full automatic Light/Dark mode support using design tokens from theme.css.
+ */
+
+:root {
+    --kl-mc-surface: var(--surface-bg, #ffffff);
+    --kl-mc-surface-secondary: var(--surface-secondary, #f1f3f5);
+    --kl-mc-text: var(--text-primary, #212529);
+    --kl-mc-text-secondary: var(--text-secondary, #6c757d);
+    --kl-mc-text-muted: var(--text-secondary, #6c757d);
+    --kl-mc-border: var(--border-color, #e5e7eb);
+    --kl-mc-primary: #b8860b;
+    --kl-mc-primary-hover: #996e00;
+    --kl-mc-radius: 8px;
+    --kl-mc-radius-sm: 6px;
+    --kl-mc-radius-lg: 12px;
+    --kl-mc-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    --kl-mc-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="dark"] {
+    --kl-mc-surface: var(--surface-bg, #1d2024);
+    --kl-mc-surface-secondary: var(--surface-secondary, #292d32);
+    --kl-mc-text: var(--text-primary, #f1f3f5);
+    --kl-mc-text-secondary: var(--text-secondary, #adb5bd);
+    --kl-mc-text-muted: #8c959f;
+    --kl-mc-border: var(--border-color, #343a40);
+    --kl-mc-primary: #d4af37;
+    --kl-mc-primary-hover: #e5c158;
+    --kl-mc-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --kl-mc-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* =========================================================
+   1. PAGE CONTAINER & LAYOUT
+   ========================================================= */
+
+.kl-my-comments-page {
+    width: min(calc(100% - 40px), 860px);
+    margin: 0 auto;
+    padding: 44px 0 90px;
+}
+
+.kl-my-comments-container {
+    display: flex;
+    flex-direction: column;
+}
+
+/* =========================================================
+   2. BREADCRUMB
+   ========================================================= */
+
+.kl-my-comments-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--kl-mc-text-secondary);
+    margin-bottom: 24px;
+}
+
+.kl-my-comments-breadcrumb a {
+    color: var(--kl-mc-text-secondary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.kl-my-comments-breadcrumb a:hover {
+    color: var(--kl-mc-primary);
+    text-decoration: underline;
+}
+
+.kl-my-comments-breadcrumb-separator {
+    color: var(--kl-mc-border);
+}
+
+/* =========================================================
+   3. NOVEL-ALIGNED PERSONAL AREA SWITCHER
+   ========================================================= */
+
+.kl-my-comments-nav {
+    margin-bottom: 28px;
+    border-bottom: 1px solid var(--kl-mc-border);
+}
+
+.kl-my-comments-nav-list {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.kl-my-comments-nav-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--kl-mc-text-secondary);
+    text-decoration: none;
+    border-radius: var(--kl-mc-radius-sm) var(--kl-mc-radius-sm) 0 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.kl-my-comments-nav-item:hover {
+    color: var(--kl-mc-text);
+    background-color: var(--kl-mc-surface-secondary);
+}
+
+.kl-my-comments-nav-item:focus-visible {
+    outline: 2px solid var(--kl-mc-primary);
+    outline-offset: 2px;
+}
+
+.kl-my-comments-nav-item.is-active {
+    color: var(--kl-mc-primary);
+    font-weight: 600;
+    border-bottom-color: var(--kl-mc-primary);
+}
+
+/* =========================================================
+   4. HEADER
+   ========================================================= */
+
+.kl-my-comments-header {
+    margin-bottom: 32px;
+}
+
+.kl-my-comments-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--kl-mc-text);
+    margin: 0 0 8px 0;
+}
+
+.kl-my-comments-header-icon {
+    color: var(--kl-mc-primary);
+    flex-shrink: 0;
+}
+
+.kl-my-comments-subtitle {
+    font-size: 14px;
+    color: var(--kl-mc-text-secondary);
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* =========================================================
+   5. AUTHORED COMMENT CARDS LIST
+   ========================================================= */
+
+.kl-my-comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.kl-my-comment-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 24px;
+    background: var(--kl-mc-surface);
+    border: 1px solid var(--kl-mc-border);
+    border-radius: var(--kl-mc-radius);
+    box-shadow: var(--kl-mc-shadow);
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kl-my-comment-card:hover {
+    border-color: var(--kl-mc-primary);
+    box-shadow: var(--kl-mc-shadow-hover);
+}
+
+.kl-my-comment-card.is-unavailable {
+    border-style: dashed;
+    background: var(--kl-mc-surface-secondary);
+    opacity: 0.9;
+}
+
+/* Meta Line */
+.kl-my-comment-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--kl-mc-text-secondary);
+}
+
+.kl-my-comment-context-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    background-color: var(--kl-mc-surface-secondary);
+    color: var(--kl-mc-primary);
+    border: 1px solid var(--kl-mc-border);
+}
+
+.kl-my-comment-context-badge.is-wiki {
+    color: #4f46e5;
+}
+
+html[data-theme="dark"] .kl-my-comment-context-badge.is-wiki {
+    color: #818cf8;
+}
+
+.kl-my-comment-type-badge {
+    font-weight: 600;
+    color: var(--kl-mc-text-secondary);
+}
+
+.kl-my-comment-separator {
+    color: var(--kl-mc-border);
+}
+
+.kl-my-comment-time {
+    color: var(--kl-mc-text-muted);
+}
+
+/* Target Header */
+.kl-my-comment-target {
+    margin: 0;
+}
+
+.kl-my-comment-target-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--kl-mc-text);
+    margin: 0;
+    line-height: 1.4;
+}
+
+.kl-my-comment-target-unavailable {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--kl-mc-text-muted);
+    font-style: italic;
+}
+
+.kl-my-comment-target-unavailable svg {
+    color: #d97706;
+    flex-shrink: 0;
+}
+
+/* Body */
+.kl-my-comment-body {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--kl-mc-text);
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Actions Footer */
+.kl-my-comment-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-top: 10px;
+    border-top: 1px solid var(--kl-mc-border);
+    margin-top: 2px;
+}
+
+.kl-my-comment-context-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--kl-mc-text);
+    background-color: var(--kl-mc-surface-secondary);
+    border: 1px solid var(--kl-mc-border);
+    border-radius: var(--kl-mc-radius-sm);
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.kl-my-comment-context-btn:hover {
+    color: #ffffff;
+    background-color: var(--kl-mc-primary);
+    border-color: var(--kl-mc-primary);
+}
+
+.kl-my-comment-context-btn svg {
+    transition: transform 0.15s ease;
+}
+
+.kl-my-comment-context-btn:hover svg {
+    transform: translateX(2px);
+}
+
+/* =========================================================
+   6. EMPTY STATE (MATCHING NOVEL/WIKI PERSONAL EMPTY STATES)
+   ========================================================= */
+
+.kl-my-comments-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 64px 24px;
+    background: var(--kl-mc-surface);
+    border: 1px dashed var(--kl-mc-border);
+    border-radius: var(--kl-mc-radius-lg);
+}
+
+.kl-my-comments-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background-color: var(--kl-mc-surface-secondary);
+    color: var(--kl-mc-primary);
+    margin-bottom: 20px;
+}
+
+.kl-my-comments-empty-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--kl-mc-text);
+    margin: 0 0 8px 0;
+}
+
+.kl-my-comments-empty-text {
+    font-size: 14px;
+    color: var(--kl-mc-text-secondary);
+    max-width: 440px;
+    margin: 0 0 24px 0;
+    line-height: 1.6;
+}
+
+.kl-my-comments-empty-cta-group {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.kl-my-comments-empty-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 22px;
+    background: var(--kl-mc-primary);
+    color: #ffffff;
+    border-radius: var(--kl-mc-radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 0.15s ease;
+}
+
+.kl-my-comments-empty-cta:hover {
+    background: var(--kl-mc-primary-hover);
+    color: #ffffff;
+}
+
+.kl-my-comments-empty-cta--secondary {
+    background: var(--kl-mc-surface-secondary);
+    color: var(--kl-mc-text);
+    border: 1px solid var(--kl-mc-border);
+}
+
+.kl-my-comments-empty-cta--secondary:hover {
+    background: var(--kl-mc-border);
+    color: var(--kl-mc-text);
+}
+
+/* =========================================================
+   7. PAGINATION (NOVEL/WIKI ALIGNED)
+   ========================================================= */
+
+.kl-my-comments-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    margin-top: 36px;
+}
+
+.kl-my-comments-pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--kl-mc-text);
+    background: var(--kl-mc-surface);
+    border: 1px solid var(--kl-mc-border);
+    border-radius: var(--kl-mc-radius-sm);
+    text-decoration: none;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.kl-my-comments-pagination-btn:hover:not(.is-disabled) {
+    color: var(--kl-mc-primary);
+    border-color: var(--kl-mc-primary);
+    background: var(--kl-mc-surface-secondary);
+}
+
+.kl-my-comments-pagination-btn.is-disabled {
+    color: var(--kl-mc-text-muted);
+    opacity: 0.5;
+    background: transparent;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.kl-my-comments-pagination-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--kl-mc-text-secondary);
+}
+
+.kl-my-comments-pagination-status strong {
+    color: var(--kl-mc-text);
+}
+
+/* =========================================================
+   8. RESPONSIVE MEDIA QUERIES
+   ========================================================= */
+
+@media (max-width: 640px) {
+    .kl-my-comments-page {
+        padding-top: 24px;
+        padding-bottom: 60px;
+    }
+
+    .kl-my-comments-title {
+        font-size: 22px;
+    }
+
+    .kl-my-comment-card {
+        padding: 14px 16px;
+    }
+
+    .kl-my-comments-nav-list {
+        width: 100%;
+    }
+
+    .kl-my-comments-nav-item {
+        flex: 1;
+        justify-content: center;
+        padding: 8px 10px;
+        font-size: 14px;
+    }
+
+    .kl-my-comment-footer {
+        justify-content: stretch;
+    }
+
+    .kl-my-comment-context-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .kl-my-comments-pagination {
+        gap: 10px;
+    }
+
+    .kl-my-comments-pagination-btn {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+}

@@ -1,7 +1,9 @@
 package com.universe.media.contracts.interfaces;
 
 import com.universe.media.contracts.dto.ChangeMediaVisibilityRequestDTO;
+import com.universe.media.contracts.dto.FindActiveMediaAssetsKeysetQuery;
 import com.universe.media.contracts.dto.GenerateImageVariantRequestDTO;
+import com.universe.media.contracts.dto.MediaAssetCandidateDTO;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetCurrentMetadataDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionContentDTO;
@@ -9,9 +11,11 @@ import com.universe.media.contracts.dto.MediaAssetVersionReferenceDTO;
 import com.universe.media.contracts.dto.MediaAssetVersionSnapshotDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
+import com.universe.media.contracts.dto.UploadMediaAssetVersionConditionalResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -48,6 +52,25 @@ public interface MediaContract {
      * @return upload version response containing the asset ID and newly registered version number
      */
     UploadMediaAssetVersionResponseDTO uploadVersion(
+            UploadMediaAssetVersionRequestDTO request
+    );
+
+    /**
+     * Conditionally uploads a new binary version for an existing media asset only if the uploaded
+     * binary's SHA-256 digest differs from the current authoritative version's content hash (MS-05G9).
+     *
+     * <p>If the uploaded binary is identical to the current authoritative version, no new version
+     * is created, no storage write occurs, and {@link com.universe.media.contracts.dto.MediaVersionUploadOutcome#UNCHANGED}
+     * is returned. If the binary differs, a new immutable version is stored and persisted, returning
+     * {@link com.universe.media.contracts.dto.MediaVersionUploadOutcome#VERSION_CREATED}.
+     *
+     * <p><strong>Stream Ownership:</strong> The caller retains ownership of the request
+     * {@link java.io.InputStream}. The caller is responsible for closing the stream after execution.
+     *
+     * @param request upload version request
+     * @return conditional response containing the asset ID, version number, and outcome
+     */
+    UploadMediaAssetVersionConditionalResponseDTO uploadVersionIfContentChanged(
             UploadMediaAssetVersionRequestDTO request
     );
 
@@ -137,5 +160,29 @@ public interface MediaContract {
      */
     void delete(
             UUID assetId
+    );
+
+    /**
+     * Assigns an opaque client tag to an existing media asset if currently absent (null).
+     *
+     * <p>If the asset already has the identical tag, the operation is an idempotent noop.
+     * If the asset already has a different non-null tag, a {@link com.universe.media.domain.ClientTagConflictException} is thrown.
+     *
+     * @param assetId ID of the media asset
+     * @param clientTag the opaque client tag to assign
+     */
+    void assignClientTagIfAbsent(
+            UUID assetId,
+            String clientTag
+    );
+
+    /**
+     * Discovers active media assets matching an opaque client tag using starvation-safe keyset pagination.
+     *
+     * @param query keyset query parameters
+     * @return bounded list of active asset candidates ordered by (created_at ASC, id ASC)
+     */
+    List<MediaAssetCandidateDTO> findActiveAssetsByClientTagKeyset(
+            FindActiveMediaAssetsKeysetQuery query
     );
 }
