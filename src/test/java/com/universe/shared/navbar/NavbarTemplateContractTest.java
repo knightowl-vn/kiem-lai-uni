@@ -157,11 +157,14 @@ class NavbarTemplateContractTest {
         assertThat(navbar).contains("th:attr=\"data-csrf-token=");
         assertThat(navbar).contains("data-csrf-header=");
 
-        // 2. Bell button & accessibility attributes
+        // 2. Bell button & accessibility attributes (omits aria-haspopup to avoid invalid menu semantics)
         assertThat(navbar).contains("id=\"navbarBellButton\"");
         assertThat(navbar).contains("aria-label=\"Thông báo\"");
         assertThat(navbar).contains("aria-expanded=\"false\"");
         assertThat(navbar).contains("aria-controls=\"navbarNotificationsPanel\"");
+        assertThat(navbar).doesNotContain("aria-haspopup=\"true\"");
+        assertThat(navbar).doesNotContain("aria-haspopup=\"menu\"");
+        assertThat(navbar).doesNotContain("aria-haspopup=\"dialog\"");
 
         // 3. Unread badge & screen reader label
         assertThat(navbar).contains("id=\"navbarBellBadge\"");
