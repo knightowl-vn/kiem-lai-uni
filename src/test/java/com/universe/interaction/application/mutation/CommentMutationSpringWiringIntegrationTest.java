@@ -12,6 +12,7 @@ import com.universe.interaction.infrastructure.persistence.CommentRevisionPersis
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
+import com.universe.notification.infrastructure.persistence.NotificationPersistenceAdapter;
 import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQueryPersistenceAdapter;
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
@@ -58,6 +59,7 @@ import static org.mockito.Mockito.when;
         ReactionPersistenceMapper.class,
         CommentTargetEligibilityAdapter.class,
         ReaderChapterAccessQueryPersistenceAdapter.class,
+        NotificationPersistenceAdapter.class,
         CreateRootCommentUseCase.class,
         ReplyCommentUseCase.class,
         EditCommentUseCase.class,
@@ -123,6 +125,7 @@ class CommentMutationSpringWiringIntegrationTest {
 
     private void cleanupDatabase() {
         jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0;");
+        jdbcTemplate.execute("DELETE FROM notifications;");
         jdbcTemplate.execute("DELETE FROM interaction_comment_revisions;");
         jdbcTemplate.update(
                 "DELETE FROM interaction_comments WHERE target_type = 'NOVEL_CHAPTER' AND target_id IN (?, ?, ?)",

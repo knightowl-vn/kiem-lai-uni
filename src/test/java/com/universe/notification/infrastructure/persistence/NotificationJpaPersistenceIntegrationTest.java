@@ -1,6 +1,7 @@
 package com.universe.notification.infrastructure.persistence;
 
 import com.universe.notification.application.model.NotificationFilter;
+import com.universe.notification.application.model.NotificationSlice;
 import com.universe.notification.contracts.command.NotificationDispatchCommand;
 import com.universe.notification.contracts.dto.NotificationDTO;
 import com.universe.notification.contracts.dto.NotificationPageDTO;
@@ -262,27 +263,20 @@ class NotificationJpaPersistenceIntegrationTest {
         persistenceAdapter.markAsRead(notif2, USER_1, Instant.now());
 
         // ALL filter (default)
-        NotificationPageDTO allFeed = queryAdapter.findByRecipientUserId(USER_1, NotificationFilter.ALL, 0, 10);
+        NotificationSlice allFeed = queryAdapter.findByRecipientUserId(USER_1, NotificationFilter.ALL, 0, 10);
         assertThat(allFeed.totalElements()).isEqualTo(3L);
         assertThat(allFeed.items()).hasSize(3);
         // Ordered by createdAt DESC -> n3, n2, n1
-        assertThat(allFeed.items().get(0).id()).isEqualTo(notif3);
-        assertThat(allFeed.items().get(1).id()).isEqualTo(notif2);
-        assertThat(allFeed.items().get(2).id()).isEqualTo(notif1);
-
-        // K1B Foundation: actionUrl MUST be null without source-context enrichment
-        for (NotificationDTO item : allFeed.items()) {
-            assertThat(item.actionUrl())
-                    .as("actionUrl must remain null in K1B foundation before K3/K4 source integration")
-                    .isNull();
-        }
+        assertThat(allFeed.items().get(0).getId()).isEqualTo(notif3);
+        assertThat(allFeed.items().get(1).getId()).isEqualTo(notif2);
+        assertThat(allFeed.items().get(2).getId()).isEqualTo(notif1);
 
         // UNREAD filter
-        NotificationPageDTO unreadFeed = queryAdapter.findByRecipientUserId(USER_1, NotificationFilter.UNREAD, 0, 10);
+        NotificationSlice unreadFeed = queryAdapter.findByRecipientUserId(USER_1, NotificationFilter.UNREAD, 0, 10);
         assertThat(unreadFeed.totalElements()).isEqualTo(2L);
         assertThat(unreadFeed.items()).hasSize(2);
-        assertThat(unreadFeed.items().get(0).id()).isEqualTo(notif3);
-        assertThat(unreadFeed.items().get(1).id()).isEqualTo(notif1);
+        assertThat(unreadFeed.items().get(0).getId()).isEqualTo(notif3);
+        assertThat(unreadFeed.items().get(1).getId()).isEqualTo(notif1);
     }
 
     @Test

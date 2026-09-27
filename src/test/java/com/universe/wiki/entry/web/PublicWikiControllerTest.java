@@ -25,8 +25,7 @@ import com.universe.wiki.contracts.dto
 
 import com.universe.wiki.domain.article.ArticleType;
 
-import com.universe.wiki.entry.web.support
-        .ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
 import com.universe.identity.domain.UserRole;

@@ -1,7 +1,7 @@
 package com.universe.wiki.entry.web;
 
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import java.util.List;
 

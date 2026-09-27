@@ -25,7 +25,7 @@ import com.universe.wiki.contracts.dto.WikiPublicContributorDTO;
 import com.universe.wiki.contracts.dto.WikiPublicContributorsResult;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;

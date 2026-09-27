@@ -16,7 +16,7 @@ import com.universe.wiki.application.article.query.published.ListPublishedWikiAr
 import com.universe.wiki.application.article.render.WikiMarkdownRenderer;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
 import com.universe.wiki.entry.web.PublicWikiController;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 import com.universe.wiki.application.saved.IsWikiArticleSavedUseCase;
 import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;

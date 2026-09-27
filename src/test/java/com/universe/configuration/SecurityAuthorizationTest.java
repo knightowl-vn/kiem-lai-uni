@@ -232,7 +232,7 @@ class SecurityAuthorizationTest {
     private com.universe.wiki.application.article.query.published.GetPublishedWikiArticleUseCase getPublishedArticleUseCase;
 
     @MockBean
-    private com.universe.wiki.entry.web.support.ArticleTypePathMapper articleTypePathMapper;
+    private com.universe.wiki.contracts.path.ArticleTypePathMapper articleTypePathMapper;
 
     @MockBean
     private com.universe.wiki.application.article.render.WikiMarkdownRenderer wikiMarkdownRenderer;
@@ -251,6 +251,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.wiki.contracts.interfaces.WikiContextualLookupContract wikiContextualLookupContract;
+
+    @MockBean
+    private com.universe.wiki.application.article.query.contributor.GetWikiArticlePublicContributorsUseCase getWikiArticlePublicContributorsUseCase;
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;

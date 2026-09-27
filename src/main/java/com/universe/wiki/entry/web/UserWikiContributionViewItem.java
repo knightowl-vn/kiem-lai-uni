@@ -4,7 +4,7 @@ import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.contribution.UserWikiContributionItemDTO;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import java.time.Instant;
 import java.util.UUID;

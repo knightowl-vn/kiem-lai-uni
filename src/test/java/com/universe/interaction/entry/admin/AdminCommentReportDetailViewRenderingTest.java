@@ -10,7 +10,7 @@ import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportTargetDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportUserDTO;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

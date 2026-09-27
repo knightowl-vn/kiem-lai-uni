@@ -7,7 +7,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.domain.article.ArticleType;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import java.util.List;
 import java.util.Locale;

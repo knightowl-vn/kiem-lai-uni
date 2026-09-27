@@ -1,9 +1,9 @@
 package com.universe.notification.infrastructure.persistence;
 
 import com.universe.notification.application.model.NotificationFilter;
+import com.universe.notification.application.model.NotificationSlice;
 import com.universe.notification.application.port.NotificationQueryPort;
-import com.universe.notification.contracts.dto.NotificationDTO;
-import com.universe.notification.contracts.dto.NotificationPageDTO;
+import com.universe.notification.domain.Notification;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -28,7 +28,7 @@ public class NotificationQueryPersistenceAdapter implements NotificationQueryPor
     }
 
     @Override
-    public NotificationPageDTO findByRecipientUserId(
+    public NotificationSlice findByRecipientUserId(
             UUID recipientUserId,
             NotificationFilter filter,
             int page,
@@ -45,11 +45,11 @@ public class NotificationQueryPersistenceAdapter implements NotificationQueryPor
             entityPage = repository.findAllByRecipientUserId(recipientIdStr, pageable);
         }
 
-        List<NotificationDTO> items = entityPage.getContent().stream()
-                .map(NotificationPersistenceMapper::toDTO)
+        List<Notification> items = entityPage.getContent().stream()
+                .map(NotificationPersistenceMapper::toDomain)
                 .toList();
 
-        return new NotificationPageDTO(
+        return new NotificationSlice(
                 items,
                 entityPage.getNumber(),
                 entityPage.getSize(),

@@ -1,7 +1,7 @@
 package com.universe.notification.application.port;
 
 import com.universe.notification.application.model.NotificationFilter;
-import com.universe.notification.contracts.dto.NotificationPageDTO;
+import com.universe.notification.application.model.NotificationSlice;
 
 import java.util.UUID;
 
@@ -10,7 +10,7 @@ import java.util.UUID;
  */
 public interface NotificationQueryPort {
 
-    NotificationPageDTO findByRecipientUserId(
+    NotificationSlice findByRecipientUserId(
             UUID recipientUserId,
             NotificationFilter filter,
             int page,

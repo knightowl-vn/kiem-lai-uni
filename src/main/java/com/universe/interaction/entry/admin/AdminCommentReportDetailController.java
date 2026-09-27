@@ -5,7 +5,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportContextNavigationDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
 import com.universe.wiki.domain.article.ArticleType;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;

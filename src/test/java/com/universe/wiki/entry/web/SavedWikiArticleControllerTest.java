@@ -14,7 +14,7 @@ import com.universe.wiki.application.saved.UnsaveWikiArticleUseCase;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticleItemDTO;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticlePageDTO;
 import com.universe.wiki.domain.appreciation.WikiAppreciationSummary;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

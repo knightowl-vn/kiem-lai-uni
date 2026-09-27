@@ -1,4 +1,4 @@
-package com.universe.wiki.entry.web.support;
+package com.universe.wiki.contracts.path;
 
 import com.universe.wiki.domain.article.ArticleType;
 

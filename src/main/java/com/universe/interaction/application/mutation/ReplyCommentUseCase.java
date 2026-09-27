@@ -7,6 +7,9 @@ import com.universe.interaction.application.exceptions.CommentThreadIntegrityExc
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.Comment;
+import com.universe.notification.contracts.command.NotificationDispatchCommand;
+import com.universe.notification.contracts.port.NotificationDispatchPort;
+import com.universe.notification.domain.NotificationType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
@@ -26,17 +29,20 @@ public class ReplyCommentUseCase {
     private final CommentTargetEligibilityPort eligibilityPort;
     private final IdGeneratorPort idGeneratorPort;
     private final ClockPort clockPort;
+    private final NotificationDispatchPort notificationDispatchPort;
 
     public ReplyCommentUseCase(
             CommentRepositoryPort commentRepositoryPort,
             CommentTargetEligibilityPort eligibilityPort,
             IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            NotificationDispatchPort notificationDispatchPort
     ) {
         this.commentRepositoryPort = Objects.requireNonNull(commentRepositoryPort, "CommentRepositoryPort cannot be null.");
         this.eligibilityPort = Objects.requireNonNull(eligibilityPort, "CommentTargetEligibilityPort cannot be null.");
         this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "IdGeneratorPort cannot be null.");
         this.clockPort = Objects.requireNonNull(clockPort, "ClockPort cannot be null.");
+        this.notificationDispatchPort = Objects.requireNonNull(notificationDispatchPort, "NotificationDispatchPort cannot be null.");
     }
 
     @Transactional
@@ -97,7 +103,29 @@ public class ReplyCommentUseCase {
                 createdAt
         );
 
-        // 7. Save and return
-        return commentRepositoryPort.save(reply);
+        // 7. Save reply
+        Comment savedReply = commentRepositoryPort.save(reply);
+
+        // 8. MS-05K3: Dispatch direct COMMENT_REPLY notification
+        // Self-reply suppression: User replying to their own comment does NOT notify themselves
+        if (!Objects.equals(command.actorUserId(), parent.getAuthorUserId())) {
+            UUID threadRootId = savedReply.getThreadRootCommentId();
+            NotificationDispatchCommand notificationCommand = new NotificationDispatchCommand(
+                    parent.getAuthorUserId(),
+                    NotificationType.COMMENT_REPLY,
+                    command.actorUserId(),
+                    null,
+                    parent.getTargetType().name(),
+                    parent.getTargetId(),
+                    null,
+                    savedReply.getId(),
+                    threadRootId,
+                    null,
+                    "COMMENT_REPLY:" + savedReply.getId()
+            );
+            notificationDispatchPort.dispatch(notificationCommand);
+        }
+
+        return savedReply;
     }
 }

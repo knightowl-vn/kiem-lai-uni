@@ -3,7 +3,7 @@ package com.universe.wiki.entry.web;
 import com.universe.media.contracts.support.MediaDeliveryUrlSupport;
 import com.universe.wiki.contracts.dto.saved.SavedWikiArticleItemDTO;
 import com.universe.wiki.domain.article.ArticleType;
-import com.universe.wiki.entry.web.support.ArticleTypePathMapper;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 
 import java.time.Instant;
 import java.util.UUID;

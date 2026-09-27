@@ -2,6 +2,7 @@ package com.universe.notification.application.usecase;
 
 import com.universe.notification.application.exceptions.NotificationNotFoundException;
 import com.universe.notification.application.model.NotificationFilter;
+import com.universe.notification.application.model.NotificationSlice;
 import com.universe.notification.application.port.NotificationQueryPort;
 import com.universe.notification.application.port.NotificationRepositoryPort;
 import com.universe.notification.contracts.command.NotificationDispatchCommand;
@@ -11,6 +12,11 @@ import com.universe.notification.contracts.dto.UnreadNotificationCountDTO;
 import com.universe.notification.contracts.port.NotificationDispatchPort;
 import com.universe.notification.domain.Notification;
 import com.universe.notification.domain.NotificationType;
+import com.universe.novel.application.ports.ChapterListQueryPort;
+import com.universe.novel.contracts.dto.ChapterListItemDTO;
+import com.universe.wiki.application.ports.WikiArticleQueryPort;
+import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
+import com.universe.wiki.contracts.path.ArticleTypePathMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,7 +25,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,6 +50,14 @@ class NotificationUseCasesTest {
 
     @Mock
     private NotificationQueryPort notificationQueryPort;
+
+    @Mock
+    private ChapterListQueryPort chapterListQueryPort;
+
+    @Mock
+    private WikiArticleQueryPort wikiArticleQueryPort;
+
+    private final ArticleTypePathMapper articleTypePathMapper = new ArticleTypePathMapper();
 
     @Test
     @DisplayName("DispatchNotificationUseCase delegates command to dispatch port")
@@ -77,18 +94,206 @@ class NotificationUseCasesTest {
     }
 
     @Test
-    @DisplayName("ListUserNotificationsUseCase passes normalized pagination and filter to query port")
-    void listUserNotificationsNormalizesPagination() {
-        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(notificationQueryPort);
+    @DisplayName("ListUserNotificationsUseCase returns empty page when no notifications exist")
+    void listUserNotificationsEmptyPage() {
+        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(
+                notificationQueryPort,
+                chapterListQueryPort,
+                wikiArticleQueryPort,
+                articleTypePathMapper
+        );
         UUID userId = UUID.randomUUID();
 
-        NotificationPageDTO emptyPage = NotificationPageDTO.empty(0, 1);
+        NotificationSlice emptySlice = new NotificationSlice(List.of(), 0, 1, 0L, 0, true, true, false);
         when(notificationQueryPort.findByRecipientUserId(userId, NotificationFilter.UNREAD, 0, 1))
-                .thenReturn(emptyPage);
+                .thenReturn(emptySlice);
 
         NotificationPageDTO result = useCase.execute(userId, NotificationFilter.UNREAD, -1, 0);
-        assertThat(result).isEqualTo(emptyPage);
+        assertThat(result.items()).isEmpty();
+        assertThat(result.page()).isEqualTo(0);
+        assertThat(result.size()).isEqualTo(1);
         verify(notificationQueryPort).findByRecipientUserId(userId, NotificationFilter.UNREAD, 0, 1);
+        verifyNoInteractions(chapterListQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("ListUserNotificationsUseCase batch resolves Novel chapter deep links for COMMENT_REPLY")
+    void listUserNotificationsResolvesNovelChapterDeepLinks() {
+        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(
+                notificationQueryPort,
+                chapterListQueryPort,
+                wikiArticleQueryPort,
+                articleTypePathMapper
+        );
+        UUID userId = UUID.randomUUID();
+        UUID notifId = UUID.randomUUID();
+        UUID chapterId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        UUID rootId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+
+        Notification notif = Notification.create(
+                notifId,
+                userId,
+                NotificationType.COMMENT_REPLY,
+                UUID.randomUUID(),
+                "Actor User",
+                "NOVEL_CHAPTER",
+                chapterId,
+                null,
+                replyId,
+                rootId,
+                null,
+                "COMMENT_REPLY:" + replyId,
+                now
+        );
+
+        NotificationSlice slice = new NotificationSlice(List.of(notif), 0, 20, 1L, 1, true, true, false);
+        when(notificationQueryPort.findByRecipientUserId(userId, NotificationFilter.ALL, 0, 20))
+                .thenReturn(slice);
+
+        ChapterListItemDTO chapterItem = new ChapterListItemDTO(
+                chapterId,
+                15,
+                "Đại Chiến Hắc Ám",
+                "dai-chien-hac-am",
+                "PUBLISHED",
+                now
+        );
+        when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId)))
+                .thenReturn(Map.of(chapterId, chapterItem));
+
+        NotificationPageDTO result = useCase.execute(userId, NotificationFilter.ALL, 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        NotificationDTO item = result.items().get(0);
+        assertThat(item.id()).isEqualTo(notifId);
+        assertThat(item.type()).isEqualTo(NotificationType.COMMENT_REPLY);
+        assertThat(item.targetTitleSnapshot()).isEqualTo("Chương 15: Đại Chiến Hắc Ám");
+        assertThat(item.actionUrl()).isEqualTo("/novel/chapters/dai-chien-hac-am?commentId=" + replyId + "&threadId=" + rootId + "#novelChapterComments");
+        assertThat(item.unread()).isTrue();
+
+        verify(chapterListQueryPort).findListItemsByIds(Set.of(chapterId));
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
+    @DisplayName("ListUserNotificationsUseCase batch resolves Wiki article deep links for COMMENT_REPLY")
+    void listUserNotificationsResolvesWikiArticleDeepLinks() {
+        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(
+                notificationQueryPort,
+                chapterListQueryPort,
+                wikiArticleQueryPort,
+                articleTypePathMapper
+        );
+        UUID userId = UUID.randomUUID();
+        UUID notifId = UUID.randomUUID();
+        UUID articleId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+
+        // threadRootId is null -> uses replyId as threadId fallback
+        Notification notif = Notification.create(
+                notifId,
+                userId,
+                NotificationType.COMMENT_REPLY,
+                UUID.randomUUID(),
+                "Actor User",
+                "WIKI_ARTICLE",
+                articleId,
+                null,
+                replyId,
+                null,
+                null,
+                "COMMENT_REPLY:" + replyId,
+                now
+        );
+
+        NotificationSlice slice = new NotificationSlice(List.of(notif), 0, 20, 1L, 1, true, true, false);
+        when(notificationQueryPort.findByRecipientUserId(userId, NotificationFilter.ALL, 0, 20))
+                .thenReturn(slice);
+
+        WikiArticleListItemDTO articleItem = new WikiArticleListItemDTO(
+                articleId,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "PUBLISHED",
+                UUID.randomUUID(),
+                now,
+                now,
+                1L
+        );
+        when(wikiArticleQueryPort.findListItemsByIds(Set.of(articleId)))
+                .thenReturn(Map.of(articleId, articleItem));
+
+        NotificationPageDTO result = useCase.execute(userId, NotificationFilter.ALL, 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        NotificationDTO item = result.items().get(0);
+        assertThat(item.id()).isEqualTo(notifId);
+        assertThat(item.type()).isEqualTo(NotificationType.COMMENT_REPLY);
+        assertThat(item.targetTitleSnapshot()).isEqualTo("Trần Bình An");
+        assertThat(item.actionUrl()).isEqualTo("/wiki/character/tran-binh-an?commentId=" + replyId + "&threadId=" + replyId + "#wikiDiscussion");
+
+        verify(wikiArticleQueryPort).findListItemsByIds(Set.of(articleId));
+        verifyNoInteractions(chapterListQueryPort);
+    }
+
+    @Test
+    @DisplayName("ListUserNotificationsUseCase sets actionUrl=null when target is unpublished or deleted")
+    void listUserNotificationsSetsActionUrlNullWhenUnpublished() {
+        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(
+                notificationQueryPort,
+                chapterListQueryPort,
+                wikiArticleQueryPort,
+                articleTypePathMapper
+        );
+        UUID userId = UUID.randomUUID();
+        UUID notifId = UUID.randomUUID();
+        UUID chapterId = UUID.randomUUID();
+        UUID replyId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+
+        Notification notif = Notification.create(
+                notifId,
+                userId,
+                NotificationType.COMMENT_REPLY,
+                UUID.randomUUID(),
+                "Actor User",
+                "NOVEL_CHAPTER",
+                chapterId,
+                "Draft Chapter Title",
+                replyId,
+                replyId,
+                null,
+                "COMMENT_REPLY:" + replyId,
+                now
+        );
+
+        NotificationSlice slice = new NotificationSlice(List.of(notif), 0, 20, 1L, 1, true, true, false);
+        when(notificationQueryPort.findByRecipientUserId(userId, NotificationFilter.ALL, 0, 20))
+                .thenReturn(slice);
+
+        // Chapter is in DRAFT status
+        ChapterListItemDTO draftChapter = new ChapterListItemDTO(
+                chapterId,
+                1,
+                "Bản Thảo",
+                "ban-thao",
+                "DRAFT",
+                now
+        );
+        when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId)))
+                .thenReturn(Map.of(chapterId, draftChapter));
+
+        NotificationPageDTO result = useCase.execute(userId, NotificationFilter.ALL, 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        NotificationDTO item = result.items().get(0);
+        assertThat(item.targetTitleSnapshot()).isEqualTo("Draft Chapter Title");
+        assertThat(item.actionUrl()).isNull();
     }
 
     @Test
