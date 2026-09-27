@@ -209,7 +209,16 @@ public class SecurityBeanConfig {
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.PUT,
                                 "/api/wiki/articles/*/appreciation",
-                                "/api/interaction/reactions"
+                                "/api/interaction/reactions",
+                                "/api/notifications/*/read",
+                                "/api/notifications/read-all"
+                        )
+                        .authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/api/notifications",
+                                "/api/notifications/**"
                         )
                         .authenticated()
 
