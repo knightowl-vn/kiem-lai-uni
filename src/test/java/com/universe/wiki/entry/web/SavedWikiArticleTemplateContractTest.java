@@ -105,12 +105,12 @@ class SavedWikiArticleTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /wiki/saved trong menu tài khoản đã xác thực")
+    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /wiki/saved trong menu tài khoản đã xác thực với nhãn Wiki của tôi")
     void navbarIncludesWikiSavedLink() throws Exception {
         String navbar = read("src/main/resources/templates/fragments/navbar.html");
 
         assertThat(navbar).contains("th:href=\"@{/wiki/saved}\"");
-        assertThat(navbar).contains("Bài viết Wiki đã lưu");
+        assertThat(navbar).contains("Wiki của tôi");
     }
 
     @Test

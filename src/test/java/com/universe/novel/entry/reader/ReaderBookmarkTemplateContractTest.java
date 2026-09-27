@@ -90,12 +90,13 @@ class ReaderBookmarkTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /novel/bookmarks trong profile dropdown")
-    void navbarIncludesBookmarksLink() throws Exception {
+    @DisplayName("Navbar fragment (navbar.html) dẫn tới khu vực Novel của tôi và không chứa liên kết dấu trang chi tiết trực tiếp")
+    void navbarConsolidatesNovelPersonalLinkAndExcludesDirectBookmark() throws Exception {
         String navbar = read("src/main/resources/templates/fragments/navbar.html");
 
-        assertThat(navbar).contains("th:href=\"@{/novel/bookmarks}\"");
-        assertThat(navbar).contains("Dấu\n\t\t\t\t\t\ttrang");
+        assertThat(navbar).contains("th:href=\"@{/novel/history}\"");
+        assertThat(navbar).contains("Novel của tôi");
+        assertThat(navbar).doesNotContain("th:href=\"@{/novel/bookmarks}\"");
     }
 
     @Test

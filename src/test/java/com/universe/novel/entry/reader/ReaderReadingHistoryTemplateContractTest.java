@@ -80,12 +80,12 @@ class ReaderReadingHistoryTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /novel/history trong profile dropdown")
+    @DisplayName("Navbar fragment (navbar.html) chứa liên kết /novel/history trong profile dropdown với nhãn Novel của tôi")
     void navbarIncludesHistoryLink() throws Exception {
         String navbar = read("src/main/resources/templates/fragments/navbar.html");
 
         assertThat(navbar).contains("th:href=\"@{/novel/history}\"");
-        assertThat(navbar).contains("Lịch sử");
+        assertThat(navbar).contains("Novel của tôi");
     }
 
     @Test
