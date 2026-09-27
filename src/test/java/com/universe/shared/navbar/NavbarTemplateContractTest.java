@@ -146,6 +146,55 @@ class NavbarTemplateContractTest {
         }
     }
 
+    @Test
+    @DisplayName("Navbar fragment định nghĩa đầy đủ cấu trúc chuông thông báo, badge, popover/panel, bộ lọc, CSRF bindings và script navbar-notifications.js")
+    void navbarNotificationsContractIsDefinedCorrectly() throws Exception {
+        String navbar = read("src/main/resources/templates/fragments/navbar.html");
+        String css = read("src/main/resources/static/css/navbar.css");
+
+        // 1. Authenticated container & CSRF bindings
+        assertThat(navbar).contains("id=\"navbarNotifications\"");
+        assertThat(navbar).contains("th:attr=\"data-csrf-token=");
+        assertThat(navbar).contains("data-csrf-header=");
+
+        // 2. Bell button & accessibility attributes
+        assertThat(navbar).contains("id=\"navbarBellButton\"");
+        assertThat(navbar).contains("aria-label=\"Thông báo\"");
+        assertThat(navbar).contains("aria-expanded=\"false\"");
+        assertThat(navbar).contains("aria-controls=\"navbarNotificationsPanel\"");
+
+        // 3. Unread badge & screen reader label
+        assertThat(navbar).contains("id=\"navbarBellBadge\"");
+        assertThat(navbar).contains("id=\"navbarBellBadgeSr\"");
+
+        // 4. Notification Panel & Controls
+        assertThat(navbar).contains("id=\"navbarNotificationsPanel\"");
+        assertThat(navbar).contains("role=\"region\"");
+        assertThat(navbar).contains("aria-label=\"Bảng thông báo\"");
+        assertThat(navbar).contains("id=\"notifMobileBackButton\"");
+        assertThat(navbar).contains("id=\"notifMarkAllBtn\"");
+        assertThat(navbar).contains("Đánh dấu tất cả đã đọc");
+
+        // 5. Filter tabs & Feed list
+        assertThat(navbar).contains("id=\"notifFilterAll\"");
+        assertThat(navbar).contains("id=\"notifFilterUnread\"");
+        assertThat(navbar).contains("id=\"notifFeedList\"");
+        assertThat(navbar).contains("id=\"notifFeedFooter\"");
+        assertThat(navbar).contains("id=\"notifLoadMoreBtn\"");
+
+        // 6. Script reference
+        assertThat(navbar).contains("th:src=\"@{/js/navbar-notifications.js}\"");
+
+        // 7. CSS definitions
+        assertThat(css).contains(".navbar-notifications");
+        assertThat(css).contains(".navbar-bell-button");
+        assertThat(css).contains(".navbar-bell-badge");
+        assertThat(css).contains(".navbar-notifications-panel");
+        assertThat(css).contains(".notif-item");
+        assertThat(css).contains(".notif-item.is-unread");
+        assertThat(css).contains("notifications-panel-open");
+    }
+
     private String read(String relativePath) throws Exception {
         return Files.readString(Path.of(relativePath), StandardCharsets.UTF_8);
     }

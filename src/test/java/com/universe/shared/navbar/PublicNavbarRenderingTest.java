@@ -225,4 +225,27 @@ class PublicNavbarRenderingTest {
                 .andExpect(content().string(not(containsString("href=\"/novel/bookmarks\""))))
                 .andExpect(content().string(not(containsString("Bài viết Wiki đã lưu"))));
     }
+
+    @Test
+    @WithMockUser(username = "reader@universe.local", roles = "USER")
+    @DisplayName("Navbar renders notification bell button, panel, and script for authenticated user")
+    void navbarRendersNotificationBellForAuthenticatedUser() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"navbarNotifications\"")))
+                .andExpect(content().string(containsString("id=\"navbarBellButton\"")))
+                .andExpect(content().string(containsString("id=\"navbarNotificationsPanel\"")))
+                .andExpect(content().string(containsString("navbar-notifications.js")));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Navbar omits notification bell button and panel for anonymous user")
+    void navbarOmitsNotificationBellForAnonymousUser() throws Exception {
+        mockMvc.perform(get("/home"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("id=\"navbarNotifications\""))))
+                .andExpect(content().string(not(containsString("id=\"navbarBellButton\""))))
+                .andExpect(content().string(not(containsString("id=\"navbarNotificationsPanel\""))));
+    }
 }
