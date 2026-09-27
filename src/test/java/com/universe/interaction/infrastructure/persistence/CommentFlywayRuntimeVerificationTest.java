@@ -155,7 +155,7 @@ class CommentFlywayRuntimeVerificationTest {
     }
 
     @Test
-    @DisplayName("3. Foreign Key enforcement: reject invalid parent/thread root and restrict cascade delete")
+    @DisplayName("3. Foreign Key enforcement: reject invalid parent/thread root and verify cascade delete")
     void shouldEnforceSelfReferentialForeignKeyConstraints() {
         UUID targetId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -192,19 +192,20 @@ class CommentFlywayRuntimeVerificationTest {
                 replyId.toString(), targetId.toString(), authorId.toString(), rootId.toString(), rootId.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 
-        // 4. Physical delete on root with child replies must be RESTRICTED (rejected)
-        assertThatThrownBy(() -> jdbc.update(
+        // 4. Physical delete on root succeeds under V73 ON DELETE CASCADE
+        int deletedRoots = jdbc.update(
                 "DELETE FROM interaction_comments WHERE id = ?",
                 rootId.toString()
-        )).satisfies(ex -> assertThat(ex.getMessage()).containsAnyOf("fk_interaction_comments_parent", "fk_interaction_comments_thread_root"));
+        );
+        assertThat(deletedRoots).isEqualTo(1);
 
-        // 5. Verify no cascade deletion occurred; reply is still intact
+        // 5. Verify cascade deletion occurred; child reply is also deleted by DB FK cascade
         Integer replyCount = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM interaction_comments WHERE id = ?",
                 Integer.class,
                 replyId.toString()
         );
-        assertThat(replyCount).isEqualTo(1);
+        assertThat(replyCount).isZero();
     }
 
     @Test

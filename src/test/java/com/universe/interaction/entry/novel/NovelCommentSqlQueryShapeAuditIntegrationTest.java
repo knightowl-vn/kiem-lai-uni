@@ -509,11 +509,11 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         System.out.println("AUDIT_MUTATION DELETE_REPLY: sel=" + drSelects + " ins=" + drInserts + " upd=" + drUpdates + " del=" + drDeletes + " tot=" + drTotal);
         StatementCounter.statements().forEach(s -> System.out.println("  DR_SQL: " + s));
 
-        assertThat(drSelects).as("Delete reply SELECT count").isEqualTo(1);
+        assertThat(drSelects).as("Delete reply SELECT count (lock + 2 descendant checks)").isEqualTo(3);
         assertThat(drInserts).as("Delete reply INSERT count").isZero();
-        assertThat(drUpdates).as("Delete reply UPDATE count").isEqualTo(1);
-        assertThat(drDeletes).as("Delete reply DELETE count").isEqualTo(1);
-        assertThat(drTotal).as("Delete reply TOTAL count").isEqualTo(3);
+        assertThat(drUpdates).as("Delete reply UPDATE count").isZero();
+        assertThat(drDeletes).as("Delete reply DELETE count (reactions, revisions, comment)").isEqualTo(3);
+        assertThat(drTotal).as("Delete reply TOTAL count").isEqualTo(6);
 
         // F. DELETE ROOT (has 1 revision from edit step)
         StatementCounter.reset();
@@ -529,11 +529,11 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         System.out.println("AUDIT_MUTATION DELETE_ROOT: sel=" + drootSelects + " ins=" + drootInserts + " upd=" + drootUpdates + " del=" + drootDeletes + " tot=" + drootTotal);
         StatementCounter.statements().forEach(s -> System.out.println("  DROOT_SQL: " + s));
 
-        assertThat(drootSelects).as("Delete root SELECT count").isEqualTo(1);
+        assertThat(drootSelects).as("Delete root SELECT count (lock + 2 descendant checks)").isEqualTo(3);
         assertThat(drootInserts).as("Delete root INSERT count").isZero();
-        assertThat(drootUpdates).as("Delete root UPDATE count").isEqualTo(1);
-        assertThat(drootDeletes).as("Delete root DELETE count").isEqualTo(1);
-        assertThat(drootTotal).as("Delete root TOTAL count").isEqualTo(3);
+        assertThat(drootUpdates).as("Delete root UPDATE count").isZero();
+        assertThat(drootDeletes).as("Delete root DELETE count (reactions, revisions, comment)").isEqualTo(3);
+        assertThat(drootTotal).as("Delete root TOTAL count").isEqualTo(6);
     }
 
     // =========================================================================

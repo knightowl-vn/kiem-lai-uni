@@ -4,16 +4,8 @@ import com.universe.test.TestDatabaseSupport;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
 import java.sql.Timestamp;
@@ -25,36 +17,19 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Transactional(propagation = Propagation.NOT_SUPPORTED)
-@TestPropertySource(properties = {
-        "spring.jpa.hibernate.ddl-auto=none",
-        "spring.flyway.enabled=false"
-})
 @DisplayName("Wiki Appreciation V57, V58, V59 Flyway Migration Verification Tests")
 class WikiAppreciationV57V58V59MigrationVerificationTest {
 
+    private static final String TEST_DB_NAME = "kiemlai_wiki_appreciation_v57_v59_test";
     private static final UUID ARTICLE_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final UUID ADMIN_ID = UUID.fromString("99999999-9999-9999-9999-999999999999");
-
-    @DynamicPropertySource
-    static void configureDataSource(DynamicPropertyRegistry registry) {
-        TestDatabaseSupport.configureDynamicProperties(registry);
-    }
-
-    @Autowired
-    private DataSource dataSource;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
 
     @Test
     @DisplayName("Kiểm chứng tiến trình migration V56 -> V57 -> V58 -> V59 và các bất biến trung gian")
     void shouldVerifyStepByStepMigrationProgression() {
-        // 1. Reset migration state to V56 for testing progression
-        jdbcTemplate.update("DELETE FROM flyway_schema_history WHERE version IN ('56', '57', '58', '59')");
-        jdbcTemplate.execute("DROP TABLE IF EXISTS wiki_appreciation_ratings");
+        TestDatabaseSupport.resetTestDatabase(TEST_DB_NAME);
+        DataSource dataSource = TestDatabaseSupport.createTestDataSource(TEST_DB_NAME);
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
         Flyway flyway56 = Flyway.configure()
                 .dataSource(dataSource)
@@ -101,10 +76,10 @@ class WikiAppreciationV57V58V59MigrationVerificationTest {
 
         Integer shadowColumnExists = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.columns
-                WHERE table_schema = DATABASE()
+                WHERE table_schema = ?
                   AND table_name = 'wiki_appreciation_ratings'
                   AND column_name = 'half_star_units'
-                """, Integer.class);
+                """, Integer.class, TEST_DB_NAME);
         assertThat(shadowColumnExists).isEqualTo(1);
 
         List<Map<String, Object>> rowsV57 = jdbcTemplate.queryForList(
@@ -147,10 +122,10 @@ class WikiAppreciationV57V58V59MigrationVerificationTest {
 
         Integer shadowColumnAfterV59 = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.columns
-                WHERE table_schema = DATABASE()
+                WHERE table_schema = ?
                   AND table_name = 'wiki_appreciation_ratings'
                   AND column_name = 'half_star_units'
-                """, Integer.class);
+                """, Integer.class, TEST_DB_NAME);
         assertThat(shadowColumnAfterV59).isEqualTo(0);
 
         List<Integer> valuesV59 = jdbcTemplate.queryForList(
@@ -161,10 +136,10 @@ class WikiAppreciationV57V58V59MigrationVerificationTest {
 
         String isNullable = jdbcTemplate.queryForObject("""
                 SELECT is_nullable FROM information_schema.columns
-                WHERE table_schema = DATABASE()
+                WHERE table_schema = ?
                   AND table_name = 'wiki_appreciation_ratings'
                   AND column_name = 'value'
-                """, String.class);
+                """, String.class, TEST_DB_NAME);
         assertThat(isNullable).isEqualTo("NO");
 
         // Verify CHECK constraint (chk_wiki_appreciation_ratings_value):

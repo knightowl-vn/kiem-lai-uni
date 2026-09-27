@@ -99,6 +99,7 @@ class GetReactionSummaryUseCaseTest {
             when(eligibilityPort.isEligible(target)).thenReturn(true);
 
             Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+            counts.put(ReactionType.LIKE, 3L);
             counts.put(ReactionType.LOVE, 5L);
             counts.put(ReactionType.FIRE, 2L);
             counts.put(ReactionType.HAHA, 0L);
@@ -109,11 +110,13 @@ class GetReactionSummaryUseCaseTest {
 
             assertThat(summary).isNotNull();
             assertThat(summary.target()).isEqualTo(target);
-            assertThat(summary.counts()).containsEntry(ReactionType.LOVE, 5L)
+            assertThat(summary.counts()).hasSize(5)
+                    .containsEntry(ReactionType.LIKE, 3L)
+                    .containsEntry(ReactionType.LOVE, 5L)
                     .containsEntry(ReactionType.FIRE, 2L)
                     .containsEntry(ReactionType.HAHA, 0L)
                     .containsEntry(ReactionType.SAD, 1L);
-            assertThat(summary.totalCount()).isEqualTo(8L);
+            assertThat(summary.totalCount()).isEqualTo(11L);
             assertThat(summary.currentUserReaction()).isNull();
 
             verify(reactionRepositoryPort, never()).findUserReactionType(any(), any());
@@ -126,6 +129,7 @@ class GetReactionSummaryUseCaseTest {
             when(eligibilityPort.isEligible(target)).thenReturn(true);
 
             Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+            counts.put(ReactionType.LIKE, 0L);
             counts.put(ReactionType.LOVE, 10L);
             counts.put(ReactionType.FIRE, 0L);
             counts.put(ReactionType.HAHA, 3L);
@@ -138,7 +142,9 @@ class GetReactionSummaryUseCaseTest {
 
             assertThat(summary).isNotNull();
             assertThat(summary.target()).isEqualTo(target);
-            assertThat(summary.counts()).containsEntry(ReactionType.LOVE, 10L)
+            assertThat(summary.counts()).hasSize(5)
+                    .containsEntry(ReactionType.LIKE, 0L)
+                    .containsEntry(ReactionType.LOVE, 10L)
                     .containsEntry(ReactionType.FIRE, 0L)
                     .containsEntry(ReactionType.HAHA, 3L)
                     .containsEntry(ReactionType.SAD, 0L);
@@ -153,6 +159,7 @@ class GetReactionSummaryUseCaseTest {
             when(eligibilityPort.isEligible(target)).thenReturn(true);
 
             Map<ReactionType, Long> counts = new EnumMap<>(ReactionType.class);
+            counts.put(ReactionType.LIKE, 0L);
             counts.put(ReactionType.LOVE, 0L);
             counts.put(ReactionType.FIRE, 0L);
             counts.put(ReactionType.HAHA, 0L);
@@ -181,7 +188,8 @@ class GetReactionSummaryUseCaseTest {
 
             ReactionSummary summary = useCase.execute(target, null);
 
-            assertThat(summary.counts()).hasSize(4)
+            assertThat(summary.counts()).hasSize(5)
+                    .containsEntry(ReactionType.LIKE, 0L)
                     .containsEntry(ReactionType.LOVE, 0L)
                     .containsEntry(ReactionType.FIRE, 3L)
                     .containsEntry(ReactionType.HAHA, 0L)

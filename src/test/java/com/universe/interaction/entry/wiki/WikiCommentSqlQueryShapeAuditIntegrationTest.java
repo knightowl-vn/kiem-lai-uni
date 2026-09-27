@@ -169,8 +169,12 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
                 .as("Feed read must execute ZERO revision queries")
                 .isTrue();
 
-        // Feed must not issue COUNT(*) for pagination
-        assertThat(StatementCounter.statements().stream().noneMatch(s -> s.toUpperCase().contains("COUNT(") && !s.toUpperCase().contains("COUNT(DISTINCT")))
+        // Feed must not issue standalone COUNT(*) for root pagination
+        assertThat(StatementCounter.statements().stream().noneMatch(s ->
+                s.toLowerCase().contains("interaction_comments")
+                && s.toUpperCase().contains("COUNT(")
+                && !s.toUpperCase().contains("COUNT(DISTINCT")
+                && !s.toUpperCase().contains("GROUP BY")))
                 .as("Feed pagination must NOT execute pagination COUNT(*)")
                 .isTrue();
 
@@ -453,9 +457,10 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         // 4. SELECT findActiveRootsByIds on interaction_comments (Batch load active roots)
         // 5. SELECT findThreadRepliesByRootIds on interaction_comments (Batch load thread replies)
         // 6. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
+        // 7. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries)
         assertThat(feedQueries)
-                .as("Wiki discussion feed must execute exactly 6 queries: 1 publication check + 1 metrics aggregate + 1 root slice + 2 batch thread queries + 1 batch author profile query")
-                .isEqualTo(6);
+                .as("Wiki discussion feed must execute exactly 7 queries: 1 publication check + 1 metrics aggregate + 1 root slice + 2 batch thread queries + 1 batch author profile query + 1 batch reaction count query")
+                .isEqualTo(7);
 
         // --- PATH B: SINGLE THREAD READ ---
         StatementCounter.reset();
@@ -470,9 +475,10 @@ class WikiCommentSqlQueryShapeAuditIntegrationTest {
         // 3. SELECT findById on interaction_comments (Root comment lookup in getCommentThreadUseCase)
         // 4. SELECT findThreadReplies on interaction_comments (Thread replies lookup)
         // 5. SELECT findPublicProfilesByIds on identity_users (Batch load author public profiles)
+        // 6. SELECT batch reaction counts on interaction_reactions (Batch load reaction summaries)
         assertThat(threadQueries)
-                .as("Wiki single thread must execute exactly 5 queries: 1 publication check + 1 target scope validation + 1 root lookup + 1 thread replies load + 1 batch author profile query")
-                .isEqualTo(5);
+                .as("Wiki single thread must execute exactly 6 queries: 1 publication check + 1 target scope validation + 1 root lookup + 1 thread replies load + 1 batch author profile query + 1 batch reaction count query")
+                .isEqualTo(6);
 
         // --- PATH C: REVISION HISTORY READ ---
         StatementCounter.reset();

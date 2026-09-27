@@ -7,6 +7,7 @@ import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,6 +58,11 @@ class InteractionReportRetentionPersistenceTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void setUp() {
+        cleanUp();
+    }
 
     @AfterEach
     void cleanUp() {

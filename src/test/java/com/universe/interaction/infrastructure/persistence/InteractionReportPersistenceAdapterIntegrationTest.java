@@ -214,26 +214,30 @@ class InteractionReportPersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("Non-duplicate data integrity violations (e.g. FK constraint) are not translated to DuplicatePendingReportException")
-    void shouldNotFalselyTranslateOtherDataIntegrityViolations() {
-        UUID nonExistentCommentId = UUID.randomUUID();
+    @DisplayName("Non-duplicate data integrity violations (e.g. column width constraint) are not translated to DuplicatePendingReportException")
+    void shouldNotFalselyTranslateOtherDataIntegrityViolations() throws Exception {
+        UUID commentId = insertComment();
         UUID reporterUserId = UUID.randomUUID();
         Instant now = Instant.now();
 
-        InteractionReport orphanReport = InteractionReport.createPending(
+        InteractionReport report = InteractionReport.createPending(
                 UUID.randomUUID(),
-                nonExistentCommentId,
+                commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 null,
-                "Snapshot",
+                "Valid initial snapshot",
                 now
         );
 
-        assertThatThrownBy(() -> adapter.save(orphanReport))
+        // Inject description exceeding column length (501 chars) via reflection to trigger DataIntegrityViolationException at DB flush
+        java.lang.reflect.Field field = InteractionReport.class.getDeclaredField("description");
+        field.setAccessible(true);
+        field.set(report, "A".repeat(501));
+
+        assertThatThrownBy(() -> adapter.save(report))
                 .isInstanceOf(DataIntegrityViolationException.class)
-                .isNotInstanceOf(com.universe.interaction.application.exceptions.DuplicatePendingReportException.class)
-                .hasMessageContaining("fk_interaction_reports_comment");
+                .isNotInstanceOf(com.universe.interaction.application.exceptions.DuplicatePendingReportException.class);
     }
 
     @Test

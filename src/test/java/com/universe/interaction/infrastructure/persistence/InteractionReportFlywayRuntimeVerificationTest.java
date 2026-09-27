@@ -132,33 +132,40 @@ class InteractionReportFlywayRuntimeVerificationTest {
     }
 
     @Test
-    @DisplayName("3. Foreign key constraint: reject non-existent comment_id and enforce ON DELETE RESTRICT")
-    void shouldEnforceForeignKeyConstraint() {
-        UUID nonExistentCommentId = UUID.randomUUID();
+    @DisplayName("3. Moderation report decoupled lifecycle: report survives comment hard-delete with snapshot intact")
+    void shouldPersistReportAcrossCommentHardDelete() {
+        UUID parentCommentId = insertParentComment();
         UUID reportId = UUID.randomUUID();
         UUID reporterUserId = UUID.randomUUID();
         Instant now = Instant.now();
+        String snapshotBody = "Target comment body snapshot to preserve for audit";
 
-        // 1. Reject report referencing non-existent comment
-        assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'PENDING', ?, NULL, NULL)",
-                reportId.toString(), nonExistentCommentId.toString(), reporterUserId.toString(), Timestamp.from(now)
-        )).hasMessageContaining("fk_interaction_reports_comment");
-
-        // 2. Reject comment deletion when reports reference it
-        UUID parentCommentId = insertParentComment();
-        UUID validReportId = UUID.randomUUID();
+        // 1. Create valid moderation report for the comment
         jdbc.update(
                 "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', NULL, 'Snapshot', 'PENDING', ?, NULL, NULL)",
-                validReportId.toString(), parentCommentId.toString(), reporterUserId.toString(), Timestamp.from(now)
+                        "VALUES (?, ?, ?, 'SPAM', 'Suspicious link', ?, 'PENDING', ?, NULL, NULL)",
+                reportId.toString(), parentCommentId.toString(), reporterUserId.toString(), snapshotBody, Timestamp.from(now)
         );
 
-        assertThatThrownBy(() -> jdbc.update(
+        // 2. Hard-delete the comment row (succeeds under V73 as fk_interaction_reports_comment was dropped)
+        int deletedComments = jdbc.update(
                 "DELETE FROM interaction_comments WHERE id = ?",
                 parentCommentId.toString()
-        )).hasMessageContaining("fk_interaction_reports_comment");
+        );
+        assertThat(deletedComments).isEqualTo(1);
+
+        // 3. Verify the report row still exists with its immutable snapshot and identifiers intact
+        var reportRow = jdbc.queryForMap(
+                "SELECT id, comment_id, reporter_user_id, reason, description, reported_body_snapshot, status FROM interaction_reports WHERE id = ?",
+                reportId.toString()
+        );
+        assertThat(reportRow.get("id")).isEqualTo(reportId.toString());
+        assertThat(reportRow.get("comment_id")).isEqualTo(parentCommentId.toString());
+        assertThat(reportRow.get("reporter_user_id")).isEqualTo(reporterUserId.toString());
+        assertThat(reportRow.get("reason")).isEqualTo("SPAM");
+        assertThat(reportRow.get("description")).isEqualTo("Suspicious link");
+        assertThat(reportRow.get("reported_body_snapshot")).isEqualTo(snapshotBody);
+        assertThat(reportRow.get("status")).isEqualTo("PENDING");
     }
 
     @Test
