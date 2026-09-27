@@ -2,6 +2,9 @@ package com.universe.wiki.application.contribution.workflow;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.notification.contracts.command.NotificationDispatchCommand;
+import com.universe.notification.contracts.port.NotificationDispatchPort;
+import com.universe.notification.domain.NotificationType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
@@ -52,6 +55,7 @@ public class AdminWikiContributionWorkflowUseCase {
     private final UserIdentityContract userIdentityContract;
     private final IdGeneratorPort idGeneratorPort;
     private final ClockPort clockPort;
+    private final NotificationDispatchPort notificationDispatchPort;
 
     public AdminWikiContributionWorkflowUseCase(
             WikiContributionRepositoryPort contributionRepository,
@@ -60,7 +64,8 @@ public class AdminWikiContributionWorkflowUseCase {
             WikiContributionWorkflowEventRepositoryPort workflowEventRepository,
             UserIdentityContract userIdentityContract,
             IdGeneratorPort idGeneratorPort,
-            ClockPort clockPort
+            ClockPort clockPort,
+            NotificationDispatchPort notificationDispatchPort
     ) {
         this.contributionRepository = Objects.requireNonNull(
                 contributionRepository,
@@ -89,6 +94,10 @@ public class AdminWikiContributionWorkflowUseCase {
         this.clockPort = Objects.requireNonNull(
                 clockPort,
                 "ClockPort không được để trống."
+        );
+        this.notificationDispatchPort = Objects.requireNonNull(
+                notificationDispatchPort,
+                "NotificationDispatchPort không được để trống."
         );
     }
 
@@ -124,6 +133,23 @@ public class AdminWikiContributionWorkflowUseCase {
                 now
         );
         workflowEventRepository.save(event);
+
+        if (!Objects.equals(command.actorId(), saved.getSubmittedByUserId())) {
+            NotificationDispatchCommand notificationCommand = new NotificationDispatchCommand(
+                    saved.getSubmittedByUserId(),
+                    NotificationType.WIKI_CONTRIBUTION_REVIEWING,
+                    command.actorId(),
+                    null,
+                    "WIKI_CONTRIBUTION",
+                    saved.getId(),
+                    saved.getArticleTitleSnapshot(),
+                    null,
+                    null,
+                    null,
+                    "WIKI_CONTRIBUTION:" + saved.getId() + ":REVIEWING"
+            );
+            notificationDispatchPort.dispatch(notificationCommand);
+        }
 
         return saved;
     }
@@ -263,6 +289,23 @@ public class AdminWikiContributionWorkflowUseCase {
         );
         workflowEventRepository.save(event);
 
+        if (!Objects.equals(command.actorId(), saved.getSubmittedByUserId())) {
+            NotificationDispatchCommand notificationCommand = new NotificationDispatchCommand(
+                    saved.getSubmittedByUserId(),
+                    NotificationType.WIKI_CONTRIBUTION_RESOLVED,
+                    command.actorId(),
+                    null,
+                    "WIKI_CONTRIBUTION",
+                    saved.getId(),
+                    saved.getArticleTitleSnapshot(),
+                    null,
+                    null,
+                    saved.getResolutionNote(),
+                    "WIKI_CONTRIBUTION:" + saved.getId() + ":RESOLVED"
+            );
+            notificationDispatchPort.dispatch(notificationCommand);
+        }
+
         return saved;
     }
 
@@ -301,6 +344,23 @@ public class AdminWikiContributionWorkflowUseCase {
                 now
         );
         workflowEventRepository.save(event);
+
+        if (!Objects.equals(command.actorId(), saved.getSubmittedByUserId())) {
+            NotificationDispatchCommand notificationCommand = new NotificationDispatchCommand(
+                    saved.getSubmittedByUserId(),
+                    NotificationType.WIKI_CONTRIBUTION_REJECTED,
+                    command.actorId(),
+                    null,
+                    "WIKI_CONTRIBUTION",
+                    saved.getId(),
+                    saved.getArticleTitleSnapshot(),
+                    null,
+                    null,
+                    saved.getResolutionNote(),
+                    "WIKI_CONTRIBUTION:" + saved.getId() + ":REJECTED"
+            );
+            notificationDispatchPort.dispatch(notificationCommand);
+        }
 
         return saved;
     }

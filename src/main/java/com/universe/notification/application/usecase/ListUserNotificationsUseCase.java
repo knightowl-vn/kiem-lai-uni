@@ -33,6 +33,7 @@ public class ListUserNotificationsUseCase {
     private static final String STATUS_PUBLISHED = "PUBLISHED";
     private static final String TARGET_NOVEL_CHAPTER = "NOVEL_CHAPTER";
     private static final String TARGET_WIKI_ARTICLE = "WIKI_ARTICLE";
+    private static final String TARGET_WIKI_CONTRIBUTION = "WIKI_CONTRIBUTION";
 
     private final NotificationQueryPort notificationQueryPort;
     private final ChapterListQueryPort chapterListQueryPort;
@@ -245,6 +246,10 @@ public class ListUserNotificationsUseCase {
                         + "#wikiDiscussion";
             }
             return "/wiki/" + typePath + "/" + article.slug().trim();
+        }
+
+        if (TARGET_WIKI_CONTRIBUTION.equalsIgnoreCase(notification.getTargetType())) {
+            return "/wiki/contributions";
         }
 
         return null;

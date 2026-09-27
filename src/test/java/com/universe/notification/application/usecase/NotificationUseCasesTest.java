@@ -297,6 +297,56 @@ class NotificationUseCasesTest {
     }
 
     @Test
+    @DisplayName("ListUserNotificationsUseCase resolves Wiki contribution notification with /wiki/contributions and zero query lookups")
+    void listUserNotificationsResolvesWikiContributionNotifications() {
+        ListUserNotificationsUseCase useCase = new ListUserNotificationsUseCase(
+                notificationQueryPort,
+                chapterListQueryPort,
+                wikiArticleQueryPort,
+                articleTypePathMapper
+        );
+        UUID userId = UUID.randomUUID();
+        UUID notifId = UUID.randomUUID();
+        UUID contribId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+
+        Notification notif = Notification.create(
+                notifId,
+                userId,
+                NotificationType.WIKI_CONTRIBUTION_RESOLVED,
+                UUID.randomUUID(),
+                null,
+                "WIKI_CONTRIBUTION",
+                contribId,
+                "Kiếm Các Bài Viết",
+                null,
+                null,
+                "Đã áp dụng thay đổi thành công.",
+                "WIKI_CONTRIBUTION:" + contribId + ":RESOLVED",
+                now
+        );
+
+        NotificationSlice slice = new NotificationSlice(List.of(notif), 0, 20, 1L, 1, true, true, false);
+        when(notificationQueryPort.findByRecipientUserId(userId, NotificationFilter.ALL, 0, 20))
+                .thenReturn(slice);
+
+        NotificationPageDTO result = useCase.execute(userId, NotificationFilter.ALL, 0, 20);
+
+        assertThat(result.items()).hasSize(1);
+        NotificationDTO item = result.items().get(0);
+        assertThat(item.id()).isEqualTo(notifId);
+        assertThat(item.type()).isEqualTo(NotificationType.WIKI_CONTRIBUTION_RESOLVED);
+        assertThat(item.targetTitleSnapshot()).isEqualTo("Kiếm Các Bài Viết");
+        assertThat(item.detailSnapshot()).isEqualTo("Đã áp dụng thay đổi thành công.");
+        assertThat(item.actionUrl()).isEqualTo("/wiki/contributions");
+        assertThat(item.unread()).isTrue();
+
+        // Strict verification: zero live queries to chapter or wiki article ports!
+        verifyNoInteractions(chapterListQueryPort);
+        verifyNoInteractions(wikiArticleQueryPort);
+    }
+
+    @Test
     @DisplayName("MarkNotificationReadUseCase marks read successfully when owned and unread")
     void markNotificationReadSuccess() {
         MarkNotificationReadUseCase useCase = new MarkNotificationReadUseCase(notificationRepositoryPort);

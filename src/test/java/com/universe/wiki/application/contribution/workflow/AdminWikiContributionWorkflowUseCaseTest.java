@@ -2,6 +2,9 @@ package com.universe.wiki.application.contribution.workflow;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
+import com.universe.notification.contracts.command.NotificationDispatchCommand;
+import com.universe.notification.contracts.port.NotificationDispatchPort;
+import com.universe.notification.domain.NotificationType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.wiki.application.exceptions.WikiContributionNotFoundException;
@@ -37,6 +40,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -64,6 +68,9 @@ class AdminWikiContributionWorkflowUseCaseTest {
     @Mock
     private ClockPort clockPort;
 
+    @Mock
+    private NotificationDispatchPort notificationDispatchPort;
+
     private AdminWikiContributionWorkflowUseCase useCase;
 
     private final Instant now = Instant.parse("2026-09-25T11:00:00Z");
@@ -79,7 +86,8 @@ class AdminWikiContributionWorkflowUseCaseTest {
                 workflowEventRepository,
                 userIdentityContract,
                 idGeneratorPort,
-                clockPort
+                clockPort,
+                notificationDispatchPort
         );
     }
 
@@ -119,6 +127,21 @@ class AdminWikiContributionWorkflowUseCaseTest {
         assertThat(result.getUpdatedAt()).isEqualTo(now);
         verify(contributionRepository).save(contribution);
         verify(workflowEventRepository).save(any(WikiContributionWorkflowEvent.class));
+
+        ArgumentCaptor<NotificationDispatchCommand> notifCaptor = ArgumentCaptor.forClass(NotificationDispatchCommand.class);
+        verify(notificationDispatchPort).dispatch(notifCaptor.capture());
+        NotificationDispatchCommand notifCmd = notifCaptor.getValue();
+        assertThat(notifCmd.recipientUserId()).isEqualTo(contribution.getSubmittedByUserId());
+        assertThat(notifCmd.type()).isEqualTo(NotificationType.WIKI_CONTRIBUTION_REVIEWING);
+        assertThat(notifCmd.actorUserId()).isEqualTo(actorId);
+        assertThat(notifCmd.actorDisplayNameSnapshot()).isNull();
+        assertThat(notifCmd.targetType()).isEqualTo("WIKI_CONTRIBUTION");
+        assertThat(notifCmd.targetId()).isEqualTo(id);
+        assertThat(notifCmd.targetTitleSnapshot()).isEqualTo(contribution.getArticleTitleSnapshot());
+        assertThat(notifCmd.commentId()).isNull();
+        assertThat(notifCmd.threadRootId()).isNull();
+        assertThat(notifCmd.detailSnapshot()).isNull();
+        assertThat(notifCmd.dedupeKey()).isEqualTo("WIKI_CONTRIBUTION:" + id + ":REVIEWING");
     }
 
     @Test
@@ -264,6 +287,21 @@ class AdminWikiContributionWorkflowUseCaseTest {
         assertThat(event.getFromStatus()).isEqualTo(WikiContributionStatus.REVIEWING);
         assertThat(event.getToStatus()).isEqualTo(WikiContributionStatus.RESOLVED);
         assertThat(event.getResolutionOutcome()).isEqualTo(WikiContributionResolutionOutcome.APPLIED);
+
+        ArgumentCaptor<NotificationDispatchCommand> notifCaptor = ArgumentCaptor.forClass(NotificationDispatchCommand.class);
+        verify(notificationDispatchPort).dispatch(notifCaptor.capture());
+        NotificationDispatchCommand notifCmd = notifCaptor.getValue();
+        assertThat(notifCmd.recipientUserId()).isEqualTo(contribution.getSubmittedByUserId());
+        assertThat(notifCmd.type()).isEqualTo(NotificationType.WIKI_CONTRIBUTION_RESOLVED);
+        assertThat(notifCmd.actorUserId()).isEqualTo(actorId);
+        assertThat(notifCmd.actorDisplayNameSnapshot()).isNull();
+        assertThat(notifCmd.targetType()).isEqualTo("WIKI_CONTRIBUTION");
+        assertThat(notifCmd.targetId()).isEqualTo(id);
+        assertThat(notifCmd.targetTitleSnapshot()).isEqualTo(contribution.getArticleTitleSnapshot());
+        assertThat(notifCmd.commentId()).isNull();
+        assertThat(notifCmd.threadRootId()).isNull();
+        assertThat(notifCmd.detailSnapshot()).isEqualTo("Đã cập nhật bài viết theo thông tin chính xác.");
+        assertThat(notifCmd.dedupeKey()).isEqualTo("WIKI_CONTRIBUTION:" + id + ":RESOLVED");
     }
 
     @Test
@@ -358,6 +396,77 @@ class AdminWikiContributionWorkflowUseCaseTest {
         assertThat(event.getEventType()).isEqualTo(WikiContributionEventType.REJECTED);
         assertThat(event.getFromStatus()).isEqualTo(WikiContributionStatus.REVIEWING);
         assertThat(event.getToStatus()).isEqualTo(WikiContributionStatus.REJECTED);
+
+        ArgumentCaptor<NotificationDispatchCommand> notifCaptor = ArgumentCaptor.forClass(NotificationDispatchCommand.class);
+        verify(notificationDispatchPort).dispatch(notifCaptor.capture());
+        NotificationDispatchCommand notifCmd = notifCaptor.getValue();
+        assertThat(notifCmd.recipientUserId()).isEqualTo(contribution.getSubmittedByUserId());
+        assertThat(notifCmd.type()).isEqualTo(NotificationType.WIKI_CONTRIBUTION_REJECTED);
+        assertThat(notifCmd.actorUserId()).isEqualTo(actorId);
+        assertThat(notifCmd.actorDisplayNameSnapshot()).isNull();
+        assertThat(notifCmd.targetType()).isEqualTo("WIKI_CONTRIBUTION");
+        assertThat(notifCmd.targetId()).isEqualTo(id);
+        assertThat(notifCmd.targetTitleSnapshot()).isEqualTo(contribution.getArticleTitleSnapshot());
+        assertThat(notifCmd.commentId()).isNull();
+        assertThat(notifCmd.threadRootId()).isNull();
+        assertThat(notifCmd.detailSnapshot()).isEqualTo("Từ chối đóng góp do nội dung không chính xác.");
+        assertThat(notifCmd.dedupeKey()).isEqualTo("WIKI_CONTRIBUTION:" + id + ":REJECTED");
+    }
+
+    @Test
+    @DisplayName("Self-action suppression: admin reviewing, resolving or rejecting their own contribution does NOT dispatch notification")
+    void shouldSuppressNotificationWhenAdminActsOnOwnContribution() {
+        WikiContribution contribution = WikiContribution.createGeneral(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "CHARACTER",
+                "Tiêu Đề",
+                "tieu-de",
+                1L,
+                actorId, // Submitted by same admin!
+                WikiContributionType.INCORRECT_INFORMATION,
+                "Đóng góp từ chính admin này",
+                now.minusSeconds(300)
+        );
+        UUID id = contribution.getId();
+
+        when(clockPort.now()).thenReturn(now);
+        when(contributionRepository.findById(id)).thenReturn(Optional.of(contribution));
+        when(articleRepository.findById(contribution.getArticleId())).thenReturn(Optional.empty());
+        when(contributionRepository.save(any(WikiContribution.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // 1. Review by self -> no notification
+        useCase.review(new ReviewWikiContributionCommand(id, actorId, 0L));
+        verify(notificationDispatchPort, never()).dispatch(any());
+
+        // 2. Resolve by self -> no notification
+        useCase.resolve(new ResolveWikiContributionCommand(
+                id, actorId, 0L, WikiContributionResolutionOutcome.NO_CHANGE_NEEDED, "Ghi chú hợp lệ từ admin."
+        ));
+        verify(notificationDispatchPort, never()).dispatch(any());
+    }
+
+    @Test
+    @DisplayName("Claim and reassign do NOT dispatch notifications")
+    void shouldNotDispatchNotificationsOnClaimOrReassign() {
+        WikiContribution contribution = createLegacyUnassignedReviewingContribution();
+        UUID id = contribution.getId();
+        UUID newAdminId = UUID.randomUUID();
+
+        when(clockPort.now()).thenReturn(now);
+        when(contributionRepository.findById(id)).thenReturn(Optional.of(contribution));
+        when(contributionRepository.save(any(WikiContribution.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Claim
+        useCase.claim(new ClaimWikiContributionCommand(id, actorId, 0L));
+        verify(notificationDispatchPort, never()).dispatch(any());
+
+        // Reassign
+        when(userIdentityContract.findById(newAdminId)).thenReturn(Optional.of(
+                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "ACTIVE", "ADMIN", now)
+        ));
+        useCase.reassign(new ReassignWikiContributionCommand(id, actorId, newAdminId, "Chuyển việc", 0L));
+        verify(notificationDispatchPort, never()).dispatch(any());
     }
 
     @Test
