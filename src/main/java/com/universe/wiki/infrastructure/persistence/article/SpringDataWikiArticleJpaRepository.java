@@ -232,4 +232,38 @@ public interface SpringDataWikiArticleJpaRepository
             @Param("upperBound") String upperBound,
             Pageable pageable
     );
+
+    /**
+     * Tra cứu ứng viên bài viết đã xuất bản theo tiêu đề gập Đ/đ cho tìm kiếm điều hướng.
+     * Sắp xếp theo thứ bậc khớp (Exact -> Prefix -> Contains) trực tiếp tại DB trước khi phân trang.
+     */
+    @Query("""
+            SELECT
+                article.id AS id,
+                article.title AS title,
+                article.slug AS slug,
+                article.articleType AS articleType,
+                article.status AS status,
+                article.updatedBy AS updatedBy,
+                article.createdAt AS createdAt,
+                article.updatedAt AS updatedAt,
+                article.contentVersion AS contentVersion
+            FROM WikiArticleJpaEntity article
+            WHERE article.status = 'PUBLISHED'
+              AND LOWER(REPLACE(REPLACE(article.title, 'Đ', 'd'), 'đ', 'd'))
+                  LIKE LOWER(CONCAT('%', :escapedFoldedQuery, '%')) ESCAPE '\\'
+            ORDER BY
+              CASE
+                WHEN LOWER(REPLACE(REPLACE(article.title, 'Đ', 'd'), 'đ', 'd')) = LOWER(:foldedQuery) THEN 1
+                WHEN LOWER(REPLACE(REPLACE(article.title, 'Đ', 'd'), 'đ', 'd')) LIKE LOWER(CONCAT(:escapedFoldedQuery, '%')) ESCAPE '\\' THEN 2
+                ELSE 3
+              END ASC,
+              article.articleType ASC,
+              article.id ASC
+            """)
+    List<WikiArticleListItemProjection> findPublishedTitleSearchCandidates(
+            @Param("foldedQuery") String foldedQuery,
+            @Param("escapedFoldedQuery") String escapedFoldedQuery,
+            Pageable pageable
+    );
 }

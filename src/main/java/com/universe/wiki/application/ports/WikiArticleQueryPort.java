@@ -1,5 +1,6 @@
 package com.universe.wiki.application.ports;
 
+import com.universe.wiki.application.article.query.search.WikiArticleAliasSearchMatchDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
@@ -113,5 +114,23 @@ public interface WikiArticleQueryPort {
      */
     Map<UUID, WikiArticleListItemDTO> findListItemsByIds(
             Set<UUID> articleIds
+    );
+
+    /**
+     * Tra cứu các bài viết đã xuất bản có tiêu đề khớp từ khóa đã gập dấu/Đ.
+     */
+    List<WikiArticleListItemDTO> findPublishedTitleSearchCandidates(
+            String foldedQuery,
+            String escapedFoldedQuery,
+            int maxCandidates
+    );
+
+    /**
+     * Tra cứu các bài viết đã xuất bản có alias khớp từ khóa đã gập dấu/Đ.
+     */
+    List<WikiArticleAliasSearchMatchDTO> findPublishedAliasSearchCandidates(
+            String foldedQuery,
+            String escapedFoldedQuery,
+            int maxCandidates
     );
 }

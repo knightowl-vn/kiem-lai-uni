@@ -5,6 +5,7 @@ import com.universe.wiki.contracts.dto.WikiArticleDTO;
 import com.universe.wiki.contracts.dto.WikiArticleEligibilitySnapshot;
 import com.universe.wiki.contracts.dto.WikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.WikiArticlePageDTO;
+import com.universe.wiki.application.article.query.search.WikiArticleAliasSearchMatchDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticleListItemDTO;
 import com.universe.wiki.contracts.dto.PublishedWikiArticlePageDTO;
@@ -12,6 +13,7 @@ import com.universe.wiki.domain.article.Slug;
 import com.universe.wiki.domain.article.ArticleStatus;
 import com.universe.wiki.domain.article.ArticleType;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -31,14 +33,22 @@ import java.util.stream.Collectors;
 public class WikiArticleQueryAdapter
         implements WikiArticleQueryPort {
 
-    private final SpringDataWikiArticleJpaRepository
-            repository;
+    private final SpringDataWikiArticleJpaRepository repository;
+    private final SpringDataWikiArticleAliasJpaRepository aliasRepository;
 
+    @Autowired
     public WikiArticleQueryAdapter(
-            SpringDataWikiArticleJpaRepository repository
+            SpringDataWikiArticleJpaRepository repository,
+            SpringDataWikiArticleAliasJpaRepository aliasRepository
     ) {
-        this.repository =
-                repository;
+        this.repository = Objects.requireNonNull(
+                repository,
+                "SpringDataWikiArticleJpaRepository không được để trống."
+        );
+        this.aliasRepository = Objects.requireNonNull(
+                aliasRepository,
+                "SpringDataWikiArticleAliasJpaRepository không được để trống."
+        );
     }
 
     @Override
@@ -121,7 +131,7 @@ public class WikiArticleQueryAdapter
                 )
                 .map(this::toPublishedDTO);
     }
-    
+
     @Override
     public PublishedWikiArticlePageDTO findPublishedPage(
             String keyword,
@@ -275,6 +285,52 @@ public class WikiArticleQueryAdapter
 
         return entities.stream()
                 .map(this::toPublishedListItemDTO)
+                .toList();
+    }
+
+    @Override
+    public List<WikiArticleListItemDTO> findPublishedTitleSearchCandidates(
+            String foldedQuery,
+            String escapedFoldedQuery,
+            int maxCandidates
+    ) {
+        if (escapedFoldedQuery == null || escapedFoldedQuery.isBlank() || maxCandidates <= 0) {
+            return List.of();
+        }
+
+        String effectiveFoldedQuery = foldedQuery != null ? foldedQuery : "";
+        Pageable pageable = PageRequest.of(0, maxCandidates);
+        List<WikiArticleListItemProjection> projections =
+                repository.findPublishedTitleSearchCandidates(effectiveFoldedQuery, escapedFoldedQuery, pageable);
+
+        return projections.stream()
+                .map(this::toListItemDTO)
+                .toList();
+    }
+
+    @Override
+    public List<WikiArticleAliasSearchMatchDTO> findPublishedAliasSearchCandidates(
+            String foldedQuery,
+            String escapedFoldedQuery,
+            int maxCandidates
+    ) {
+        if (escapedFoldedQuery == null || escapedFoldedQuery.isBlank() || maxCandidates <= 0) {
+            return List.of();
+        }
+
+        String effectiveFoldedQuery = foldedQuery != null ? foldedQuery : "";
+        Pageable pageable = PageRequest.of(0, maxCandidates);
+        List<WikiArticleAliasSearchMatchProjection> projections =
+                aliasRepository.findPublishedAliasSearchCandidates(effectiveFoldedQuery, escapedFoldedQuery, pageable);
+
+        return projections.stream()
+                .map(p -> new WikiArticleAliasSearchMatchDTO(
+                        UUID.fromString(p.getArticleId()),
+                        p.getTitle(),
+                        p.getSlug(),
+                        ArticleType.valueOf(p.getArticleType()),
+                        p.getAlias()
+                ))
                 .toList();
     }
 
