@@ -277,8 +277,14 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
         );
         assertThat(currentVersionNumber).isEqualTo(2);
 
-        // Redundant storage object from second thread was compensated
-        assertThat(storagePort.deleteCallCount.get()).isGreaterThanOrEqualTo(1);
+        // Storage asserts: exactly two valid execution interleavings exist:
+        // (1) Thread 2 duplicate probe ran after Thread 1 committed V2 -> (storeCallCount=1, deleteCallCount=0)
+        // (2) Both threads stored before Thread 1 committed V2 -> Thread 2 compensated -> (storeCallCount=2, deleteCallCount=1)
+        int storeCalls = storagePort.storeCallCount.get();
+        int deleteCalls = storagePort.deleteCallCount.get();
+        assertThat(storeCalls).isIn(1, 2);
+        assertThat(deleteCalls).isIn(0, 1);
+        assertThat(storeCalls - deleteCalls).isEqualTo(1);
     }
 
     @Test

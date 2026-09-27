@@ -18,6 +18,8 @@ import com.universe.interaction.infrastructure.persistence.CommentRevisionPersis
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
@@ -72,6 +74,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         CommentRevisionPersistenceMapper.class,
         InteractionReportPersistenceAdapter.class,
         InteractionReportPersistenceMapper.class,
+        ReactionPersistenceAdapter.class,
+        ReactionPersistenceMapper.class,
         ResolveCommentReportUseCase.class,
         SubmitCommentReportUseCase.class,
         DeleteCommentUseCase.class,
@@ -121,6 +125,7 @@ class CommentReportModerationConcurrencyIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        jdbcTemplate.update("DELETE FROM interaction_reactions");
         jdbcTemplate.update("DELETE FROM interaction_comment_revisions");
         jdbcTemplate.update("DELETE FROM interaction_reports");
         jdbcTemplate.update("DELETE FROM interaction_comments");
@@ -280,17 +285,10 @@ class CommentReportModerationConcurrencyIntegrationTest {
             assertThat(resolvedByUserId).isEqualTo(winningModerator.toString());
             assertThat(resolvedAt).isNotNull();
 
-            // Verify DB state for comment
-            String commentDbStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            String commentBody = jdbcTemplate.queryForObject(
-                    "SELECT body FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            Timestamp commentDeletedAt = jdbcTemplate.queryForObject(
-                    "SELECT deleted_at FROM interaction_comments WHERE id = ?", Timestamp.class, commentId.toString());
-
-            assertThat(commentDbStatus).isEqualTo(CommentStatus.DELETED.name());
-            assertThat(commentBody).isNull();
-            assertThat(commentDeletedAt).isNotNull();
+            // Verify DB state for comment (physically deleted under V73 hard-delete)
+            Integer commentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
+            assertThat(commentCount).isZero();
 
         } finally {
             executor.shutdownNow();
@@ -348,21 +346,21 @@ class CommentReportModerationConcurrencyIntegrationTest {
 
             assertThat(resolvedAt).isNotNull();
 
-            String commentDbStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
+            Integer remainingCommentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
 
             if (r1.isSuccess()) {
                 // DELETE_COMMENT won
                 assertThat(reportStatus).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
                 assertThat(moderationAction).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
                 assertThat(resolvedByUserId).isEqualTo(moderator1.toString());
-                assertThat(commentDbStatus).isEqualTo(CommentStatus.DELETED.name());
+                assertThat(remainingCommentCount).isZero();
             } else {
                 // NO_ACTION won
                 assertThat(reportStatus).isEqualTo(ReportStatus.RESOLVED_NO_ACTION.name());
                 assertThat(moderationAction).isEqualTo(ReportModerationAction.NO_ACTION.name());
                 assertThat(resolvedByUserId).isEqualTo(moderator2.toString());
-                assertThat(commentDbStatus).isEqualTo(CommentStatus.ACTIVE.name());
+                assertThat(remainingCommentCount).isEqualTo(1);
             }
 
         } finally {
@@ -405,37 +403,39 @@ class CommentReportModerationConcurrencyIntegrationTest {
             TaskResult<Void> r1 = f1.get(10, TimeUnit.SECONDS);
             TaskResult<Void> r2 = f2.get(10, TimeUnit.SECONDS);
 
-            // Both sibling reports must succeed
-            assertThat(r1.isSuccess()).isTrue();
-            assertThat(r2.isSuccess()).isTrue();
+            int successes = (r1.isSuccess() ? 1 : 0) + (r2.isSuccess() ? 1 : 0);
+            int failures = (r1.isFailure() ? 1 : 0) + (r2.isFailure() ? 1 : 0);
 
-            // Report 1 is RESOLVED_ACTION_TAKEN
-            String status1 = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_reports WHERE id = ?", String.class, report1Id.toString());
-            String action1 = jdbcTemplate.queryForObject(
-                    "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, report1Id.toString());
-            assertThat(status1).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
-            assertThat(action1).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
+            assertThat(successes).isEqualTo(1);
+            assertThat(failures).isEqualTo(1);
 
-            // Report 2 is RESOLVED_ACTION_TAKEN
-            String status2 = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_reports WHERE id = ?", String.class, report2Id.toString());
-            String action2 = jdbcTemplate.queryForObject(
-                    "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, report2Id.toString());
-            assertThat(status2).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
-            assertThat(action2).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
+            TaskResult<Void> failed = r1.isFailure() ? r1 : r2;
+            UUID winningReportId = r1.isSuccess() ? report1Id : report2Id;
+            UUID losingReportId = r1.isFailure() ? report1Id : report2Id;
 
-            // Comment is DELETED with null body
-            String commentStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            String commentBody = jdbcTemplate.queryForObject(
-                    "SELECT body FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            Timestamp deletedAt = jdbcTemplate.queryForObject(
-                    "SELECT deleted_at FROM interaction_comments WHERE id = ?", Timestamp.class, commentId.toString());
+            // Losing moderator observes CommentNotFoundException after comment was physically deleted by winning moderator
+            assertThat(isOrCausedBy(failed.error(), com.universe.interaction.application.exceptions.CommentNotFoundException.class)).isTrue();
 
-            assertThat(commentStatus).isEqualTo(CommentStatus.DELETED.name());
-            assertThat(commentBody).isNull();
-            assertThat(deletedAt).isNotNull();
+            // Winning report is RESOLVED_ACTION_TAKEN with DELETE_COMMENT
+            String winningStatus = jdbcTemplate.queryForObject(
+                    "SELECT status FROM interaction_reports WHERE id = ?", String.class, winningReportId.toString());
+            String winningAction = jdbcTemplate.queryForObject(
+                    "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, winningReportId.toString());
+            assertThat(winningStatus).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
+            assertThat(winningAction).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
+
+            // Losing report transaction rolled back and remains PENDING with no corrupted action
+            String losingStatus = jdbcTemplate.queryForObject(
+                    "SELECT status FROM interaction_reports WHERE id = ?", String.class, losingReportId.toString());
+            String losingAction = jdbcTemplate.queryForObject(
+                    "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, losingReportId.toString());
+            assertThat(losingStatus).isEqualTo(ReportStatus.PENDING.name());
+            assertThat(losingAction).isNull();
+
+            // Comment is physically deleted under V73 hard-delete
+            Integer commentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
+            assertThat(commentCount).isZero();
 
             // Comment revisions count is 0
             Integer revisionCount = jdbcTemplate.queryForObject(
@@ -448,7 +448,7 @@ class CommentReportModerationConcurrencyIntegrationTest {
     }
 
     @Test
-    @DisplayName("Scenario D: Author delete vs moderator delete -> comment deleted once (deleted_at preserved), report resolves DELETE_COMMENT")
+    @DisplayName("Scenario D: Author delete vs moderator delete -> comment deleted once, report resolves DELETE_COMMENT")
     void testScenarioD_authorDeleteVsModeratorDelete() throws Exception {
         UUID commentId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -477,32 +477,35 @@ class CommentReportModerationConcurrencyIntegrationTest {
             TaskResult<Void> rAuthor = fAuthor.get(10, TimeUnit.SECONDS);
             TaskResult<Void> rMod = fMod.get(10, TimeUnit.SECONDS);
 
-            // Both operations must succeed
-            assertThat(rAuthor.isSuccess()).isTrue();
-            assertThat(rMod.isSuccess()).isTrue();
+            int successes = (rAuthor.isSuccess() ? 1 : 0) + (rMod.isSuccess() ? 1 : 0);
+            int failures = (rAuthor.isFailure() ? 1 : 0) + (rMod.isFailure() ? 1 : 0);
 
-            // Report resolved as ACTION_TAKEN
-            String reportStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
-            String moderationAction = jdbcTemplate.queryForObject(
-                    "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
-            assertThat(reportStatus).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
-            assertThat(moderationAction).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
+            assertThat(successes).isEqualTo(1);
+            assertThat(failures).isEqualTo(1);
 
-            // Comment is DELETED, body is null, deleted_at and updated_at match
-            String commentStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            String commentBody = jdbcTemplate.queryForObject(
-                    "SELECT body FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            Timestamp deletedAt = jdbcTemplate.queryForObject(
-                    "SELECT deleted_at FROM interaction_comments WHERE id = ?", Timestamp.class, commentId.toString());
-            Timestamp updatedAt = jdbcTemplate.queryForObject(
-                    "SELECT updated_at FROM interaction_comments WHERE id = ?", Timestamp.class, commentId.toString());
+            TaskResult<Void> failed = rAuthor.isFailure() ? rAuthor : rMod;
+            assertThat(isOrCausedBy(failed.error(), com.universe.interaction.application.exceptions.CommentNotFoundException.class)).isTrue();
 
-            assertThat(commentStatus).isEqualTo(CommentStatus.DELETED.name());
-            assertThat(commentBody).isNull();
-            assertThat(deletedAt).isNotNull();
-            assertThat(updatedAt).isEqualTo(deletedAt);
+            if (rMod.isSuccess()) {
+                String reportStatus = jdbcTemplate.queryForObject(
+                        "SELECT status FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
+                String moderationAction = jdbcTemplate.queryForObject(
+                        "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
+                assertThat(reportStatus).isEqualTo(ReportStatus.RESOLVED_ACTION_TAKEN.name());
+                assertThat(moderationAction).isEqualTo(ReportModerationAction.DELETE_COMMENT.name());
+            } else {
+                String reportStatus = jdbcTemplate.queryForObject(
+                        "SELECT status FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
+                String moderationAction = jdbcTemplate.queryForObject(
+                        "SELECT moderation_action FROM interaction_reports WHERE id = ?", String.class, reportId.toString());
+                assertThat(reportStatus).isEqualTo(ReportStatus.PENDING.name());
+                assertThat(moderationAction).isNull();
+            }
+
+            // Comment is physically deleted under V73 hard-delete
+            Integer commentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
+            assertThat(commentCount).isZero();
 
             Integer revisionCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM interaction_comment_revisions WHERE comment_id = ?", Integer.class, commentId.toString());
@@ -546,22 +549,16 @@ class CommentReportModerationConcurrencyIntegrationTest {
             // Moderator delete MUST always succeed
             assertThat(rMod.isSuccess()).isTrue();
 
-            // If author edit failed, it must be because comment was already deleted
+            // If author edit failed, it must be because comment was already deleted / not found
             if (rAuthor.isFailure()) {
-                assertThat(isOrCausedBy(rAuthor.error(), CommentMutationForbiddenException.class)).isTrue();
+                assertThat(isOrCausedBy(rAuthor.error(), CommentMutationForbiddenException.class)
+                        || isOrCausedBy(rAuthor.error(), com.universe.interaction.application.exceptions.CommentNotFoundException.class)).isTrue();
             }
 
-            // CRUCIAL INVARIANT: Comment MUST be DELETED with null body (never resurrected as ACTIVE with 'Edited Body')
-            String commentStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            String commentBody = jdbcTemplate.queryForObject(
-                    "SELECT body FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            Timestamp deletedAt = jdbcTemplate.queryForObject(
-                    "SELECT deleted_at FROM interaction_comments WHERE id = ?", Timestamp.class, commentId.toString());
-
-            assertThat(commentStatus).isEqualTo(CommentStatus.DELETED.name());
-            assertThat(commentBody).isNull();
-            assertThat(deletedAt).isNotNull();
+            // CRUCIAL INVARIANT: Comment MUST NOT be resurrected as ACTIVE with 'Edited Body'; it must be physically deleted
+            Integer commentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
+            assertThat(commentCount).isZero();
 
             // Revisions must be completely purged
             Integer revisionCount = jdbcTemplate.queryForObject(
@@ -582,7 +579,7 @@ class CommentReportModerationConcurrencyIntegrationTest {
     }
 
     @Test
-    @DisplayName("Scenario F: Report submit vs comment delete -> if delete wins, throws CommentNotReportableException; if submit wins, captures valid non-empty snapshot")
+    @DisplayName("Scenario F: Report submit vs comment delete -> if delete wins, throws CommentNotFoundException; if submit wins, captures valid non-empty snapshot")
     void testScenarioF_reportSubmitVsCommentDelete() throws Exception {
         UUID commentId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -615,10 +612,10 @@ class CommentReportModerationConcurrencyIntegrationTest {
             // Delete always succeeds
             assertThat(rDelete.isSuccess()).isTrue();
 
-            // Comment is DELETED at the end
-            String commentStatus = jdbcTemplate.queryForObject(
-                    "SELECT status FROM interaction_comments WHERE id = ?", String.class, commentId.toString());
-            assertThat(commentStatus).isEqualTo(CommentStatus.DELETED.name());
+            // Comment is physically deleted under V73 hard-delete
+            Integer commentCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM interaction_comments WHERE id = ?", Integer.class, commentId.toString());
+            assertThat(commentCount).isZero();
 
             if (rSubmit.isSuccess()) {
                 // Submit won: captured valid non-empty snapshot
@@ -632,8 +629,9 @@ class CommentReportModerationConcurrencyIntegrationTest {
                         "SELECT reported_body_snapshot FROM interaction_reports WHERE id = ?", String.class, report.getId().toString());
                 assertThat(snapshotInDb).isEqualTo(initialBody);
             } else {
-                // Delete won: submit threw CommentNotReportableException
-                assertThat(isOrCausedBy(rSubmit.error(), CommentNotReportableException.class)).isTrue();
+                // Delete won: submit threw CommentNotFoundException or CommentNotReportableException
+                assertThat(isOrCausedBy(rSubmit.error(), com.universe.interaction.application.exceptions.CommentNotFoundException.class)
+                        || isOrCausedBy(rSubmit.error(), CommentNotReportableException.class)).isTrue();
 
                 // No report in DB
                 Integer reportCount = jdbcTemplate.queryForObject(
