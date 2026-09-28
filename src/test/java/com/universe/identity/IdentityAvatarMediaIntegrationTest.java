@@ -33,13 +33,22 @@ import com.universe.media.application.asset.RestoreMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.facade.MediaFacade;
+import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.media.domain.MimeType;
+import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
+import com.universe.media.domain.StorageProviderId;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
+import com.universe.media.infrastructure.storage.DefaultStorageProviderRegistry;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.messaging.OutboxPort;
@@ -65,6 +74,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -115,6 +125,8 @@ import static org.mockito.Mockito.mock;
         com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
+        MediaStorageRoutingService.class,
+        DefaultStorageProviderRegistry.class,
         com.universe.media.infrastructure.persistence.MediaImageVariantPersistenceAdapter.class,
         com.universe.media.infrastructure.image.JavaImageProcessorAdapter.class,
         com.universe.media.application.variant.GenerateMediaImageVariantUseCase.class,
@@ -209,6 +221,45 @@ class IdentityAvatarMediaIntegrationTest {
         @Bean
         public CloudinaryAvatarStorageAdapter cloudinaryAvatarStorageAdapter(Cloudinary cloudinary) {
             return new CloudinaryAvatarStorageAdapter(cloudinary);
+        }
+
+        @Bean
+        public BinaryStoragePort cloudinaryTestStoragePort() {
+            return new TestCloudinaryStoragePort(tempStorageDir);
+        }
+    }
+
+    static class TestCloudinaryStoragePort implements BinaryStoragePort {
+        private final LocalFilesystemStorageAdapter delegate;
+
+        public TestCloudinaryStoragePort(Path rootDir) {
+            this.delegate = new LocalFilesystemStorageAdapter(rootDir);
+        }
+
+        @Override
+        public StorageProviderId providerId() {
+            return StorageProviderId.of("cloudinary");
+        }
+
+        @Override
+        public StoredBinaryObject store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
+            delegate.store(storageKey, content, sizeBytes, mimeType);
+            return StoredBinaryObject.of(StorageLocation.of(providerId(), storageKey));
+        }
+
+        @Override
+        public InputStream open(StorageKey storageKey) {
+            return delegate.open(storageKey);
+        }
+
+        @Override
+        public InputStream openRange(StorageKey storageKey, long startInclusive, long length) {
+            return delegate.openRange(storageKey, startInclusive, length);
+        }
+
+        @Override
+        public void delete(StorageKey storageKey) {
+            delegate.delete(storageKey);
         }
     }
 
