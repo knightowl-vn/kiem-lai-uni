@@ -4,6 +4,7 @@ import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetVersion;
 import com.universe.media.domain.MediaImageVariant;
@@ -29,8 +30,8 @@ import java.util.UUID;
  *     <li>Check aggregate existence. If missing, treat as already-purged idempotent success (zero-count result).</li>
  *     <li>Validate eligibility via {@link MediaAsset#isPurgeEligible(Instant)}.</li>
  *     <li>Collect all persisted {@link com.universe.media.domain.StorageLocation} values for versions and variants.</li>
- *     <li>Physically delete all variant binaries via {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
- *     <li>Physically delete all source version binaries via {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
+ *     <li>Physically delete all variant binaries via resolved {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
+ *     <li>Physically delete all source version binaries via resolved {@link BinaryStoragePort#delete(com.universe.media.domain.StorageKey)}.</li>
  *     <li>Execute atomic bottom-up relational metadata removal via {@link PurgeMediaAssetMetadataService#execute(UUID)}.</li>
  * </ol>
  *
@@ -46,7 +47,7 @@ public class PurgeDeletedMediaAssetUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private final MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
-    private final BinaryStoragePort binaryStoragePort;
+    private final StorageProviderResolverPort storageProviderResolverPort;
     private final PurgeMediaAssetMetadataService purgeMediaAssetMetadataService;
     private final ClockPort clockPort;
 
@@ -54,7 +55,7 @@ public class PurgeDeletedMediaAssetUseCase {
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
             MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            BinaryStoragePort binaryStoragePort,
+            StorageProviderResolverPort storageProviderResolverPort,
             PurgeMediaAssetMetadataService purgeMediaAssetMetadataService,
             ClockPort clockPort
     ) {
@@ -70,9 +71,9 @@ public class PurgeDeletedMediaAssetUseCase {
                 mediaImageVariantRepositoryPort,
                 "MediaImageVariantRepositoryPort cannot be null."
         );
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
         this.purgeMediaAssetMetadataService = Objects.requireNonNull(
                 purgeMediaAssetMetadataService,
@@ -122,14 +123,18 @@ public class PurgeDeletedMediaAssetUseCase {
                 : mediaImageVariantRepositoryPort.findAllByVersionIds(versionIds);
 
         // 4. Physical Storage Deletion (No DB transaction held)
-        // 4a. Delete all derivative variant physical binaries
+        // 4a. Delete all derivative variant physical binaries (skip virtual CDN-transformed variants)
         for (MediaImageVariant variant : variants) {
-            binaryStoragePort.delete(variant.getStorageLocation().key());
+            if (variant.isPhysical()) {
+                BinaryStoragePort port = storageProviderResolverPort.resolve(variant.getStorageLocation().providerId());
+                port.delete(variant.getStorageLocation().key());
+            }
         }
 
         // 4b. Delete all source version physical binaries
         for (MediaAssetVersion version : versions) {
-            binaryStoragePort.delete(version.getStorageLocation().key());
+            BinaryStoragePort port = storageProviderResolverPort.resolve(version.getStorageLocation().providerId());
+            port.delete(version.getStorageLocation().key());
         }
 
         // 5. Relational Metadata Deletion (Strict bottom-up in one short write transaction, accepts only assetId)

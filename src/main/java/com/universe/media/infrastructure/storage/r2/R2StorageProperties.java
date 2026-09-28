@@ -1,7 +1,7 @@
 package com.universe.media.infrastructure.storage.r2;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -9,14 +9,11 @@ import java.net.URI;
 /**
  * Validated configuration properties for Cloudflare R2 storage.
  * <p>
- * This bean is active only when {@code media.storage.provider=r2}.
+ * This bean is active only when required R2 configuration properties are configured and non-blank.
  * When active, all required R2 configuration properties must be present and non-blank.
  */
 @Component
-@ConditionalOnProperty(
-        name = "media.storage.provider",
-        havingValue = "r2"
-)
+@Conditional(R2StorageCondition.class)
 public class R2StorageProperties {
 
     private final String bucket;

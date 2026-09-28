@@ -1,10 +1,18 @@
 package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
+import com.universe.media.domain.MediaAsset;
+import com.universe.media.domain.MediaType;
+import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,13 +29,16 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +53,15 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
     private static final byte[] VALID_PNG_BYTES_1 = createPngBytes("image-binary-1");
     private static final byte[] VALID_PNG_BYTES_2 = createPngBytes("image-binary-2-different");
+
+    @Mock
+    private MediaAssetRepositoryPort mediaAssetRepositoryPort;
+
+    @Mock
+    private MediaStorageRoutingService mediaStorageRoutingService;
+
+    @Mock
+    private StorageProviderResolverPort storageProviderResolverPort;
 
     @Mock
     private BinaryStoragePort binaryStoragePort;
@@ -72,8 +92,21 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
     @BeforeEach
     void setUp() {
         RasterContentSignatureValidator validator = new RasterContentSignatureValidator();
+        lenient().when(mediaStorageRoutingService.resolveWriteProvider(any(), any())).thenReturn(LOCAL_PROVIDER);
+        lenient().when(mediaStorageRoutingService.generateStorageKey(any(), any(), any(), anyInt()))
+                .thenAnswer(inv -> StorageKey.of("objects/" + UUID.randomUUID()));
+        lenient().when(storageProviderResolverPort.resolve(LOCAL_PROVIDER)).thenReturn(binaryStoragePort);
+        lenient().when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+        lenient().when(binaryStoragePort.store(any(), any(), anyLong(), any()))
+                .thenAnswer(inv -> {
+                    StorageKey key = inv.getArgument(0);
+                    return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+                });
+
         useCase = new UploadMediaAssetVersionConditionalUseCase(
-                binaryStoragePort,
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
                 validator,
                 registerMediaAssetVersionUseCase
         );
@@ -119,7 +152,9 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
         when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
                 .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
-        when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
 
         RegisterMediaAssetVersionConditionalResult registerResult =
                 RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW);
@@ -185,7 +220,9 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
         when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
                 .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
-        when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
 
         RegisterMediaAssetVersionConditionalResult registerResult =
                 RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW);
@@ -256,7 +293,9 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
         when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash1))
                 .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
-        when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
 
         RegisterMediaAssetVersionConditionalResult registerResult =
                 RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW);
@@ -285,7 +324,9 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
         when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
                 .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
-        when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
 
         // Simulate concurrent worker already committed hash2 in DB:
         RegisterMediaAssetVersionConditionalResult concurrentUnchanged =
@@ -318,7 +359,9 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
 
         when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
                 .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
-        when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
 
         when(registerMediaAssetVersionUseCase.registerConditionalVersion(any(RegisterMediaAssetVersionCommand.class)))
                 .thenThrow(new IllegalStateException("DB failure during version registration"));
@@ -338,5 +381,37 @@ class UploadMediaAssetVersionConditionalUseCaseTest {
         // Verify stored binary was compensated (deleted)
         verify(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) VALID_PNG_BYTES_2.length), eq(MimeType.of("image/png")));
         verify(binaryStoragePort).delete(any(StorageKey.class));
+    }
+
+    @Test
+    @DisplayName("Preserves asset clientTag when resolving write provider and storage key on conditional version upload")
+    void shouldPreserveClientTagOnConditionalVersionUpload() {
+        String hash2 = sha256Hex(VALID_PNG_BYTES_2);
+        String clientTag = "kiemlai/wiki/covers/great-ruler";
+
+        when(registerMediaAssetVersionUseCase.probeAuthoritativeDuplicate(ASSET_ID, hash2))
+                .thenReturn(AuthoritativeDuplicateProbeResult.different(1));
+
+        MediaAsset asset = MediaAsset.registerInitial(ASSET_ID, MediaType.IMAGE, MediaVisibility.PUBLIC, clientTag, NOW);
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+
+        RegisterMediaAssetVersionConditionalResult registerResult =
+                RegisterMediaAssetVersionConditionalResult.versionCreated(ASSET_ID, VERSION_2_ID, 2, NOW);
+        when(registerMediaAssetVersionUseCase.registerConditionalVersion(any(RegisterMediaAssetVersionCommand.class)))
+                .thenReturn(registerResult);
+
+        UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                ASSET_ID,
+                new ByteArrayInputStream(VALID_PNG_BYTES_2),
+                VALID_PNG_BYTES_2.length,
+                "image/png",
+                "cover_new.png"
+        );
+
+        UploadMediaAssetVersionConditionalResult result = useCase.execute(command);
+
+        assertThat(result.outcome()).isEqualTo(MediaVersionUploadOutcome.VERSION_CREATED);
+        verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.IMAGE, clientTag);
+        verify(mediaStorageRoutingService).generateStorageKey(MediaType.IMAGE, clientTag, ASSET_ID, 2);
     }
 }

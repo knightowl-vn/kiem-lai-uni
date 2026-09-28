@@ -1,6 +1,12 @@
 package com.universe.media.application.asset;
 
+import com.universe.media.application.exceptions.MediaAssetNotFoundException;
+import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
@@ -12,23 +18,34 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
-import java.util.UUID;
 
 @Service
 public class UploadMediaAssetVersionUseCase {
 
-    private final BinaryStoragePort binaryStoragePort;
+    private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
+    private final MediaStorageRoutingService mediaStorageRoutingService;
+    private final StorageProviderResolverPort storageProviderResolverPort;
     private final RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
 
     public UploadMediaAssetVersionUseCase(
-            BinaryStoragePort binaryStoragePort,
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
             RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase,
             RasterContentSignatureValidator rasterContentSignatureValidator
     ) {
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.mediaAssetRepositoryPort = Objects.requireNonNull(
+                mediaAssetRepositoryPort,
+                "MediaAssetRepositoryPort cannot be null."
+        );
+        this.mediaStorageRoutingService = Objects.requireNonNull(
+                mediaStorageRoutingService,
+                "MediaStorageRoutingService cannot be null."
+        );
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
         this.registerMediaAssetVersionUseCase = Objects.requireNonNull(
                 registerMediaAssetVersionUseCase,
@@ -51,13 +68,24 @@ public class UploadMediaAssetVersionUseCase {
                 command.sizeBytes(),
                 mimeType
         );
-        StorageKey storageKey = StorageKey.of("objects/" + UUID.randomUUID());
-        StorageProviderId providerId = binaryStoragePort.providerId();
+
+        MediaAsset asset = mediaAssetRepositoryPort.findById(command.assetId())
+                .orElseThrow(() -> new MediaAssetNotFoundException(command.assetId()));
+
+        StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(asset.getMediaType(), asset.getClientTag());
+        StorageKey storageKey = mediaStorageRoutingService.generateStorageKey(
+                asset.getMediaType(),
+                asset.getClientTag(),
+                command.assetId(),
+                asset.getCurrentVersionNumber() + 1
+        );
+
+        BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(providerId);
 
         MessageDigest messageDigest = createSha256Digest();
         DigestInputStream digestInputStream = new DigestInputStream(validatedContent, messageDigest);
 
-        binaryStoragePort.store(
+        StoredBinaryObject stored = binaryStoragePort.store(
                 storageKey,
                 digestInputStream,
                 command.sizeBytes(),
@@ -68,9 +96,9 @@ public class UploadMediaAssetVersionUseCase {
 
         RegisterMediaAssetVersionCommand registerCommand = new RegisterMediaAssetVersionCommand(
                 command.assetId(),
-                providerId.value(),
-                storageKey.value(),
-                null,
+                stored.location().providerId().value(),
+                stored.location().key().value(),
+                stored.publicUrl(),
                 contentHash,
                 mimeType.value(),
                 command.sizeBytes(),
@@ -81,7 +109,7 @@ public class UploadMediaAssetVersionUseCase {
         try {
             registerResult = registerMediaAssetVersionUseCase.execute(registerCommand);
         } catch (RuntimeException primaryException) {
-            compensateStorage(storageKey, primaryException);
+            compensateStorage(binaryStoragePort, stored.location().key(), primaryException);
             throw primaryException;
         }
 
@@ -94,6 +122,7 @@ public class UploadMediaAssetVersionUseCase {
     }
 
     private void compensateStorage(
+            BinaryStoragePort binaryStoragePort,
             StorageKey storageKey,
             RuntimeException primaryException
     ) {

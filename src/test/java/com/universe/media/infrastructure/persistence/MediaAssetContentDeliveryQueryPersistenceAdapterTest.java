@@ -51,7 +51,7 @@ class MediaAssetContentDeliveryQueryPersistenceAdapterTest {
 
         assertThat(result).isEqualTo(new MediaAssetContentDeliverySnapshot(
                 ASSET_ID, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 3,
-                VERSION_ID, ASSET_ID, 3, "local", "objects/chapter.mp3",
+                VERSION_ID, ASSET_ID, 3, "local", "objects/chapter.mp3", null,
                 HASH, "audio/mpeg", 1234L
         ));
         verify(repository).findContentDelivery(ASSET_ID.toString());
@@ -74,6 +74,7 @@ class MediaAssetContentDeliveryQueryPersistenceAdapterTest {
         assertThat(result.versionNumber()).isNull();
         assertThat(result.storageProviderId()).isNull();
         assertThat(result.storageKey()).isNull();
+        assertThat(result.publicUrl()).isNull();
         assertThat(result.contentHash()).isNull();
         assertThat(result.mimeType()).isNull();
         assertThat(result.sizeBytes()).isNull();
@@ -94,6 +95,7 @@ class MediaAssetContentDeliveryQueryPersistenceAdapterTest {
                 "where a.id = :assetId",
                 "v.storage_provider_id as storageProviderId",
                 "v.storage_key as storageKey",
+                "v.public_url as publicUrl",
                 "v.content_hash as contentHash",
                 "v.mime_type as mimeType",
                 "v.size_bytes as sizeBytes"

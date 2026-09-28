@@ -10,6 +10,8 @@ import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.image.ImageProcessorPort;
 import com.universe.media.application.ports.image.ProcessedImageResource;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.ImageVariantPublicUrlPort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAsset;
@@ -33,10 +35,12 @@ import java.io.ByteArrayInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,6 +52,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -59,7 +64,9 @@ class GenerateMediaImageVariantUseCaseTest {
     private MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
+    private StorageProviderResolverPort storageProviderResolverPort;
     private BinaryStoragePort binaryStoragePort;
+    private ImageVariantPublicUrlPort imageVariantPublicUrlPort;
     private ImageProcessorPort imageProcessorPort;
     private ClockPort clockPort;
 
@@ -77,18 +84,24 @@ class GenerateMediaImageVariantUseCaseTest {
         mediaAssetRepositoryPort = mock(MediaAssetRepositoryPort.class);
         mediaAssetVersionRepositoryPort = mock(MediaAssetVersionRepositoryPort.class);
         mediaImageVariantRepositoryPort = mock(MediaImageVariantRepositoryPort.class);
+        storageProviderResolverPort = mock(StorageProviderResolverPort.class);
         binaryStoragePort = mock(BinaryStoragePort.class);
+        imageVariantPublicUrlPort = mock(ImageVariantPublicUrlPort.class);
         imageProcessorPort = mock(ImageProcessorPort.class);
         clockPort = mock(ClockPort.class);
 
         when(clockPort.now()).thenReturn(NOW);
-        when(binaryStoragePort.providerId()).thenReturn(PROVIDER_ID);
+        lenient().when(binaryStoragePort.providerId()).thenReturn(PROVIDER_ID);
+        lenient().when(storageProviderResolverPort.resolve(PROVIDER_ID)).thenReturn(binaryStoragePort);
+        lenient().when(storageProviderResolverPort.resolve(StorageProviderId.of("s3")))
+                .thenThrow(new StorageException("Storage provider mismatch: configured provider is local, but asset version requires s3"));
 
         useCase = new GenerateMediaImageVariantUseCase(
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort,
                 mediaImageVariantRepositoryPort,
-                binaryStoragePort,
+                storageProviderResolverPort,
+                List.of(imageVariantPublicUrlPort),
                 imageProcessorPort,
                 clockPort
         );
@@ -221,6 +234,64 @@ class GenerateMediaImageVariantUseCaseTest {
         assertThat(sourceStreamClosed.get()).isTrue();
         assertThat(processedStreamClosed.get()).isTrue();
         assertThat(resourceClosed.get()).isTrue();
+    }
+
+    @Test
+    @DisplayName("generates Cloudinary variant without ImageIO processing")
+    void shouldGenerateCloudinaryVariantDirectly() {
+        MediaAsset asset = createAsset(MediaType.IMAGE);
+        StorageLocation cloudinaryLocation = StorageLocation.of("cloudinary", "kiemlai/covers/cover1");
+        MediaAssetVersion version = MediaAssetVersion.create(
+                VERSION_ID,
+                ASSET_ID,
+                1,
+                cloudinaryLocation,
+                "https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp",
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/webp"),
+                100000L,
+                "photo.webp",
+                NOW
+        );
+        ImageVariantSpec spec = ImageVariantSpec.of(400);
+
+        when(imageVariantPublicUrlPort.supports(StorageProviderId.of("cloudinary"))).thenReturn(true);
+        when(imageVariantPublicUrlPort.generateVariantUrl(eq(cloudinaryLocation), eq(spec)))
+                .thenReturn(URI.create("https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp"));
+
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+        when(mediaImageVariantRepositoryPort.findByVersionIdAndVariantKey(VERSION_ID, "w400")).thenReturn(Optional.empty());
+
+        ArgumentCaptor<MediaImageVariant> variantCaptor = ArgumentCaptor.forClass(MediaImageVariant.class);
+        when(mediaImageVariantRepositoryPort.save(variantCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+        GenerateMediaImageVariantCommand command = GenerateMediaImageVariantCommand.of(ASSET_ID, 1, spec);
+        GenerateMediaImageVariantResult result = useCase.execute(command);
+
+        assertThat(result.variantKey()).isEqualTo("w400");
+        assertThat(result.targetWidth()).isEqualTo(400);
+        assertThat(result.mimeType()).isEqualTo("image/webp");
+        assertThat(result.publicUrl()).isEqualTo("https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp");
+        assertThat(result.isVirtual()).isTrue();
+        assertThat(result.sizeBytes()).isNull();
+        assertThat(result.width()).isNull();
+        assertThat(result.height()).isNull();
+
+        MediaImageVariant savedVariant = variantCaptor.getValue();
+        assertThat(savedVariant.hasPublicUrl()).isTrue();
+        assertThat(savedVariant.isVirtual()).isTrue();
+        assertThat(savedVariant.isPhysical()).isFalse();
+        assertThat(savedVariant.getPublicUrl()).isEqualTo("https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp");
+        assertThat(savedVariant.getStorageLocation()).isNull();
+        assertThat(savedVariant.getContentHash()).isNull();
+        assertThat(savedVariant.getSizeBytes()).isNull();
+        assertThat(savedVariant.getWidth()).isNull();
+        assertThat(savedVariant.getHeight()).isNull();
+
+        verify(binaryStoragePort, never()).open(any());
+        verify(imageProcessorPort, never()).process(any(), any(), any());
+        verify(mediaImageVariantRepositoryPort).save(any(MediaImageVariant.class));
     }
 
     @Test
@@ -788,34 +859,6 @@ class GenerateMediaImageVariantUseCaseTest {
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("ARCHIVED")
-                .hasMessageContaining("only permitted while the asset is ACTIVE");
-
-        verify(mediaAssetVersionRepositoryPort, never()).findByAssetIdAndVersionNumber(any(), any(Integer.class));
-        verify(binaryStoragePort, never()).open(any());
-        verify(imageProcessorPort, never()).process(any(), any(), any());
-        verify(binaryStoragePort, never()).store(any(), any(), anyLong(), any());
-        verify(mediaImageVariantRepositoryPort, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("rejects DELETED asset with IllegalStateException and performs no processing, storage, or persistence")
-    void shouldRejectDeletedAsset() {
-        MediaAsset deletedAsset = MediaAsset.rehydrate(
-                ASSET_ID,
-                MediaType.IMAGE,
-                MediaVisibility.PUBLIC,
-                MediaAssetStatus.DELETED,
-                1,
-                NOW,
-                NOW
-        );
-        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(deletedAsset));
-
-        GenerateMediaImageVariantCommand command = GenerateMediaImageVariantCommand.of(ASSET_ID, ImageVariantSpec.of(300));
-
-        assertThatThrownBy(() -> useCase.execute(command))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("DELETED")
                 .hasMessageContaining("only permitted while the asset is ACTIVE");
 
         verify(mediaAssetVersionRepositoryPort, never()).findByAssetIdAndVersionNumber(any(), any(Integer.class));

@@ -38,10 +38,17 @@ public class MediaImageVariantPersistenceAdapter implements MediaImageVariantRep
         entity.setVersionId(variant.getVersionId().toString());
         entity.setVariantKey(variant.getVariantKey());
         entity.setTargetWidth(variant.getTargetWidth());
-        entity.setStorageProviderId(variant.getStorageLocation().providerId().value());
-        entity.setStorageKey(variant.getStorageLocation().key().value());
-        entity.setContentHash(variant.getContentHash().value());
-        entity.setMimeType(variant.getMimeType().value());
+        if (variant.isPhysical()) {
+            entity.setStorageProviderId(variant.getStorageLocation().providerId().value());
+            entity.setStorageKey(variant.getStorageLocation().key().value());
+            entity.setPublicUrl(null);
+        } else {
+            entity.setStorageProviderId(null);
+            entity.setStorageKey(null);
+            entity.setPublicUrl(variant.getPublicUrl());
+        }
+        entity.setContentHash(variant.getContentHash() != null ? variant.getContentHash().value() : null);
+        entity.setMimeType(variant.getMimeType() != null ? variant.getMimeType().value() : null);
         entity.setSizeBytes(variant.getSizeBytes());
         entity.setWidth(variant.getWidth());
         entity.setHeight(variant.getHeight());
@@ -173,14 +180,32 @@ public class MediaImageVariantPersistenceAdapter implements MediaImageVariantRep
     private MediaImageVariant toDomain(
             MediaImageVariantJpaEntity entity
     ) {
+        boolean hasProvider = entity.getStorageProviderId() != null && !entity.getStorageProviderId().isBlank();
+        boolean hasKey = entity.getStorageKey() != null && !entity.getStorageKey().isBlank();
+
+        if (hasProvider != hasKey) {
+            throw new IllegalStateException(
+                    "Corrupt media image variant storage location: provider/key must both be present or both absent for variant ID: "
+                            + entity.getId()
+            );
+        }
+
+        StorageLocation storageLocation = hasProvider
+                ? StorageLocation.of(entity.getStorageProviderId().trim(), entity.getStorageKey().trim())
+                : null;
+        String publicUrl = entity.getPublicUrl();
+        ContentHash contentHash = entity.getContentHash() != null ? ContentHash.of(entity.getContentHash()) : null;
+        MimeType mimeType = entity.getMimeType() != null ? MimeType.of(entity.getMimeType()) : null;
+
         return MediaImageVariant.rehydrate(
                 UUID.fromString(entity.getId()),
                 UUID.fromString(entity.getVersionId()),
                 entity.getVariantKey(),
                 entity.getTargetWidth(),
-                StorageLocation.of(entity.getStorageProviderId(), entity.getStorageKey()),
-                ContentHash.of(entity.getContentHash()),
-                MimeType.of(entity.getMimeType()),
+                storageLocation,
+                publicUrl,
+                contentHash,
+                mimeType,
                 entity.getSizeBytes(),
                 entity.getWidth(),
                 entity.getHeight(),

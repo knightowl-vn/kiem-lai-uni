@@ -1,8 +1,14 @@
 package com.universe.media.application.asset;
 
+import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.StorageException;
+import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
+import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageProviderId;
@@ -17,33 +23,29 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Application service for conditional media asset version replacement (MS-05G9, MS-05G9.1).
- *
- * <p>Enforces:
- * <ul>
- *     <li>Calculates SHA-256 digest of exact uploaded original bytes in one bounded pass.</li>
- *     <li>Authoritative row-locked duplicate probe against current version's content hash before any storage write.</li>
- *     <li>If identical: zero storage writes, zero MediaAssetVersion creation, returns {@code UNCHANGED}.</li>
- *     <li>If different: performs storage write, registers immutable N+1 version, returns {@code VERSION_CREATED}.</li>
- *     <li>Concurrency hardening: row-locked recheck during registration safely reconciles concurrent identical uploads.</li>
- * </ul>
  */
 @Service
 public class UploadMediaAssetVersionConditionalUseCase {
 
-    private final BinaryStoragePort binaryStoragePort;
+    private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
+    private final MediaStorageRoutingService mediaStorageRoutingService;
+    private final StorageProviderResolverPort storageProviderResolverPort;
     private final RasterContentSignatureValidator rasterContentSignatureValidator;
     private final RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase;
 
     public UploadMediaAssetVersionConditionalUseCase(
-            BinaryStoragePort binaryStoragePort,
+            MediaAssetRepositoryPort mediaAssetRepositoryPort,
+            MediaStorageRoutingService mediaStorageRoutingService,
+            StorageProviderResolverPort storageProviderResolverPort,
             RasterContentSignatureValidator rasterContentSignatureValidator,
             RegisterMediaAssetVersionUseCase registerMediaAssetVersionUseCase
     ) {
-        this.binaryStoragePort = Objects.requireNonNull(binaryStoragePort, "BinaryStoragePort cannot be null.");
+        this.mediaAssetRepositoryPort = Objects.requireNonNull(mediaAssetRepositoryPort, "MediaAssetRepositoryPort cannot be null.");
+        this.mediaStorageRoutingService = Objects.requireNonNull(mediaStorageRoutingService, "MediaStorageRoutingService cannot be null.");
+        this.storageProviderResolverPort = Objects.requireNonNull(storageProviderResolverPort, "StorageProviderResolverPort cannot be null.");
         this.rasterContentSignatureValidator = Objects.requireNonNull(rasterContentSignatureValidator, "RasterContentSignatureValidator cannot be null.");
         this.registerMediaAssetVersionUseCase = Objects.requireNonNull(registerMediaAssetVersionUseCase, "RegisterMediaAssetVersionUseCase cannot be null.");
     }
@@ -113,11 +115,22 @@ public class UploadMediaAssetVersionConditionalUseCase {
             }
 
             // Hashes differ (or current version has no hash) -> execute normal storage write
-            StorageKey storageKey = StorageKey.of("objects/" + UUID.randomUUID());
-            StorageProviderId providerId = binaryStoragePort.providerId();
+            MediaAsset asset = mediaAssetRepositoryPort.findById(command.assetId())
+                    .orElseThrow(() -> new MediaAssetNotFoundException(command.assetId()));
+
+            StorageProviderId providerId = mediaStorageRoutingService.resolveWriteProvider(asset.getMediaType(), asset.getClientTag());
+            StorageKey storageKey = mediaStorageRoutingService.generateStorageKey(
+                    asset.getMediaType(),
+                    asset.getClientTag(),
+                    command.assetId(),
+                    asset.getCurrentVersionNumber() + 1
+            );
+
+            BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(providerId);
+            StoredBinaryObject stored;
 
             try (InputStream uploadIn = Files.newInputStream(spoolFile)) {
-                binaryStoragePort.store(
+                stored = binaryStoragePort.store(
                         storageKey,
                         uploadIn,
                         command.sizeBytes(),
@@ -129,9 +142,9 @@ public class UploadMediaAssetVersionConditionalUseCase {
 
             RegisterMediaAssetVersionCommand registerCommand = new RegisterMediaAssetVersionCommand(
                     command.assetId(),
-                    providerId.value(),
-                    storageKey.value(),
-                    null,
+                    stored.location().providerId().value(),
+                    stored.location().key().value(),
+                    stored.publicUrl(),
                     contentHash,
                     mimeType.value(),
                     command.sizeBytes(),
@@ -142,14 +155,14 @@ public class UploadMediaAssetVersionConditionalUseCase {
             try {
                 registerResult = registerMediaAssetVersionUseCase.registerConditionalVersion(registerCommand);
             } catch (RuntimeException primaryException) {
-                compensateStorage(storageKey, primaryException);
+                compensateStorage(binaryStoragePort, stored.location().key(), primaryException);
                 throw primaryException;
             }
 
             if (registerResult.outcome() == MediaVersionUploadOutcome.UNCHANGED) {
                 // Concurrent race resolution: another worker committed this identical hash in the interim
                 try {
-                    binaryStoragePort.delete(storageKey);
+                    binaryStoragePort.delete(stored.location().key());
                 } catch (RuntimeException cleanupException) {
                     // best-effort cleanup
                 }
@@ -177,6 +190,7 @@ public class UploadMediaAssetVersionConditionalUseCase {
     }
 
     private void compensateStorage(
+            BinaryStoragePort binaryStoragePort,
             StorageKey storageKey,
             RuntimeException primaryException
     ) {

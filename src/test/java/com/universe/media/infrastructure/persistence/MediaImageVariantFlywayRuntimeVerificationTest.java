@@ -29,7 +29,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
     }
 
     @Test
-    @DisplayName("V35 Flyway migration: Verify schema creation, columns, metadata, PK, FK, unique and check constraints")
+    @DisplayName("V35+V75 Flyway migration: Verify schema creation, columns, metadata, PK, FK, unique and check constraints")
     void shouldMigrateCleanDatabaseThroughV35AndVerifySchema() {
         String dbName = "kiemlai_media_variant_schema_test";
         resetDatabase(dbName);
@@ -48,12 +48,15 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
 
         MigrationInfo v35Info = null;
         MigrationInfo v36Info = null;
+        MigrationInfo v75Info = null;
         for (MigrationInfo mi : info) {
             assertThat(mi.getState()).isEqualTo(MigrationState.SUCCESS);
             if ("35".equals(mi.getVersion().getVersion())) {
                 v35Info = mi;
             } else if ("36".equals(mi.getVersion().getVersion())) {
                 v36Info = mi;
+            } else if ("75".equals(mi.getVersion().getVersion())) {
+                v75Info = mi;
             }
         }
 
@@ -64,6 +67,10 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
         assertThat(v36Info).isNotNull();
         assertThat(v36Info.getDescription()).isEqualTo("align media image variant key collation");
         assertThat(v36Info.getChecksum()).isNotNull();
+
+        assertThat(v75Info).isNotNull();
+        assertThat(v75Info.getDescription()).isEqualTo("add media image variants public url");
+        assertThat(v75Info.getChecksum()).isNotNull();
 
         JdbcTemplate jdbc = new JdbcTemplate(ds);
 
@@ -103,6 +110,7 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 "target_width",
                 "storage_provider_id",
                 "storage_key",
+                "public_url",
                 "content_hash",
                 "mime_type",
                 "size_bytes",
@@ -139,11 +147,11 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
                 versionId, assetId, now
         );
 
-        // 6. Valid insert into media_image_variants
+        // 6. Valid insert into media_image_variants (physical variant)
         String variantId1 = UUID.randomUUID().toString();
         jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w300', 300, 'local', 'objects/variants/w300.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 300, 450, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w300', 300, 'local', 'objects/variants/w300.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 300, 450, ?)",
                 variantId1, versionId, now
         );
 
@@ -179,49 +187,107 @@ class MediaImageVariantFlywayRuntimeVerificationTest {
         // 8. Test UNIQUE(version_id, variant_key)
         String variantId2 = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w300', 300, 'local', 'objects/variants/w300-diff.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 300, 450, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w300', 300, 'local', 'objects/variants/w300-diff.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 300, 450, ?)",
                 variantId2, versionId, now
         )).hasMessageContaining("uq_media_image_variants_version_key");
 
-        // 9. Test UNIQUE(storage_provider_id, storage_key)
-        String variantId3 = UUID.randomUUID().toString();
+        // 9. Test UNIQUE(storage_provider_id, storage_key) on physical variants: duplicate location rejected
+        String variantIdDupLocation = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w800', 800, 'local', 'objects/variants/w300.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 800, 1200, ?)",
-                variantId3, versionId, now
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w600', 600, 'local', 'objects/variants/w300.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 600, 450, ?)",
+                variantIdDupLocation, versionId, now
         )).hasMessageContaining("uq_media_image_variants_provider_key");
 
-        // 10. Test CHECK constraints: target_width bounds [16, 7680]
+        // 10. Verify multiple virtual variants CAN be inserted with NULL storage_provider_id and NULL storage_key
+        String variantId3 = UUID.randomUUID().toString();
+        int virtualInserted1 = jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w800', 800, NULL, NULL, 'https://res.cloudinary.com/demo/image/upload/c_scale,w_800/kiemlai/wiki/covers/cover1.webp', NULL, 'image/webp', NULL, NULL, NULL, ?)",
+                variantId3, versionId, now
+        );
+        assertThat(virtualInserted1).isEqualTo(1);
+
+        String variantId4 = UUID.randomUUID().toString();
+        int virtualInserted2 = jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w400', 400, NULL, NULL, 'https://res.cloudinary.com/demo/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp', NULL, 'image/webp', NULL, NULL, NULL, ?)",
+                variantId4, versionId, now
+        );
+        assertThat(virtualInserted2).isEqualTo(1);
+
+        // 11. Test CHECK constraints: target_width bounds [16, 7680]
         String variantIdBelowMin = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w15', 15, 'local', 'objects/variants/w15.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 15, 20, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w15', 15, 'local', 'objects/variants/w15.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 15, 20, ?)",
                 variantIdBelowMin, versionId, now
         )).hasMessageContaining("chk_media_image_variants_target_width");
 
         String variantIdAboveMax = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w7681', 7681, 'local', 'objects/variants/w7681.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 7681, 1000, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w7681', 7681, 'local', 'objects/variants/w7681.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 7681, 1000, ?)",
                 variantIdAboveMax, versionId, now
         )).hasMessageContaining("chk_media_image_variants_target_width");
 
-        // 11. Test CHECK constraints: width > 0 AND width <= target_width AND height > 0
+        // 12. Test CHECK constraints: width > 0 AND width <= target_width AND height > 0
         String variantIdWidthExceeds = UUID.randomUUID().toString();
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w300', 300, 'local', 'objects/variants/w300-wide.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 301, 450, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w300-2', 300, 'local', 'objects/variants/w300-wide.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 301, 450, ?)",
                 variantIdWidthExceeds, versionId, now
         )).hasMessageContaining("chk_media_image_variants_dimensions");
 
-        // 12. Valid insert with actual width smaller than target_width (proportional resize)
+        // 13. Valid insert with actual width smaller than target_width (proportional resize)
         String variantIdSmallerWidth = UUID.randomUUID().toString();
         int inserted = jdbc.update(
-                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, content_hash, mime_type, size_bytes, width, height, created_at) " +
-                        "VALUES (?, ?, 'w800', 800, 'local', 'objects/variants/w800-small.png', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 640, 960, ?)",
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w800-2', 800, 'local', 'objects/variants/w800-small.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 640, 960, ?)",
                 variantIdSmallerWidth, versionId, now
         );
         assertThat(inserted).isEqualTo(1);
+
+        // 14. Test CHECK constraint: chk_media_image_variants_delivery_mode
+        // 14a. Provider present + key NULL is rejected
+        String badId1 = UUID.randomUUID().toString();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w100', 100, 'local', NULL, NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 100, 100, ?)",
+                badId1, versionId, now
+        )).hasMessageContaining("chk_media_image_variants_delivery_mode");
+
+        // 14b. Provider NULL + key present is rejected
+        String badId2 = UUID.randomUUID().toString();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w101', 101, NULL, 'objects/variants/w101.png', NULL, 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 101, 101, ?)",
+                badId2, versionId, now
+        )).hasMessageContaining("chk_media_image_variants_delivery_mode");
+
+        // 14c. Physical location + public_url is rejected (both present)
+        String badId3 = UUID.randomUUID().toString();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w102', 102, 'local', 'objects/variants/w102.png', 'https://example.com/w102.webp', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 102, 102, ?)",
+                badId3, versionId, now
+        )).hasMessageContaining("chk_media_image_variants_delivery_mode");
+
+        // 14d. No location + no public_url is rejected (both absent)
+        String badId4 = UUID.randomUUID().toString();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w103', 103, NULL, NULL, NULL, NULL, 'image/png', NULL, NULL, NULL, ?)",
+                badId4, versionId, now
+        )).hasMessageContaining("chk_media_image_variants_delivery_mode");
+
+        // 14e. Virtual row with physical measurement metadata is rejected
+        String badId5 = UUID.randomUUID().toString();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO media_image_variants (id, version_id, variant_key, target_width, storage_provider_id, storage_key, public_url, content_hash, mime_type, size_bytes, width, height, created_at) " +
+                        "VALUES (?, ?, 'w104', 104, NULL, NULL, 'https://example.com/w104.webp', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', 'image/png', 500, 104, 104, ?)",
+                badId5, versionId, now
+        )).hasMessageContaining("chk_media_image_variants_delivery_mode");
     }
 }

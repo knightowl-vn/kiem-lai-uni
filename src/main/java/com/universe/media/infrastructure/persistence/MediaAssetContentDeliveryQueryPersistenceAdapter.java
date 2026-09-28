@@ -40,6 +40,7 @@ public class MediaAssetContentDeliveryQueryPersistenceAdapter
                 projection.getVersionNumber(),
                 projection.getStorageProviderId(),
                 projection.getStorageKey(),
+                projection.getPublicUrl(),
                 projection.getContentHash(),
                 projection.getMimeType(),
                 projection.getSizeBytes()

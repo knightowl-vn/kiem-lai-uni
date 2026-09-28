@@ -9,6 +9,8 @@ import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.image.ImageProcessorPort;
 import com.universe.media.application.ports.image.ProcessedImageResource;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.ImageVariantPublicUrlPort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAsset;
@@ -20,33 +22,25 @@ import com.universe.media.domain.StorageKey;
 import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import com.universe.shared.time.ClockPort;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Use case for generating derivative image variants synchronously from an immutable {@link MediaAssetVersion}.
- * <p>
- * Core Flow:
- * <ul>
- *     <li>Validates existence, ACTIVE status, and compatibility of source {@link MediaAsset} (must be {@link MediaType#IMAGE}).</li>
- *     <li>Resolves targeted {@link MediaAssetVersion}.</li>
- *     <li>Checks idempotency: returns existing variant if {@code (versionId, variantKey)} already exists.</li>
- *     <li>Opens source binary via {@link BinaryStoragePort} and processes via {@link ImageProcessorPort}.</li>
- *     <li>Streams derivative binary to storage, computing SHA-256 hash in-flight.</li>
- *     <li>Persists new {@link MediaImageVariant} record via repository port.</li>
- *     <li>Compensates derivative binary storage if persistence fails, and handles concurrent winner resolution for integrity violations.</li>
- * </ul>
  */
 @Service
 public class GenerateMediaImageVariantUseCase {
@@ -54,15 +48,18 @@ public class GenerateMediaImageVariantUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private final MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
-    private final BinaryStoragePort binaryStoragePort;
+    private final StorageProviderResolverPort storageProviderResolverPort;
+    private final List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts;
     private final ImageProcessorPort imageProcessorPort;
     private final ClockPort clockPort;
 
+    @Autowired
     public GenerateMediaImageVariantUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
             MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            BinaryStoragePort binaryStoragePort,
+            StorageProviderResolverPort storageProviderResolverPort,
+            List<ImageVariantPublicUrlPort> imageVariantPublicUrlPorts,
             ImageProcessorPort imageProcessorPort,
             ClockPort clockPort
     ) {
@@ -78,10 +75,13 @@ public class GenerateMediaImageVariantUseCase {
                 mediaImageVariantRepositoryPort,
                 "MediaImageVariantRepositoryPort cannot be null."
         );
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
+        this.imageVariantPublicUrlPorts = imageVariantPublicUrlPorts != null
+                ? List.copyOf(imageVariantPublicUrlPorts)
+                : List.of();
         this.imageProcessorPort = Objects.requireNonNull(
                 imageProcessorPort,
                 "ImageProcessorPort cannot be null."
@@ -134,17 +134,44 @@ public class GenerateMediaImageVariantUseCase {
             return toResult(assetId, versionNumber, existingVariant.get());
         }
 
-        // 3. Storage provider validation
-        StorageProviderId providerId = binaryStoragePort.providerId();
-        if (!providerId.equals(version.getStorageLocation().providerId())) {
-            throw new StorageException(
-                    "Storage provider mismatch for asset " + assetId + " version " + versionNumber
-                            + ": configured provider is " + providerId.value()
-                            + ", but asset version requires " + version.getStorageLocation().providerId().value()
+        StorageProviderId versionProviderId = version.getStorageLocation().providerId();
+
+        // 3. Remote URL transformation capability: register variant directly via ImageVariantPublicUrlPort
+        Optional<ImageVariantPublicUrlPort> urlPort = imageVariantPublicUrlPorts.stream()
+                .filter(port -> port.supports(versionProviderId))
+                .findFirst();
+
+        if (urlPort.isPresent()) {
+            URI variantUri = urlPort.get().generateVariantUrl(version.getStorageLocation(), spec);
+            UUID variantId = UUID.randomUUID();
+            Instant now = clockPort.now();
+
+            MediaImageVariant variant = MediaImageVariant.createExternal(
+                    variantId,
+                    version.getId(),
+                    spec,
+                    variantUri.toString(),
+                    version.getMimeType(),
+                    now
             );
+
+            try {
+                MediaImageVariant savedVariant = mediaImageVariantRepositoryPort.save(variant);
+                return toResult(assetId, versionNumber, savedVariant);
+            } catch (DataIntegrityViolationException integrityException) {
+                Optional<MediaImageVariant> winner = mediaImageVariantRepositoryPort
+                        .findByVersionIdAndVariantKey(version.getId(), spec.variantKey());
+                if (winner.isPresent()) {
+                    return toResult(assetId, versionNumber, winner.get());
+                }
+                throw integrityException;
+            }
         }
 
-        // 4. Open source binary and process variant
+        // 4. Resolve binary storage port for non-remote storage providers
+        BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(versionProviderId);
+
+        // 5. Open source binary and process variant locally
         InputStream sourceStream = binaryStoragePort.open(version.getStorageLocation().key());
         ProcessedImageResource processedResource;
         try {
@@ -179,10 +206,10 @@ public class GenerateMediaImageVariantUseCase {
             throw storageException;
         }
 
-        // 5. Enter processed resource cleanup scope immediately before derivative setup
+        // 6. Enter processed resource cleanup scope immediately before derivative setup
         try (processedResource) {
             StorageKey derivativeKey = StorageKey.of("objects/variants/" + UUID.randomUUID());
-            StorageLocation derivativeLocation = StorageLocation.of(providerId, derivativeKey);
+            StorageLocation derivativeLocation = StorageLocation.of(versionProviderId, derivativeKey);
             boolean storeSucceeded = false;
             boolean persisted = false;
 
@@ -224,7 +251,7 @@ public class GenerateMediaImageVariantUseCase {
 
             } catch (DataIntegrityViolationException integrityException) {
                 if (storeSucceeded && !persisted) {
-                    boolean compensated = compensateStorage(derivativeKey, integrityException);
+                    boolean compensated = compensateStorage(binaryStoragePort, derivativeKey, integrityException);
                     if (compensated) {
                         try {
                             Optional<MediaImageVariant> winner = mediaImageVariantRepositoryPort
@@ -240,7 +267,7 @@ public class GenerateMediaImageVariantUseCase {
                 throw integrityException;
             } catch (RuntimeException primaryException) {
                 if (storeSucceeded && !persisted) {
-                    compensateStorage(derivativeKey, primaryException);
+                    compensateStorage(binaryStoragePort, derivativeKey, primaryException);
                 }
                 throw primaryException;
             }
@@ -248,6 +275,7 @@ public class GenerateMediaImageVariantUseCase {
     }
 
     private boolean compensateStorage(
+            BinaryStoragePort binaryStoragePort,
             StorageKey storageKey,
             RuntimeException primaryException
     ) {
@@ -280,7 +308,8 @@ public class GenerateMediaImageVariantUseCase {
                 versionNumber,
                 variant.getVariantKey(),
                 variant.getTargetWidth(),
-                variant.getMimeType().value(),
+                variant.getPublicUrl(),
+                variant.getMimeType() != null ? variant.getMimeType().value() : null,
                 variant.getSizeBytes(),
                 variant.getWidth(),
                 variant.getHeight(),

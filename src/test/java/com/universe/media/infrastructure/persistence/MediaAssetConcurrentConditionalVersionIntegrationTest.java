@@ -5,7 +5,11 @@ import com.universe.media.application.asset.RegisterMediaAssetVersionUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionCommand;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalResult;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
+import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
@@ -45,7 +49,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -113,11 +120,23 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
         public ConcurrentTrackingStoragePort concurrentTrackingStoragePort() {
             return new ConcurrentTrackingStoragePort();
         }
+
+        @Bean
+        public MediaStorageRoutingService mediaStorageRoutingService() {
+            return new MediaStorageRoutingService();
+        }
+
+        @Bean
+        public StorageProviderResolverPort storageProviderResolverPort(ConcurrentTrackingStoragePort storagePort) {
+            return providerId -> storagePort;
+        }
     }
 
     static class ConcurrentTrackingStoragePort implements BinaryStoragePort {
         final AtomicInteger storeCallCount = new AtomicInteger(0);
         final AtomicInteger deleteCallCount = new AtomicInteger(0);
+        final Set<StorageKey> storedKeys = ConcurrentHashMap.newKeySet();
+        final List<StorageKey> storedKeysHistory = new CopyOnWriteArrayList<>();
 
         @Override
         public StorageProviderId providerId() {
@@ -125,8 +144,13 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
         }
 
         @Override
-        public void store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
+        public StoredBinaryObject store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
             storeCallCount.incrementAndGet();
+            if (!storedKeys.add(storageKey)) {
+                throw new StorageObjectAlreadyExistsException(storageKey);
+            }
+            storedKeysHistory.add(storageKey);
+            return StoredBinaryObject.of(com.universe.media.domain.StorageLocation.of(LOCAL_PROVIDER, storageKey));
         }
 
         @Override
@@ -142,11 +166,14 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
         @Override
         public void delete(StorageKey storageKey) {
             deleteCallCount.incrementAndGet();
+            storedKeys.remove(storageKey);
         }
 
         public void reset() {
             storeCallCount.set(0);
             deleteCallCount.set(0);
+            storedKeys.clear();
+            storedKeysHistory.clear();
         }
     }
 
@@ -285,6 +312,11 @@ class MediaAssetConcurrentConditionalVersionIntegrationTest {
         assertThat(storeCalls).isIn(1, 2);
         assertThat(deleteCalls).isIn(0, 1);
         assertThat(storeCalls - deleteCalls).isEqualTo(1);
+
+        if (storeCalls == 2) {
+            assertThat(storagePort.storedKeysHistory).hasSize(2);
+            assertThat(storagePort.storedKeysHistory.get(0)).isNotEqualTo(storagePort.storedKeysHistory.get(1));
+        }
     }
 
     @Test

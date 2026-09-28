@@ -5,6 +5,7 @@ import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
@@ -37,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,6 +83,9 @@ class PurgeDeletedMediaAssetUseCaseTest {
     private MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
 
     @Mock
+    private StorageProviderResolverPort storageProviderResolverPort;
+
+    @Mock
     private BinaryStoragePort binaryStoragePort;
 
     @Mock
@@ -90,11 +95,12 @@ class PurgeDeletedMediaAssetUseCaseTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(storageProviderResolverPort.resolve(LOCAL_PROVIDER)).thenReturn(binaryStoragePort);
         useCase = new PurgeDeletedMediaAssetUseCase(
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort,
                 mediaImageVariantRepositoryPort,
-                binaryStoragePort,
+                storageProviderResolverPort,
                 purgeMediaAssetMetadataService,
                 FIXED_CLOCK
         );
@@ -293,6 +299,43 @@ class PurgeDeletedMediaAssetUseCaseTest {
             assertThat(result.purgedVariantsCount()).isEqualTo(0);
 
             verify(binaryStoragePort, never()).delete(any());
+            verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
+        }
+
+        @Test
+        @DisplayName("skips storage delete for virtual variants that have publicUrl")
+        void shouldSkipStorageDeleteForVirtualVariantsWithPublicUrl() {
+            MediaAsset asset = createDeletedAsset(DELETED_AT);
+            MediaAssetVersion v1 = createVersion(VERSION_1_ID, 1, "objects/v1.png");
+            String variantUrl = "https://res.cloudinary.com/test/image/upload/c_scale,w_300/kiemlai/v1.webp";
+            MediaImageVariant virtualVariant = MediaImageVariant.rehydrate(
+                    VARIANT_1_ID,
+                    VERSION_1_ID,
+                    "w300",
+                    300,
+                    null,
+                    variantUrl,
+                    null,
+                    MimeType.of("image/webp"),
+                    null,
+                    null,
+                    null,
+                    DELETED_AT.minus(Duration.ofDays(4))
+            );
+
+            when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+            when(mediaAssetVersionRepositoryPort.findAllByAssetId(ASSET_ID)).thenReturn(List.of(v1));
+            when(mediaImageVariantRepositoryPort.findAllByVersionIds(List.of(VERSION_1_ID))).thenReturn(List.of(virtualVariant));
+
+            PurgeDeletedMediaAssetResult result = useCase.execute(new PurgeDeletedMediaAssetCommand(ASSET_ID));
+
+            assertThat(result.assetId()).isEqualTo(ASSET_ID);
+            assertThat(result.purgedVersionsCount()).isEqualTo(1);
+            assertThat(result.purgedVariantsCount()).isEqualTo(1);
+
+            // Master version binary is deleted from storage, but virtual variant is skipped
+            verify(binaryStoragePort).delete(StorageKey.of("objects/v1.png"));
+            verify(binaryStoragePort, never()).delete(StorageKey.of(variantUrl));
             verify(purgeMediaAssetMetadataService).execute(ASSET_ID);
         }
     }

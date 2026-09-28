@@ -45,12 +45,13 @@ public interface BinaryStoragePort {
      * @param content   the binary content input stream
      * @param sizeBytes the exact size of the payload in bytes (must be >= 0)
      * @param mimeType  the validated MIME type of the binary payload
+     * @return provider-neutral storage result containing canonical location and optional publicUrl
      * @throws StorageObjectAlreadyExistsException if an object already exists at {@code key}
      * @throws StorageException                   if storage fails due to underlying I/O or provider error
      * @throws NullPointerException               if any required parameter is null
      * @throws IllegalArgumentException           if sizeBytes is negative
      */
-    void store(
+    StoredBinaryObject store(
             StorageKey key,
             InputStream content,
             long sizeBytes,

@@ -23,6 +23,7 @@ public interface MediaAssetContentDeliveryQueryPort {
             Integer versionNumber,
             String storageProviderId,
             String storageKey,
+            String publicUrl,
             String contentHash,
             String mimeType,
             Long sizeBytes

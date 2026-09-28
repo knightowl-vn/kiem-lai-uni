@@ -261,71 +261,70 @@ class MediaImageVariantPersistenceIntegrationTest {
     }
 
     @Test
-    @DisplayName("enforces UNIQUE(storage_provider_id, storage_key) constraint in database")
-    void shouldEnforceUniqueStorageLocationConstraint() {
+    @DisplayName("allows multiple virtual variants to be persisted with NULL storage provider/key and independent public URLs")
+    void shouldAllowMultipleVirtualVariantsWithNullStorageLocation() {
         UUID assetId = UUID.randomUUID();
         createdAssetIds.add(assetId);
-        UUID versionId1 = UUID.randomUUID();
-        UUID versionId2 = UUID.randomUUID();
+        UUID versionId = UUID.randomUUID();
         Instant now = Instant.now();
 
         assetAdapter.save(MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, now));
+        StorageLocation sourceLocation = StorageLocation.of("cloudinary", "kiemlai/wiki/covers/great-ruler");
         versionAdapter.save(MediaAssetVersion.create(
-                versionId1,
+                versionId,
                 assetId,
                 1,
-                StorageLocation.of("local", "objects/source-v1.jpg"),
-                null,
+                sourceLocation,
+                "https://res.cloudinary.com/test/image/upload/v1/kiemlai/wiki/covers/great-ruler.webp",
                 ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
-                MimeType.of("image/jpeg"),
+                MimeType.of("image/webp"),
                 100000L,
-                "cover.jpg",
-                now
-        ));
-        versionAdapter.save(MediaAssetVersion.create(
-                versionId2,
-                assetId,
-                2,
-                StorageLocation.of("local", "objects/source-v2.jpg"),
-                null,
-                ContentHash.of("f3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
-                MimeType.of("image/jpeg"),
-                100000L,
-                "cover.jpg",
+                "cover.webp",
                 now
         ));
 
-        // Save variant on version 1 at location "objects/variants/shared.jpg"
-        StorageLocation sharedLocation = StorageLocation.of("local", "objects/variants/shared.jpg");
-        variantAdapter.save(MediaImageVariant.create(
-                UUID.randomUUID(),
-                versionId1,
+        // Save variant w300 with publicUrl and null storage location
+        UUID v1Id = UUID.randomUUID();
+        String url300 = "https://res.cloudinary.com/test/image/upload/c_scale,w_300/kiemlai/wiki/covers/great-ruler.webp";
+        MediaImageVariant var300 = MediaImageVariant.createExternal(
+                v1Id,
+                versionId,
                 ImageVariantSpec.of(300),
-                sharedLocation,
-                ContentHash.of("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"),
-                MimeType.of("image/jpeg"),
-                20000L,
-                300,
-                450,
-                now
-        ));
-
-        // Try to save variant on version 2 using the SAME storage location
-        MediaImageVariant duplicateLocationVariant = MediaImageVariant.create(
-                UUID.randomUUID(),
-                versionId2,
-                ImageVariantSpec.of(300),
-                sharedLocation,
-                ContentHash.of("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"),
-                MimeType.of("image/jpeg"),
-                20000L,
-                300,
-                450,
+                url300,
+                MimeType.of("image/webp"),
                 now
         );
+        MediaImageVariant saved300 = variantAdapter.save(var300);
+        assertThat(saved300).isNotNull();
 
-        assertThatThrownBy(() -> variantAdapter.save(duplicateLocationVariant))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        // Save variant w800 with publicUrl and null storage location
+        UUID v2Id = UUID.randomUUID();
+        String url800 = "https://res.cloudinary.com/test/image/upload/c_scale,w_800/kiemlai/wiki/covers/great-ruler.webp";
+        MediaImageVariant var800 = MediaImageVariant.createExternal(
+                v2Id,
+                versionId,
+                ImageVariantSpec.of(800),
+                url800,
+                MimeType.of("image/webp"),
+                now
+        );
+        MediaImageVariant saved800 = variantAdapter.save(var800);
+        assertThat(saved800).isNotNull();
+
+        // Verify both variants round-trip with their respective publicUrl and NULL storageLocation
+        Optional<MediaImageVariant> loaded300 = variantAdapter.findByVersionIdAndVariantKey(versionId, "w300");
+        assertThat(loaded300).isPresent();
+        assertThat(loaded300.get().getPublicUrl()).isEqualTo(url300);
+        assertThat(loaded300.get().getStorageLocation()).isNull();
+        assertThat(loaded300.get().isVirtual()).isTrue();
+        assertThat(loaded300.get().getContentHash()).isNull();
+        assertThat(loaded300.get().getSizeBytes()).isNull();
+
+        Optional<MediaImageVariant> loaded800 = variantAdapter.findByVersionIdAndVariantKey(versionId, "w800");
+        assertThat(loaded800).isPresent();
+        assertThat(loaded800.get().getPublicUrl()).isEqualTo(url800);
+        assertThat(loaded800.get().getStorageLocation()).isNull();
+        assertThat(loaded800.get().isVirtual()).isTrue();
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort;
 import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort.MediaAssetContentDeliverySnapshot;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaVisibility;
@@ -21,28 +22,28 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Use case for retrieving the binary content stream of an ACTIVE and PUBLIC media asset.
+ * Use case for retrieving the delivery content or redirect plan of an ACTIVE and PUBLIC media asset.
  * <p>
- * <strong>Stream Ownership:</strong> The caller/delivery layer is responsible for closing the
- * {@link InputStream} contained within {@link GetMediaAssetContentResult}.
+ * <strong>Stream Ownership:</strong> When streaming content is returned, the caller/delivery layer is responsible
+ * for closing the {@link InputStream} contained within {@link GetMediaAssetContentResult}.
  */
 @Service
 public class GetMediaAssetContentUseCase {
 
     private final MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort;
-    private final BinaryStoragePort binaryStoragePort;
+    private final StorageProviderResolverPort storageProviderResolverPort;
 
     public GetMediaAssetContentUseCase(
             MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort,
-            BinaryStoragePort binaryStoragePort
+            StorageProviderResolverPort storageProviderResolverPort
     ) {
         this.contentDeliveryQueryPort = Objects.requireNonNull(
                 contentDeliveryQueryPort,
                 "MediaAssetContentDeliveryQueryPort cannot be null."
         );
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
     }
 
@@ -53,9 +54,20 @@ public class GetMediaAssetContentUseCase {
         Objects.requireNonNull(query, "GetMediaAssetContentQuery cannot be null.");
 
         ResolvedContent resolvedContent = resolveEligibleCurrentContent(query.assetId());
-        InputStream contentStream = binaryStoragePort.open(resolvedContent.storageKey());
 
-        return new GetMediaAssetContentResult(
+        if (resolvedContent.metadata().isRedirect()) {
+            return GetMediaAssetContentResult.redirect(
+                    resolvedContent.metadata().publicUrl(),
+                    resolvedContent.metadata().sizeBytes(),
+                    resolvedContent.metadata().mimeType(),
+                    resolvedContent.metadata().contentHash()
+            );
+        }
+
+        BinaryStoragePort port = storageProviderResolverPort.resolve(resolvedContent.storageProviderId());
+        InputStream contentStream = port.open(resolvedContent.storageKey());
+
+        return GetMediaAssetContentResult.stream(
                 contentStream,
                 resolvedContent.metadata().sizeBytes(),
                 resolvedContent.metadata().mimeType(),
@@ -83,7 +95,8 @@ public class GetMediaAssetContentUseCase {
             GetMediaAssetContentMetadataResult metadata
     ) {
         ResolvedContent resolvedContent = resolveMatchingCurrentContent(metadata);
-        return binaryStoragePort.open(resolvedContent.storageKey());
+        BinaryStoragePort port = storageProviderResolverPort.resolve(resolvedContent.storageProviderId());
+        return port.open(resolvedContent.storageKey());
     }
 
     /**
@@ -103,7 +116,8 @@ public class GetMediaAssetContentUseCase {
             throw new IllegalArgumentException("length must be positive: " + length);
         }
         ResolvedContent resolvedContent = resolveMatchingCurrentContent(metadata);
-        return binaryStoragePort.openRange(resolvedContent.storageKey(), startInclusive, length);
+        BinaryStoragePort port = storageProviderResolverPort.resolve(resolvedContent.storageProviderId());
+        return port.openRange(resolvedContent.storageKey(), startInclusive, length);
     }
 
     private ResolvedContent resolveEligibleCurrentContent(UUID assetId) {
@@ -128,23 +142,32 @@ public class GetMediaAssetContentUseCase {
 
         ResolvedTechnicalMetadata technicalMetadata = resolveTechnicalMetadata(snapshot, assetId);
 
-        if (!binaryStoragePort.providerId().equals(technicalMetadata.storageProviderId())) {
-            throw new StorageException(
-                    "Storage provider mismatch for asset " + assetId
-                            + ": configured provider is " + binaryStoragePort.providerId().value()
-                            + ", but asset requires " + technicalMetadata.storageProviderId().value()
+        String publicUrl = snapshot.publicUrl();
+        if (publicUrl != null && !publicUrl.isBlank()) {
+            GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
+                    assetId,
+                    currentVersionNumber,
+                    technicalMetadata.sizeBytes(),
+                    technicalMetadata.mimeType().value(),
+                    technicalMetadata.contentHash().value(),
+                    publicUrl.trim()
             );
+            return new ResolvedContent(metadata, technicalMetadata.storageKey(), technicalMetadata.storageProviderId());
         }
+
+        // Validate that provider exists for streaming reads
+        storageProviderResolverPort.resolve(technicalMetadata.storageProviderId());
 
         GetMediaAssetContentMetadataResult metadata = new GetMediaAssetContentMetadataResult(
                 assetId,
                 currentVersionNumber,
                 technicalMetadata.sizeBytes(),
                 technicalMetadata.mimeType().value(),
-                technicalMetadata.contentHash().value()
+                technicalMetadata.contentHash().value(),
+                null
         );
 
-        return new ResolvedContent(metadata, technicalMetadata.storageKey());
+        return new ResolvedContent(metadata, technicalMetadata.storageKey(), technicalMetadata.storageProviderId());
     }
 
     private ResolvedTechnicalMetadata resolveTechnicalMetadata(
@@ -188,7 +211,8 @@ public class GetMediaAssetContentUseCase {
 
     private record ResolvedContent(
             GetMediaAssetContentMetadataResult metadata,
-            StorageKey storageKey
+            StorageKey storageKey,
+            StorageProviderId storageProviderId
     ) {
     }
 

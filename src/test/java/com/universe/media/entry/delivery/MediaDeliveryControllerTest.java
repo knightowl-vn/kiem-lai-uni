@@ -104,6 +104,46 @@ class MediaDeliveryControllerTest {
     }
 
     @Test
+    @DisplayName("redirect asset GET returns 302 Found with Location header to publicUrl")
+    void shouldDeliverAssetContentRedirect() throws Exception {
+        GetMediaAssetContentMetadataResult redirectMetadata = new GetMediaAssetContentMetadataResult(
+                ASSET_ID,
+                1,
+                1024L,
+                "image/webp",
+                HASH,
+                "https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp"
+        );
+        when(getMediaAssetContentUseCase.resolveMetadata(new GetMediaAssetContentQuery(ASSET_ID)))
+                .thenReturn(redirectMetadata);
+
+        mockMvc.perform(get("/media/assets/{assetId}/content", ASSET_ID))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"));
+
+        verify(getMediaAssetContentUseCase, never()).open(any());
+    }
+
+    @Test
+    @DisplayName("redirect variant GET returns 302 Found with Location header to publicUrl")
+    void shouldDeliverVariantContentRedirect() throws Exception {
+        GetMediaAssetContentResult redirectResult = GetMediaAssetContentResult.redirect(
+                "https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp",
+                1024L,
+                "image/webp",
+                HASH
+        );
+        when(getMediaImageVariantContentUseCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w400")))
+                .thenReturn(redirectResult);
+
+        mockMvc.perform(get("/media/assets/{assetId}/variants/{variantKey}", ASSET_ID, "w400"))
+                .andExpect(status().isFound())
+                .andExpect(header().string(HttpHeaders.LOCATION, "https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "public, no-cache"));
+    }
+
+    @Test
     @DisplayName("closed byte range returns 206 with inclusive exact bytes")
     void shouldDeliverClosedByteRange() throws Exception {
         assertPartialRange("bytes=2-5", 2, 5, new byte[]{2, 3, 4, 5});
@@ -294,7 +334,7 @@ class MediaDeliveryControllerTest {
     @DisplayName("image variant GET remains a full streamed 200 response")
     void shouldKeepImageVariantDeliveryUnchanged() throws Exception {
         byte[] payload = new byte[]{10, 20, 30, 40};
-        GetMediaAssetContentResult result = new GetMediaAssetContentResult(
+        GetMediaAssetContentResult result = GetMediaAssetContentResult.stream(
                 new ByteArrayInputStream(payload),
                 payload.length,
                 "image/jpeg",

@@ -19,8 +19,8 @@ class MediaImageVariantTest {
     private static final Instant CREATED_AT = Instant.parse("2026-09-03T12:00:00Z");
 
     @Test
-    @DisplayName("creates valid MediaImageVariant from ImageVariantSpec")
-    void shouldCreateValidMediaImageVariant() {
+    @DisplayName("creates valid physical MediaImageVariant from ImageVariantSpec")
+    void shouldCreateValidPhysicalMediaImageVariant() {
         ImageVariantSpec spec = ImageVariantSpec.of(300);
 
         MediaImageVariant variant = MediaImageVariant.create(
@@ -41,6 +41,10 @@ class MediaImageVariantTest {
         assertThat(variant.getVariantKey()).isEqualTo("w300");
         assertThat(variant.getTargetWidth()).isEqualTo(300);
         assertThat(variant.getStorageLocation()).isEqualTo(STORAGE_LOCATION);
+        assertThat(variant.getPublicUrl()).isNull();
+        assertThat(variant.hasPublicUrl()).isFalse();
+        assertThat(variant.isPhysical()).isTrue();
+        assertThat(variant.isVirtual()).isFalse();
         assertThat(variant.getContentHash()).isEqualTo(CONTENT_HASH);
         assertThat(variant.getMimeType()).isEqualTo(MIME_TYPE);
         assertThat(variant.getSizeBytes()).isEqualTo(15000L);
@@ -50,8 +54,105 @@ class MediaImageVariantTest {
     }
 
     @Test
-    @DisplayName("rehydrates valid MediaImageVariant")
-    void shouldRehydrateValidMediaImageVariant() {
+    @DisplayName("creates valid external virtual MediaImageVariant with publicUrl and null StorageLocation")
+    void shouldCreateValidExternalVirtualVariant() {
+        ImageVariantSpec spec = ImageVariantSpec.of(400);
+        String publicUrl = "https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/wiki/covers/great-ruler.webp";
+
+        MediaImageVariant variant = MediaImageVariant.createExternal(
+                ID,
+                VERSION_ID,
+                spec,
+                publicUrl,
+                MIME_TYPE,
+                CREATED_AT
+        );
+
+        assertThat(variant.getId()).isEqualTo(ID);
+        assertThat(variant.getVersionId()).isEqualTo(VERSION_ID);
+        assertThat(variant.getVariantKey()).isEqualTo("w400");
+        assertThat(variant.getTargetWidth()).isEqualTo(400);
+        assertThat(variant.getStorageLocation()).isNull();
+        assertThat(variant.getPublicUrl()).isEqualTo(publicUrl);
+        assertThat(variant.hasPublicUrl()).isTrue();
+        assertThat(variant.isVirtual()).isTrue();
+        assertThat(variant.isPhysical()).isFalse();
+        assertThat(variant.getContentHash()).isNull();
+        assertThat(variant.getSizeBytes()).isNull();
+        assertThat(variant.getWidth()).isNull();
+        assertThat(variant.getHeight()).isNull();
+        assertThat(variant.getMimeType()).isEqualTo(MIME_TYPE);
+        assertThat(variant.getCreatedAt()).isEqualTo(CREATED_AT);
+    }
+
+    @Test
+    @DisplayName("enforces XOR invariant: fails when both storageLocation and publicUrl are present or both are absent")
+    void shouldEnforceXorStorageInvariant() {
+        String publicUrl = "https://res.cloudinary.com/test/image/upload/c_scale,w_400/cover.webp";
+
+        // Both present
+        assertThatThrownBy(() -> MediaImageVariant.rehydrate(
+                ID, VERSION_ID, "w400", 400, STORAGE_LOCATION, publicUrl, CONTENT_HASH, MIME_TYPE, 1000L, 400, 300, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Variant cannot have both a physical StorageLocation and an external publicUrl");
+
+        // Both absent
+        assertThatThrownBy(() -> MediaImageVariant.rehydrate(
+                ID, VERSION_ID, "w400", 400, null, null, null, MIME_TYPE, null, null, null, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Variant must have either a physical StorageLocation or an external publicUrl");
+    }
+
+    @Test
+    @DisplayName("validates HTTPS scheme, absolute URI, and non-blank URL on external variant")
+    void shouldValidateHttpsPublicUrl() {
+        ImageVariantSpec spec = ImageVariantSpec.of(400);
+
+        // Blank URL
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(ID, VERSION_ID, spec, "  ", MIME_TYPE, CREATED_AT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("External variant publicUrl cannot be blank");
+
+        // Null URL
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(ID, VERSION_ID, spec, null, MIME_TYPE, CREATED_AT))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("External variant publicUrl cannot be null");
+
+        // HTTP (non-HTTPS) scheme
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(
+                ID, VERSION_ID, spec, "http://insecure.example.com/image.webp", MIME_TYPE, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("External variant publicUrl must use HTTPS scheme");
+
+        // Relative URI
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(
+                ID, VERSION_ID, spec, "/local/path/image.webp", MIME_TYPE, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("External variant publicUrl must be an absolute URI with a host");
+
+        // Malformed URI syntax
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(
+                ID, VERSION_ID, spec, "https://invalid url with spaces.com", MIME_TYPE, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid external variant publicUrl");
+
+        // Exceeding 1000 chars
+        String longUrl = "https://example.com/" + "a".repeat(1000);
+        assertThatThrownBy(() -> MediaImageVariant.createExternal(
+                ID, VERSION_ID, spec, longUrl, MIME_TYPE, CREATED_AT
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("External variant publicUrl cannot exceed 1000 characters");
+    }
+
+    @Test
+    @DisplayName("rehydrates valid physical MediaImageVariant")
+    void shouldRehydrateValidPhysicalMediaImageVariant() {
         MediaImageVariant variant = MediaImageVariant.rehydrate(
                 ID,
                 VERSION_ID,
@@ -71,11 +172,44 @@ class MediaImageVariantTest {
         assertThat(variant.getTargetWidth()).isEqualTo(800);
         assertThat(variant.getWidth()).isEqualTo(800);
         assertThat(variant.getHeight()).isEqualTo(1200);
+        assertThat(variant.getStorageLocation()).isEqualTo(STORAGE_LOCATION);
+        assertThat(variant.getPublicUrl()).isNull();
+        assertThat(variant.isPhysical()).isTrue();
     }
 
     @Test
-    @DisplayName("rejects null required fields")
-    void shouldRejectNullRequiredFields() {
+    @DisplayName("rehydrates valid external virtual MediaImageVariant with publicUrl")
+    void shouldRehydrateValidExternalVirtualVariant() {
+        String publicUrl = "https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/wiki/covers/great-ruler.webp";
+
+        MediaImageVariant variant = MediaImageVariant.rehydrate(
+                ID,
+                VERSION_ID,
+                "w400",
+                400,
+                null,
+                publicUrl,
+                null,
+                MIME_TYPE,
+                null,
+                null,
+                null,
+                CREATED_AT
+        );
+
+        assertThat(variant.getId()).isEqualTo(ID);
+        assertThat(variant.getVariantKey()).isEqualTo("w400");
+        assertThat(variant.getStorageLocation()).isNull();
+        assertThat(variant.getPublicUrl()).isEqualTo(publicUrl);
+        assertThat(variant.hasPublicUrl()).isTrue();
+        assertThat(variant.isVirtual()).isTrue();
+        assertThat(variant.isPhysical()).isFalse();
+        assertThat(variant.getContentHash()).isNull();
+    }
+
+    @Test
+    @DisplayName("rejects null required fields for physical variant")
+    void shouldRejectNullRequiredFieldsForPhysicalVariant() {
         ImageVariantSpec spec = ImageVariantSpec.of(300);
 
         assertThatThrownBy(() -> MediaImageVariant.create(null, VERSION_ID, spec, STORAGE_LOCATION, CONTENT_HASH, MIME_TYPE, 1000L, 300, 450, CREATED_AT))
@@ -108,7 +242,7 @@ class MediaImageVariantTest {
     }
 
     @Test
-    @DisplayName("rejects non-positive sizes and dimensions")
+    @DisplayName("rejects non-positive sizes and dimensions for physical variant")
     void shouldRejectNonPositiveSizesAndDimensions() {
         ImageVariantSpec spec = ImageVariantSpec.of(300);
 

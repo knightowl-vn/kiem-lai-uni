@@ -2,12 +2,18 @@ package com.universe.media.application.asset;
 
 import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.UploadContentMimeMismatchException;
+import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaType;
 import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -29,22 +35,34 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class UploadMediaAssetUseCasesTest {
+
+    @Mock
+    private MediaAssetRepositoryPort mediaAssetRepositoryPort;
+
+    @Mock
+    private MediaStorageRoutingService mediaStorageRoutingService;
+
+    @Mock
+    private StorageProviderResolverPort storageProviderResolverPort;
 
     @Mock
     private BinaryStoragePort binaryStoragePort;
@@ -94,13 +112,22 @@ class UploadMediaAssetUseCasesTest {
     @BeforeEach
     void setUp() {
         RasterContentSignatureValidator validator = new RasterContentSignatureValidator();
+        lenient().when(mediaStorageRoutingService.resolveWriteProvider(any(), any())).thenReturn(LOCAL_PROVIDER);
+        lenient().when(mediaStorageRoutingService.generateStorageKey(any(), any(), any(), anyInt()))
+                .thenAnswer(inv -> StorageKey.of("objects/" + UUID.randomUUID()));
+        lenient().when(storageProviderResolverPort.resolve(LOCAL_PROVIDER)).thenReturn(binaryStoragePort);
+        lenient().when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
+
         uploadMediaAssetUseCase = new UploadMediaAssetUseCase(
-                binaryStoragePort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
                 registerMediaAssetUseCase,
                 validator
         );
         uploadMediaAssetVersionUseCase = new UploadMediaAssetVersionUseCase(
-                binaryStoragePort,
+                mediaAssetRepositoryPort,
+                mediaStorageRoutingService,
+                storageProviderResolverPort,
                 registerMediaAssetVersionUseCase,
                 validator
         );
@@ -113,15 +140,14 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("successful upload streams binary, computes SHA-256, registers asset, and returns result")
         void shouldUploadInitialAssetSuccessfully() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("Hello, Universe Media!");
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             UUID expectedAssetId = UUID.randomUUID();
@@ -177,8 +203,6 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("storage failure aborts flow and never calls metadata registration")
         void shouldAbortWhenStorageFails() {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("sample data");
             doThrow(new StorageException("Disk full"))
                     .when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), anyLong(), any(MimeType.class));
@@ -203,13 +227,12 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("metadata registration failure triggers storage compensation delete with exact stored key")
         void shouldCompensateStorageWhenMetadataRegistrationFails() throws IOException {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("payload data");
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             RuntimeException primaryException = new RuntimeException("Database constraint violation");
@@ -240,13 +263,12 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("cleanup failure suppresses cleanup exception and preserves primary exception")
         void shouldPreservePrimaryExceptionWhenCompensationAlsoFails() throws IOException {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("payload data");
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             RuntimeException primaryException = new RuntimeException("Primary DB failure");
@@ -282,13 +304,12 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("caller InputStream is NOT closed by upload orchestration")
         void shouldNotCloseCallerInputStream() throws IOException {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("stream data");
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
@@ -372,15 +393,14 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("successful JPEG upload streams binary with valid JPEG signature")
         void shouldUploadJpegSuccessfullyWithValidSignature() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = combine(VALID_JPEG_HEADER, "JPEG body content".getBytes(StandardCharsets.UTF_8));
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
@@ -415,15 +435,14 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("successful PNG upload streams binary with valid PNG signature")
         void shouldUploadPngSuccessfullyWithValidSignature() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = combine(VALID_PNG_HEADER, "PNG body content".getBytes(StandardCharsets.UTF_8));
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
@@ -458,15 +477,14 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("non-raster MIME type (audio/mpeg) bypasses raster signature validation")
         void shouldBypassValidationForNonRasterInitialUpload() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = "Arbitrary audio stream data that does not match image headers".getBytes(StandardCharsets.UTF_8);
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
@@ -498,6 +516,46 @@ class UploadMediaAssetUseCasesTest {
             assertThat(registerCaptor.getValue().mimeType()).isEqualTo("audio/mpeg");
         }
 
+        @Test
+        @DisplayName("initial upload passes clientTag to routing service")
+        void shouldPassClientTagToRoutingServiceOnInitialUpload() throws Exception {
+            byte[] data = createWebpData("Wiki cover initial data");
+            String clientTag = "kiemlai/wiki/covers/great-ruler";
+
+            doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetUseCase.execute(any(RegisterMediaAssetCommand.class)))
+                    .thenReturn(new RegisterMediaAssetResult(
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            1,
+                            MediaType.IMAGE,
+                            MediaVisibility.PUBLIC,
+                            MediaAssetStatus.ACTIVE,
+                            Instant.now()
+                    ));
+
+            UploadMediaAssetCommand command = new UploadMediaAssetCommand(
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "image/webp",
+                    MediaType.IMAGE,
+                    MediaVisibility.PUBLIC,
+                    "cover.webp",
+                    clientTag
+            );
+
+            uploadMediaAssetUseCase.execute(command);
+
+            verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.IMAGE, clientTag);
+            verify(mediaStorageRoutingService).generateStorageKey(MediaType.IMAGE, clientTag, null, 1);
+        }
+
         @ParameterizedTest(name = "UploadMediaAssetCommand rejects non-positive size: {0}")
         @ValueSource(longs = {0L, -1L, -100L})
         void shouldRejectNonPositiveSizeInUploadMediaAssetCommand(long invalidSize) {
@@ -520,20 +578,22 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("successful version upload streams binary, hashes, and registers new version")
         void shouldUploadVersionSuccessfully() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("Version 2 binary data");
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             UUID assetId = UUID.randomUUID();
             UUID versionId = UUID.randomUUID();
             Instant now = Instant.parse("2026-09-02T16:30:00Z");
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
 
             when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
                     .thenReturn(new RegisterMediaAssetVersionResult(
@@ -572,21 +632,24 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("version metadata failure triggers storage compensation delete with exact stored key")
         void shouldCompensateStorageWhenVersionMetadataRegistrationFails() throws IOException {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = createWebpData("version payload");
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            UUID assetId = UUID.randomUUID();
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, Instant.now());
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
 
             RuntimeException primaryException = new RuntimeException("Asset is not active");
             when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
                     .thenThrow(primaryException);
 
             UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
-                    UUID.randomUUID(),
+                    assetId,
                     new ByteArrayInputStream(data),
                     data.length,
                     "image/webp",
@@ -650,20 +713,22 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("successful JPEG version upload streams binary with valid JPEG signature")
         void shouldUploadJpegVersionSuccessfullyWithValidSignature() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = combine(VALID_JPEG_HEADER, "JPEG v2 payload".getBytes(StandardCharsets.UTF_8));
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             UUID assetId = UUID.randomUUID();
             UUID versionId = UUID.randomUUID();
             Instant now = Instant.now();
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
 
             when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
                     .thenReturn(new RegisterMediaAssetVersionResult(
@@ -693,20 +758,22 @@ class UploadMediaAssetUseCasesTest {
         @Test
         @DisplayName("non-raster version upload (audio/mpeg) bypasses raster signature validation")
         void shouldBypassValidationForNonRasterVersionUpload() throws Exception {
-            when(binaryStoragePort.providerId()).thenReturn(LOCAL_PROVIDER);
-
             byte[] data = "Arbitrary v2 audio stream".getBytes(StandardCharsets.UTF_8);
             String expectedSha256 = computeSha256(data);
 
             doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
                 InputStream in = invocation.getArgument(1);
                 in.readAllBytes();
-                return null;
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
             }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
 
             UUID assetId = UUID.randomUUID();
             UUID versionId = UUID.randomUUID();
             Instant now = Instant.now();
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.AUDIO, MediaVisibility.PUBLIC, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
 
             when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
                     .thenReturn(new RegisterMediaAssetVersionResult(
@@ -731,6 +798,42 @@ class UploadMediaAssetUseCasesTest {
             verify(registerMediaAssetVersionUseCase).execute(captor.capture());
             assertThat(captor.getValue().contentHash()).isEqualTo(expectedSha256);
             assertThat(captor.getValue().mimeType()).isEqualTo("audio/mpeg");
+        }
+
+        @Test
+        @DisplayName("version upload preserves asset clientTag when resolving write provider and generating storage key")
+        void shouldPreserveClientTagOnVersionUpload() throws Exception {
+            byte[] data = createWebpData("Version 2 data");
+            UUID assetId = UUID.randomUUID();
+            UUID versionId = UUID.randomUUID();
+            Instant now = Instant.now();
+            String clientTag = "kiemlai/wiki/covers/great-ruler";
+
+            MediaAsset asset = MediaAsset.registerInitial(assetId, MediaType.IMAGE, MediaVisibility.PUBLIC, clientTag, now);
+            when(mediaAssetRepositoryPort.findById(assetId)).thenReturn(Optional.of(asset));
+
+            doAnswer(invocation -> {
+                StorageKey key = invocation.getArgument(0);
+                InputStream in = invocation.getArgument(1);
+                in.readAllBytes();
+                return new StoredBinaryObject(StorageLocation.of(LOCAL_PROVIDER, key), null);
+            }).when(binaryStoragePort).store(any(StorageKey.class), any(InputStream.class), eq((long) data.length), any(MimeType.class));
+
+            when(registerMediaAssetVersionUseCase.execute(any(RegisterMediaAssetVersionCommand.class)))
+                    .thenReturn(new RegisterMediaAssetVersionResult(assetId, versionId, 2, now));
+
+            UploadMediaAssetVersionCommand command = new UploadMediaAssetVersionCommand(
+                    assetId,
+                    new ByteArrayInputStream(data),
+                    data.length,
+                    "image/webp",
+                    "cover_v2.webp"
+            );
+
+            uploadMediaAssetVersionUseCase.execute(command);
+
+            verify(mediaStorageRoutingService).resolveWriteProvider(MediaType.IMAGE, clientTag);
+            verify(mediaStorageRoutingService).generateStorageKey(MediaType.IMAGE, clientTag, assetId, 2);
         }
 
         @ParameterizedTest(name = "UploadMediaAssetVersionCommand rejects non-positive size: {0}")

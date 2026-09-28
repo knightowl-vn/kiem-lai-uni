@@ -20,6 +20,8 @@ public interface MediaAssetContentDeliveryProjection {
 
     String getStorageKey();
 
+    String getPublicUrl();
+
     String getContentHash();
 
     String getMimeType();

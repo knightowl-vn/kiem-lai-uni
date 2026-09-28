@@ -20,6 +20,7 @@ public interface SpringDataMediaAssetContentDeliveryQueryRepository
                 v.version_number as versionNumber,
                 v.storage_provider_id as storageProviderId,
                 v.storage_key as storageKey,
+                v.public_url as publicUrl,
                 v.content_hash as contentHash,
                 v.mime_type as mimeType,
                 v.size_bytes as sizeBytes
