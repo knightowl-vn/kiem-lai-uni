@@ -76,7 +76,12 @@ public interface SpringDataWikiArticleAliasJpaRepository
                         art.title AS title,
                         art.slug AS slug,
                         art.article_type AS articleType,
-                        ra.alias AS alias
+                        ra.alias AS alias,
+                        art.summary AS summary,
+                        art.updated_at AS updatedAt,
+                        art.cover_media_asset_id AS coverMediaAssetId,
+                        art.cover_position_x AS coverPositionX,
+                        art.cover_position_y AS coverPositionY
                     FROM ranked_aliases ra
                     JOIN wiki_articles art ON art.id = ra.article_id
                     WHERE ra.rn = 1

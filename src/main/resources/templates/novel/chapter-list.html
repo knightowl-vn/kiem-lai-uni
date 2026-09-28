@@ -19,6 +19,7 @@
          class="novel-reader-chapter-grid">
 
         <a th:each="chapter : ${chapters}"
+           th:id="${'chapter-' + chapter.chapterNumber}"
            th:href="@{/novel/chapters/{slug}(slug=${chapter.slug})}"
            class="novel-reader-chapter-item">
 

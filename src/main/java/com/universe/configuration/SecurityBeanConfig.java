@@ -151,6 +151,12 @@ public class SecurityBeanConfig {
                         .permitAll()
 
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
+                                "/search"
+                        )
+                        .permitAll()
+
+                        .requestMatchers(
                                 org.springframework.http.HttpMethod.HEAD,
                                 "/media/assets/*/content"
                         )

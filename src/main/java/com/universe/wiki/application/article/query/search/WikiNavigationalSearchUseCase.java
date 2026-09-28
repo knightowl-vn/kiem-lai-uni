@@ -10,6 +10,7 @@ import com.universe.wiki.domain.article.ArticleType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -117,7 +118,12 @@ public class WikiNavigationalSearchUseCase implements WikiNavigationalSearchCont
                     item.title(),
                     item.slug(),
                     rank,
-                    null
+                    null,
+                    item.summary(),
+                    item.updatedAt(),
+                    item.coverMediaAssetId(),
+                    item.coverPositionX(),
+                    item.coverPositionY()
             );
             deduplicatedCandidates.merge(item.id(), candidate, this::mergeCandidateMatches);
         }
@@ -142,7 +148,12 @@ public class WikiNavigationalSearchUseCase implements WikiNavigationalSearchCont
                     aliasItem.title(),
                     aliasItem.slug(),
                     rank,
-                    aliasItem.alias()
+                    aliasItem.alias(),
+                    aliasItem.summary(),
+                    aliasItem.updatedAt(),
+                    aliasItem.coverMediaAssetId(),
+                    aliasItem.coverPositionX(),
+                    aliasItem.coverPositionY()
             );
             deduplicatedCandidates.merge(aliasItem.articleId(), candidate, this::mergeCandidateMatches);
         }
@@ -181,7 +192,12 @@ public class WikiNavigationalSearchUseCase implements WikiNavigationalSearchCont
                 match.title(),
                 match.slug(),
                 canonicalUrl,
-                match.matchedAlias()
+                match.matchedAlias(),
+                match.summary(),
+                match.updatedAt(),
+                match.coverMediaAssetId(),
+                match.coverPositionX(),
+                match.coverPositionY()
         );
     }
 
@@ -209,7 +225,12 @@ public class WikiNavigationalSearchUseCase implements WikiNavigationalSearchCont
             String title,
             String slug,
             int rank,
-            String matchedAlias
+            String matchedAlias,
+            String summary,
+            Instant updatedAt,
+            UUID coverMediaAssetId,
+            int coverPositionX,
+            int coverPositionY
     ) {
     }
 }

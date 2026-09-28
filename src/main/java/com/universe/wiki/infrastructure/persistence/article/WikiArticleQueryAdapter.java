@@ -329,7 +329,12 @@ public class WikiArticleQueryAdapter
                         p.getTitle(),
                         p.getSlug(),
                         ArticleType.valueOf(p.getArticleType()),
-                        p.getAlias()
+                        p.getAlias(),
+                        p.getSummary(),
+                        p.getUpdatedAt(),
+                        toNullableUuid(p.getCoverMediaAssetId()),
+                        p.getCoverPositionX() != null ? p.getCoverPositionX() : 50,
+                        p.getCoverPositionY() != null ? p.getCoverPositionY() : 50
                 ))
                 .toList();
     }
@@ -440,12 +445,18 @@ public class WikiArticleQueryAdapter
                 entity.getSlug(),
                 entity.getArticleType(),
                 entity.getStatus(),
+                entity.getSummary(),
                 toNullableUuid(
                         entity.getUpdatedBy()
                 ),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt(),
-                entity.getContentVersion()
+                entity.getContentVersion(),
+                toNullableUuid(
+                        entity.getCoverMediaAssetId()
+                ),
+                Byte.toUnsignedInt(entity.getCoverPositionX()),
+                Byte.toUnsignedInt(entity.getCoverPositionY())
         );
     }
 
@@ -485,12 +496,18 @@ public class WikiArticleQueryAdapter
                 projection.getSlug(),
                 projection.getArticleType(),
                 projection.getStatus(),
+                projection.getSummary(),
                 toNullableUuid(
                         projection.getUpdatedBy()
                 ),
                 projection.getCreatedAt(),
                 projection.getUpdatedAt(),
-                projection.getContentVersion()
+                projection.getContentVersion(),
+                toNullableUuid(
+                        projection.getCoverMediaAssetId()
+                ),
+                projection.getCoverPositionX() != null ? projection.getCoverPositionX() : 50,
+                projection.getCoverPositionY() != null ? projection.getCoverPositionY() : 50
         );
     }
 

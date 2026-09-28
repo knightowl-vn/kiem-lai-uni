@@ -42,19 +42,22 @@
 			th:attr="aria-current=${activeNav == 'wiki' ? 'page' : null}"
 			th:href="@{/wiki}"> Wiki </a>
 
-		<!-- Tìm kiếm nhanh Wiki -->
+		<!-- Tìm kiếm nhanh điều hướng -->
 		<div class="navbar-wiki-search" id="navbarWikiSearch">
 
 			<form class="navbar-wiki-search-form" id="navbarWikiSearchForm"
-				method="get" th:action="@{/wiki}" role="search">
+				method="get" th:action="@{${activeNav == 'novel' ? '/novel/locate' : '/search'}}" role="search">
 
-				<label class="visually-hidden" for="navbarWikiKeyword"> Tìm
-					kiếm Wiki </label> <input id="navbarWikiKeyword"
-					class="navbar-wiki-search-input" type="search" name="keyword"
-					autocomplete="off" placeholder="Tìm kiếm nhân vật, địa danh..."
-					th:value="${param.keyword != null
-                        ? param.keyword[0]
-                        : ''}">
+				<label class="visually-hidden" for="navbarWikiKeyword">Tìm kiếm</label>
+
+				<input th:if="${activeNav != 'novel'}"
+					type="hidden" name="scope"
+					th:value="${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : 'all')}">
+
+				<input id="navbarWikiKeyword"
+					class="navbar-wiki-search-input" type="search" name="q"
+					autocomplete="off" placeholder="Tìm kiếm Wiki, Novel chương..."
+					th:value="${navbarSearchQuery != null ? navbarSearchQuery : ''}">
 
 				<button class="navbar-wiki-search-submit" type="submit"
 					aria-label="Gửi tìm kiếm">
@@ -73,7 +76,7 @@
 			</form>
 
 			<button class="navbar-wiki-search-toggle" id="navbarWikiSearchToggle"
-				type="button" aria-label="Mở tìm kiếm Wiki"
+				type="button" aria-label="Mở tìm kiếm"
 				aria-controls="navbarWikiSearchForm" aria-expanded="false">
 
 				<svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">

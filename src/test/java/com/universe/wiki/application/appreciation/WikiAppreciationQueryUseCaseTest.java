@@ -78,4 +78,32 @@ class WikiAppreciationQueryUseCaseTest {
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("Danh sách ID bài viết Wiki không được để trống.");
     }
+
+    @Test
+    @DisplayName("Contract findSummaries: chuyển đổi kết quả sang DTO bất biến WikiAppreciationSummaryDTO")
+    void shouldMapDomainSummariesToContractDtos() {
+        List<UUID> ids = List.of(ARTICLE_1, ARTICLE_2);
+        Map<UUID, WikiAppreciationSummary> domainResult = Map.of(
+                ARTICLE_1, new WikiAppreciationSummary(ARTICLE_1, new BigDecimal("4.5"), 10L),
+                ARTICLE_2, WikiAppreciationSummary.empty(ARTICLE_2)
+        );
+        when(queryPort.findSummariesByWikiArticleIds(ids)).thenReturn(domainResult);
+
+        var dtoResult = getBulkUseCase.findSummaries(ids);
+
+        assertThat(dtoResult).hasSize(2);
+        assertThat(dtoResult.get(ARTICLE_1).average()).isEqualTo(new BigDecimal("4.5"));
+        assertThat(dtoResult.get(ARTICLE_1).count()).isEqualTo(10L);
+        assertThat(dtoResult.get(ARTICLE_1).displayAverage()).isEqualTo(new BigDecimal("4.5"));
+        assertThat(dtoResult.get(ARTICLE_2).count()).isEqualTo(0L);
+        assertThat(dtoResult.get(ARTICLE_2).average()).isNull();
+        assertThat(dtoResult.get(ARTICLE_2).displayAverage()).isNull();
+    }
+
+    @Test
+    @DisplayName("Contract findSummaries: trả về Map rỗng khi danh sách ID null hoặc rỗng mà không gọi queryPort")
+    void shouldReturnEmptyMapForNullOrEmptyCollectionInContract() {
+        assertThat(getBulkUseCase.findSummaries(null)).isEmpty();
+        assertThat(getBulkUseCase.findSummaries(List.of())).isEmpty();
+    }
 }

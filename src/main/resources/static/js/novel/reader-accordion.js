@@ -12,6 +12,7 @@
  * - Duplicate guard: in-flight tracking prevents duplicate simultaneous fetches.
  * - Error handling: failed requests show an error state with retry option.
  * - Accessibility: synchronizes aria-expanded and hidden attributes.
+ * - Contextual Chapter Locator: auto-expands target volume and positions chapter row when openVolume & locateChapter are present.
  */
 (() => {
     "use strict";
@@ -30,6 +31,10 @@
      * @returns {HTMLElement|null}
      */
     function findControlledPanel(trigger) {
+        if (!trigger) {
+            return null;
+        }
+
         const controlsId = trigger.getAttribute("aria-controls");
         if (controlsId) {
             const panel = document.getElementById(controlsId);
@@ -185,15 +190,102 @@
         }
     }
 
-    /* Event delegation on document */
-    document.addEventListener("click", (event) => {
-        const trigger = event.target.closest(TRIGGER_SELECTOR);
+    /**
+     * Initializes contextual chapter locator from URL parameters if present on load.
+     * Looks for openVolume and locateChapter query params, auto-expands the matching volume,
+     * awaits chapter lazy load, and positions the target chapter row in the viewport.
+     *
+     * @returns {Promise<void>}
+     */
+    async function initLocator() {
+        if (typeof window === "undefined" || !window.location || !window.location.search) {
+            return;
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const openVolume = urlParams.get("openVolume");
+        const locateChapter = urlParams.get("locateChapter");
+
+        if (!openVolume) {
+            return;
+        }
+
+        const safeVolume = (typeof CSS !== "undefined" && CSS.escape)
+            ? CSS.escape(openVolume)
+            : openVolume;
+
+        const volumeSelector =
+            `[data-volume-item][data-volume-id="${safeVolume}"], ` +
+            `.novel-reader-volume[data-volume-id="${safeVolume}"], ` +
+            `.novel-reader-volume[data-volume-sort-order="${safeVolume}"], ` +
+            `[data-volume-id="${safeVolume}"]`;
+
+        const volumeElement = document.querySelector(volumeSelector);
+        if (!volumeElement) {
+            return;
+        }
+
+        const trigger = volumeElement.matches(TRIGGER_SELECTOR)
+            ? volumeElement
+            : volumeElement.querySelector(TRIGGER_SELECTOR);
+
         if (!trigger) {
             return;
         }
 
-        event.preventDefault();
-        handleVolumeTriggerClick(trigger);
-    });
+        const panel = findControlledPanel(trigger);
+        if (!panel) {
+            return;
+        }
 
+        const volumeId = trigger.getAttribute("data-volume-id");
+
+        collapseAllOtherVolumes(trigger);
+        expandVolume(trigger);
+
+        if (panel.dataset.loaded !== "true") {
+            await loadVolumeChapters(volumeId, panel, trigger);
+        }
+
+        if (locateChapter) {
+            const targetRow = document.getElementById(`chapter-${locateChapter}`);
+            if (targetRow && typeof targetRow.scrollIntoView === "function") {
+                targetRow.scrollIntoView({
+                    block: "center"
+                });
+            }
+        }
+    }
+
+    /* Event delegation on document */
+    if (typeof document !== "undefined") {
+        document.addEventListener("click", (event) => {
+            const trigger = event.target.closest(TRIGGER_SELECTOR);
+            if (!trigger) {
+                return;
+            }
+
+            event.preventDefault();
+            handleVolumeTriggerClick(trigger);
+        });
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initLocator);
+        } else {
+            initLocator();
+        }
+    }
+
+    /* CommonJS export for Node testing */
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports = {
+            initLocator,
+            loadVolumeChapters,
+            expandVolume,
+            collapseVolume,
+            collapseAllOtherVolumes,
+            findControlledPanel,
+            handleVolumeTriggerClick
+        };
+    }
 })();

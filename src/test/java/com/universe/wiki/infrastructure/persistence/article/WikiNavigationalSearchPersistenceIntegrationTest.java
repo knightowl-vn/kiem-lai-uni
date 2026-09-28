@@ -319,5 +319,71 @@ class WikiNavigationalSearchPersistenceIntegrationTest {
         WikiNavigationalSearchResultDTO clampedResult = wikiNavigationalSearchContract.search("Tàng Kinh Các", 50);
         assertThat(clampedResult.items()).hasSize(20);
     }
+
+    @Test
+    @DisplayName("Presentation fidelity: summary, updatedAt, and cover metadata are populated from persistence")
+    void shouldFetchPresentationFieldsForTitleAndAliasMatches() {
+        UUID articleId = UUID.randomUUID();
+        UUID aliasId = UUID.randomUUID();
+        UUID coverId = UUID.randomUUID();
+
+        seedArticleWithCover(articleId, "Hàn Lập", "han-lap", "CHARACTER", "PUBLISHED", "Hàn Lập tóm tắt", coverId, 40, 60);
+        seedAlias(aliasId, articleId, "Hàn Thỏ Đế", "han tho de");
+
+        // 1. Query by Title
+        WikiNavigationalSearchResultDTO titleResult = wikiNavigationalSearchContract.search("Hàn Lập", 10);
+        assertThat(titleResult.items()).hasSize(1);
+        WikiNavigationalSearchItemDTO titleItem = titleResult.items().get(0);
+        assertThat(titleItem.summary()).isEqualTo("Hàn Lập tóm tắt");
+        assertThat(titleItem.coverMediaAssetId()).isEqualTo(coverId);
+        assertThat(titleItem.coverPositionX()).isEqualTo(40);
+        assertThat(titleItem.coverPositionY()).isEqualTo(60);
+        assertThat(titleItem.displayCoverImageUrl()).isEqualTo("/media/assets/" + coverId + "/variants/w300");
+
+        // 2. Query by Alias
+        WikiNavigationalSearchResultDTO aliasResult = wikiNavigationalSearchContract.search("Hàn Thỏ Đế", 10);
+        assertThat(aliasResult.items()).hasSize(1);
+        WikiNavigationalSearchItemDTO aliasItem = aliasResult.items().get(0);
+        assertThat(aliasItem.summary()).isEqualTo("Hàn Lập tóm tắt");
+        assertThat(aliasItem.coverMediaAssetId()).isEqualTo(coverId);
+        assertThat(aliasItem.coverPositionX()).isEqualTo(40);
+        assertThat(aliasItem.coverPositionY()).isEqualTo(60);
+        assertThat(aliasItem.matchedAlias()).isEqualTo("Hàn Thỏ Đế");
+    }
+
+    private void seedArticleWithCover(
+            UUID id, String title, String slug, String articleType, String status,
+            String summary, UUID coverId, int posX, int posY
+    ) {
+        Instant now = Instant.now();
+        jdbcTemplate.update("""
+                INSERT INTO wiki_articles (
+                    id, title, slug, article_type, summary, content, status,
+                    cover_media_asset_id, cover_position_x, cover_position_y,
+                    created_by, updated_by, published_by, archived_by,
+                    aggregate_version, persistence_version,
+                    created_at, updated_at, published_at, archived_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+                """,
+                id.toString(),
+                title,
+                slug,
+                articleType,
+                summary,
+                "Nội dung " + title,
+                status,
+                coverId != null ? coverId.toString() : null,
+                posX,
+                posY,
+                TEST_USER_ID,
+                TEST_USER_ID,
+                "PUBLISHED".equals(status) ? TEST_USER_ID : null,
+                "ARCHIVED".equals(status) ? TEST_USER_ID : null,
+                Timestamp.from(now),
+                Timestamp.from(now),
+                "PUBLISHED".equals(status) ? Timestamp.from(now) : null,
+                "ARCHIVED".equals(status) ? Timestamp.from(now) : null
+        );
+    }
 }
 

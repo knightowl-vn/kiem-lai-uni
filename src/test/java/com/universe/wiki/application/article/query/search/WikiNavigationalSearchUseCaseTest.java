@@ -439,6 +439,48 @@ class WikiNavigationalSearchUseCaseTest {
         assertThat(result.items().get(0).canonicalUrl()).isEqualTo("/wiki/faction/kiem-tien");
     }
 
+    @Test
+    @DisplayName("Passes through lightweight presentation fields (summary, updatedAt, coverMediaAssetId, position) to WikiNavigationalSearchItemDTO")
+    void shouldPassThroughPresentationFieldsForRichWikiCard() {
+        UUID articleId = UUID.randomUUID();
+        UUID coverAssetId = UUID.randomUUID();
+        Instant updatedAt = Instant.parse("2026-08-15T10:30:00Z");
+
+        WikiArticleListItemDTO article = new WikiArticleListItemDTO(
+                articleId,
+                "Trần Bình An",
+                "tran-binh-an",
+                "CHARACTER",
+                "PUBLISHED",
+                "Tóm tắt Trần Bình An",
+                UUID.randomUUID(),
+                Instant.now(),
+                updatedAt,
+                1L,
+                coverAssetId,
+                30,
+                70
+        );
+
+        when(wikiArticleQueryPort.findPublishedTitleSearchCandidates(eq("tran binh an"), eq("tran binh an"), anyInt()))
+                .thenReturn(List.of(article));
+        when(wikiArticleQueryPort.findPublishedAliasSearchCandidates(eq("tran binh an"), eq("tran binh an"), anyInt()))
+                .thenReturn(List.of());
+
+        WikiNavigationalSearchResultDTO result = useCase.search("Trần Bình An", 20);
+
+        assertThat(result.items()).hasSize(1);
+        WikiNavigationalSearchItemDTO item = result.items().get(0);
+        assertThat(item.summary()).isEqualTo("Tóm tắt Trần Bình An");
+        assertThat(item.updatedAt()).isEqualTo(updatedAt);
+        assertThat(item.coverMediaAssetId()).isEqualTo(coverAssetId);
+        assertThat(item.coverPositionX()).isEqualTo(30);
+        assertThat(item.coverPositionY()).isEqualTo(70);
+        assertThat(item.displayCoverImageUrl()).isEqualTo("/media/assets/" + coverAssetId + "/variants/w300");
+        assertThat(item.fallbackCoverImageUrl()).isEqualTo("/media/assets/" + coverAssetId + "/content");
+        assertThat(item.coverObjectPosition()).isEqualTo("30% 70%");
+    }
+
     private WikiArticleListItemDTO createArticle(UUID id, String title, String slug, String articleType) {
         return new WikiArticleListItemDTO(
                 id,

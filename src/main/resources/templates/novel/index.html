@@ -242,7 +242,7 @@
             <article
                 th:each="volume : ${volumes}"
                 class="novel-reader-volume"
-                th:attr="data-volume-id=${volume.id}">
+                th:attr="data-volume-id=${volume.id},data-volume-sort-order=${volume.sortOrder}">
 
                 <button
                     type="button"
@@ -250,7 +250,8 @@
                     aria-expanded="false"
                     th:attr="
                         aria-controls=${'volume-chapters-' + volume.id},
-                        data-volume-id=${volume.id}">
+                        data-volume-id=${volume.id},
+                        data-volume-sort-order=${volume.sortOrder}">
 
                     <span class="novel-reader-volume-icon"
                           aria-hidden="true">

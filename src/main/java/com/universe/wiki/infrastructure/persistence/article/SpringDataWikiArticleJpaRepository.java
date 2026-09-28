@@ -178,10 +178,14 @@ public interface SpringDataWikiArticleJpaRepository
                 article.slug AS slug,
                 article.articleType AS articleType,
                 article.status AS status,
+                article.summary AS summary,
                 article.updatedBy AS updatedBy,
                 article.createdAt AS createdAt,
                 article.updatedAt AS updatedAt,
-                article.contentVersion AS contentVersion
+                article.contentVersion AS contentVersion,
+                article.coverMediaAssetId AS coverMediaAssetId,
+                article.coverPositionX AS coverPositionX,
+                article.coverPositionY AS coverPositionY
             FROM WikiArticleJpaEntity article
             WHERE article.id IN :ids
             """)
@@ -244,10 +248,14 @@ public interface SpringDataWikiArticleJpaRepository
                 article.slug AS slug,
                 article.articleType AS articleType,
                 article.status AS status,
+                article.summary AS summary,
                 article.updatedBy AS updatedBy,
                 article.createdAt AS createdAt,
                 article.updatedAt AS updatedAt,
-                article.contentVersion AS contentVersion
+                article.contentVersion AS contentVersion,
+                article.coverMediaAssetId AS coverMediaAssetId,
+                article.coverPositionX AS coverPositionX,
+                article.coverPositionY AS coverPositionY
             FROM WikiArticleJpaEntity article
             WHERE article.status = 'PUBLISHED'
               AND LOWER(REPLACE(REPLACE(article.title, 'Đ', 'd'), 'đ', 'd'))

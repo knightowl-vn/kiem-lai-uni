@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         toggleButton.setAttribute(
             "aria-label",
-            "Đóng tìm kiếm Wiki"
+            "Đóng tìm kiếm"
         );
 
         window.setTimeout(() => {
@@ -49,7 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         toggleButton.setAttribute(
             "aria-label",
-            "Mở tìm kiếm Wiki"
+            "Mở tìm kiếm"
         );
     };
 
