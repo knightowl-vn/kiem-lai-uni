@@ -26,6 +26,7 @@ public class User {
 
     private final UUID id;
     private final Email email;
+    private final String publicHandle;
 
     private String passwordHash;
     private String displayName;
@@ -70,6 +71,7 @@ public class User {
             Email email,
             String passwordHash,
             String displayName,
+            String publicHandle,
             Instant createdAt
     ) {
         this.id =
@@ -89,6 +91,9 @@ public class User {
 
         this.displayName =
                 normalizeDisplayName(displayName);
+
+        this.publicHandle =
+                requireValidPublicHandle(publicHandle);
 
         this.avatarMediaAssetId = null;
         this.avatarUrl = null;
@@ -131,7 +136,8 @@ public class User {
             AuthProvider authProvider,
             String providerSubject,
             long aggregateVersion,
-            Instant createdAt
+            Instant createdAt,
+            String publicHandle
     ) {
         this.id =
                 Objects.requireNonNull(
@@ -156,6 +162,9 @@ public class User {
 
         this.displayName =
                 normalizeDisplayName(displayName);
+
+        this.publicHandle =
+                requireValidPublicHandle(publicHandle);
 
         this.avatarMediaAssetId =
                 avatarMediaAssetId;
@@ -210,16 +219,14 @@ public class User {
     }
 
     /**
-     * Tạo tài khoản LOCAL mới.
-     *
-     * passwordHash phải được Application layer
-     * kiểm tra và hash trước khi truyền vào Domain.
+     * Tạo tài khoản LOCAL mới kèm publicHandle.
      */
     public static User createLocal(
             UUID id,
             Email email,
             String passwordHash,
             String displayName,
+            String publicHandle,
             Instant now
     ) {
         User user =
@@ -228,6 +235,7 @@ public class User {
                         email,
                         passwordHash,
                         displayName,
+                        publicHandle,
                         now
                 );
 
@@ -237,12 +245,7 @@ public class User {
     }
 
     /**
-     * Tạo tài khoản Google mới.
-     *
-     * Tài khoản Google mới:
-     * - chưa có mật khẩu local;
-     * - chưa có bio;
-     * - có thể có avatar lấy từ Google.
+     * Tạo tài khoản Google mới kèm publicHandle.
      */
     public static User createGoogle(
             UUID id,
@@ -250,6 +253,7 @@ public class User {
             String displayName,
             String avatarUrl,
             String providerSubject,
+            String publicHandle,
             Instant now
     ) {
         String normalizedSubject =
@@ -273,7 +277,8 @@ public class User {
                         AuthProvider.GOOGLE,
                         normalizedSubject,
                         1L,
-                        now
+                        now,
+                        publicHandle
                 );
 
         user.addRegisteredEvent();
@@ -282,7 +287,7 @@ public class User {
     }
 
     /**
-     * Tái tạo User từ dữ liệu persistence.
+     * Tái tạo User từ dữ liệu persistence kèm publicHandle.
      *
      * Không phát domain event trong quá trình rehydrate.
      */
@@ -300,7 +305,8 @@ public class User {
             AuthProvider authProvider,
             String providerSubject,
             long aggregateVersion,
-            Instant createdAt
+            Instant createdAt,
+            String publicHandle
     ) {
         return new User(
                 id,
@@ -316,7 +322,8 @@ public class User {
                 authProvider,
                 providerSubject,
                 aggregateVersion,
-                createdAt
+                createdAt,
+                publicHandle
         );
     }
 
@@ -919,12 +926,35 @@ public class User {
         domainEvents.clear();
     }
 
+    private static String requireValidPublicHandle(
+            String publicHandle
+    ) {
+        if (publicHandle == null || publicHandle.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Public handle không được để trống."
+            );
+        }
+
+        String normalized = publicHandle.trim();
+        if (!PublicHandleNormalizer.isValid(normalized)) {
+            throw new IllegalArgumentException(
+                    "Public handle không hợp lệ: " + publicHandle
+            );
+        }
+
+        return normalized;
+    }
+
     public UUID getId() {
         return id;
     }
 
     public Email getEmail() {
         return email;
+    }
+
+    public String getPublicHandle() {
+        return publicHandle;
     }
 
     public String getPasswordHash() {

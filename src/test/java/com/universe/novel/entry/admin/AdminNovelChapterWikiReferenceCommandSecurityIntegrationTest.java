@@ -128,7 +128,7 @@ class AdminNovelChapterWikiReferenceCommandSecurityIntegrationTest {
         when(springDataUserJpaRepository.findByEmail(USER_EMAIL)).thenReturn(Optional.of(regularUserEntity));
 
         UserDTO adminUser = new UserDTO(
-                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "ACTIVE", "ADMIN", Instant.now()
+                ADMIN_ID, ADMIN_EMAIL, "Admin User", null, "admin_user", "ACTIVE", "ADMIN", Instant.now()
         );
         when(userIdentityContract.findByEmail(ADMIN_EMAIL)).thenReturn(Optional.of(adminUser));
         when(authenticatedEmailResolver.require(any())).thenReturn(ADMIN_EMAIL);

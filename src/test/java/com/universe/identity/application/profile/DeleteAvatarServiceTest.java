@@ -71,7 +71,8 @@ class DeleteAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -90,7 +91,8 @@ class DeleteAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -109,7 +111,8 @@ class DeleteAvatarServiceTest {
                 AuthProvider.GOOGLE,
                 "google-sub-123",
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 
@@ -128,7 +131,8 @@ class DeleteAvatarServiceTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                NOW
+                NOW,
+                "athena"
         );
     }
 

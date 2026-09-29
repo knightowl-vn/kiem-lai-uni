@@ -219,7 +219,7 @@ class AdminWikiContributionWorkflowUseCaseTest {
         when(clockPort.now()).thenReturn(now);
         when(contributionRepository.findById(id)).thenReturn(Optional.of(contribution));
         when(userIdentityContract.findById(newAdminId)).thenReturn(Optional.of(
-                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "ACTIVE", "ADMIN", now)
+                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "admin_two", "ACTIVE", "ADMIN", now)
         ));
         when(contributionRepository.save(any(WikiContribution.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -241,7 +241,7 @@ class AdminWikiContributionWorkflowUseCaseTest {
         when(clockPort.now()).thenReturn(now);
         when(contributionRepository.findById(id)).thenReturn(Optional.of(unassigned));
         when(userIdentityContract.findById(newAdminId)).thenReturn(Optional.of(
-                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "ACTIVE", "ADMIN", now)
+                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "admin_two", "ACTIVE", "ADMIN", now)
         ));
 
         assertThatThrownBy(() -> useCase.reassign(new ReassignWikiContributionCommand(id, actorId, newAdminId, "Chuyển việc", 0L)))
@@ -463,7 +463,7 @@ class AdminWikiContributionWorkflowUseCaseTest {
 
         // Reassign
         when(userIdentityContract.findById(newAdminId)).thenReturn(Optional.of(
-                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "ACTIVE", "ADMIN", now)
+                new UserDTO(newAdminId, "admin2@universe.com", "Admin Two", null, "admin_two", "ACTIVE", "ADMIN", now)
         ));
         useCase.reassign(new ReassignWikiContributionCommand(id, actorId, newAdminId, "Chuyển việc", 0L));
         verify(notificationDispatchPort, never()).dispatch(any());

@@ -173,8 +173,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
         WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null);
@@ -216,8 +216,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
         // Batch profile lookup must contain ONLY active author IDs (AUTHOR_1_ID and AUTHOR_2_ID), NEVER TOMBSTONE_AUTHOR_ID
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID)))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", "/a1.png"),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", "/a2.png")
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", "/a1.png", "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", "/a2.png", "author_two")
                 ));
 
         WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 10, null);
@@ -262,7 +262,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(thread1View));
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID)))
-                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null)));
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
         WikiDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(ARTICLE_ID, 0, 2, null);
 
@@ -312,8 +312,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
         ReactionSummary rootSummary = ReactionSummary.of(
@@ -369,8 +369,8 @@ class WikiArticleDiscussionQueryCoordinatorTest {
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "Author Two", null, "author_two")
                 ));
 
         ReactionSummary rootSummary = ReactionSummary.of(
@@ -405,7 +405,7 @@ class WikiArticleDiscussionQueryCoordinatorTest {
                 .thenReturn(List.of(thread1View));
 
         when(userIdentityContract.findPublicProfilesByIds(any()))
-                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null)));
+                .thenReturn(Map.of(AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "Author One", null, "author_one")));
 
         when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
                 .thenThrow(new RuntimeException("Transient DB timeout"));

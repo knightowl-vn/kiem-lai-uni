@@ -162,6 +162,7 @@ class GrantWikiContributionCreditUseCaseTest {
                 role.toLowerCase() + "@universe.local",
                 "Admin User",
                 null,
+                "admin_" + role.toLowerCase(),
                 "ACTIVE",
                 role,
                 now.minusSeconds(86400)
@@ -413,7 +414,7 @@ class GrantWikiContributionCreditUseCaseTest {
             WikiContribution contribution = createResolvedContribution(WikiContributionResolutionOutcome.APPLIED);
             when(contributionRepository.findById(contributionId)).thenReturn(Optional.of(contribution));
             UserDTO inactiveSuperAdmin = new UserDTO(
-                    superAdminId, "super@universe.local", "SuperAdmin", null, "SUSPENDED", "SUPER_ADMIN", now
+                    superAdminId, "super@universe.local", "SuperAdmin", null, "super_admin", "SUSPENDED", "SUPER_ADMIN", now
             );
             when(userIdentityContract.findById(superAdminId)).thenReturn(Optional.of(inactiveSuperAdmin));
 

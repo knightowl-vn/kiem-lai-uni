@@ -11,6 +11,8 @@ import com.universe.identity.domain.User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -79,6 +81,29 @@ public class UserIdentityQueryService
         return userPublicProfileQueryPort.findPublicProfilesByIds(userIds);
     }
 
+    @Override
+    public Optional<UserPublicProfileDTO> findPublicProfileByHandle(
+            String publicHandle
+    ) {
+        if (publicHandle == null || publicHandle.isBlank()) {
+            return Optional.empty();
+        }
+
+        return userPublicProfileQueryPort.findPublicProfileByHandle(publicHandle.trim().toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    public List<UserPublicProfileDTO> searchPublicUsers(
+            String query,
+            int limit
+    ) {
+        if (query == null || query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+
+        return userPublicProfileQueryPort.searchPublicUsers(query, limit);
+    }
+
     private UserDTO toDto(
             User user
     ) {
@@ -87,6 +112,7 @@ public class UserIdentityQueryService
                 user.getEmail().value(),
                 user.getDisplayName(),
                 user.getAvatarUrl(),
+                user.getPublicHandle(),
                 user.getStatus().name(),
                 user.getRole().name(),
                 user.getCreatedAt()

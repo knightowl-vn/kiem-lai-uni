@@ -125,7 +125,8 @@ class AdminWikiContributionCoordinatorTest {
         UserPublicProfileDTO user1Profile = new UserPublicProfileDTO(
                 user1Id,
                 "Độc Giả 1",
-                "https://example.com/avatar1.jpg"
+                "https://example.com/avatar1.jpg",
+                "doc_gia_1"
         );
         when(userIdentityContract.findPublicProfilesByIds(Set.of(user1Id, user2Id)))
                 .thenReturn(Map.of(user1Id, user1Profile));
@@ -276,10 +277,10 @@ class AdminWikiContributionCoordinatorTest {
         when(detailUseCase.execute(contributionId)).thenReturn(detail);
 
         UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
-                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg"
+                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg", "contributor_handle"
         );
         UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
-                resolverUserId, "Admin Resolver", null
+                resolverUserId, "Admin Resolver", null, "admin_resolver"
         );
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId)))
@@ -360,13 +361,13 @@ class AdminWikiContributionCoordinatorTest {
         when(detailUseCase.execute(contributionId)).thenReturn(detail);
 
         UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
-                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg"
+                contributorUserId, "Contributor Name", "https://example.com/avatar.jpg", "contributor_handle"
         );
         UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
-                resolverUserId, "Admin Resolver", null
+                resolverUserId, "Admin Resolver", null, "admin_resolver"
         );
         UserPublicProfileDTO creditedByProfile = new UserPublicProfileDTO(
-                creditedByUserId, "Credit Admin", "https://example.com/admin.jpg"
+                creditedByUserId, "Credit Admin", "https://example.com/admin.jpg", "credit_admin"
         );
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId)))
@@ -450,16 +451,16 @@ class AdminWikiContributionCoordinatorTest {
         when(detailUseCase.execute(contributionId)).thenReturn(detail);
 
         UserPublicProfileDTO contributorProfile = new UserPublicProfileDTO(
-                contributorUserId, "Contributor Name", null
+                contributorUserId, "Contributor Name", null, "contributor_handle"
         );
         UserPublicProfileDTO resolverProfile = new UserPublicProfileDTO(
-                resolverUserId, "Admin Resolver", null
+                resolverUserId, "Admin Resolver", null, "admin_resolver"
         );
         UserPublicProfileDTO creditedByProfile = new UserPublicProfileDTO(
-                creditedByUserId, "Credit Admin", null
+                creditedByUserId, "Credit Admin", null, "credit_admin"
         );
         UserPublicProfileDTO revokedByProfile = new UserPublicProfileDTO(
-                revokedByUserId, "Super Admin Revoker", null
+                revokedByUserId, "Super Admin Revoker", null, "super_admin_revoker"
         );
 
         when(userIdentityContract.findPublicProfilesByIds(Set.of(contributorUserId, resolverUserId, creditedByUserId, revokedByUserId)))

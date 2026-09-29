@@ -18,7 +18,11 @@ public interface UserRepositoryPort {
             String providerSubject
     );
 
+    Optional<User> findByPublicHandle(String publicHandle);
+
     boolean existsByEmail(Email email);
+
+    boolean existsByPublicHandle(String publicHandle);
 
     void save(User user);
 }

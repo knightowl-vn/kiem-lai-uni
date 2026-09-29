@@ -20,6 +20,10 @@ public interface SpringDataUserJpaRepository
 
     Optional<UserJpaEntity> findByEmail(String email);
 
+    boolean existsByPublicHandle(String publicHandle);
+
+    Optional<UserJpaEntity> findByPublicHandle(String publicHandle);
+
     @Query("""
             SELECT
                 user.id AS userId,
@@ -39,12 +43,60 @@ public interface SpringDataUserJpaRepository
             SELECT
                 user.id AS userId,
                 user.displayName AS displayName,
-                user.avatarUrl AS avatarUrl
+                user.avatarUrl AS avatarUrl,
+                user.publicHandle AS publicHandle
             FROM UserJpaEntity user
             WHERE user.id IN :ids
             """)
     List<UserPublicProfileProjection> findPublicProfilesByIdIn(
             @Param("ids") Collection<String> ids
+    );
+
+    @Query("""
+            SELECT
+                user.id AS userId,
+                user.displayName AS displayName,
+                user.avatarUrl AS avatarUrl,
+                user.publicHandle AS publicHandle
+            FROM UserJpaEntity user
+            WHERE user.publicHandle = :publicHandle
+              AND user.status = 'ACTIVE'
+            """)
+    Optional<UserPublicProfileProjection> findActivePublicProfileByHandle(
+            @Param("publicHandle") String publicHandle
+    );
+
+    @Query("""
+            SELECT
+                user.id AS userId,
+                user.displayName AS displayName,
+                user.avatarUrl AS avatarUrl,
+                user.publicHandle AS publicHandle
+            FROM UserJpaEntity user
+            WHERE user.status = 'ACTIVE'
+              AND (
+                  user.publicHandle LIKE CONCAT(:handlePrefix, '%') ESCAPE '\\'
+                  OR LOWER(user.displayName) LIKE CONCAT('%', :escapedNameContains, '%') ESCAPE '\\'
+              )
+            ORDER BY
+                CASE
+                    WHEN user.publicHandle = :exactHandle THEN 1
+                    WHEN user.publicHandle LIKE CONCAT(:handlePrefix, '%') ESCAPE '\\' THEN 2
+                    WHEN LOWER(user.displayName) = :exactName THEN 3
+                    WHEN LOWER(user.displayName) LIKE CONCAT(:namePrefix, '%') ESCAPE '\\' THEN 4
+                    ELSE 5
+                END ASC,
+                user.displayName ASC,
+                user.publicHandle ASC,
+                user.id ASC
+            """)
+    List<UserPublicProfileProjection> searchActivePublicUsers(
+            @Param("exactHandle") String exactHandle,
+            @Param("handlePrefix") String handlePrefix,
+            @Param("exactName") String exactName,
+            @Param("namePrefix") String namePrefix,
+            @Param("escapedNameContains") String escapedNameContains,
+            Pageable pageable
     );
 
     Optional<UserJpaEntity>

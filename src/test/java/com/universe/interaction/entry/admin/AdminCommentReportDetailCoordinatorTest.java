@@ -105,8 +105,8 @@ class AdminCommentReportDetailCoordinatorTest {
         when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
 
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Alice Reporter", "https://img/alice.png"),
-                authorId, new UserPublicProfileDTO(authorId, "Bob Author", "https://img/bob.png")
+                reporterId, new UserPublicProfileDTO(reporterId, "Alice Reporter", "https://img/alice.png", "alice_reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Bob Author", "https://img/bob.png", "bob_author")
         ));
 
         ChapterListItemDTO chapterDTO = new ChapterListItemDTO(
@@ -190,8 +190,8 @@ class AdminCommentReportDetailCoordinatorTest {
         when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
 
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Charlie Reporter", null),
-                authorId, new UserPublicProfileDTO(authorId, "Dave Author", null)
+                reporterId, new UserPublicProfileDTO(reporterId, "Charlie Reporter", null, "charlie_reporter"),
+                authorId, new UserPublicProfileDTO(authorId, "Dave Author", null, "dave_author")
         ));
 
         WikiArticleListItemDTO articleDTO = new WikiArticleListItemDTO(
@@ -251,9 +251,9 @@ class AdminCommentReportDetailCoordinatorTest {
         when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
 
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Reporter R", null),
-                authorId, new UserPublicProfileDTO(authorId, "Author A", null),
-                resolverId, new UserPublicProfileDTO(resolverId, "Admin Mod", "https://img/mod.png")
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter R", null, "reporter_r"),
+                authorId, new UserPublicProfileDTO(authorId, "Author A", null, "author_a"),
+                resolverId, new UserPublicProfileDTO(resolverId, "Admin Mod", "https://img/mod.png", "admin_mod")
         ));
 
         when(chapterListQueryPort.findListItemsByIds(Set.of(chapterId))).thenReturn(Map.of());
@@ -402,7 +402,7 @@ class AdminCommentReportDetailCoordinatorTest {
         );
         when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Alice Reporter", null)
+                reporterId, new UserPublicProfileDTO(reporterId, "Alice Reporter", null, "alice_reporter")
         ));
 
         AdminCommentReportDetailDTO detail = coordinator.getDetail(reportId);
@@ -453,8 +453,8 @@ class AdminCommentReportDetailCoordinatorTest {
         );
         when(getReportDetailUseCase.execute(reportId)).thenReturn(raw);
         when(userIdentityContract.findPublicProfilesByIds(any())).thenReturn(Map.of(
-                reporterId, new UserPublicProfileDTO(reporterId, "Reporter User", null),
-                authorId, new UserPublicProfileDTO(authorId, "Deleted Comment Author", null)
+                reporterId, new UserPublicProfileDTO(reporterId, "Reporter User", null, "reporter_user"),
+                authorId, new UserPublicProfileDTO(authorId, "Deleted Comment Author", null, "deleted_comment_author")
         ));
         when(wikiArticleQueryPort.findListItemsByIds(Set.of(articleId))).thenReturn(Map.of(
                 articleId, new WikiArticleListItemDTO(articleId, "Tiêu Đề Bài", "tieu-de-bai", "LORE", "PUBLISHED", UUID.randomUUID(), Instant.now(), Instant.now(), 1L)

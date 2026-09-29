@@ -595,7 +595,7 @@ class AdminWikiArticleCommandControllerTest {
 	}
 
 	private UserDTO createAdminDTO() {
-		return new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin Wiki", null, "ACTIVE", "ADMIN", NOW);
+		return new UserDTO(ADMIN_ID, ADMIN_EMAIL, "Admin Wiki", null, "admin_wiki", "ACTIVE", "ADMIN", NOW);
 	}
 
 	private WikiArticleDTO createDraftArticleDTO() {

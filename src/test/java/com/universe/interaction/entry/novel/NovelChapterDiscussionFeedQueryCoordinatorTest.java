@@ -161,8 +161,8 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         // Author profiles: author 1 and author 2 present, author 4 missing. Tombstone author is NOT requested.
         when(userIdentityContract.findPublicProfilesByIds(Set.of(AUTHOR_1_ID, AUTHOR_2_ID, UUID.fromString("99999999-9999-9999-9999-999999999999"))))
                 .thenReturn(Map.of(
-                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "User One", "https://img/u1.jpg"),
-                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "User Two", null)
+                        AUTHOR_1_ID, new UserPublicProfileDTO(AUTHOR_1_ID, "User One", "https://img/u1.jpg", "user_one"),
+                        AUTHOR_2_ID, new UserPublicProfileDTO(AUTHOR_2_ID, "User Two", null, "user_two")
                 ));
 
         // Anchor resolutions: Root 1 CURRENT, Root 2 RELOCATED, Root 3 STALE, Root 4 UNANCHORED

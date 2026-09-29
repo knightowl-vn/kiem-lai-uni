@@ -103,6 +103,9 @@ import static org.mockito.Mockito.mock;
         IdentityAdminQueryAdapter.class,
         UpdateAvatarService.class,
         DeleteAvatarService.class,
+        com.universe.identity.application.registration.RegisterUserAttemptExecutor.class,
+        com.universe.identity.application.oauth.GoogleOAuthNewUserAttemptExecutor.class,
+        com.universe.identity.application.oauth.GoogleOAuthExistingUserExecutor.class,
         GoogleOAuthUserService.class,
         MediaAssetPersistenceAdapter.class,
         MediaAssetContentDeliveryQueryPersistenceAdapter.class,
@@ -305,6 +308,7 @@ class IdentityAvatarMediaIntegrationTest {
                 new Email(emailStr),
                 "$2a$10$hashedPassword1234567890",
                 "Athena",
+                "athena_handle",
                 Instant.now()
         );
         userRepositoryAdapter.save(initialUser);
@@ -496,7 +500,8 @@ class IdentityAvatarMediaIntegrationTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                Instant.now()
+                Instant.now(),
+                "legacy_handle"
         );
         userRepositoryAdapter.save(legacyUser);
 

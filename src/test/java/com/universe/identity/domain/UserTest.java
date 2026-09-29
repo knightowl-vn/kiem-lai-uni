@@ -39,6 +39,7 @@ class UserTest {
                         ),
                         "$2a$10$hashedPassword",
                         "Athena",
+                        "athena_handle",
                         NOW
                 );
 
@@ -49,6 +50,9 @@ class UserTest {
                 .isEqualTo(
                         "athena@example.com"
                 );
+
+        assertThat(user.getPublicHandle())
+                .isEqualTo("athena_handle");
 
         assertThat(user.getPasswordHash())
                 .isEqualTo(
@@ -111,6 +115,7 @@ class UserTest {
                         ),
                         "$2a$10$hashedPassword",
                         "Athena",
+                        "athena_handle",
                         NOW
                 );
 
@@ -166,6 +171,7 @@ class UserTest {
                         "Athena",
                         "https://example.com/avatar.png",
                         "google-subject-123",
+                        "athena_google",
                         NOW
                 );
 
@@ -174,6 +180,9 @@ class UserTest {
 
         assertThat(user.hasPassword())
                 .isFalse();
+
+        assertThat(user.getPublicHandle())
+                .isEqualTo("athena_google");
 
         assertThat(user.getAuthProvider())
                 .isEqualTo(
@@ -232,11 +241,15 @@ class UserTest {
                         AuthProvider.LOCAL,
                         null,
                         5L,
-                        NOW
+                        NOW,
+                        "athena_handle"
                 );
 
         assertThat(user.getId())
                 .isEqualTo(USER_ID);
+
+        assertThat(user.getPublicHandle())
+                .isEqualTo("athena_handle");
 
         assertThat(user.getAggregateVersion())
                 .isEqualTo(5L);
@@ -320,7 +333,8 @@ class UserTest {
                         AuthProvider.GOOGLE,
                         "google-subject-123",
                         2L,
-                        NOW
+                        NOW,
+                        "athena_handle"
                 );
 
         long versionBefore =
@@ -548,11 +562,13 @@ class UserTest {
                 AuthProvider.LOCAL,
                 null,
                 3L,
-                NOW
+                NOW,
+                "athena_media"
         );
 
         assertThat(userWithMedia.getAvatarMediaAssetId()).isEqualTo(mediaAssetId);
         assertThat(userWithMedia.getAvatarUrl()).isEqualTo("/media/assets/" + mediaAssetId + "/content");
+        assertThat(userWithMedia.getPublicHandle()).isEqualTo("athena_media");
 
         User userWithoutMedia = User.rehydrate(
                 USER_ID,
@@ -568,11 +584,163 @@ class UserTest {
                 AuthProvider.LOCAL,
                 null,
                 3L,
-                NOW
+                NOW,
+                "athena_nomedia"
         );
 
         assertThat(userWithoutMedia.getAvatarMediaAssetId()).isNull();
         assertThat(userWithoutMedia.getAvatarUrl()).isEqualTo("https://example.com/legacy.png");
+        assertThat(userWithoutMedia.getPublicHandle()).isEqualTo("athena_nomedia");
+    }
+
+    @Test
+    @DisplayName("Tạo tài khoản local với publicHandle hợp lệ tùy chỉnh")
+    void shouldCreateLocalUserWithCustomPublicHandle() {
+        User user = User.createLocal(
+                USER_ID,
+                new Email("athena@example.com"),
+                "$2a$10$hashedPassword",
+                "Athena Goddess",
+                "athena_custom",
+                NOW
+        );
+
+        assertThat(user.getPublicHandle()).isEqualTo("athena_custom");
+    }
+
+    @Test
+    @DisplayName("Tạo tài khoản Google với publicHandle tùy chỉnh")
+    void shouldCreateGoogleUserWithCustomPublicHandle() {
+        User user = User.createGoogle(
+                USER_ID,
+                new Email("athena@example.com"),
+                "Athena Google",
+                "https://example.com/avatar.png",
+                "google-12345",
+                "athena_google",
+                NOW
+        );
+
+        assertThat(user.getPublicHandle()).isEqualTo("athena_google");
+    }
+
+    @Test
+    @DisplayName("Tái tạo tài khoản rehydrate với publicHandle bảo toàn giá trị")
+    void shouldRehydrateUserWithPublicHandle() {
+        User user = User.rehydrate(
+                USER_ID,
+                "athena@example.com",
+                "$2a$10$hashedPassword",
+                "Athena",
+                null,
+                "https://example.com/avatar.png",
+                false,
+                "Bio",
+                UserStatus.ACTIVE,
+                UserRole.USER,
+                AuthProvider.LOCAL,
+                null,
+                1L,
+                NOW,
+                "athena_rehydrated"
+        );
+
+        assertThat(user.getPublicHandle()).isEqualTo("athena_rehydrated");
+    }
+
+    @Test
+    @DisplayName("createLocal từ chối publicHandle null hoặc không hợp lệ (fail-closed)")
+    void shouldRejectInvalidPublicHandleInCreateLocal() {
+        assertThatThrownBy(() -> User.createLocal(
+                USER_ID,
+                new Email("athena@example.com"),
+                "$2a$10$hashedPassword",
+                "Athena",
+                null,
+                NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> User.createLocal(
+                USER_ID,
+                new Email("athena@example.com"),
+                "$2a$10$hashedPassword",
+                "Athena",
+                "ab",
+                NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> User.createLocal(
+                USER_ID,
+                new Email("athena@example.com"),
+                "$2a$10$hashedPassword",
+                "Athena",
+                "user@handle",
+                NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("createGoogle từ chối publicHandle null hoặc không hợp lệ (fail-closed)")
+    void shouldRejectInvalidPublicHandleInCreateGoogle() {
+        assertThatThrownBy(() -> User.createGoogle(
+                USER_ID,
+                new Email("athena@example.com"),
+                "Athena",
+                "https://example.com/avatar.png",
+                "google-123",
+                null,
+                NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> User.createGoogle(
+                USER_ID,
+                new Email("athena@example.com"),
+                "Athena",
+                "https://example.com/avatar.png",
+                "google-123",
+                "ab",
+                NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("rehydrate từ chối publicHandle null hoặc không hợp lệ (fail-closed)")
+    void shouldRejectInvalidPublicHandleInRehydrate() {
+        assertThatThrownBy(() -> User.rehydrate(
+                USER_ID,
+                "athena@example.com",
+                "$2a$10$hashedPassword",
+                "Athena",
+                null,
+                "https://example.com/avatar.png",
+                false,
+                "Bio",
+                UserStatus.ACTIVE,
+                UserRole.USER,
+                AuthProvider.LOCAL,
+                null,
+                1L,
+                NOW,
+                null
+        )).isInstanceOf(IllegalArgumentException.class);
+
+        assertThatThrownBy(() -> User.rehydrate(
+                USER_ID,
+                "athena@example.com",
+                "$2a$10$hashedPassword",
+                "Athena",
+                null,
+                "https://example.com/avatar.png",
+                false,
+                "Bio",
+                UserStatus.ACTIVE,
+                UserRole.USER,
+                AuthProvider.LOCAL,
+                null,
+                1L,
+                NOW,
+                "invalid handle!"
+        )).isInstanceOf(IllegalArgumentException.class);
     }
 
     private User createLocalUser() {
@@ -583,6 +751,7 @@ class UserTest {
                 ),
                 "$2a$10$hashedPassword",
                 "Athena",
+                "athena_handle",
                 NOW
         );
     }

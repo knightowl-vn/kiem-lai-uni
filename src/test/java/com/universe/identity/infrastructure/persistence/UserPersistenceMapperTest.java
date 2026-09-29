@@ -45,12 +45,14 @@ class UserPersistenceMapperTest {
                 AuthProvider.LOCAL,
                 null,
                 1L,
-                NOW
+                NOW,
+                "test_user"
         );
 
         UserJpaEntity entity = mapper.toJpaEntity(user);
 
         assertThat(entity.getId()).isEqualTo(USER_ID.toString());
+        assertThat(entity.getPublicHandle()).isEqualTo("test_user");
         assertThat(entity.getAvatarMediaAssetId()).isEqualTo(MEDIA_ASSET_ID.toString());
         assertThat(entity.getAvatarUrl()).isEqualTo("/media/assets/" + MEDIA_ASSET_ID + "/content");
         assertThat(entity.isAvatarCustomized()).isTrue();
@@ -73,12 +75,14 @@ class UserPersistenceMapperTest {
                 AuthProvider.GOOGLE,
                 "google-sub",
                 1L,
-                NOW
+                NOW,
+                "google_user"
         );
 
         UserJpaEntity entity = mapper.toJpaEntity(user);
 
         assertThat(entity.getId()).isEqualTo(USER_ID.toString());
+        assertThat(entity.getPublicHandle()).isEqualTo("google_user");
         assertThat(entity.getAvatarMediaAssetId()).isNull();
         assertThat(entity.getAvatarUrl()).isEqualTo("https://example.com/legacy.png");
         assertThat(entity.isAvatarCustomized()).isFalse();
@@ -89,6 +93,7 @@ class UserPersistenceMapperTest {
     void shouldUpdateJpaEntityWithAvatarMediaAssetId() {
         UserJpaEntity entity = new UserJpaEntity();
         entity.setId(USER_ID.toString());
+        entity.setPublicHandle("old_handle");
         entity.setAvatarMediaAssetId("old-id");
 
         User user = User.rehydrate(
@@ -105,13 +110,16 @@ class UserPersistenceMapperTest {
                 AuthProvider.LOCAL,
                 null,
                 2L,
-                NOW
+                NOW,
+                "new_handle"
         );
 
         mapper.updateJpaEntity(user, entity);
 
         assertThat(entity.getAvatarMediaAssetId()).isEqualTo(MEDIA_ASSET_ID.toString());
         assertThat(entity.getAvatarUrl()).isEqualTo("/media/assets/" + MEDIA_ASSET_ID + "/content");
+        // publicHandle is immutable and preserved
+        assertThat(entity.getPublicHandle()).isEqualTo("old_handle");
     }
 
     @Test
@@ -120,6 +128,7 @@ class UserPersistenceMapperTest {
         UserJpaEntity entity = new UserJpaEntity();
         entity.setId(USER_ID.toString());
         entity.setEmail("test@example.com");
+        entity.setPublicHandle("test_user_handle");
         entity.setPasswordHash("$2a$10$hash");
         entity.setDisplayName("Test User");
         entity.setAvatarMediaAssetId(MEDIA_ASSET_ID.toString());
@@ -136,6 +145,7 @@ class UserPersistenceMapperTest {
         User user = mapper.toDomain(entity);
 
         assertThat(user.getId()).isEqualTo(USER_ID);
+        assertThat(user.getPublicHandle()).isEqualTo("test_user_handle");
         assertThat(user.getAvatarMediaAssetId()).isEqualTo(MEDIA_ASSET_ID);
         assertThat(user.getAvatarUrl()).isEqualTo("/media/assets/" + MEDIA_ASSET_ID + "/content");
         assertThat(user.isAvatarCustomized()).isTrue();
@@ -147,6 +157,7 @@ class UserPersistenceMapperTest {
         UserJpaEntity entity = new UserJpaEntity();
         entity.setId(USER_ID.toString());
         entity.setEmail("test@example.com");
+        entity.setPublicHandle("test_legacy_handle");
         entity.setPasswordHash("$2a$10$hash");
         entity.setDisplayName("Test User");
         entity.setAvatarMediaAssetId(null);
@@ -162,6 +173,7 @@ class UserPersistenceMapperTest {
         User user = mapper.toDomain(entity);
 
         assertThat(user.getId()).isEqualTo(USER_ID);
+        assertThat(user.getPublicHandle()).isEqualTo("test_legacy_handle");
         assertThat(user.getAvatarMediaAssetId()).isNull();
         assertThat(user.getAvatarUrl()).isEqualTo("https://example.com/legacy.png");
         assertThat(user.isAvatarCustomized()).isFalse();
@@ -173,6 +185,7 @@ class UserPersistenceMapperTest {
         UserJpaEntity entity = new UserJpaEntity();
         entity.setId(USER_ID.toString());
         entity.setEmail("test@example.com");
+        entity.setPublicHandle("test_handle");
         entity.setDisplayName("Test User");
         entity.setAvatarMediaAssetId("invalid-uuid-string");
         entity.setStatus("ACTIVE");
@@ -183,5 +196,44 @@ class UserPersistenceMapperTest {
         assertThatThrownBy(() -> mapper.toDomain(entity))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Avatar Media Asset ID trong database không đúng định dạng UUID");
+    }
+
+    @Test
+    @DisplayName("toJpaEntity và toDomain ánh xạ chính xác publicHandle")
+    void shouldMapPublicHandleBetweenDomainAndEntity() {
+        User user = User.createLocal(
+                USER_ID,
+                new Email("test@example.com"),
+                "$2a$10$hash",
+                "Test User",
+                "test_user_handle",
+                NOW
+        );
+
+        UserJpaEntity entity = mapper.toJpaEntity(user);
+        assertThat(entity.getPublicHandle()).isEqualTo("test_user_handle");
+
+        User mappedUser = mapper.toDomain(entity);
+        assertThat(mappedUser.getPublicHandle()).isEqualTo("test_user_handle");
+    }
+
+    @Test
+    @DisplayName("updateJpaEntity bảo toàn publicHandle đã có (immutability)")
+    void shouldPreserveExistingPublicHandleInUpdateJpaEntity() {
+        UserJpaEntity entity = new UserJpaEntity();
+        entity.setId(USER_ID.toString());
+        entity.setPublicHandle("old_handle");
+
+        User user = User.createLocal(
+                USER_ID,
+                new Email("test@example.com"),
+                "$2a$10$hash",
+                "Test User",
+                "new_handle",
+                NOW
+        );
+
+        mapper.updateJpaEntity(user, entity);
+        assertThat(entity.getPublicHandle()).isEqualTo("old_handle");
     }
 }

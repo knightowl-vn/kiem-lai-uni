@@ -53,12 +53,31 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
 	}
 
 	@Override
+	public Optional<User> findByPublicHandle(String publicHandle) {
+		if (publicHandle == null || publicHandle.isBlank()) {
+			return Optional.empty();
+		}
+
+		return jpaRepository.findByPublicHandle(publicHandle.trim().toLowerCase(java.util.Locale.ROOT))
+				.map(mapper::toDomain);
+	}
+
+	@Override
 	public boolean existsByEmail(Email email) {
 		if (email == null) {
 			return false;
 		}
 
 		return jpaRepository.existsByEmail(email.value());
+	}
+
+	@Override
+	public boolean existsByPublicHandle(String publicHandle) {
+		if (publicHandle == null || publicHandle.isBlank()) {
+			return false;
+		}
+
+		return jpaRepository.existsByPublicHandle(publicHandle.trim().toLowerCase(java.util.Locale.ROOT));
 	}
 
 	@Override
@@ -81,6 +100,57 @@ public class UserRepositoryAdapter implements UserRepositoryPort {
 
 		mapper.updateJpaEntity(user, entity);
 
-		jpaRepository.save(entity);
+		try {
+			jpaRepository.saveAndFlush(entity);
+		} catch (org.springframework.dao.DataIntegrityViolationException ex) {
+			if (isHandleConstraintViolation(ex)) {
+				throw new com.universe.identity.domain.exceptions.DuplicatePublicHandleException(user.getPublicHandle(), ex);
+			}
+			if (isEmailConstraintViolation(ex)) {
+				throw new com.universe.identity.domain.exceptions.EmailAlreadyExistsException("Email đã được sử dụng.");
+			}
+			throw ex;
+		}
+	}
+
+	private boolean isHandleConstraintViolation(org.springframework.dao.DataIntegrityViolationException ex) {
+		Throwable current = ex;
+		while (current != null) {
+			if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+				if (cve.getConstraintName() != null
+						&& cve.getConstraintName().toLowerCase(java.util.Locale.ROOT).contains("uq_identity_users_public_handle")) {
+					return true;
+				}
+			}
+			if (current.getMessage() != null) {
+				String msg = current.getMessage().toLowerCase(java.util.Locale.ROOT);
+				if (msg.contains("uq_identity_users_public_handle")
+						|| (msg.contains("public_handle") && msg.contains("duplicate"))) {
+					return true;
+				}
+			}
+			current = current.getCause();
+		}
+		return false;
+	}
+
+	private boolean isEmailConstraintViolation(org.springframework.dao.DataIntegrityViolationException ex) {
+		Throwable current = ex;
+		while (current != null) {
+			if (current instanceof org.hibernate.exception.ConstraintViolationException cve) {
+				if (cve.getConstraintName() != null
+						&& cve.getConstraintName().toLowerCase(java.util.Locale.ROOT).contains("email")) {
+					return true;
+				}
+			}
+			if (current.getMessage() != null) {
+				String msg = current.getMessage().toLowerCase(java.util.Locale.ROOT);
+				if (msg.contains("email") && msg.contains("duplicate")) {
+					return true;
+				}
+			}
+			current = current.getCause();
+		}
+		return false;
 	}
 }
