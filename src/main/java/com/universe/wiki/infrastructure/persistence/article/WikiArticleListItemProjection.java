@@ -17,6 +17,8 @@ public interface WikiArticleListItemProjection {
 
     String getStatus();
 
+    String getSummary();
+
     String getUpdatedBy();
 
     Instant getCreatedAt();
@@ -24,4 +26,10 @@ public interface WikiArticleListItemProjection {
     Instant getUpdatedAt();
 
     long getContentVersion();
+
+    String getCoverMediaAssetId();
+
+    Integer getCoverPositionX();
+
+    Integer getCoverPositionY();
 }

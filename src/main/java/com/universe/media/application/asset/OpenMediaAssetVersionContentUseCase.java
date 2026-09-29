@@ -3,10 +3,10 @@ package com.universe.media.application.asset;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionContentHashMismatchException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
-import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetVersion;
@@ -27,12 +27,12 @@ public class OpenMediaAssetVersionContentUseCase {
 
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
-    private final BinaryStoragePort binaryStoragePort;
+    private final StorageProviderResolverPort storageProviderResolverPort;
 
     public OpenMediaAssetVersionContentUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
-            BinaryStoragePort binaryStoragePort
+            StorageProviderResolverPort storageProviderResolverPort
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -42,9 +42,9 @@ public class OpenMediaAssetVersionContentUseCase {
                 mediaAssetVersionRepositoryPort,
                 "MediaAssetVersionRepositoryPort cannot be null."
         );
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
     }
 
@@ -69,14 +69,7 @@ public class OpenMediaAssetVersionContentUseCase {
             throw new MediaAssetVersionContentHashMismatchException(assetId, versionNumber);
         }
 
-        if (!binaryStoragePort.providerId().equals(version.getStorageLocation().providerId())) {
-            throw new StorageException(
-                    "Storage provider mismatch for asset " + assetId
-                            + ": configured provider is " + binaryStoragePort.providerId().value()
-                            + ", but asset requires " + version.getStorageLocation().providerId().value()
-            );
-        }
-
+        BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(version.getStorageLocation().providerId());
         InputStream contentStream = binaryStoragePort.open(version.getStorageLocation().key());
 
         return new MediaAssetVersionContentResult(

@@ -7,6 +7,9 @@ import com.universe.media.application.asset.UploadMediaAssetVersionConditionalRe
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaVersionUploadOutcome;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
@@ -107,6 +110,16 @@ class MediaAssetConditionalVersionPersistenceIntegrationTest {
         public TrackingBinaryStoragePort trackingBinaryStoragePort() {
             return new TrackingBinaryStoragePort();
         }
+
+        @Bean
+        public MediaStorageRoutingService mediaStorageRoutingService() {
+            return new MediaStorageRoutingService();
+        }
+
+        @Bean
+        public StorageProviderResolverPort storageProviderResolverPort(TrackingBinaryStoragePort storagePort) {
+            return providerId -> storagePort;
+        }
     }
 
     static class TrackingBinaryStoragePort implements BinaryStoragePort {
@@ -119,8 +132,9 @@ class MediaAssetConditionalVersionPersistenceIntegrationTest {
         }
 
         @Override
-        public void store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
+        public StoredBinaryObject store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
             storeCallCount.incrementAndGet();
+            return StoredBinaryObject.of(com.universe.media.domain.StorageLocation.of(LOCAL_PROVIDER, storageKey));
         }
 
         @Override

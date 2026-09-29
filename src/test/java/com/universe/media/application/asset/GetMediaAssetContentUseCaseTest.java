@@ -7,6 +7,7 @@ import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort;
 import com.universe.media.application.ports.MediaAssetContentDeliveryQueryPort.MediaAssetContentDeliverySnapshot;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaVisibility;
 import com.universe.media.domain.StorageKey;
@@ -51,13 +52,20 @@ class GetMediaAssetContentUseCaseTest {
     private MediaAssetContentDeliveryQueryPort contentDeliveryQueryPort;
 
     @Mock
+    private StorageProviderResolverPort storageProviderResolverPort;
+
+    @Mock
     private BinaryStoragePort binaryStoragePort;
 
     private GetMediaAssetContentUseCase useCase;
 
     @BeforeEach
     void setUp() {
-        useCase = new GetMediaAssetContentUseCase(contentDeliveryQueryPort, binaryStoragePort);
+        useCase = new GetMediaAssetContentUseCase(contentDeliveryQueryPort, storageProviderResolverPort);
+        lenient().when(storageProviderResolverPort.resolve(StorageProviderId.of("local")))
+                .thenReturn(binaryStoragePort);
+        lenient().when(storageProviderResolverPort.resolve(StorageProviderId.of("s3")))
+                .thenThrow(new StorageException("Storage provider mismatch: s3 is unconfigured"));
     }
 
     @Test
@@ -68,6 +76,7 @@ class GetMediaAssetContentUseCaseTest {
 
         GetMediaAssetContentResult result = useCase.execute(new GetMediaAssetContentQuery(ASSET_ID));
 
+        assertThat(result.isRedirect()).isFalse();
         assertThat(result.content()).isSameAs(stream);
         assertThat(result.sizeBytes()).isEqualTo(1024L);
         assertThat(result.mimeType()).isEqualTo("audio/mpeg");
@@ -75,6 +84,26 @@ class GetMediaAssetContentUseCaseTest {
         verify(contentDeliveryQueryPort).findByAssetId(ASSET_ID);
         verify(binaryStoragePort).open(STORAGE_KEY);
         verify(binaryStoragePort, never()).openRange(any(), anyLong(), anyLong());
+    }
+
+    @Test
+    void executeReturnsRedirectWhenPublicUrlIsPresent() {
+        MediaAssetContentDeliverySnapshot snapshotWithPublicUrl = new MediaAssetContentDeliverySnapshot(
+                ASSET_ID, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1,
+                VERSION_ID, ASSET_ID, 1,
+                "cloudinary", "kiemlai/covers/cover1",
+                "https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp",
+                HASH, "image/webp", 1024L
+        );
+        when(contentDeliveryQueryPort.findByAssetId(ASSET_ID)).thenReturn(Optional.of(snapshotWithPublicUrl));
+
+        GetMediaAssetContentResult result = useCase.execute(new GetMediaAssetContentQuery(ASSET_ID));
+
+        assertThat(result.isRedirect()).isTrue();
+        assertThat(result.publicUrl()).isEqualTo("https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp");
+        assertThat(result.sizeBytes()).isEqualTo(1024L);
+        assertThat(result.mimeType()).isEqualTo("image/webp");
+        verify(binaryStoragePort, never()).open(any());
     }
 
     @Test
@@ -108,7 +137,6 @@ class GetMediaAssetContentUseCaseTest {
     void separateMetadataAndBodyCallsResolveFreshSnapshots() {
         when(contentDeliveryQueryPort.findByAssetId(ASSET_ID))
                 .thenReturn(Optional.of(activePublicSnapshot()), Optional.of(activePublicSnapshot()));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
         when(binaryStoragePort.open(STORAGE_KEY)).thenReturn(new ByteArrayInputStream(new byte[]{1}));
 
         GetMediaAssetContentMetadataResult resolved = useCase.resolveMetadata(
@@ -281,9 +309,6 @@ class GetMediaAssetContentUseCaseTest {
 
     private void stubSnapshot(MediaAssetContentDeliverySnapshot snapshot) {
         when(contentDeliveryQueryPort.findByAssetId(ASSET_ID)).thenReturn(Optional.of(snapshot));
-        if (snapshot.storageProviderId() != null) {
-            lenient().when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
-        }
     }
 
     private MediaAssetContentDeliverySnapshot activePublicSnapshot() {
@@ -312,7 +337,7 @@ class GetMediaAssetContentUseCaseTest {
         return new MediaAssetContentDeliverySnapshot(
                 ASSET_ID, status, visibility, currentVersionNumber,
                 versionId, versionAssetId, versionNumber,
-                storageProviderId, storageKey, contentHash, mimeType, sizeBytes
+                storageProviderId, storageKey, null, contentHash, mimeType, sizeBytes
         );
     }
 

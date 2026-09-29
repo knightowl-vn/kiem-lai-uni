@@ -73,21 +73,24 @@ public class MediaImageVariantJpaEntity implements Persistable<String> {
 
     @Column(
             name = "storage_provider_id",
-            nullable = false,
             length = 50
     )
     private String storageProviderId;
 
     @Column(
             name = "storage_key",
-            nullable = false,
             length = 500
     )
     private String storageKey;
 
     @Column(
+            name = "public_url",
+            length = 1000
+    )
+    private String publicUrl;
+
+    @Column(
             name = "content_hash",
-            nullable = false,
             length = 64,
             columnDefinition = "CHAR(64)"
     )
@@ -101,22 +104,19 @@ public class MediaImageVariantJpaEntity implements Persistable<String> {
     private String mimeType;
 
     @Column(
-            name = "size_bytes",
-            nullable = false
+            name = "size_bytes"
     )
-    private long sizeBytes;
+    private Long sizeBytes;
 
     @Column(
-            name = "width",
-            nullable = false
+            name = "width"
     )
-    private int width;
+    private Integer width;
 
     @Column(
-            name = "height",
-            nullable = false
+            name = "height"
     )
-    private int height;
+    private Integer height;
 
     @Column(
             name = "created_at",
@@ -190,6 +190,14 @@ public class MediaImageVariantJpaEntity implements Persistable<String> {
         this.storageKey = storageKey;
     }
 
+    public String getPublicUrl() {
+        return publicUrl;
+    }
+
+    public void setPublicUrl(String publicUrl) {
+        this.publicUrl = publicUrl;
+    }
+
     public String getContentHash() {
         return contentHash;
     }
@@ -206,27 +214,27 @@ public class MediaImageVariantJpaEntity implements Persistable<String> {
         this.mimeType = mimeType;
     }
 
-    public long getSizeBytes() {
+    public Long getSizeBytes() {
         return sizeBytes;
     }
 
-    public void setSizeBytes(long sizeBytes) {
+    public void setSizeBytes(Long sizeBytes) {
         this.sizeBytes = sizeBytes;
     }
 
-    public int getWidth() {
+    public Integer getWidth() {
         return width;
     }
 
-    public void setWidth(int width) {
+    public void setWidth(Integer width) {
         this.width = width;
     }
 
-    public int getHeight() {
+    public Integer getHeight() {
         return height;
     }
 
-    public void setHeight(int height) {
+    public void setHeight(Integer height) {
         this.height = height;
     }
 

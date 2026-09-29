@@ -1,5 +1,6 @@
 package com.universe.media.domain;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
@@ -10,24 +11,32 @@ import java.util.UUID;
  * Invariants:
  * <ul>
  *     <li>Belongs to exactly one immutable {@code versionId}.</li>
- *     <li>Owns a unique {@link StorageLocation}.</li>
  *     <li>Derives canonical {@code variantKey} from {@link ImageVariantSpec} (e.g. {@code "w300"}).</li>
+ *     <li>Storage ownership is strictly XOR:
+ *         <ul>
+ *             <li><strong>Physical variant:</strong> owns a physical {@link StorageLocation}, {@code publicUrl} is null, measured derivative metadata is populated.</li>
+ *             <li><strong>External virtual variant:</strong> owns a validated HTTPS {@code publicUrl}, {@link StorageLocation} is null, derivative measurements are null.</li>
+ *         </ul>
+ *     </li>
  *     <li>Is disposable and regenerable; not a {@link MediaAsset}.</li>
  *     <li>Immutable after creation (write-once, read-only).</li>
  * </ul>
  */
 public final class MediaImageVariant {
 
+    private static final int MAX_URL_LENGTH = 1000;
+
     private final UUID id;
     private final UUID versionId;
     private final String variantKey;
     private final int targetWidth;
     private final StorageLocation storageLocation;
+    private final String publicUrl;
     private final ContentHash contentHash;
     private final MimeType mimeType;
-    private final long sizeBytes;
-    private final int width;
-    private final int height;
+    private final Long sizeBytes;
+    private final Integer width;
+    private final Integer height;
     private final Instant createdAt;
 
     private MediaImageVariant(
@@ -36,42 +45,69 @@ public final class MediaImageVariant {
             String variantKey,
             int targetWidth,
             StorageLocation storageLocation,
+            String publicUrl,
             ContentHash contentHash,
             MimeType mimeType,
-            long sizeBytes,
-            int width,
-            int height,
+            Long sizeBytes,
+            Integer width,
+            Integer height,
             Instant createdAt
     ) {
         this.id = Objects.requireNonNull(id, "Variant ID cannot be null.");
         this.versionId = Objects.requireNonNull(versionId, "Version ID cannot be null.");
         this.targetWidth = validateTargetWidth(targetWidth);
         this.variantKey = validateVariantKey(variantKey, targetWidth);
-        this.storageLocation = Objects.requireNonNull(storageLocation, "StorageLocation cannot be null.");
-        this.contentHash = Objects.requireNonNull(contentHash, "ContentHash cannot be null.");
         this.mimeType = Objects.requireNonNull(mimeType, "MimeType cannot be null.");
+        this.createdAt = Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
 
-        if (sizeBytes <= 0) {
-            throw new IllegalArgumentException("sizeBytes must be greater than 0: " + sizeBytes);
-        }
-        this.sizeBytes = sizeBytes;
+        boolean hasLocation = storageLocation != null;
+        boolean hasUrl = publicUrl != null;
 
-        if (width <= 0) {
-            throw new IllegalArgumentException("width must be greater than 0: " + width);
-        }
-        if (width > targetWidth) {
+        if (hasLocation && hasUrl) {
             throw new IllegalArgumentException(
-                    "width (" + width + ") cannot exceed targetWidth (" + targetWidth + ")"
+                    "Variant cannot have both a physical StorageLocation and an external publicUrl."
             );
         }
-        this.width = width;
-
-        if (height <= 0) {
-            throw new IllegalArgumentException("height must be greater than 0: " + height);
+        if (!hasLocation && !hasUrl) {
+            throw new IllegalArgumentException(
+                    "Variant must have either a physical StorageLocation or an external publicUrl."
+            );
         }
-        this.height = height;
 
-        this.createdAt = Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
+        if (hasUrl) {
+            // External virtual variant
+            this.publicUrl = validateHttpsUrl(publicUrl);
+            this.storageLocation = null;
+            this.contentHash = null;
+            this.sizeBytes = null;
+            this.width = null;
+            this.height = null;
+        } else {
+            // Physical variant
+            this.storageLocation = storageLocation;
+            this.publicUrl = null;
+            this.contentHash = Objects.requireNonNull(contentHash, "ContentHash cannot be null for physical variant.");
+
+            if (sizeBytes == null || sizeBytes <= 0) {
+                throw new IllegalArgumentException("sizeBytes must be greater than 0: " + sizeBytes);
+            }
+            this.sizeBytes = sizeBytes;
+
+            if (width == null || width <= 0) {
+                throw new IllegalArgumentException("width must be greater than 0: " + width);
+            }
+            if (width > targetWidth) {
+                throw new IllegalArgumentException(
+                        "width (" + width + ") cannot exceed targetWidth (" + targetWidth + ")"
+                );
+            }
+            this.width = width;
+
+            if (height == null || height <= 0) {
+                throw new IllegalArgumentException("height must be greater than 0: " + height);
+            }
+            this.height = height;
+        }
     }
 
     public static MediaImageVariant create(
@@ -87,17 +123,45 @@ public final class MediaImageVariant {
             Instant createdAt
     ) {
         Objects.requireNonNull(spec, "ImageVariantSpec cannot be null.");
+        Objects.requireNonNull(storageLocation, "StorageLocation cannot be null for physical variant.");
         return new MediaImageVariant(
                 id,
                 versionId,
                 spec.variantKey(),
                 spec.targetWidth(),
                 storageLocation,
+                null,
                 contentHash,
                 mimeType,
                 sizeBytes,
                 width,
                 height,
+                createdAt
+        );
+    }
+
+    public static MediaImageVariant createExternal(
+            UUID id,
+            UUID versionId,
+            ImageVariantSpec spec,
+            String publicUrl,
+            MimeType mimeType,
+            Instant createdAt
+    ) {
+        Objects.requireNonNull(spec, "ImageVariantSpec cannot be null.");
+        Objects.requireNonNull(publicUrl, "External variant publicUrl cannot be null.");
+        return new MediaImageVariant(
+                id,
+                versionId,
+                spec.variantKey(),
+                spec.targetWidth(),
+                null,
+                publicUrl,
+                null,
+                mimeType,
+                null,
+                null,
+                null,
                 createdAt
         );
     }
@@ -121,6 +185,7 @@ public final class MediaImageVariant {
                 variantKey,
                 targetWidth,
                 storageLocation,
+                null,
                 contentHash,
                 mimeType,
                 sizeBytes,
@@ -128,6 +193,65 @@ public final class MediaImageVariant {
                 height,
                 createdAt
         );
+    }
+
+    public static MediaImageVariant rehydrate(
+            UUID id,
+            UUID versionId,
+            String variantKey,
+            int targetWidth,
+            StorageLocation storageLocation,
+            String publicUrl,
+            ContentHash contentHash,
+            MimeType mimeType,
+            Long sizeBytes,
+            Integer width,
+            Integer height,
+            Instant createdAt
+    ) {
+        return new MediaImageVariant(
+                id,
+                versionId,
+                variantKey,
+                targetWidth,
+                storageLocation,
+                publicUrl,
+                contentHash,
+                mimeType,
+                sizeBytes,
+                width,
+                height,
+                createdAt
+        );
+    }
+
+    public static String validateHttpsUrl(String publicUrl) {
+        if (publicUrl == null || publicUrl.isBlank()) {
+            throw new IllegalArgumentException("External variant publicUrl cannot be blank.");
+        }
+        String trimmed = publicUrl.trim();
+        if (trimmed.length() > MAX_URL_LENGTH) {
+            throw new IllegalArgumentException(
+                    "External variant publicUrl cannot exceed " + MAX_URL_LENGTH + " characters."
+            );
+        }
+        URI uri;
+        try {
+            uri = URI.create(trimmed);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid external variant publicUrl: " + publicUrl, e);
+        }
+        if (!uri.isAbsolute() || uri.getHost() == null || uri.getHost().isBlank()) {
+            throw new IllegalArgumentException(
+                    "External variant publicUrl must be an absolute URI with a host: " + publicUrl
+            );
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException(
+                    "External variant publicUrl must use HTTPS scheme: " + publicUrl
+            );
+        }
+        return trimmed;
     }
 
     private static int validateTargetWidth(int targetWidth) {
@@ -166,6 +290,22 @@ public final class MediaImageVariant {
         return storageLocation;
     }
 
+    public String getPublicUrl() {
+        return publicUrl;
+    }
+
+    public boolean hasPublicUrl() {
+        return publicUrl != null && !publicUrl.isBlank();
+    }
+
+    public boolean isVirtual() {
+        return hasPublicUrl() && storageLocation == null;
+    }
+
+    public boolean isPhysical() {
+        return storageLocation != null && !hasPublicUrl();
+    }
+
     public ContentHash getContentHash() {
         return contentHash;
     }
@@ -174,15 +314,15 @@ public final class MediaImageVariant {
         return mimeType;
     }
 
-    public long getSizeBytes() {
+    public Long getSizeBytes() {
         return sizeBytes;
     }
 
-    public int getWidth() {
+    public Integer getWidth() {
         return width;
     }
 
-    public int getHeight() {
+    public Integer getHeight() {
         return height;
     }
 
@@ -211,6 +351,7 @@ public final class MediaImageVariant {
                 ", variantKey='" + variantKey + '\'' +
                 ", targetWidth=" + targetWidth +
                 ", storageLocation=" + storageLocation +
+                ", publicUrl='" + publicUrl + '\'' +
                 ", mimeType=" + mimeType +
                 ", sizeBytes=" + sizeBytes +
                 ", width=" + width +

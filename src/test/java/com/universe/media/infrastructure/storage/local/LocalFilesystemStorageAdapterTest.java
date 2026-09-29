@@ -58,7 +58,12 @@ class LocalFilesystemStorageAdapterTest {
             byte[] expectedData = "binary-media-content-12345".getBytes(StandardCharsets.UTF_8);
             MimeType mimeType = MimeType.of("image/webp");
 
-            adapter.store(key, new ByteArrayInputStream(expectedData), expectedData.length, mimeType);
+            com.universe.media.application.ports.storage.StoredBinaryObject stored =
+                    adapter.store(key, new ByteArrayInputStream(expectedData), expectedData.length, mimeType);
+
+            assertThat(stored.location().providerId()).isEqualTo(StorageProviderId.of("local"));
+            assertThat(stored.location().key()).isEqualTo(key);
+            assertThat(stored.publicUrl()).isNull();
 
             try (InputStream in = adapter.open(key)) {
                 byte[] actualData = in.readAllBytes();

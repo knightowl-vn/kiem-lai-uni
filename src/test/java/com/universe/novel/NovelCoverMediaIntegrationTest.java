@@ -20,10 +20,18 @@ import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.asset.AssignMediaAssetClientTagUseCase;
+import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
+import com.universe.media.domain.MimeType;
+import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
+import com.universe.media.domain.StorageProviderId;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetContentDeliveryQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
+import com.universe.media.infrastructure.storage.DefaultStorageProviderRegistry;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.novel.application.profile.GetNovelProfileUseCase;
 import com.universe.novel.application.profile.NovelCoverUpload;
@@ -111,6 +119,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         UploadMediaAssetVersionConditionalUseCase.class,
         GetMediaAssetContentUseCase.class,
         LocalFilesystemStorageAdapter.class,
+        MediaStorageRoutingService.class,
+        DefaultStorageProviderRegistry.class,
         RasterContentSignatureValidator.class,
         MediaFacade.class,
         NovelCoverMediaIntegrationTest.TestConfig.class
@@ -168,6 +178,45 @@ class NovelCoverMediaIntegrationTest {
         @Bean
         public ClockPort clockPort() {
             return Instant::now;
+        }
+
+        @Bean
+        public BinaryStoragePort cloudinaryTestStoragePort() {
+            return new TestCloudinaryStoragePort(tempStorageDir);
+        }
+    }
+
+    static class TestCloudinaryStoragePort implements BinaryStoragePort {
+        private final LocalFilesystemStorageAdapter delegate;
+
+        public TestCloudinaryStoragePort(Path rootDir) {
+            this.delegate = new LocalFilesystemStorageAdapter(rootDir);
+        }
+
+        @Override
+        public StorageProviderId providerId() {
+            return StorageProviderId.of("cloudinary");
+        }
+
+        @Override
+        public StoredBinaryObject store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
+            delegate.store(storageKey, content, sizeBytes, mimeType);
+            return StoredBinaryObject.of(StorageLocation.of(providerId(), storageKey));
+        }
+
+        @Override
+        public InputStream open(StorageKey storageKey) {
+            return delegate.open(storageKey);
+        }
+
+        @Override
+        public InputStream openRange(StorageKey storageKey, long startInclusive, long length) {
+            return delegate.openRange(storageKey, startInclusive, length);
+        }
+
+        @Override
+        public void delete(StorageKey storageKey) {
+            delegate.delete(storageKey);
         }
     }
 

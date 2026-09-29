@@ -7,6 +7,7 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
@@ -61,6 +62,9 @@ class OpenMediaAssetVersionContentUseCaseTest {
     private MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
 
     @Mock
+    private StorageProviderResolverPort storageProviderResolverPort;
+
+    @Mock
     private BinaryStoragePort binaryStoragePort;
 
     private OpenMediaAssetVersionContentUseCase useCase;
@@ -70,7 +74,7 @@ class OpenMediaAssetVersionContentUseCaseTest {
         useCase = new OpenMediaAssetVersionContentUseCase(
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort,
-                binaryStoragePort
+                storageProviderResolverPort
         );
     }
 
@@ -84,7 +88,7 @@ class OpenMediaAssetVersionContentUseCaseTest {
                 .thenReturn(Optional.of(asset(MediaAssetStatus.ACTIVE)));
         when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 2))
                 .thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+        when(storageProviderResolverPort.resolve(StorageProviderId.of("local"))).thenReturn(binaryStoragePort);
         when(binaryStoragePort.open(StorageKey.of("objects/chapter-2.mp3"))).thenReturn(stream);
 
         MediaAssetVersionContentResult result =
@@ -110,7 +114,7 @@ class OpenMediaAssetVersionContentUseCaseTest {
                 .thenReturn(Optional.of(asset(MediaAssetStatus.ARCHIVED)));
         when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
                 .thenReturn(Optional.of(version));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+        when(storageProviderResolverPort.resolve(StorageProviderId.of("local"))).thenReturn(binaryStoragePort);
         when(binaryStoragePort.open(StorageKey.of("objects/chapter-1.mp3"))).thenReturn(stream);
 
         MediaAssetVersionContentResult result =
@@ -167,11 +171,12 @@ class OpenMediaAssetVersionContentUseCaseTest {
                 .thenReturn(Optional.of(asset(MediaAssetStatus.ACTIVE)));
         when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1))
                 .thenReturn(Optional.of(version(1, "s3")));
-        when(binaryStoragePort.providerId()).thenReturn(StorageProviderId.of("local"));
+        when(storageProviderResolverPort.resolve(StorageProviderId.of("s3")))
+                .thenThrow(new StorageException("Unsupported or unconfigured storage provider: s3"));
 
         assertThatThrownBy(() -> useCase.execute(new OpenMediaAssetVersionContentQuery(ASSET_ID, 1, HASH)))
                 .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Storage provider mismatch");
+                .hasMessageContaining("Unsupported or unconfigured storage provider: s3");
 
         verify(binaryStoragePort, never()).open(any());
     }

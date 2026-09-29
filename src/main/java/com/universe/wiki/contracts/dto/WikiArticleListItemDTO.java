@@ -14,9 +14,40 @@ public record WikiArticleListItemDTO(
         String slug,
         String articleType,
         String status,
+        String summary,
         UUID updatedBy,
         Instant createdAt,
         Instant updatedAt,
-        long contentVersion
+        long contentVersion,
+        UUID coverMediaAssetId,
+        int coverPositionX,
+        int coverPositionY
 ) {
+    public WikiArticleListItemDTO(
+            UUID id,
+            String title,
+            String slug,
+            String articleType,
+            String status,
+            UUID updatedBy,
+            Instant createdAt,
+            Instant updatedAt,
+            long contentVersion
+    ) {
+        this(
+                id,
+                title,
+                slug,
+                articleType,
+                status,
+                null,
+                updatedBy,
+                createdAt,
+                updatedAt,
+                contentVersion,
+                null,
+                50,
+                50
+        );
+    }
 }

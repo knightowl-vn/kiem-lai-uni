@@ -4,12 +4,13 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -39,11 +40,6 @@ import java.util.Objects;
  * </ul>
  */
 @Component
-@ConditionalOnProperty(
-        name = "media.storage.provider",
-        havingValue = "local",
-        matchIfMissing = true
-)
 public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
 
     public static final StorageProviderId PROVIDER_ID =
@@ -66,7 +62,7 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
         this.rootDir = Objects.requireNonNull(
                 rootDir,
                 "Root directory cannot be null."
-        ).toAbsolutePath().normalize();
+            ).toAbsolutePath().normalize();
     }
 
     @Override
@@ -75,7 +71,7 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
     }
 
     @Override
-    public void store(
+    public StoredBinaryObject store(
             StorageKey key,
             InputStream content,
             long sizeBytes,
@@ -143,6 +139,8 @@ public class LocalFilesystemStorageAdapter implements BinaryStoragePort {
 
                 // Final publication: standard move without REPLACE_EXISTING to guarantee CREATE-ONLY
                 Files.move(tempFile, targetPath);
+
+                return new StoredBinaryObject(StorageLocation.of(PROVIDER_ID, key), null);
 
             } catch (FileAlreadyExistsException e) {
                 deleteQuietly(tempFile);

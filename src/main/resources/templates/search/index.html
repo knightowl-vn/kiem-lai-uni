@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,follow">
+    <title th:text="${pageTitle}">Tìm kiếm | Kiếm Lai Universe</title>
+
+    <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/theme.css}">
+    <link rel="stylesheet" th:href="@{/css/navbar.css}">
+    <link rel="stylesheet" th:href="@{/css/wiki/wiki.css}">
+    <link rel="stylesheet" th:href="@{/css/novel/reader.css}">
+    <link rel="stylesheet" th:href="@{/css/search/search.css}">
+</head>
+<body>
+
+    <div th:replace="~{fragments/navbar :: navbar(activeNav='search')}"></div>
+
+    <main class="container py-5 search-page-container">
+
+        <!-- SEARCH PAGE HEADER (HEADING + SCOPE TABS) -->
+        <header class="search-page-header">
+            <div class="search-page-heading-area">
+                <span class="search-page-eyebrow">TÌM KIẾM ĐIỀU HƯỚNG</span>
+                <h1 th:if="${query != null and !query.isBlank()}" class="search-page-title">
+                    Kết quả cho “<span th:text="${query}">Trần Bình An</span>”
+                </h1>
+                <h1 th:unless="${query != null and !query.isBlank()}" class="search-page-title">
+                    Tìm kiếm Kiếm Lai Universe
+                </h1>
+            </div>
+
+            <nav class="search-scope-tabs" aria-label="Phạm vi tìm kiếm">
+                <a th:href="@{/search(q=${query}, scope='all')}"
+                   class="search-scope-tab"
+                   th:classappend="${scope == 'all'} ? ' is-active' : ''"
+                   th:attr="aria-current=${scope == 'all' ? 'page' : null}">Tất cả</a>
+                <a th:href="@{/search(q=${query}, scope='wiki')}"
+                   class="search-scope-tab"
+                   th:classappend="${scope == 'wiki'} ? ' is-active' : ''"
+                   th:attr="aria-current=${scope == 'wiki' ? 'page' : null}">Wiki</a>
+                <a th:href="@{/search(q=${query}, scope='novel')}"
+                   class="search-scope-tab"
+                   th:classappend="${scope == 'novel'} ? ' is-active' : ''"
+                   th:attr="aria-current=${scope == 'novel' ? 'page' : null}">Novel</a>
+            </nav>
+        </header>
+
+        <!-- BLANK QUERY PROMPT STATE -->
+        <section th:if="${query == null or query.isBlank()}" class="search-prompt-state">
+            <div class="search-prompt-icon" aria-hidden="true">⌕</div>
+            <span class="search-empty-eyebrow">TÌM KIẾM ĐIỀU HƯỚNG</span>
+            <h2>Tìm kiếm bài viết và chương truyện</h2>
+            <p>Nhập tên nhân vật, địa danh, bảo vật trong Wiki hoặc số chương / tiêu đề trong Novel trên thanh điều hướng để điều hướng nhanh.</p>
+        </section>
+
+        <!-- NON-BLANK RESULTS PRESENTATION -->
+        <div th:if="${query != null and !query.isBlank()}" class="search-results-area">
+
+            <!-- EMPTY STATE FOR SCOPE ALL -->
+            <section th:if="${scope == 'all' and searchResult.wiki.items.isEmpty() and searchResult.novel.items.isEmpty()}"
+                     class="search-empty-state">
+                <div class="search-empty-icon" aria-hidden="true">∅</div>
+                <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
+                <h2>Không tìm thấy kết quả phù hợp</h2>
+                <p>Không tìm thấy bài viết Wiki hoặc chương truyện Novel nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
+            </section>
+
+            <!-- EMPTY STATE FOR SCOPE WIKI -->
+            <section th:if="${scope == 'wiki' and searchResult.wiki.items.isEmpty()}"
+                     class="search-empty-state">
+                <div class="search-empty-icon" aria-hidden="true">∅</div>
+                <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
+                <h2>Không tìm thấy bài Wiki phù hợp</h2>
+                <p>Không tìm thấy bài viết Wiki nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
+            </section>
+
+            <!-- EMPTY STATE FOR SCOPE NOVEL -->
+            <section th:if="${scope == 'novel' and searchResult.novel.items.isEmpty()}"
+                     class="search-empty-state">
+                <div class="search-empty-icon" aria-hidden="true">∅</div>
+                <span class="search-empty-eyebrow">KHÔNG CÓ KẾT QUẢ</span>
+                <h2>Không tìm thấy chương truyện phù hợp</h2>
+                <p>Không tìm thấy chương truyện nào khớp với từ khóa “<strong th:text="${query}">từ khóa</strong>”.</p>
+            </section>
+
+            <!-- GROUP 1: WIKI RESULTS (REUSING EXISTING WIKI CARD STRUCTURE) -->
+            <section th:if="${(scope == 'all' or scope == 'wiki') and !searchResult.wiki.items.isEmpty()}"
+                     class="search-group search-group-wiki">
+                <header class="search-group-header">
+                    <h2 class="search-group-title">
+                        <span class="search-group-badge">Wiki</span>
+                        Bách khoa Kiếm Lai
+                    </h2>
+                    <span class="search-group-count"
+                          th:text="${searchResult.wiki.items.size() + ' kết quả'}">0 kết quả</span>
+                </header>
+
+                <div class="wiki-public-card-grid">
+                    <article th:each="item : ${searchResult.wiki.items}"
+                             class="wiki-public-index-card">
+                        <a class="wiki-public-index-card-link"
+                           th:href="${item.canonicalUrl}">
+
+                            <!-- 1. LEFT: 4:5 PORTRAIT THUMBNAIL OR COVER IMAGE -->
+                            <div class="wiki-public-index-card-media" aria-hidden="true">
+                                <img th:if="${item.coverMediaAssetId != null}"
+                                     class="wiki-public-index-card-image"
+                                     th:src="${item.displayCoverImageUrl()}"
+                                     th:data-fallback-src="${item.fallbackCoverImageUrl()}"
+                                     th:alt="${item.title}"
+                                     loading="lazy"
+                                     th:style="'object-position: ' + ${item.coverObjectPosition()}"
+                                     onerror="if (!this.getAttribute('data-tried-fallback') &amp;&amp; this.getAttribute('data-fallback-src')) { this.setAttribute('data-tried-fallback', 'true'); this.src = this.getAttribute('data-fallback-src'); } else { this.style.display='none'; if (this.nextElementSibling) this.nextElementSibling.style.display='flex'; }">
+                                <div class="wiki-public-index-card-placeholder"
+                                     th:style="${item.coverMediaAssetId != null ? 'display: none;' : ''}">
+                                    <svg class="wiki-public-index-card-placeholder-icon"
+                                         xmlns="http://www.w3.org/2000/svg"
+                                         viewBox="0 0 24 24"
+                                         fill="none"
+                                         stroke="currentColor"
+                                         stroke-width="1.8"
+                                         stroke-linecap="round"
+                                         stroke-linejoin="round">
+                                        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                                        <path d="M6 6h10"/>
+                                        <path d="M6 10h10"/>
+                                        <path d="M6 14h6"/>
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <!-- 2. CONTENT -->
+                            <div class="wiki-public-index-card-content">
+                                <!-- TOP META ROW: TYPE BADGE + SUBTLE ALIAS MATCH BADGE -->
+                                <div class="wiki-public-index-card-top">
+                                    <span class="wiki-public-index-card-type"
+                                          th:text="${#strings.replace(item.articleType.name(), '_', ' ')}">
+                                        CHARACTER
+                                    </span>
+                                    <span th:if="${item.matchedAlias != null and !item.matchedAlias.isBlank()}"
+                                          class="search-matched-alias-badge"
+                                          th:text="${'Khớp danh xưng: ' + item.matchedAlias}">
+                                        Khớp danh xưng: Trần kiếm tiên
+                                    </span>
+                                </div>
+
+                                <!-- TITLE -->
+                                <h3 class="wiki-public-index-card-title" th:text="${item.title}">
+                                    Trần Bình An
+                                </h3>
+
+                                <!-- SUMMARY -->
+                                <p class="wiki-public-index-card-summary"
+                                   th:if="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}"
+                                   th:text="${item.summary}">Tóm tắt bài viết.</p>
+
+                                <p class="wiki-public-index-card-summary is-empty"
+                                   th:unless="${item.summary != null and !#strings.isEmpty(#strings.trim(item.summary))}">
+                                    Chưa có phần tóm tắt.</p>
+
+                                <!-- BOTTOM META: TIMESTAMP -->
+                                <div class="wiki-public-index-card-meta">
+                                    <span class="wiki-public-index-card-time-label">Cập nhật</span>
+                                    <strong th:if="${item.updatedAt != null}"><time
+                                        data-relative-time
+                                        th:datetime="${item.updatedAt}"
+                                        th:text="${#temporals.format(item.updatedAt, 'dd/MM/yyyy HH:mm')}">15/08/2026 15:24</time></strong>
+                                    <strong th:unless="${item.updatedAt != null}">Chưa có thông tin</strong>
+                                </div>
+                            </div>
+
+                            <!-- 3. RIGHT: APPRECIATION SUMMARY (ELIGIBLE ARTICLES ONLY VIA MAP LOOKUP) -->
+                            <th:block th:with="summary=${appreciationSummaries != null ? appreciationSummaries[item.id] : null}">
+                                <div th:if="${summary != null}"
+                                     class="wiki-public-index-card-appreciation">
+                                    <div th:if="${summary.count > 0 and summary.average != null}"
+                                         class="wiki-public-index-card-appreciation-stats">
+                                        <div class="wiki-public-index-card-rating-row">
+                                            <svg class="wiki-public-index-card-star-icon"
+                                                 xmlns="http://www.w3.org/2000/svg"
+                                                 viewBox="0 0 24 24"
+                                                 fill="currentColor"
+                                                 aria-hidden="true">
+                                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                                            </svg>
+                                            <strong class="wiki-public-index-card-rating-avg"
+                                                    th:text="${summary.displayAverage()}">4.8</strong>
+                                            <span class="wiki-public-index-card-rating-scale">/ 5</span>
+                                        </div>
+                                        <span class="wiki-public-index-card-rating-count"
+                                              th:text="${summary.count + ' lượt đánh giá'}">128 lượt đánh giá</span>
+                                    </div>
+                                    <div th:if="${summary.count == 0 or summary.average == null}"
+                                         class="wiki-public-index-card-appreciation-empty">
+                                        <span>Chưa có đánh giá</span>
+                                    </div>
+                                </div>
+                            </th:block>
+                        </a>
+                    </article>
+                </div>
+            </section>
+
+            <!-- GROUP 2: NOVEL CHAPTER RESULTS (REUSING EXISTING CHAPTER GRID STRUCTURE) -->
+            <section th:if="${(scope == 'all' or scope == 'novel') and !searchResult.novel.items.isEmpty()}"
+                     class="search-group search-group-novel">
+                <header class="search-group-header">
+                    <h2 class="search-group-title">
+                        <span class="search-group-badge">Novel</span>
+                        Chương truyện Kiếm Lai
+                    </h2>
+                    <span class="search-group-count"
+                          th:text="${searchResult.novel.items.size() + ' kết quả'}">0 kết quả</span>
+                </header>
+
+                <div class="novel-reader-chapter-grid">
+                    <a th:each="ch : ${searchResult.novel.items}"
+                       th:href="@{/novel/chapters/{slug}(slug=${ch.slug})}"
+                       class="novel-reader-chapter-item">
+                        <span class="novel-reader-chapter-number"
+                              th:text="${'Chương ' + ch.chapterNumber}">Chương 1</span>
+                        <span class="novel-reader-chapter-title"
+                              th:text="${ch.title}">Tên chương</span>
+                    </a>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <script th:src="@{/js/theme.js}"></script>
+</body>
+</html>

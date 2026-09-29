@@ -9,6 +9,7 @@ import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.ContentHash;
 import com.universe.media.domain.ImageVariantSpec;
 import com.universe.media.domain.MediaAsset;
@@ -34,6 +35,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,6 +46,7 @@ class GetMediaImageVariantContentUseCaseTest {
     private MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
+    private StorageProviderResolverPort storageProviderResolverPort;
     private BinaryStoragePort binaryStoragePort;
 
     private GetMediaImageVariantContentUseCase useCase;
@@ -63,15 +66,19 @@ class GetMediaImageVariantContentUseCaseTest {
         mediaAssetRepositoryPort = mock(MediaAssetRepositoryPort.class);
         mediaAssetVersionRepositoryPort = mock(MediaAssetVersionRepositoryPort.class);
         mediaImageVariantRepositoryPort = mock(MediaImageVariantRepositoryPort.class);
+        storageProviderResolverPort = mock(StorageProviderResolverPort.class);
         binaryStoragePort = mock(BinaryStoragePort.class);
 
-        when(binaryStoragePort.providerId()).thenReturn(PROVIDER_ID);
+        lenient().when(binaryStoragePort.providerId()).thenReturn(PROVIDER_ID);
+        lenient().when(storageProviderResolverPort.resolve(PROVIDER_ID)).thenReturn(binaryStoragePort);
+        lenient().when(storageProviderResolverPort.resolve(StorageProviderId.of("s3")))
+                .thenThrow(new StorageException("Storage provider mismatch: configured provider is local, but variant requires s3"));
 
         useCase = new GetMediaImageVariantContentUseCase(
                 mediaAssetRepositoryPort,
                 mediaAssetVersionRepositoryPort,
                 mediaImageVariantRepositoryPort,
-                binaryStoragePort
+                storageProviderResolverPort
         );
     }
 
@@ -137,6 +144,7 @@ class GetMediaImageVariantContentUseCaseTest {
         GetMediaAssetContentResult result = useCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w300"));
 
         assertThat(result).isNotNull();
+        assertThat(result.isRedirect()).isFalse();
         assertThat(result.content()).isSameAs(stream);
         assertThat(result.sizeBytes()).isEqualTo(25000L);
         assertThat(result.mimeType()).isEqualTo("image/jpeg");
@@ -145,6 +153,45 @@ class GetMediaImageVariantContentUseCaseTest {
         // Open must use the variant storage key, never source key
         verify(binaryStoragePort).open(VARIANT_KEY_STORAGE);
         verify(binaryStoragePort, never()).open(SOURCE_KEY);
+    }
+
+    @Test
+    @DisplayName("delivers variant redirect URL when variant has publicUrl")
+    void shouldDeliverVariantRedirectWhenPublicUrlPresent() {
+        MediaAsset asset = createAsset(MediaType.IMAGE, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 1);
+        StorageLocation cloudinaryMasterLocation = StorageLocation.of("cloudinary", "kiemlai/covers/cover1");
+        MediaAssetVersion version = MediaAssetVersion.create(
+                V1_ID,
+                ASSET_ID,
+                1,
+                cloudinaryMasterLocation,
+                "https://res.cloudinary.com/test/image/upload/v1/kiemlai/covers/cover1.webp",
+                ContentHash.of("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+                MimeType.of("image/webp"),
+                100000L,
+                "photo.webp",
+                NOW
+        );
+        String variantUrl = "https://res.cloudinary.com/test/image/upload/c_scale,w_400/kiemlai/covers/cover1.webp";
+        MediaImageVariant variant = MediaImageVariant.createExternal(
+                UUID.randomUUID(),
+                V1_ID,
+                ImageVariantSpec.of(400),
+                variantUrl,
+                MimeType.of("image/webp"),
+                NOW
+        );
+
+        when(mediaAssetRepositoryPort.findById(ASSET_ID)).thenReturn(Optional.of(asset));
+        when(mediaAssetVersionRepositoryPort.findByAssetIdAndVersionNumber(ASSET_ID, 1)).thenReturn(Optional.of(version));
+        when(mediaImageVariantRepositoryPort.findByVersionIdAndVariantKey(V1_ID, "w400")).thenReturn(Optional.of(variant));
+
+        GetMediaAssetContentResult result = useCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w400"));
+
+        assertThat(result.isRedirect()).isTrue();
+        assertThat(result.publicUrl()).isEqualTo(variantUrl);
+        assertThat(result.redirectUri()).isEqualTo(java.net.URI.create(variantUrl));
+        verify(binaryStoragePort, never()).open(any());
     }
 
     @Test
@@ -256,7 +303,7 @@ class GetMediaImageVariantContentUseCaseTest {
 
         assertThatThrownBy(() -> useCase.execute(new GetMediaImageVariantContentQuery(ASSET_ID, "w300")))
                 .isInstanceOf(StorageException.class)
-                .hasMessageContaining("Storage provider mismatch for variant w300");
+                .hasMessageContaining("Storage provider mismatch");
 
         verify(binaryStoragePort, never()).open(any());
     }

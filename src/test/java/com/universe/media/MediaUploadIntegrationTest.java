@@ -18,6 +18,9 @@ import com.universe.media.application.asset.UploadMediaAssetVersionUseCase;
 import com.universe.media.application.asset.UploadMediaAssetVersionConditionalUseCase;
 import com.universe.media.application.facade.MediaFacade;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
+import com.universe.media.application.storage.MediaStorageRoutingService;
 import com.universe.media.contracts.dto.MediaAssetDetailDTO;
 import com.universe.media.contracts.dto.MediaAssetStatusDTO;
 import com.universe.media.contracts.dto.MediaTypeDTO;
@@ -27,10 +30,14 @@ import com.universe.media.contracts.dto.UploadMediaAssetResponseDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionRequestDTO;
 import com.universe.media.contracts.dto.UploadMediaAssetVersionResponseDTO;
 import com.universe.media.contracts.interfaces.MediaContract;
+import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
+import com.universe.media.domain.StorageProviderId;
 import com.universe.media.infrastructure.persistence.MediaAssetPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetCurrentMetadataQueryPersistenceAdapter;
 import com.universe.media.infrastructure.persistence.MediaAssetVersionPersistenceAdapter;
+import com.universe.media.infrastructure.storage.DefaultStorageProviderRegistry;
 import com.universe.media.infrastructure.storage.local.LocalFilesystemStorageAdapter;
 import com.universe.shared.time.ClockPort;
 import com.universe.test.TestDatabaseSupport;
@@ -106,6 +113,8 @@ import com.universe.media.infrastructure.persistence.MediaImageVariantPersistenc
         RasterContentSignatureValidator.class,
         GenerateMediaImageVariantUseCase.class,
         LocalFilesystemStorageAdapter.class,
+        MediaStorageRoutingService.class,
+        DefaultStorageProviderRegistry.class,
         MediaFacade.class,
         MediaUploadIntegrationTest.TestConfig.class
 })
@@ -130,13 +139,52 @@ class MediaUploadIntegrationTest {
         public ClockPort clockPort() {
             return Instant::now;
         }
+
+        @Bean
+        public BinaryStoragePort cloudinaryStoragePort() {
+            return new TestCloudinaryStoragePort(tempStorageDir);
+        }
+    }
+
+    static class TestCloudinaryStoragePort implements BinaryStoragePort {
+        private final LocalFilesystemStorageAdapter delegate;
+
+        public TestCloudinaryStoragePort(Path rootDir) {
+            this.delegate = new LocalFilesystemStorageAdapter(rootDir);
+        }
+
+        @Override
+        public StorageProviderId providerId() {
+            return StorageProviderId.of("cloudinary");
+        }
+
+        @Override
+        public StoredBinaryObject store(StorageKey storageKey, InputStream content, long sizeBytes, MimeType mimeType) {
+            delegate.store(storageKey, content, sizeBytes, mimeType);
+            return StoredBinaryObject.of(StorageLocation.of(providerId(), storageKey));
+        }
+
+        @Override
+        public InputStream open(StorageKey storageKey) {
+            return delegate.open(storageKey);
+        }
+
+        @Override
+        public InputStream openRange(StorageKey storageKey, long startInclusive, long length) {
+            return delegate.openRange(storageKey, startInclusive, length);
+        }
+
+        @Override
+        public void delete(StorageKey storageKey) {
+            delegate.delete(storageKey);
+        }
     }
 
     @Autowired
     private MediaContract mediaContract;
 
     @Autowired
-    private BinaryStoragePort binaryStoragePort;
+    private StorageProviderResolverPort storageProviderResolverPort;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -204,21 +252,21 @@ class MediaUploadIntegrationTest {
         assertThat(detail.currentVersion().sizeBytes()).isEqualTo(initialBytes.length);
         assertThat(detail.currentVersion().originalFilename()).isEqualTo("banner.webp");
 
-        // --- 4 & 5. Verify provider is 'local' and SHA-256 matches in MySQL ---
+        // --- 4 & 5. Verify provider is 'cloudinary' and SHA-256 matches in MySQL ---
         Map<String, Object> v1Row = jdbcTemplate.queryForMap(
                 "SELECT storage_provider_id, storage_key, content_hash, size_bytes, mime_type FROM media_asset_versions WHERE asset_id = ? AND version_number = 1",
                 assetId.toString()
         );
-        assertThat(v1Row.get("storage_provider_id")).isEqualTo("local");
+        assertThat(v1Row.get("storage_provider_id")).isEqualTo("cloudinary");
         assertThat(v1Row.get("content_hash")).isEqualTo(initialSha256);
         assertThat(((Number) v1Row.get("size_bytes")).longValue()).isEqualTo(initialBytes.length);
         assertThat(v1Row.get("mime_type")).isEqualTo("image/webp");
 
         String v1StorageKey = (String) v1Row.get("storage_key");
-        assertThat(v1StorageKey).startsWith("objects/");
+        assertThat(v1StorageKey).startsWith("kiemlai/images/");
 
-        // --- 6. Open stored binary through BinaryStoragePort and verify exact bytes ---
-        try (InputStream storedStream = binaryStoragePort.open(StorageKey.of(v1StorageKey))) {
+        // --- 6. Open stored binary through StorageProviderResolverPort and verify exact bytes ---
+        try (InputStream storedStream = storageProviderResolverPort.resolve(StorageProviderId.of("cloudinary")).open(StorageKey.of(v1StorageKey))) {
             byte[] readBytes = storedStream.readAllBytes();
             assertThat(readBytes).isEqualTo(initialBytes);
         }
@@ -252,15 +300,15 @@ class MediaUploadIntegrationTest {
                 "SELECT storage_provider_id, storage_key, content_hash, size_bytes, mime_type FROM media_asset_versions WHERE asset_id = ? AND version_number = 2",
                 assetId.toString()
         );
-        assertThat(v2Row.get("storage_provider_id")).isEqualTo("local");
+        assertThat(v2Row.get("storage_provider_id")).isEqualTo("cloudinary");
         assertThat(v2Row.get("content_hash")).isEqualTo(v2Sha256);
         assertThat(((Number) v2Row.get("size_bytes")).longValue()).isEqualTo(v2Bytes.length);
 
         String v2StorageKey = (String) v2Row.get("storage_key");
-        assertThat(v2StorageKey).startsWith("objects/");
+        assertThat(v2StorageKey).startsWith("kiemlai/images/");
         assertThat(v2StorageKey).isNotEqualTo(v1StorageKey);
 
-        try (InputStream storedV2Stream = binaryStoragePort.open(StorageKey.of(v2StorageKey))) {
+        try (InputStream storedV2Stream = storageProviderResolverPort.resolve(StorageProviderId.of("cloudinary")).open(StorageKey.of(v2StorageKey))) {
             byte[] readV2Bytes = storedV2Stream.readAllBytes();
             assertThat(readV2Bytes).isEqualTo(v2Bytes);
         }

@@ -56,6 +56,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -113,7 +114,8 @@ import com.universe.media.application.variant.GetMediaImageVariantContentUseCase
         com.universe.interaction.entry.admin.AdminCommentReportDetailController.class,
         com.universe.interaction.entry.admin.AdminCommentReportModerationController.class,
         com.universe.wiki.entry.admin.AdminWikiContributionPageController.class,
-        com.universe.wiki.entry.admin.AdminWikiContributionCommandController.class
+        com.universe.wiki.entry.admin.AdminWikiContributionCommandController.class,
+        com.universe.search.entry.web.PublicSearchController.class
 })
 @Import({
         SecurityBeanConfig.class,
@@ -257,6 +259,9 @@ class SecurityAuthorizationTest {
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportQueueCoordinator adminCommentReportQueueCoordinator;
+
+    @MockBean
+    private com.universe.search.contracts.interfaces.SearchAggregationContract searchAggregationContract;
 
     @MockBean
     private com.universe.interaction.entry.admin.AdminCommentReportDetailCoordinator adminCommentReportDetailCoordinator;
@@ -765,6 +770,22 @@ class SecurityAuthorizationTest {
                 ));
 
         mockMvc.perform(get("/wiki/contextual-lookup").param("q", "kiem-lai"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Khách ẩn danh được phép tìm kiếm công khai GET /search")
+    void shouldAllowAnonymousAccessToPublicSearch() throws Exception {
+        when(searchAggregationContract.aggregate(any(), any(), anyInt()))
+                .thenReturn(new com.universe.search.contracts.dto.SearchAggregationResultDTO(
+                        "kiem-lai",
+                        com.universe.search.contracts.dto.SearchScope.ALL,
+                        new com.universe.wiki.contracts.dto.search.WikiNavigationalSearchResultDTO("kiem-lai", List.of()),
+                        new com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO("kiem-lai", null, List.of())
+                ));
+
+        mockMvc.perform(get("/search").param("q", "kiem-lai"))
                 .andExpect(status().isOk());
     }
 

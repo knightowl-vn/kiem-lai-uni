@@ -121,7 +121,12 @@ class R2StorageAdapterTest {
                         return PutObjectResponse.builder().build();
                     });
 
-            adapter.store(key, new ByteArrayInputStream(payload), payload.length, mimeType);
+            com.universe.media.application.ports.storage.StoredBinaryObject stored =
+                    adapter.store(key, new ByteArrayInputStream(payload), payload.length, mimeType);
+
+            assertThat(stored.location().providerId()).isEqualTo(StorageProviderId.of("r2"));
+            assertThat(stored.location().key()).isEqualTo(key);
+            assertThat(stored.publicUrl()).isNull();
 
             ArgumentCaptor<PutObjectRequest> requestCaptor = ArgumentCaptor.forClass(PutObjectRequest.class);
             verify(s3Client).putObject(requestCaptor.capture(), any(RequestBody.class));

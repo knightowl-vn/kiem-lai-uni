@@ -4,11 +4,11 @@ import com.universe.media.application.asset.GetMediaAssetContentResult;
 import com.universe.media.application.exceptions.MediaAssetNotFoundException;
 import com.universe.media.application.exceptions.MediaAssetVersionNotFoundException;
 import com.universe.media.application.exceptions.MediaImageVariantNotFoundException;
-import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.ports.MediaAssetRepositoryPort;
 import com.universe.media.application.ports.MediaAssetVersionRepositoryPort;
 import com.universe.media.application.ports.MediaImageVariantRepositoryPort;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StorageProviderResolverPort;
 import com.universe.media.domain.MediaAsset;
 import com.universe.media.domain.MediaAssetStatus;
 import com.universe.media.domain.MediaAssetVersion;
@@ -23,11 +23,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Use case for retrieving the binary content stream of a persisted image variant
+ * Use case for retrieving the binary content stream or redirect URL of an image variant
  * for the CURRENT version of an ACTIVE and PUBLIC media asset.
  * <p>
- * <strong>Stream Ownership:</strong> The caller/delivery layer owns the returned {@link InputStream}
- * and is responsible for properly closing it after streaming or handling the response.
+ * <strong>Stream Ownership:</strong> When streaming content is returned, the caller/delivery layer
+ * is responsible for properly closing the returned {@link InputStream}.
  */
 @Service
 public class GetMediaImageVariantContentUseCase {
@@ -35,13 +35,13 @@ public class GetMediaImageVariantContentUseCase {
     private final MediaAssetRepositoryPort mediaAssetRepositoryPort;
     private final MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort;
     private final MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort;
-    private final BinaryStoragePort binaryStoragePort;
+    private final StorageProviderResolverPort storageProviderResolverPort;
 
     public GetMediaImageVariantContentUseCase(
             MediaAssetRepositoryPort mediaAssetRepositoryPort,
             MediaAssetVersionRepositoryPort mediaAssetVersionRepositoryPort,
             MediaImageVariantRepositoryPort mediaImageVariantRepositoryPort,
-            BinaryStoragePort binaryStoragePort
+            StorageProviderResolverPort storageProviderResolverPort
     ) {
         this.mediaAssetRepositoryPort = Objects.requireNonNull(
                 mediaAssetRepositoryPort,
@@ -55,9 +55,9 @@ public class GetMediaImageVariantContentUseCase {
                 mediaImageVariantRepositoryPort,
                 "MediaImageVariantRepositoryPort cannot be null."
         );
-        this.binaryStoragePort = Objects.requireNonNull(
-                binaryStoragePort,
-                "BinaryStoragePort cannot be null."
+        this.storageProviderResolverPort = Objects.requireNonNull(
+                storageProviderResolverPort,
+                "StorageProviderResolverPort cannot be null."
         );
     }
 
@@ -91,19 +91,21 @@ public class GetMediaImageVariantContentUseCase {
                 .findByVersionIdAndVariantKey(currentVersion.getId(), variantKey)
                 .orElseThrow(() -> new MediaImageVariantNotFoundException(assetId, currentVersionNumber, variantKey));
 
-        // 4. Validate storage provider
-        if (!binaryStoragePort.providerId().equals(variant.getStorageLocation().providerId())) {
-            throw new StorageException(
-                    "Storage provider mismatch for variant " + variantKey + " of asset " + assetId
-                            + ": configured provider is " + binaryStoragePort.providerId().value()
-                            + ", but variant requires " + variant.getStorageLocation().providerId().value()
+        // 4. If variant has an external public URL, return provider-neutral redirect result
+        if (variant.hasPublicUrl()) {
+            return GetMediaAssetContentResult.redirect(
+                    variant.getPublicUrl(),
+                    variant.getSizeBytes() != null ? variant.getSizeBytes() : 0L,
+                    variant.getMimeType().value(),
+                    variant.getContentHash() != null ? variant.getContentHash().value() : null
             );
         }
 
-        // 5. Open binary stream using the variant's StorageKey
+        // 5. Otherwise, resolve storage provider and open binary stream using the variant's StorageKey
+        BinaryStoragePort binaryStoragePort = storageProviderResolverPort.resolve(variant.getStorageLocation().providerId());
         InputStream contentStream = binaryStoragePort.open(variant.getStorageLocation().key());
 
-        return new GetMediaAssetContentResult(
+        return GetMediaAssetContentResult.stream(
                 contentStream,
                 variant.getSizeBytes(),
                 variant.getMimeType().value(),

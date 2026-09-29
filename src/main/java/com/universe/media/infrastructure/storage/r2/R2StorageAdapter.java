@@ -4,12 +4,14 @@ import com.universe.media.application.exceptions.StorageException;
 import com.universe.media.application.exceptions.StorageObjectAlreadyExistsException;
 import com.universe.media.application.exceptions.StorageObjectNotFoundException;
 import com.universe.media.application.ports.storage.BinaryStoragePort;
+import com.universe.media.application.ports.storage.StoredBinaryObject;
 import com.universe.media.domain.MimeType;
 import com.universe.media.domain.StorageKey;
+import com.universe.media.domain.StorageLocation;
 import com.universe.media.domain.StorageProviderId;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -52,10 +54,7 @@ import java.util.Objects;
  * </ul>
  */
 @Component
-@ConditionalOnProperty(
-        name = "media.storage.provider",
-        havingValue = "r2"
-)
+@Conditional(R2StorageCondition.class)
 public class R2StorageAdapter implements BinaryStoragePort, AutoCloseable {
 
     public static final StorageProviderId PROVIDER_ID = StorageProviderId.of("r2");
@@ -114,7 +113,7 @@ public class R2StorageAdapter implements BinaryStoragePort, AutoCloseable {
     }
 
     @Override
-    public void store(
+    public StoredBinaryObject store(
             StorageKey key,
             InputStream content,
             long sizeBytes,
@@ -171,6 +170,7 @@ public class R2StorageAdapter implements BinaryStoragePort, AutoCloseable {
 
             try {
                 s3Client.putObject(putRequest, RequestBody.fromFile(tempFile));
+                return new StoredBinaryObject(StorageLocation.of(PROVIDER_ID, key), null);
             } catch (S3Exception e) {
                 if (isPreconditionFailed(e)) {
                     throw new StorageObjectAlreadyExistsException(key, e);

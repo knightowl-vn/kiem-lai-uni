@@ -28,6 +28,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -67,6 +68,14 @@ public class MediaDeliveryController {
         GetMediaAssetContentMetadataResult metadata = getMediaAssetContentUseCase.resolveMetadata(
                 new GetMediaAssetContentQuery(assetId)
         );
+
+        if (metadata.isRedirect()) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(metadata.redirectUri())
+                    .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
+                    .build();
+        }
+
         String eTag = quotedETag(metadata.contentHash());
 
         if (webRequest.checkNotModified(eTag)) {
@@ -131,6 +140,14 @@ public class MediaDeliveryController {
         GetMediaAssetContentResult result = getMediaImageVariantContentUseCase.execute(
                 new GetMediaImageVariantContentQuery(assetId, variantKey)
         );
+
+        if (result.isRedirect()) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(result.redirectUri())
+                    .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
+                    .build();
+        }
+
         return streamContentResponse(result, request);
     }
 
@@ -141,10 +158,12 @@ public class MediaDeliveryController {
         String eTag = "\"" + result.contentHash() + "\"";
 
         if (request.checkNotModified(eTag)) {
-            try {
-                result.content().close();
-            } catch (IOException e) {
-                throw new StorageException("Failed to close content stream on not-modified response", e);
+            if (result.content() != null) {
+                try {
+                    result.content().close();
+                } catch (IOException e) {
+                    throw new StorageException("Failed to close content stream on not-modified response", e);
+                }
             }
             return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
                     .header(HttpHeaders.CACHE_CONTROL, CACHE_CONTROL)
@@ -154,7 +173,9 @@ public class MediaDeliveryController {
 
         StreamingResponseBody streamingBody = outputStream -> {
             try (InputStream inputStream = result.content()) {
-                inputStream.transferTo(outputStream);
+                if (inputStream != null) {
+                    inputStream.transferTo(outputStream);
+                }
             }
         };
 
@@ -294,9 +315,9 @@ public class MediaDeliveryController {
     }
 
     private record RangeResolution(
-            RangeStatus status,
-            long startInclusive,
-            long endInclusive
+        RangeStatus status,
+        long startInclusive,
+        long endInclusive
     ) {
 
         private static RangeResolution ignored() {

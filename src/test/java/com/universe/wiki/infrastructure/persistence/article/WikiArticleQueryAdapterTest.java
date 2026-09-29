@@ -89,6 +89,10 @@ class WikiArticleQueryAdapterTest {
     private SpringDataWikiArticleJpaRepository
             repository;
 
+    @Mock
+    private SpringDataWikiArticleAliasJpaRepository
+            aliasRepository;
+
     private WikiArticleQueryAdapter
             queryAdapter;
 
@@ -96,7 +100,8 @@ class WikiArticleQueryAdapterTest {
     void setUp() {
         queryAdapter =
                 new WikiArticleQueryAdapter(
-                        repository
+                        repository,
+                        aliasRepository
                 );
     }
 

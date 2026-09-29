@@ -75,7 +75,7 @@ class MediaAssetContentDeliveryReadJpaIntegrationTest {
 
         assertThat(result).isEqualTo(new MediaAssetContentDeliverySnapshot(
                 ASSET_ID, MediaAssetStatus.ACTIVE, MediaVisibility.PUBLIC, 2,
-                VERSION_2_ID, ASSET_ID, 2, "local", "objects/content-v2.mp3",
+                VERSION_2_ID, ASSET_ID, 2, "local", "objects/content-v2.mp3", null,
                 HASH, "audio/mpeg", 2048L
         ));
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
@@ -106,6 +106,7 @@ class MediaAssetContentDeliveryReadJpaIntegrationTest {
         assertThat(result.versionNumber()).isNull();
         assertThat(result.storageProviderId()).isNull();
         assertThat(result.storageKey()).isNull();
+        assertThat(result.publicUrl()).isNull();
         assertThat(result.contentHash()).isNull();
         assertThat(result.mimeType()).isNull();
         assertThat(result.sizeBytes()).isNull();

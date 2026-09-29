@@ -346,4 +346,74 @@ public interface SpringDataChapterJpaRepository
     Optional<Integer> findChapterNumberById(
             @Param("id") String id
     );
+
+    /*
+     * MS-06C: Published Chapter Locator by exact Chapter Number
+     *
+     * Chỉ trả Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Không load summary/content/audit/version.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug,
+                        v.sort_order as volumeSortOrder,
+                        v.title as volumeTitle
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.chapter_number = :chapterNumber
+                    and c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    limit 1
+                    """,
+            nativeQuery = true
+    )
+    Optional<PublishedChapterLocatorProjection> findPublishedChapterByNumber(
+            @Param("chapterNumber") int chapterNumber
+    );
+
+    /*
+     * MS-06C: Published Chapter Locator by Title Keyword
+     *
+     * Chỉ trả Chapter PUBLISHED thuộc Volume PUBLISHED.
+     * Áp dụng folding Đ/đ -> d trực tiếp trên c.title để hỗ trợ mọi vị trí d/đ hỗn hợp.
+     * Tách biệt exactFoldedKeyword (unescaped) cho so sánh chính xác và likeFoldedKeyword (escaped) cho LIKE wildcard.
+     * Sắp xếp theo mức độ phù hợp (1: exact, 2: prefix, 3: contains) và chapter_number ASC,
+     * sau đó giới hạn candidateLimit ngay tại DB.
+     */
+    @Query(
+            value = """
+                    select
+                        c.id as id,
+                        c.chapter_number as chapterNumber,
+                        c.title as title,
+                        c.slug as slug,
+                        v.sort_order as volumeSortOrder,
+                        v.title as volumeTitle
+                    from novel_chapters c
+                    inner join novel_volumes v
+                        on v.id = c.volume_id
+                    where c.status = 'PUBLISHED'
+                    and v.status = 'PUBLISHED'
+                    and lower(replace(replace(c.title, 'Đ', 'd'), 'đ', 'd')) like lower(concat('%', :likeFoldedKeyword, '%')) escape '\\\\'
+                    order by
+                        case
+                            when lower(replace(replace(c.title, 'Đ', 'd'), 'đ', 'd')) = lower(:exactFoldedKeyword) then 1
+                            when lower(replace(replace(c.title, 'Đ', 'd'), 'đ', 'd')) like lower(concat(:likeFoldedKeyword, '%')) escape '\\\\' then 2
+                            else 3
+                        end asc,
+                        c.chapter_number asc
+                    limit :candidateLimit
+                    """,
+            nativeQuery = true
+    )
+    List<PublishedChapterLocatorProjection> findPublishedChaptersByTitleKeyword(
+            @Param("exactFoldedKeyword") String exactFoldedKeyword,
+            @Param("likeFoldedKeyword") String likeFoldedKeyword,
+            @Param("candidateLimit") int candidateLimit
+    );
 }
