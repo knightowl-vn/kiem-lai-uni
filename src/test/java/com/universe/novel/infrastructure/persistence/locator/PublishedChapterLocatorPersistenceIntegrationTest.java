@@ -115,8 +115,8 @@ class PublishedChapterLocatorPersistenceIntegrationTest {
 
         // 1. User
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'locator-user@universe.local', '$2a$10$hash', 'Locator User', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'locator-user@universe.local', '$2a$10$hash', 'Locator User', 'locator_user', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 

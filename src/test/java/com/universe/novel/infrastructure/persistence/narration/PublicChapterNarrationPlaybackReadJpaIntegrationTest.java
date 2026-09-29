@@ -63,8 +63,8 @@ class PublicChapterNarrationPlaybackReadJpaIntegrationTest {
         Timestamp now = Timestamp.from(Instant.parse("2026-09-10T00:00:00Z"));
         jdbcTemplate.update("UPDATE novel_managed_voices SET is_default = FALSE WHERE is_default = TRUE");
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) "
-                        + "VALUES (?, 'perf-b2b1@universe.local', '$2a$10$hash', 'PERF B2B1', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) "
+                        + "VALUES (?, 'perf-b2b1@universe.local', '$2a$10$hash', 'PERF B2B1', 'perf_b2b1_admin', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
                 USER_ID.toString(), now, now
         );
         jdbcTemplate.update(

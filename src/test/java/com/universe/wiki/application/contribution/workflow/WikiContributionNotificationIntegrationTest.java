@@ -162,10 +162,11 @@ class WikiContributionNotificationIntegrationTest {
 
     private void seedUser(UUID id, String email, String displayName, String role) {
         Instant now = Instant.now();
+        String handle = "u_" + id.toString().replace("-", "");
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, ?, '$2a$10$hash', ?, 'ACTIVE', ?, 1, 0, ?, ?)",
-                id.toString(), email, displayName, role, Timestamp.from(now), Timestamp.from(now)
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, ?, '$2a$10$hash', ?, ?, 'ACTIVE', ?, 1, 0, ?, ?)",
+                id.toString(), email, displayName, handle, role, Timestamp.from(now), Timestamp.from(now)
         );
     }
 

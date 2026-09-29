@@ -118,8 +118,8 @@ class ChapterNarrationSegmentFlywayRuntimeVerificationTest {
 
         // Seed parent user, volume, chapter
         jdbc.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'user@test.local', '$2a$10$hash', 'User', 'ACTIVE', 'ADMIN', 1, 0, NOW(6), NOW(6))",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'user@test.local', '$2a$10$hash', 'User', 'segment_user', 'ACTIVE', 'ADMIN', 1, 0, NOW(6), NOW(6))",
                 userId.toString()
         );
         jdbc.update(

@@ -153,13 +153,13 @@ class CommentMutationSpringWiringIntegrationTest {
 
         // 1. Users
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'novel-comm-user1@universe.local', '$2a$10$hash', 'Comm User 1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'novel-comm-user1@universe.local', '$2a$10$hash', 'Comm User 1', 'comm_user_1', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_1_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'novel-comm-user2@universe.local', '$2a$10$hash', 'Comm User 2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'novel-comm-user2@universe.local', '$2a$10$hash', 'Comm User 2', 'comm_user_2', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_2_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 

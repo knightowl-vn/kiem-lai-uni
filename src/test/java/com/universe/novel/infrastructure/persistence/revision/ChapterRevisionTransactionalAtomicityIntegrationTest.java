@@ -122,8 +122,8 @@ class ChapterRevisionTransactionalAtomicityIntegrationTest {
 
         // 1. User
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'atomicity-admin@universe.local', '$2a$10$hash', 'Atomicity Admin', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'atomicity-admin@universe.local', '$2a$10$hash', 'Atomicity Admin', 'atomicity_admin', 'ACTIVE', 'ADMIN', 1, 0, ?, ?)",
                 ADMIN_ID.toString(), Timestamp.from(now), Timestamp.from(now)
         );
 

@@ -94,8 +94,8 @@ class ReaderChapterNarrationAccessQueryPersistenceIntegrationTest {
         Timestamp timestamp = Timestamp.from(now);
 
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) "
-                        + "VALUES (?, 'h9f1-reader-query@universe.local', '$2a$10$hash', 'H9F1 Reader', 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) "
+                        + "VALUES (?, 'h9f1-reader-query@universe.local', '$2a$10$hash', 'H9F1 Reader', 'h9f1_reader', 'ACTIVE', 'USER', 1, 0, ?, ?)",
                 USER_ID.toString(), timestamp, timestamp
         );
         jdbcTemplate.update(

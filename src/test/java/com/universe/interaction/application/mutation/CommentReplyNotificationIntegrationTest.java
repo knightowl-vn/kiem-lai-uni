@@ -188,10 +188,11 @@ class CommentReplyNotificationIntegrationTest {
 
     private void seedUser(UUID id, String email, String displayName) {
         Instant now = Instant.now();
+        String handle = "u_" + id.toString().replace("-", "");
         jdbcTemplate.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, ?, '$2a$10$hash', ?, 'ACTIVE', 'USER', 1, 0, ?, ?)",
-                id.toString(), email, displayName, Timestamp.from(now), Timestamp.from(now)
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, ?, '$2a$10$hash', ?, ?, 'ACTIVE', 'USER', 1, 0, ?, ?)",
+                id.toString(), email, displayName, handle, Timestamp.from(now), Timestamp.from(now)
         );
     }
 

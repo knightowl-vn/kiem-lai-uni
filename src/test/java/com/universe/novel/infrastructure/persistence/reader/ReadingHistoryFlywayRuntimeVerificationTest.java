@@ -132,13 +132,13 @@ class ReadingHistoryFlywayRuntimeVerificationTest {
 
         // Seed users, volume, chapters
         jdbc.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'hist_user1@universe.local', '$2a$10$hash', 'Hist User 1', 'ACTIVE', 1, 0, NOW(), NOW())",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'hist_user1@universe.local', '$2a$10$hash', 'Hist User 1', 'hist_user1', 'ACTIVE', 1, 0, NOW(), NOW())",
                 user1Id.toString()
         );
         jdbc.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'hist_user2@universe.local', '$2a$10$hash', 'Hist User 2', 'ACTIVE', 1, 0, NOW(), NOW())",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'hist_user2@universe.local', '$2a$10$hash', 'Hist User 2', 'hist_user2', 'ACTIVE', 1, 0, NOW(), NOW())",
                 user2Id.toString()
         );
 

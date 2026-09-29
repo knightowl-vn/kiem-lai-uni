@@ -75,8 +75,8 @@ class ChapterNarrationAudioFailureFlywayRuntimeVerificationTest {
 
         // 1. Seed user, volume, chapter, segment, managed voice
         jdbc.update(
-                "INSERT INTO identity_users (id, email, password_hash, display_name, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
-                        "VALUES (?, 'failure-test@universe.local', '$2a$10$hash', 'Failure Tester', 'ACTIVE', 'ADMIN', 1, 0, NOW(6), NOW(6))",
+                "INSERT INTO identity_users (id, email, password_hash, display_name, public_handle, status, role, aggregate_version, persistence_version, created_at, updated_at) " +
+                        "VALUES (?, 'failure-test@universe.local', '$2a$10$hash', 'Failure Tester', 'failure_tester', 'ACTIVE', 'ADMIN', 1, 0, NOW(6), NOW(6))",
                 userId.toString()
         );
         jdbc.update(
