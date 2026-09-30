@@ -89,6 +89,42 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
     }
 
     @Override
+    public List<CommunityPostPublicDTO> findAuthoredPostsKeyset(
+            UUID authorUserId,
+            Instant cursorCreatedAt,
+            UUID cursorPostId,
+            int limit
+    ) {
+        if (authorUserId == null) {
+            throw new IllegalArgumentException("Author user ID cannot be null.");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("Limit must be greater than zero: " + limit);
+        }
+
+        Pageable pageable = PageRequest.of(0, limit);
+        List<CommunityPostJpaEntity> entities;
+
+        if (cursorCreatedAt == null && cursorPostId == null) {
+            entities = postRepository.findAuthoredPostsFirstPage(authorUserId.toString(), pageable);
+        } else if (cursorCreatedAt != null && cursorPostId != null) {
+            entities = postRepository.findAuthoredPostsAfterCursor(
+                    authorUserId.toString(),
+                    cursorCreatedAt,
+                    cursorPostId.toString(),
+                    pageable
+            );
+        } else {
+            throw new IllegalArgumentException("Cursor requires both cursorCreatedAt and cursorPostId, or both to be null.");
+        }
+
+        return entities.stream()
+                .map(postMapper::toPublicDTO)
+                .toList();
+    }
+
+
+    @Override
     public List<CommunityPostRankingCandidateDTO> findAllRankingCandidates() {
         return postRepository.findAllRankingCandidates().stream()
                 .map(proj -> new CommunityPostRankingCandidateDTO(

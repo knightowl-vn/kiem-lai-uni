@@ -53,6 +53,37 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
     );
 
     /**
+     * Fetches the first page of Community posts authored by a specific user ordered by {@code (created_at DESC, id DESC)}.
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE p.authorUserId = :authorUserId
+            ORDER BY p.createdAt DESC, p.id DESC
+            """)
+    List<CommunityPostJpaEntity> findAuthoredPostsFirstPage(
+            @Param("authorUserId") String authorUserId,
+            Pageable pageable
+    );
+
+    /**
+     * Fetches subsequent page of Community posts authored by a specific user strictly after the cursor point {@code (created_at, id)}.
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE p.authorUserId = :authorUserId
+              AND ((p.createdAt < :cursorCreatedAt)
+                OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorId))
+            ORDER BY p.createdAt DESC, p.id DESC
+            """)
+    List<CommunityPostJpaEntity> findAuthoredPostsAfterCursor(
+            @Param("authorUserId") String authorUserId,
+            @Param("cursorCreatedAt") Instant cursorCreatedAt,
+            @Param("cursorId") String cursorId,
+            Pageable pageable
+    );
+
+
+    /**
      * Fetches lightweight projection candidates for all live Community posts.
      */
     @Query("""

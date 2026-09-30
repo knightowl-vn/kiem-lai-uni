@@ -238,4 +238,84 @@ class CommunityPostQueryAdapterMySQLTest {
         // Empty input test
         assertThat(queryAdapter.findPublicPostsByIds(List.of())).isEmpty();
     }
+
+    @Test
+    @DisplayName("Should query authored posts using keyset pagination with author isolation and canonical tie-break")
+    void shouldQueryAuthoredPostsKeysetWithAuthorIsolationAndTieBreak() {
+        UUID authorA = UUID.randomUUID();
+        UUID authorB = UUID.randomUUID();
+        UUID authorC = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        Instant t3 = now.minus(1, ChronoUnit.HOURS);
+        Instant t2 = now.minus(2, ChronoUnit.HOURS); // Shared timestamp
+        Instant t1 = now.minus(3, ChronoUnit.HOURS);
+        Instant t0 = now.minus(4, ChronoUnit.HOURS);
+
+        UUID aId1 = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID aId2B = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"); // shared t2, higher id
+        UUID aId2A = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"); // shared t2, lower id
+        UUID aId4 = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID aId5 = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        // Author A posts
+        persistenceAdapter.save(CommunityPost.create(aId1, authorA, "A - Post 1 (t3)", null, t3));
+        persistenceAdapter.save(CommunityPost.create(aId2B, authorA, "A - Post 2B (t2, id=b...)", null, t2));
+        persistenceAdapter.save(CommunityPost.create(aId2A, authorA, "A - Post 2A (t2, id=a...)", null, t2));
+        persistenceAdapter.save(CommunityPost.create(aId4, authorA, "A - Post 4 (t1)", null, t1));
+        persistenceAdapter.save(CommunityPost.create(aId5, authorA, "A - Post 5 (t0)", null, t0));
+
+        // Author B posts (interleaved timestamps)
+        UUID bId1 = UUID.randomUUID();
+        UUID bId2 = UUID.randomUUID();
+        persistenceAdapter.save(CommunityPost.create(bId1, authorB, "B - Post 1 (t3)", null, t3));
+        persistenceAdapter.save(CommunityPost.create(bId2, authorB, "B - Post 2 (t1)", null, t1));
+
+        // --- Author A: Page 1 (limit 2) ---
+        List<CommunityPostPublicDTO> aPage1 = queryAdapter.findAuthoredPostsKeyset(authorA, null, null, 2);
+        assertThat(aPage1).hasSize(2);
+        assertThat(aPage1.get(0).id()).isEqualTo(aId1);
+        assertThat(aPage1.get(0).authorUserId()).isEqualTo(authorA);
+        assertThat(aPage1.get(1).id()).isEqualTo(aId2B); // id2B comes before id2A due to id DESC
+        assertThat(aPage1.get(1).authorUserId()).isEqualTo(authorA);
+
+        // --- Author A: Page 2 (limit 2, cursor = last item of page 1: t2, aId2B) ---
+        CommunityPostPublicDTO lastOfPage1 = aPage1.get(1);
+        List<CommunityPostPublicDTO> aPage2 = queryAdapter.findAuthoredPostsKeyset(authorA, lastOfPage1.createdAt(), lastOfPage1.id(), 2);
+        assertThat(aPage2).hasSize(2);
+        assertThat(aPage2.get(0).id()).isEqualTo(aId2A);
+        assertThat(aPage2.get(0).authorUserId()).isEqualTo(authorA);
+        assertThat(aPage2.get(1).id()).isEqualTo(aId4);
+        assertThat(aPage2.get(1).authorUserId()).isEqualTo(authorA);
+
+        // --- Author A: Page 3 (limit 2, cursor = last item of page 2: t1, aId4) ---
+        CommunityPostPublicDTO lastOfPage2 = aPage2.get(1);
+        List<CommunityPostPublicDTO> aPage3 = queryAdapter.findAuthoredPostsKeyset(authorA, lastOfPage2.createdAt(), lastOfPage2.id(), 2);
+        assertThat(aPage3).hasSize(1);
+        assertThat(aPage3.get(0).id()).isEqualTo(aId5);
+        assertThat(aPage3.get(0).authorUserId()).isEqualTo(authorA);
+
+        // --- Author A: Page 4 (limit 2, cursor = last item of page 3: t0, aId5) ---
+        CommunityPostPublicDTO lastOfPage3 = aPage3.get(0);
+        List<CommunityPostPublicDTO> aPage4 = queryAdapter.findAuthoredPostsKeyset(authorA, lastOfPage3.createdAt(), lastOfPage3.id(), 2);
+        assertThat(aPage4).isEmpty();
+
+        // Verify total traversal for Author A: exactly 5 items, zero from Author B
+        List<UUID> fullSequenceA = List.of(
+                aPage1.get(0).id(), aPage1.get(1).id(),
+                aPage2.get(0).id(), aPage2.get(1).id(),
+                aPage3.get(0).id()
+        );
+        assertThat(fullSequenceA).containsExactly(aId1, aId2B, aId2A, aId4, aId5);
+
+        // --- Author B: Page 1 (limit 10) ---
+        List<CommunityPostPublicDTO> bPage1 = queryAdapter.findAuthoredPostsKeyset(authorB, null, null, 10);
+        assertThat(bPage1).hasSize(2);
+        assertThat(bPage1).extracting(CommunityPostPublicDTO::id).containsExactly(bId1, bId2);
+        assertThat(bPage1).extracting(CommunityPostPublicDTO::authorUserId).containsOnly(authorB);
+
+        // --- Author C (no posts) ---
+        List<CommunityPostPublicDTO> cPage1 = queryAdapter.findAuthoredPostsKeyset(authorC, null, null, 10);
+        assertThat(cPage1).isEmpty();
+    }
 }

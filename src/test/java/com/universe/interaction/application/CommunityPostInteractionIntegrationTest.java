@@ -138,6 +138,17 @@ class CommunityPostInteractionIntegrationTest {
                 }
 
                 @Override
+                public List<CommunityPostPublicDTO> findAuthoredPostsKeyset(
+                        UUID authorUserId,
+                        java.time.Instant cursorCreatedAt,
+                        UUID cursorPostId,
+                        int limit
+                ) {
+                    return List.of();
+                }
+
+
+                @Override
                 public List<CommunityPostRankingCandidateDTO> findAllRankingCandidates() {
                     return POST_STORE.values().stream()
                             .map(p -> new CommunityPostRankingCandidateDTO(p.id(), p.createdAt()))
