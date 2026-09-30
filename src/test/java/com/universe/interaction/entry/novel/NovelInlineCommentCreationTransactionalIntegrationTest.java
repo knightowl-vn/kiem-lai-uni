@@ -1,5 +1,6 @@
 package com.universe.interaction.entry.novel;
 
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
@@ -83,6 +84,9 @@ class NovelInlineCommentCreationTransactionalIntegrationTest {
 
     @MockBean
     private CommentTargetEligibilityPort eligibilityPort;
+
+    @MockBean
+    private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
 
     @MockBean
     private ChapterAnchorResolutionSourcePort resolutionSourcePort;

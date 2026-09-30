@@ -26,6 +26,8 @@ import com.universe.novel.infrastructure.persistence.reader.ReaderChapterAccessQ
 import com.universe.shared.id.UuidGeneratorAdapter;
 import com.universe.shared.time.SystemClockAdapter;
 import com.universe.test.TestDatabaseSupport;
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.notification.contracts.command.NotificationDispatchCommand;
 import com.universe.notification.contracts.port.NotificationDispatchPort;
 import com.universe.wiki.application.ports.WikiArticleQueryPort;
@@ -114,6 +116,12 @@ class CommentReplyNotificationIntegrationTest {
 
     @MockBean
     private WikiArticleQueryPort wikiArticleQueryPort;
+
+    @MockBean
+    private CommunityPostQueryPort communityPostQueryPort;
+
+    @MockBean
+    private CommunityPostInteractionMutationPort communityPostInteractionMutationPort;
 
     @Autowired
     private CreateRootCommentUseCase createRootCommentUseCase;
