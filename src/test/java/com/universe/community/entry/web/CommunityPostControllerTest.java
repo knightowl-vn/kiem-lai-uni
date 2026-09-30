@@ -1,7 +1,9 @@
 package com.universe.community.entry.web;
 
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
+import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.domain.exception.CommunityPostValidationException;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
@@ -25,27 +27,36 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("CommunityPostController Standalone Unit Tests")
 class CommunityPostControllerTest {
 
     private static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID POST_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     @Mock
     private CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase;
+
+    @Mock
+    private DeleteCommunityPostUseCase deleteCommunityPostUseCase;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         CommunityPostController controller = new CommunityPostController(
-                createCommunityPostWithImageUseCase
+                createCommunityPostWithImageUseCase,
+                deleteCommunityPostUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -273,5 +284,103 @@ class CommunityPostControllerTest {
                         }))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.message").value("Failed to persist community post"));
+    }
+
+    // =========================================================================
+    // DELETE /api/community/posts/{postId} Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} should reject unauthenticated request with 401 Unauthorized")
+    void shouldRejectUnauthenticatedDeleteRequest() throws Exception {
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID))
+                .andExpect(status().isUnauthorized());
+
+        verify(deleteCommunityPostUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} should successfully delete post for authenticated owner -> 204 No Content")
+    void shouldDeletePostSuccessfullyForOwner() throws Exception {
+        doNothing().when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isNoContent());
+
+        verify(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} should return 404 Not Found when post does not exist")
+    void shouldReturnNotFoundWhenDeletingNonExistentPost() throws Exception {
+        doThrow(new CommunityPostNotFoundException(POST_ID))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} should return 403 Forbidden when actor is not post author")
+    void shouldReturnForbiddenWhenDeletingPostAsNonOwner() throws Exception {
+        doThrow(new CommunityPostUnauthorizedException(USER_ID, POST_ID))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("User " + USER_ID + " is not authorized to modify post " + POST_ID));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} should return 500 Internal Server Error on unexpected failure")
+    void shouldReturnInternalServerErrorOnUnexpectedDeleteFailure() throws Exception {
+        doThrow(new IllegalStateException("Database lock error"))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message").value("Database lock error"));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} repeated delete: first -> 204, second -> 404")
+    void shouldHandleRepeatedDeleteInController() throws Exception {
+        doNothing()
+                .doThrow(new CommunityPostNotFoundException(POST_ID))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        // First attempt -> 204
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isNoContent());
+
+        // Second attempt -> 404
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
     }
 }

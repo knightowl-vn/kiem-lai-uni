@@ -2,8 +2,10 @@ package com.universe.community.entry.web;
 
 import com.universe.community.application.mapper.CommunityPostDTOMapper;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
+import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.domain.exception.CommunityPostValidationException;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
@@ -12,7 +14,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,20 +32,26 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Public REST controller for creating Community Posts with optional image upload.
+ * Public REST controller for managing Community Posts (creation with optional image upload, deletion).
  */
 @RestController
 @RequestMapping("/api/community/posts")
 public class CommunityPostController {
 
     private final CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase;
+    private final DeleteCommunityPostUseCase deleteCommunityPostUseCase;
 
     public CommunityPostController(
-            CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase
+            CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase,
+            DeleteCommunityPostUseCase deleteCommunityPostUseCase
     ) {
         this.createCommunityPostWithImageUseCase = Objects.requireNonNull(
                 createCommunityPostWithImageUseCase,
                 "CreateCommunityPostWithImageUseCase cannot be null."
+        );
+        this.deleteCommunityPostUseCase = Objects.requireNonNull(
+                deleteCommunityPostUseCase,
+                "DeleteCommunityPostUseCase cannot be null."
         );
     }
 
@@ -101,6 +111,33 @@ public class CommunityPostController {
 
         CommunityPostPublicDTO responseDto = CommunityPostDTOMapper.toPublicDTO(post);
         return ResponseEntity.status(HttpStatus.CREATED).body(responseDto);
+    }
+
+    /**
+     * DELETE /api/community/posts/{postId}
+     * Hard-deletes a Community Post owned by the authenticated actor, cleaning up interactions
+     * and transitioning attached media to DELETED.
+     */
+    @DeleteMapping(value = "/{postId}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Void> deletePost(
+            @PathVariable("postId") UUID postId,
+            HttpServletRequest request
+    ) {
+        Optional<AuthenticatedRequestIdentity> identityOpt = AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        UUID actorUserId = identityOpt.get().userId();
+        deleteCommunityPostUseCase.execute(actorUserId, postId);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    @ExceptionHandler(CommunityPostNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNotFoundException(CommunityPostNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Resource not found"));
     }
 
     @ExceptionHandler(CommunityPostValidationException.class)
