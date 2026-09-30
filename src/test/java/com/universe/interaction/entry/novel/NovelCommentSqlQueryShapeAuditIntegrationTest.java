@@ -449,11 +449,17 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         System.out.println("AUDIT_MUTATION CREATE_REPLY: sel=" + repSelects + " ins=" + repInserts + " upd=" + repUpdates + " del=" + repDeletes + " tot=" + repTotal);
         StatementCounter.statements().forEach(s -> System.out.println("  REP_SQL: " + s));
 
-        assertThat(repSelects).as("Create reply SELECT count").isEqualTo(3);
+        // B3 canonical pessimistic locking acquires FOR UPDATE lock on the comment hierarchy,
+        // resulting in 4 SELECTs:
+        // 1. Non-locking parent hierarchy resolution
+        // 2. Canonical pessimistic lock acquisition (FOR UPDATE)
+        // 3. Target eligibility verification under lock
+        // 4. Persistence layer pre-insert entity verification (Hibernate saveAndFlush)
+        assertThat(repSelects).as("Create reply SELECT count (parent resolution + canonical lock + eligibility + pre-insert)").isEqualTo(4);
         assertThat(repInserts).as("Create reply INSERT count").isEqualTo(1);
         assertThat(repUpdates).as("Create reply UPDATE count").isZero();
         assertThat(repDeletes).as("Create reply DELETE count").isZero();
-        assertThat(repTotal).as("Create reply TOTAL count").isEqualTo(4);
+        assertThat(repTotal).as("Create reply TOTAL count (4 SELECTs + 1 INSERT)").isEqualTo(5);
 
         // C. EDIT CHANGING BODY
         StatementCounter.reset();
@@ -511,9 +517,10 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
 
         assertThat(drSelects).as("Delete reply SELECT count (lock + 2 descendant checks)").isEqualTo(3);
         assertThat(drInserts).as("Delete reply INSERT count").isZero();
-        assertThat(drUpdates).as("Delete reply UPDATE count").isZero();
+        // B3 stamps targetDeletedAt on interaction_reports for evidence retention
+        assertThat(drUpdates).as("Delete reply UPDATE count (stamp targetDeletedAt on reports)").isEqualTo(1);
         assertThat(drDeletes).as("Delete reply DELETE count (reactions, revisions, comment)").isEqualTo(3);
-        assertThat(drTotal).as("Delete reply TOTAL count").isEqualTo(6);
+        assertThat(drTotal).as("Delete reply TOTAL count (3 SELECTs + 1 UPDATE + 3 DELETEs)").isEqualTo(7);
 
         // F. DELETE ROOT (has 1 revision from edit step)
         StatementCounter.reset();
@@ -531,9 +538,10 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
 
         assertThat(drootSelects).as("Delete root SELECT count (lock + 2 descendant checks)").isEqualTo(3);
         assertThat(drootInserts).as("Delete root INSERT count").isZero();
-        assertThat(drootUpdates).as("Delete root UPDATE count").isZero();
+        // B3 stamps targetDeletedAt on interaction_reports for evidence retention
+        assertThat(drootUpdates).as("Delete root UPDATE count (stamp targetDeletedAt on reports)").isEqualTo(1);
         assertThat(drootDeletes).as("Delete root DELETE count (reactions, revisions, comment)").isEqualTo(3);
-        assertThat(drootTotal).as("Delete root TOTAL count").isEqualTo(6);
+        assertThat(drootTotal).as("Delete root TOTAL count (3 SELECTs + 1 UPDATE + 3 DELETEs)").isEqualTo(7);
     }
 
     // =========================================================================

@@ -10,6 +10,8 @@ import com.universe.interaction.infrastructure.persistence.CommentPersistenceAda
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceMapper;
+import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceAdapter;
+import com.universe.interaction.infrastructure.persistence.InteractionReportPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.reaction.ReactionPersistenceMapper;
 import com.universe.shared.id.UuidGeneratorAdapter;
@@ -69,6 +71,8 @@ import static org.mockito.Mockito.reset;
         CommentPersistenceMapper.class,
         CommentRevisionPersistenceAdapter.class,
         CommentRevisionPersistenceMapper.class,
+        InteractionReportPersistenceAdapter.class,
+        InteractionReportPersistenceMapper.class,
         ReactionPersistenceAdapter.class,
         ReactionPersistenceMapper.class,
         EditCommentUseCase.class,
