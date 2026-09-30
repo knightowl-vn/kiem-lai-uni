@@ -637,18 +637,19 @@ class CommentTest {
     class TargetTypeContractTests {
 
         @Test
-        @DisplayName("CommentTargetType is limited strictly to NOVEL_CHAPTER and WIKI_ARTICLE")
+        @DisplayName("CommentTargetType is limited strictly to approved target types")
         void shouldLimitTargetTypeStrictlyToApprovedTargets() {
             CommentTargetType[] values = CommentTargetType.values();
             assertThat(values).containsExactlyInAnyOrder(
                     CommentTargetType.NOVEL_CHAPTER,
-                    CommentTargetType.WIKI_ARTICLE
+                    CommentTargetType.WIKI_ARTICLE,
+                    CommentTargetType.COMMUNITY_POST
             );
-            assertThat(values).hasSize(2);
+            assertThat(values).hasSize(3);
         }
 
         @Test
-        @DisplayName("CommentTarget correctly represents novel chapter and wiki article")
+        @DisplayName("CommentTarget correctly represents novel chapter, wiki article, and community post")
         void shouldCreateValidTargets() {
             CommentTarget novelTarget = CommentTarget.novelChapter(CHAPTER_ID);
             assertThat(novelTarget.type()).isEqualTo(CommentTargetType.NOVEL_CHAPTER);
@@ -657,6 +658,11 @@ class CommentTest {
             CommentTarget wikiTarget = CommentTarget.wikiArticle(ARTICLE_ID);
             assertThat(wikiTarget.type()).isEqualTo(CommentTargetType.WIKI_ARTICLE);
             assertThat(wikiTarget.targetId()).isEqualTo(ARTICLE_ID);
+
+            UUID postId = UUID.randomUUID();
+            CommentTarget communityTarget = CommentTarget.communityPost(postId);
+            assertThat(communityTarget.type()).isEqualTo(CommentTargetType.COMMUNITY_POST);
+            assertThat(communityTarget.targetId()).isEqualTo(postId);
         }
     }
 
