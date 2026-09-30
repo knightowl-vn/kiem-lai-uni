@@ -51,4 +51,18 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
             @Param("cursorId") String cursorId,
             Pageable pageable
     );
+
+    /**
+     * Fetches lightweight projection candidates for all live Community posts.
+     */
+    @Query("""
+            SELECT p.id AS id, p.createdAt AS createdAt
+            FROM CommunityPostJpaEntity p
+            """)
+    List<CommunityPostRankingCandidateProjection> findAllRankingCandidates();
+
+    /**
+     * Fetches Community posts by a collection of IDs for winner hydration.
+     */
+    List<CommunityPostJpaEntity> findByIdIn(java.util.Collection<String> ids);
 }

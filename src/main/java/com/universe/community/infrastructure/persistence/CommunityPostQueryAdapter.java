@@ -1,6 +1,7 @@
 package com.universe.community.infrastructure.persistence;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import org.springframework.data.domain.PageRequest;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -82,6 +84,27 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
         }
 
         return entities.stream()
+                .map(postMapper::toPublicDTO)
+                .toList();
+    }
+
+    @Override
+    public List<CommunityPostRankingCandidateDTO> findAllRankingCandidates() {
+        return postRepository.findAllRankingCandidates().stream()
+                .map(proj -> new CommunityPostRankingCandidateDTO(
+                        UUID.fromString(proj.getId()),
+                        proj.getCreatedAt()
+                ))
+                .toList();
+    }
+
+    @Override
+    public List<CommunityPostPublicDTO> findPublicPostsByIds(Collection<UUID> postIds) {
+        if (postIds == null || postIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> idStrings = postIds.stream().map(UUID::toString).toList();
+        return postRepository.findByIdIn(idStrings).stream()
                 .map(postMapper::toPublicDTO)
                 .toList();
     }

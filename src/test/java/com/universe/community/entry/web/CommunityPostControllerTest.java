@@ -2,7 +2,9 @@ package com.universe.community.entry.web;
 
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.domain.CommunityPost;
@@ -35,6 +37,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -58,6 +61,9 @@ class CommunityPostControllerTest {
     @Mock
     private GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
 
+    @Mock
+    private GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -65,7 +71,8 @@ class CommunityPostControllerTest {
         CommunityPostController controller = new CommunityPostController(
                 createCommunityPostWithImageUseCase,
                 deleteCommunityPostUseCase,
-                getCommunityNewestFeedUseCase
+                getCommunityNewestFeedUseCase,
+                getCommunityFeaturedFeedUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -466,13 +473,80 @@ class CommunityPostControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/community/posts?feed=FEATURED should return 400 Bad Request in B5.1")
-    void shouldRejectUnsupportedFeaturedFeedInB51() throws Exception {
-        mockMvc.perform(get("/api/community/posts").param("feed", "FEATURED"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Unsupported feed selector: FEATURED"));
+    @DisplayName("GET /api/community/posts?feed=FEATURED should return 200 OK with featured feed")
+    void shouldReturnFeaturedFeed() throws Exception {
+        UUID postId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                postId, USER_ID, "Featured post", null, null, 0,
+                10L, 5L, 15L, now, now
+        );
+        CommunityFeaturedFeedResponseDTO responseDTO = new CommunityFeaturedFeedResponseDTO(
+                List.of(item), 0, 20, 1L, 1, false
+        );
 
+        when(getCommunityFeaturedFeedUseCase.execute(0, 20)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts").param("feed", "FEATURED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(postId.toString()))
+                .andExpect(jsonPath("$.items[0].reactionCount").value(10))
+                .andExpect(jsonPath("$.items[0].commentCount").value(5))
+                .andExpect(jsonPath("$.items[0].engagementScore").value(15))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getCommunityFeaturedFeedUseCase).execute(0, 20);
         verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=featured (case-insensitive) & page=1 & size=10 should pass params to use case")
+    void shouldAcceptCaseInsensitiveFeaturedFeedWithPageAndSize() throws Exception {
+        CommunityFeaturedFeedResponseDTO responseDTO = new CommunityFeaturedFeedResponseDTO(
+                List.of(), 1, 10, 5L, 1, false
+        );
+
+        when(getCommunityFeaturedFeedUseCase.execute(1, 10)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "featured")
+                        .param("page", "1")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10));
+
+        verify(getCommunityFeaturedFeedUseCase).execute(1, 10);
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=FEATURED&cursor=xxx should reject with 400 Bad Request")
+    void shouldRejectCursorOnFeaturedFeed() throws Exception {
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "FEATURED")
+                        .param("cursor", "some-cursor"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Cursor pagination is only supported for NEWEST feed."));
+
+        verifyNoInteractions(getCommunityFeaturedFeedUseCase);
+        verifyNoInteractions(getCommunityNewestFeedUseCase);
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=NEWEST&page=1 should reject with 400 Bad Request")
+    void shouldRejectPageOnNewestFeed() throws Exception {
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "NEWEST")
+                        .param("page", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Page pagination is only supported for FEATURED feed."));
+
+        verifyNoInteractions(getCommunityFeaturedFeedUseCase);
+        verifyNoInteractions(getCommunityNewestFeedUseCase);
     }
 
     @Test
@@ -482,7 +556,8 @@ class CommunityPostControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Unsupported feed selector: UNKNOWN"));
 
-        verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+        verifyNoInteractions(getCommunityFeaturedFeedUseCase);
+        verifyNoInteractions(getCommunityNewestFeedUseCase);
     }
 
     @Test

@@ -2,7 +2,10 @@ package com.universe.community.contracts.port;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,8 +40,23 @@ public interface CommunityPostQueryPort {
      * @return list of public post projection DTOs
      */
     List<CommunityPostPublicDTO> findNewestPostsKeyset(
-            java.time.Instant cursorCreatedAt,
+            Instant cursorCreatedAt,
             UUID cursorPostId,
             int limit
     );
+
+    /**
+     * Finds lightweight ranking candidates (postId, createdAt) for all live Community posts.
+     *
+     * @return list of ranking candidate DTOs
+     */
+    List<CommunityPostRankingCandidateDTO> findAllRankingCandidates();
+
+    /**
+     * Batch hydrates public post projections for the given post UUIDs.
+     *
+     * @param postIds collection of post UUIDs
+     * @return list of public post projection DTOs
+     */
+    List<CommunityPostPublicDTO> findPublicPostsByIds(Collection<UUID> postIds);
 }

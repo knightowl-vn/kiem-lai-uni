@@ -1,6 +1,7 @@
 package com.universe.interaction.application;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
@@ -134,6 +135,24 @@ class CommunityPostInteractionIntegrationTest {
                         int limit
                 ) {
                     return List.of();
+                }
+
+                @Override
+                public List<CommunityPostRankingCandidateDTO> findAllRankingCandidates() {
+                    return POST_STORE.values().stream()
+                            .map(p -> new CommunityPostRankingCandidateDTO(p.id(), p.createdAt()))
+                            .toList();
+                }
+
+                @Override
+                public List<CommunityPostPublicDTO> findPublicPostsByIds(java.util.Collection<UUID> postIds) {
+                    if (postIds == null || postIds.isEmpty()) {
+                        return List.of();
+                    }
+                    return postIds.stream()
+                            .map(POST_STORE::get)
+                            .filter(java.util.Objects::nonNull)
+                            .toList();
                 }
             };
         }

@@ -2,7 +2,9 @@ package com.universe.community.entry.web;
 
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.domain.CommunityPost;
@@ -99,6 +101,9 @@ class CommunityPostControllerWebMvcTest {
 
     @MockBean
     private GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
+
+    @MockBean
+    private GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -511,12 +516,83 @@ class CommunityPostControllerWebMvcTest {
 
     @Test
     @WithAnonymousUser
-    @DisplayName("GET /api/community/posts with feed=FEATURED -> 400 Bad Request in B5.1")
-    void shouldRejectFeaturedFeedWith400InSlice() throws Exception {
-        mockMvc.perform(get("/api/community/posts").param("feed", "FEATURED"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Unsupported feed selector: FEATURED"));
+    @DisplayName("GET /api/community/posts with feed=FEATURED -> 200 OK")
+    void shouldAcceptFeaturedFeedSelectorInSlice() throws Exception {
+        UUID p1Id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                p1Id, USER_ID, "Featured post", null, null, 0,
+                10L, 5L, 15L, now, now
+        );
+        CommunityFeaturedFeedResponseDTO responseDTO = new CommunityFeaturedFeedResponseDTO(
+                List.of(item), 0, 20, 1L, 1, false
+        );
 
+        when(getCommunityFeaturedFeedUseCase.execute(0, 20)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts").param("feed", "FEATURED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(p1Id.toString()))
+                .andExpect(jsonPath("$.items[0].engagementScore").value(15))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalItems").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getCommunityFeaturedFeedUseCase).execute(0, 20);
+        verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts with feed=featured (case-insensitive) and page=2 -> 200 OK")
+    void shouldAcceptCaseInsensitiveFeaturedFeedSelectorWithCustomPageInSlice() throws Exception {
+        CommunityFeaturedFeedResponseDTO responseDTO = new CommunityFeaturedFeedResponseDTO(
+                List.of(), 2, 10, 25L, 3, false
+        );
+
+        when(getCommunityFeaturedFeedUseCase.execute(2, 10)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "featured")
+                        .param("page", "2")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(2))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalItems").value(25))
+                .andExpect(jsonPath("$.totalPages").value(3))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getCommunityFeaturedFeedUseCase).execute(2, 10);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts with feed=FEATURED and cursor -> 400 Bad Request (exclusivity)")
+    void shouldRejectFeaturedFeedWithCursorInSlice() throws Exception {
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "FEATURED")
+                        .param("cursor", "some-cursor"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Cursor pagination is only supported for NEWEST feed."));
+
+        verify(getCommunityFeaturedFeedUseCase, never()).execute(any(), any());
+        verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts with feed=NEWEST and page -> 400 Bad Request (exclusivity)")
+    void shouldRejectNewestFeedWithPageInSlice() throws Exception {
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "NEWEST")
+                        .param("page", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Page pagination is only supported for FEATURED feed."));
+
+        verify(getCommunityFeaturedFeedUseCase, never()).execute(any(), any());
         verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
     }
 
@@ -529,6 +605,7 @@ class CommunityPostControllerWebMvcTest {
                 .andExpect(jsonPath("$.message").value("Unsupported feed selector: UNKNOWN"));
 
         verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+        verify(getCommunityFeaturedFeedUseCase, never()).execute(any(), any());
     }
 
     @Test

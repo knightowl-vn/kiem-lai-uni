@@ -1,6 +1,7 @@
 package com.universe.community.infrastructure.persistence;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostRevision;
@@ -192,5 +193,49 @@ class CommunityPostQueryAdapterMySQLTest {
                 page3.get(0).id()
         );
         assertThat(fullSequence).containsExactly(id1, id2B, id2A, id4, id5);
+    }
+
+    @Test
+    @DisplayName("Should find all lightweight ranking candidates from MySQL")
+    void shouldFindAllRankingCandidates() {
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = now.minus(10, ChronoUnit.MINUTES);
+        Instant t2 = now.minus(5, ChronoUnit.MINUTES);
+
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, t1));
+        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, t2));
+
+        List<CommunityPostRankingCandidateDTO> candidates = queryAdapter.findAllRankingCandidates();
+        assertThat(candidates).hasSize(2);
+        assertThat(candidates).extracting(CommunityPostRankingCandidateDTO::postId)
+                .containsExactlyInAnyOrder(id1, id2);
+        assertThat(candidates).extracting(CommunityPostRankingCandidateDTO::createdAt)
+                .containsExactlyInAnyOrder(t1, t2);
+    }
+
+    @Test
+    @DisplayName("Should find public posts by IDs in bulk and omit nonexistent IDs")
+    void shouldFindPublicPostsByIds() {
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        UUID missingId = UUID.randomUUID();
+
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, now));
+        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, now));
+
+        List<CommunityPostPublicDTO> list = queryAdapter.findPublicPostsByIds(List.of(id1, id2, missingId));
+        assertThat(list).hasSize(2);
+        assertThat(list).extracting(CommunityPostPublicDTO::id).containsExactlyInAnyOrder(id1, id2);
+        assertThat(list).extracting(CommunityPostPublicDTO::caption).containsExactlyInAnyOrder("Post 1", "Post 2");
+
+        // Empty input test
+        assertThat(queryAdapter.findPublicPostsByIds(List.of())).isEmpty();
     }
 }

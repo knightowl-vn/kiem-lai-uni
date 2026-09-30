@@ -3,7 +3,9 @@ package com.universe.community.entry.web;
 import com.universe.community.application.mapper.CommunityPostDTOMapper;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.domain.CommunityPost;
@@ -44,11 +46,13 @@ public class CommunityPostController {
     private final CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase;
     private final DeleteCommunityPostUseCase deleteCommunityPostUseCase;
     private final GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
+    private final GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
 
     public CommunityPostController(
             CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase,
             DeleteCommunityPostUseCase deleteCommunityPostUseCase,
-            GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase
+            GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase,
+            GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase
     ) {
         this.createCommunityPostWithImageUseCase = Objects.requireNonNull(
                 createCommunityPostWithImageUseCase,
@@ -62,24 +66,43 @@ public class CommunityPostController {
                 getCommunityNewestFeedUseCase,
                 "GetCommunityNewestFeedUseCase cannot be null."
         );
+        this.getCommunityFeaturedFeedUseCase = Objects.requireNonNull(
+                getCommunityFeaturedFeedUseCase,
+                "GetCommunityFeaturedFeedUseCase cannot be null."
+        );
     }
 
     /**
      * GET /api/community/posts
-     * Publicly retrieves a keyset-paginated slice of Community posts for the NEWEST feed.
+     * Publicly retrieves a paginated slice of Community posts for either NEWEST (keyset) or FEATURED (page-based) feed.
      */
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CommunityNewestFeedResponseDTO> getFeed(
-            @RequestParam(value = "feed", required = false, defaultValue = "NEWEST") String feed,
+    public ResponseEntity<?> getFeed(
+            @RequestParam(value = "feed", required = false) String feed,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "size", required = false, defaultValue = "20") int size
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size
     ) {
-        if (feed != null && !feed.isBlank() && !"NEWEST".equalsIgnoreCase(feed.trim())) {
+        String normalizedFeed = (feed == null || feed.isBlank()) ? "NEWEST" : feed.trim();
+
+        if ("NEWEST".equalsIgnoreCase(normalizedFeed)) {
+            if (page != null) {
+                throw new CommunityPostValidationException("Page pagination is only supported for FEATURED feed.");
+            }
+            int requestedSize = (size != null) ? size : 20;
+            CommunityNewestFeedResponseDTO response = getCommunityNewestFeedUseCase.execute(cursor, requestedSize);
+            return ResponseEntity.ok(response);
+        } else if ("FEATURED".equalsIgnoreCase(normalizedFeed)) {
+            if (cursor != null && !cursor.isBlank()) {
+                throw new CommunityPostValidationException("Cursor pagination is only supported for NEWEST feed.");
+            }
+            int requestedPage = (page != null) ? page : 0;
+            int requestedSize = (size != null) ? size : 20;
+            CommunityFeaturedFeedResponseDTO response = getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize);
+            return ResponseEntity.ok(response);
+        } else {
             throw new CommunityPostValidationException("Unsupported feed selector: " + feed);
         }
-
-        CommunityNewestFeedResponseDTO response = getCommunityNewestFeedUseCase.execute(cursor, size);
-        return ResponseEntity.ok(response);
     }
 
     /**
