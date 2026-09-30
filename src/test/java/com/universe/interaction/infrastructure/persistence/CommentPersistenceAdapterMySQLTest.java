@@ -55,6 +55,7 @@ class CommentPersistenceAdapterMySQLTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -601,6 +602,181 @@ class CommentPersistenceAdapterMySQLTest {
         assertThat(finalComment.isDeleted()).isTrue();
         assertThat(finalComment.getStatus()).isEqualTo(CommentStatus.DELETED);
         assertThat(finalComment.getBody()).isNull();
+    }
+
+    @Test
+    @DisplayName("Should fail fast with IllegalTransactionStateException when lockAllCommentsByTarget is called without an active transaction")
+    void shouldFailFastWhenLockAllCommentsByTargetCalledWithoutActiveTransaction() {
+        UUID targetId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId))
+                .isInstanceOf(IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("Should return all comments for target locked in canonical id ASC order")
+    void shouldLockAllCommentsByTargetInAscendingOrder() {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        // Deliberately create timestamps in reverse order compared to UUID string order
+        UUID id1 = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID id2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID id3 = UUID.fromString("33333333-3333-3333-3333-333333333333");
+
+        Instant t1 = Instant.parse("2026-09-16T10:10:00Z"); // id1 created latest
+        Instant t2 = Instant.parse("2026-09-16T10:05:00Z"); // id2 created middle
+        Instant t3 = Instant.parse("2026-09-16T10:00:00Z"); // id3 created earliest
+
+        Comment root3 = Comment.createRoot(id3, target, authorId, "Root 3", t3);
+        adapter.save(root3);
+
+        Comment root1 = Comment.createRoot(id1, target, authorId, "Root 1", t1);
+        adapter.save(root1);
+
+        Comment reply2 = Comment.createReply(id2, root3, authorId, "Reply 2", t2);
+        adapter.save(reply2);
+
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        List<Comment> locked = txTemplate.execute(status ->
+                adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId)
+        );
+
+        assertThat(locked).hasSize(3);
+        assertThat(locked.get(0).getId()).isEqualTo(id1);
+        assertThat(locked.get(1).getId()).isEqualTo(id2);
+        assertThat(locked.get(2).getId()).isEqualTo(id3);
+    }
+
+    @Test
+    @DisplayName("Should physically acquire locks in ascending ID order during multi-row lockAllCommentsByTarget")
+    void shouldPhysicallyAcquireLocksInAscendingIdOrder() throws Exception {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        UUID lowerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID higherId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+
+        // Seed lowerId with LATER timestamp and higherId with EARLIER timestamp
+        // to prove physical acquisition follows canonical id ASC order (not createdAt or insertion order)
+        Comment rootHigher = Comment.createRoot(higherId, target, authorId, "Higher ID Root", Instant.parse("2026-09-16T10:00:00Z"));
+        adapter.save(rootHigher);
+
+        Comment rootLower = Comment.createRoot(lowerId, target, authorId, "Lower ID Root", Instant.parse("2026-09-16T10:30:00Z"));
+        adapter.save(rootLower);
+
+        CountDownLatch holdLockedLowerIdLatch = new CountDownLatch(1);
+        CountDownLatch bulkAttemptingLatch = new CountDownLatch(1);
+        CountDownLatch probeFinishedLatch = new CountDownLatch(1);
+        AtomicBoolean higherIdProbeAcquired = new AtomicBoolean(false);
+
+        TransactionTemplate txHold = new TransactionTemplate(transactionManager);
+        txHold.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txBulk = new TransactionTemplate(transactionManager);
+        txBulk.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        TransactionTemplate txProbe = new TransactionTemplate(transactionManager);
+        txProbe.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        ExecutorService executor = Executors.newFixedThreadPool(3);
+        try {
+            // Thread 1: Tx HOLD acquires exclusive lock on lowerId
+            Future<?> fHold = executor.submit(() -> {
+                txHold.execute(status -> {
+                    Comment lockedLower = adapter.findByIdForUpdate(lowerId).orElseThrow();
+                    holdLockedLowerIdLatch.countDown();
+                    try {
+                        probeFinishedLatch.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return lockedLower;
+                });
+            });
+
+            assertThat(holdLockedLowerIdLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // Thread 2: Tx BULK calls lockAllCommentsByTarget (which scans via idx_interaction_comments_target_id in id ASC)
+            // It encounters lowerId first, and BLOCKS on Tx HOLD. It has NOT yet reached or locked higherId!
+            Future<?> fBulk = executor.submit(() -> {
+                bulkAttemptingLatch.countDown();
+                txBulk.execute(status ->
+                        adapter.lockAllCommentsByTarget(com.universe.interaction.domain.CommentTargetType.COMMUNITY_POST, targetId)
+                );
+            });
+
+            assertThat(bulkAttemptingLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            // Allow brief pause to ensure Tx BULK is waiting inside InnoDB for lowerId
+            Thread.sleep(200);
+
+            // Thread 3: Tx PROBE attempts to acquire findByIdForUpdate on higherId
+            // Because Tx BULK is blocked on lowerId and has not yet acquired higherId, Tx PROBE succeeds immediately!
+            Future<?> fProbe = executor.submit(() -> {
+                txProbe.execute(status -> {
+                    Optional<Comment> probedHigher = adapter.findByIdForUpdate(higherId);
+                    if (probedHigher.isPresent()) {
+                        higherIdProbeAcquired.set(true);
+                    }
+                    return null;
+                });
+            });
+
+            fProbe.get(2, TimeUnit.SECONDS);
+            assertThat(higherIdProbeAcquired.get()).isTrue();
+
+            // Release Tx HOLD so Tx BULK can complete
+            probeFinishedLatch.countDown();
+
+            fHold.get(5, TimeUnit.SECONDS);
+            fBulk.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("Should verify EXPLAIN plan forces idx_interaction_comments_target_id and eliminates filesort")
+    void shouldVerifyExplainPlanForcesTargetIdIndexWithoutFilesort() {
+        UUID targetId = UUID.randomUUID();
+        CommentTarget target = CommentTarget.communityPost(targetId);
+        UUID authorId = UUID.randomUUID();
+
+        // Seed rows with inverted timestamps vs ID order
+        for (int i = 1; i <= 5; i++) {
+            UUID id = UUID.fromString(String.format("%d%d%d%d%d%d%d%d-%d%d%d%d-%d%d%d%d-%d%d%d%d-%d%d%d%d%d%d%d%d%d%d%d%d", i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i, i));
+            Instant ts = Instant.parse("2026-09-16T10:00:00Z").minusSeconds(i * 60);
+            adapter.save(Comment.createRoot(id, target, authorId, "Root " + i, ts));
+        }
+
+        // 1. Without FORCE INDEX (optimizer choice)
+        List<java.util.Map<String, Object>> unforcedExplain = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT * FROM interaction_comments WHERE target_type = ? AND target_id = ? ORDER BY id ASC FOR UPDATE",
+                "COMMUNITY_POST", targetId.toString()
+        );
+        System.out.println("=== UNFORCED EXPLAIN OUTPUT ===");
+        unforcedExplain.forEach(System.out::println);
+
+        // 2. Production query with FORCE INDEX (idx_interaction_comments_target_id)
+        List<java.util.Map<String, Object>> forcedExplain = jdbcTemplate.queryForList(
+                "EXPLAIN SELECT * FROM interaction_comments FORCE INDEX (idx_interaction_comments_target_id) WHERE target_type = ? AND target_id = ? ORDER BY id ASC FOR UPDATE",
+                "COMMUNITY_POST", targetId.toString()
+        );
+        System.out.println("=== FORCED EXPLAIN OUTPUT ===");
+        forcedExplain.forEach(System.out::println);
+
+        assertThat(forcedExplain).isNotEmpty();
+        java.util.Map<String, Object> row = forcedExplain.get(0);
+        assertThat(row.get("key")).isEqualTo("idx_interaction_comments_target_id");
+        String extra = (String) row.get("Extra");
+        if (extra != null) {
+            assertThat(extra).doesNotContain("Using filesort");
+        }
     }
 
     // =========================================================================

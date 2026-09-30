@@ -5,6 +5,7 @@ import com.universe.interaction.application.exceptions.ReactionTargetNotEligible
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.application.ports.ReactionTargetEligibilityPort;
 import com.universe.interaction.domain.reaction.Reaction;
+import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
@@ -17,30 +18,32 @@ import java.util.UUID;
 /**
  * Use case to orchestrate setting the desired emotional reaction on an eligible target.
  *
- * <p>Enforces desired-state semantics:
+ * <p>Concurrency & Barrier Guarantees:
  * <ul>
- *   <li>Verifies target eligibility prior to creation/modification;</li>
- *   <li>If no reaction exists: creates and persists a new {@link Reaction};</li>
- *   <li>If existing reaction has same type: returns existing aggregate idempotently without update churn;</li>
- *   <li>If existing reaction has different type: updates reaction type and persists;</li>
- *   <li>Under first-insert race ({@link DuplicateReactionException}): recovers deterministically by refetching
- *       the authoritative row and converging to desired state.</li>
+ *   <li>When target is {@link ReactionTargetType#COMMUNITY_POST} or {@link ReactionTargetType#COMMENT},
+ *       delegates to {@link LockedReactionMutationExecutor}, which executes inside a dedicated transaction
+ *       holding the authoritative row lock through lookup and database write;</li>
+ *   <li>For un-locked legacy targets (e.g. {@link ReactionTargetType#NOVEL_CHAPTER}), runs without an outer
+ *       transaction and recovers deterministically under first-insert races ({@link DuplicateReactionException}).</li>
  * </ul>
  */
 @Service
 public class SetReactionUseCase {
 
+    private final LockedReactionMutationExecutor lockedReactionMutationExecutor;
     private final ReactionRepositoryPort reactionRepositoryPort;
     private final ReactionTargetEligibilityPort eligibilityPort;
     private final IdGeneratorPort idGeneratorPort;
     private final ClockPort clockPort;
 
     public SetReactionUseCase(
+            LockedReactionMutationExecutor lockedReactionMutationExecutor,
             ReactionRepositoryPort reactionRepositoryPort,
             ReactionTargetEligibilityPort eligibilityPort,
             IdGeneratorPort idGeneratorPort,
             ClockPort clockPort
     ) {
+        this.lockedReactionMutationExecutor = Objects.requireNonNull(lockedReactionMutationExecutor, "LockedReactionMutationExecutor cannot be null.");
         this.reactionRepositoryPort = Objects.requireNonNull(reactionRepositoryPort, "ReactionRepositoryPort cannot be null.");
         this.eligibilityPort = Objects.requireNonNull(eligibilityPort, "ReactionTargetEligibilityPort cannot be null.");
         this.idGeneratorPort = Objects.requireNonNull(idGeneratorPort, "IdGeneratorPort cannot be null.");
@@ -50,12 +53,18 @@ public class SetReactionUseCase {
     public Reaction execute(SetReactionCommand command) {
         Objects.requireNonNull(command, "SetReactionCommand cannot be null.");
 
-        // 1. Prove target is eligible for reactions
+        // 1. If target requires exclusive mutation barrier (COMMUNITY_POST or COMMENT), delegate to transactional executor
+        if (command.target().type() == ReactionTargetType.COMMUNITY_POST
+                || command.target().type() == ReactionTargetType.COMMENT) {
+            return lockedReactionMutationExecutor.executeLocked(command);
+        }
+
+        // 2. Legacy / un-locked target eligibility check (e.g. NOVEL_CHAPTER)
         if (!eligibilityPort.isEligible(command.target())) {
             throw new ReactionTargetNotEligibleException(command.target());
         }
 
-        // 2. Look for existing reaction
+        // 3. Look for existing reaction
         Optional<Reaction> existingOpt = reactionRepositoryPort.findByUserAndTarget(
                 command.userId(),
                 command.target()

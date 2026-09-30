@@ -11,9 +11,9 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-
 
 /**
  * Spring Data JPA repository for {@link InteractionReportJpaEntity}.
@@ -32,15 +32,29 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
     Optional<InteractionReportJpaEntity> findByIdForUpdate(@Param("id") String id);
 
     /**
-     * Checks if a report exists for a specific comment, reporter, and status.
-     *
-     * @param commentId the target comment ID string
-     * @param reporterUserId the reporter user ID string
-     * @param status the status string (e.g. "PENDING")
-     * @return true if a matching report exists
+     * Retrieves the scalar target type and target ID for a report without loading the entity into the persistence context.
      */
-    boolean existsByCommentIdAndReporterUserIdAndStatus(
-            String commentId,
+     @Query("""
+             SELECT r.targetType, r.targetId FROM InteractionReportJpaEntity r
+             WHERE r.id = :id
+             """)
+     List<Object[]> findTargetMetadataById(@Param("id") String id);
+
+    /**
+     * Retrieves the scalar target ID for a report without loading the entity into the persistence context.
+     */
+    @Query("""
+            SELECT r.targetId FROM InteractionReportJpaEntity r
+            WHERE r.id = :id
+            """)
+    Optional<String> findTargetIdById(@Param("id") String id);
+
+    /**
+     * Checks if a report exists for a specific target type, target ID, reporter, and status.
+     */
+    boolean existsByTargetTypeAndTargetIdAndReporterUserIdAndStatus(
+            String targetType,
+            String targetId,
             String reporterUserId,
             String status
     );
@@ -52,34 +66,44 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             value = """
                     SELECT
                         r.id AS reportId,
-                        r.comment_id AS commentId,
+                        r.target_type AS reportTargetType,
+                        r.target_id AS reportTargetId,
                         r.reporter_user_id AS reporterUserId,
                         r.reason AS reason,
                         r.description AS description,
-                        r.reported_body_snapshot AS reportedBodySnapshot,
+                        r.content_snapshot AS reportedContentSnapshot,
                         r.status AS reportStatus,
                         r.created_at AS createdAt,
                         r.resolved_by_user_id AS resolvedByUserId,
                         r.resolved_at AS resolvedAt,
                         r.moderation_action AS moderationAction,
+                        r.target_deleted_at AS targetDeletedAt,
                         c.author_user_id AS commentAuthorUserId,
-                        c.target_type AS targetType,
-                        c.target_id AS targetId,
+                        c.target_type AS contentTargetType,
+                        c.target_id AS contentTargetId,
                         c.status AS commentStatus
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     ORDER BY r.created_at DESC, r.id DESC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     """,
             nativeQuery = true
     )
@@ -96,34 +120,44 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             value = """
                     SELECT
                         r.id AS reportId,
-                        r.comment_id AS commentId,
+                        r.target_type AS reportTargetType,
+                        r.target_id AS reportTargetId,
                         r.reporter_user_id AS reporterUserId,
                         r.reason AS reason,
                         r.description AS description,
-                        r.reported_body_snapshot AS reportedBodySnapshot,
+                        r.content_snapshot AS reportedContentSnapshot,
                         r.status AS reportStatus,
                         r.created_at AS createdAt,
                         r.resolved_by_user_id AS resolvedByUserId,
                         r.resolved_at AS resolvedAt,
                         r.moderation_action AS moderationAction,
+                        r.target_deleted_at AS targetDeletedAt,
                         c.author_user_id AS commentAuthorUserId,
-                        c.target_type AS targetType,
-                        c.target_id AS targetId,
+                        c.target_type AS contentTargetType,
+                        c.target_id AS contentTargetId,
                         c.status AS commentStatus
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     ORDER BY r.created_at ASC, r.id ASC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     """,
             nativeQuery = true
     )
@@ -140,34 +174,44 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             value = """
                     SELECT
                         r.id AS reportId,
-                        r.comment_id AS commentId,
+                        r.target_type AS reportTargetType,
+                        r.target_id AS reportTargetId,
                         r.reporter_user_id AS reporterUserId,
                         r.reason AS reason,
                         r.description AS description,
-                        r.reported_body_snapshot AS reportedBodySnapshot,
+                        r.content_snapshot AS reportedContentSnapshot,
                         r.status AS reportStatus,
                         r.created_at AS createdAt,
                         r.resolved_by_user_id AS resolvedByUserId,
                         r.resolved_at AS resolvedAt,
                         r.moderation_action AS moderationAction,
+                        r.target_deleted_at AS targetDeletedAt,
                         c.author_user_id AS commentAuthorUserId,
-                        c.target_type AS targetType,
-                        c.target_id AS targetId,
+                        c.target_type AS contentTargetType,
+                        c.target_id AS contentTargetId,
                         c.status AS commentStatus
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     ORDER BY r.resolved_at DESC, r.id DESC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
-                    INNER JOIN interaction_comments c ON c.id = r.comment_id
+                    LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
                     WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (:targetType IS NULL OR c.target_type = :targetType)
+                      AND (
+                          :targetType IS NULL
+                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
+                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
+                      )
                     """,
             nativeQuery = true
     )
@@ -178,23 +222,45 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
     );
 
     /**
-     * Selects up to {@code limit} expired terminal resolved report IDs ordered deterministically (resolved_at ASC, id ASC).
+     * Selects up to {@code limit} expired report IDs according to hierarchical retention rules:
+     * 1. If target_deleted_at IS NOT NULL: eligible if target_deleted_at < cutoff
+     * 2. Else if terminal status (RESOLVED_ACTION_TAKEN, RESOLVED_NO_ACTION): eligible if resolved_at < cutoff
+     * 3. Else (PENDING with non-deleted target): never eligible.
      */
     @Query(
             value = """
                     SELECT r.id
                     FROM interaction_reports r
-                    WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
-                      AND r.resolved_at < :cutoff
-                    ORDER BY r.resolved_at ASC, r.id ASC
+                    WHERE (
+                        (r.target_deleted_at IS NOT NULL AND r.target_deleted_at < :cutoff)
+                        OR
+                        (r.target_deleted_at IS NULL AND r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION') AND r.resolved_at < :cutoff)
+                    )
+                    ORDER BY COALESCE(r.target_deleted_at, r.resolved_at) ASC, r.id ASC
                     """,
             nativeQuery = true
     )
-    List<String> findExpiredResolvedReportIds(
+    List<String> findExpiredReportIds(
             @Param("cutoff") Instant cutoff,
             Pageable pageable
     );
 
+    /**
+     * Stamps target_deleted_at on all reports for the given target IDs where target_deleted_at is currently NULL.
+     */
+    @Modifying
+    @Query("""
+            UPDATE InteractionReportJpaEntity r
+            SET r.targetDeletedAt = :deletedAt
+            WHERE r.targetType = :targetType
+              AND r.targetId IN :targetIds
+              AND r.targetDeletedAt IS NULL
+            """)
+    int stampTargetDeletedAt(
+            @Param("targetType") String targetType,
+            @Param("targetIds") Collection<String> targetIds,
+            @Param("deletedAt") Instant deletedAt
+    );
 
     /**
      * Deletes interaction reports matching the given IDs.
@@ -208,4 +274,18 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
             nativeQuery = true
     )
     int deleteByIdIn(@Param("ids") List<String> ids);
+
+    /**
+     * Counts reports for the specified target type and IDs where target_deleted_at IS NULL.
+     */
+    @Query("""
+            SELECT COUNT(r) FROM InteractionReportJpaEntity r
+            WHERE r.targetType = :targetType
+              AND r.targetId IN :targetIds
+              AND r.targetDeletedAt IS NULL
+            """)
+    long countUnstampedReportsByTargets(
+            @Param("targetType") String targetType,
+            @Param("targetIds") Collection<String> targetIds
+    );
 }

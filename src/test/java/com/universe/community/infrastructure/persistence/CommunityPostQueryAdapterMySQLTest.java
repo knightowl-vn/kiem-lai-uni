@@ -1,7 +1,7 @@
 package com.universe.community.infrastructure.persistence;
 
-import com.universe.community.application.dto.CommunityPostPublicDTO;
-import com.universe.community.application.dto.CommunityPostRevisionPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostRevision;
 import com.universe.test.TestDatabaseSupport;

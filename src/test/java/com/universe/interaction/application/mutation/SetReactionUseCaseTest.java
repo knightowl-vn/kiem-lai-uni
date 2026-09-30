@@ -1,9 +1,13 @@
 package com.universe.interaction.application.mutation;
 
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.interaction.application.exceptions.DuplicateReactionException;
 import com.universe.interaction.application.exceptions.ReactionTargetNotEligibleException;
+import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.application.ports.ReactionTargetEligibilityPort;
+import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.Reaction;
 import com.universe.interaction.domain.reaction.ReactionTarget;
 import com.universe.interaction.domain.reaction.ReactionType;
@@ -38,16 +42,31 @@ class SetReactionUseCaseTest {
     private ReactionTargetEligibilityPort eligibilityPort;
 
     @Mock
+    private CommentRepositoryPort commentRepositoryPort;
+
+    @Mock
+    private CommunityPostInteractionMutationPort communityPostMutationPort;
+
+    @Mock
     private IdGeneratorPort idGeneratorPort;
 
     @Mock
     private ClockPort clockPort;
 
+    private LockedReactionMutationExecutor lockedReactionMutationExecutor;
     private SetReactionUseCase useCase;
 
     @BeforeEach
     void setUp() {
+        lockedReactionMutationExecutor = new LockedReactionMutationExecutor(
+                communityPostMutationPort,
+                commentRepositoryPort,
+                reactionRepositoryPort,
+                idGeneratorPort,
+                clockPort
+        );
         useCase = new SetReactionUseCase(
+                lockedReactionMutationExecutor,
                 reactionRepositoryPort,
                 eligibilityPort,
                 idGeneratorPort,
@@ -87,11 +106,82 @@ class SetReactionUseCaseTest {
     }
 
     @Test
+    @DisplayName("Should acquire Community post mutation barrier when target is COMMUNITY_POST")
+    void shouldAcquireCommunityPostMutationBarrierWhenTargetIsCommunityPost() {
+        UUID userId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.communityPost(postId);
+        Instant now = Instant.parse("2026-09-26T10:00:00Z");
+
+        CommunityPostInteractionMutationPort.CommunityPostLockedView lockedView =
+                new CommunityPostInteractionMutationPort.CommunityPostLockedView(postId, UUID.randomUUID(), "Post caption");
+
+        when(communityPostMutationPort.lockExistingPostForInteraction(postId)).thenReturn(Optional.of(lockedView));
+        when(reactionRepositoryPort.findByUserAndTarget(userId, target)).thenReturn(Optional.empty());
+        when(idGeneratorPort.generate()).thenReturn(UUID.randomUUID());
+        when(clockPort.now()).thenReturn(now);
+        when(reactionRepositoryPort.save(any(Reaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SetReactionCommand command = new SetReactionCommand(userId, target, ReactionType.FIRE);
+        Reaction result = useCase.execute(command);
+
+        assertThat(result).isNotNull();
+        verify(communityPostMutationPort).lockExistingPostForInteraction(postId);
+        verify(reactionRepositoryPort).save(any(Reaction.class));
+    }
+
+    @Test
+    @DisplayName("Should lock comment with pessimistic lock when target is COMMENT")
+    void shouldLockCommentWhenTargetIsComment() {
+        UUID userId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.comment(commentId);
+        Instant now = Instant.parse("2026-09-26T10:00:00Z");
+
+        Comment comment = Comment.createRoot(commentId, CommentTarget.novelChapter(UUID.randomUUID()), UUID.randomUUID(), "Comment text", now);
+
+        when(commentRepositoryPort.findByIdForUpdate(commentId)).thenReturn(Optional.of(comment));
+        when(reactionRepositoryPort.findByUserAndTarget(userId, target)).thenReturn(Optional.empty());
+        when(idGeneratorPort.generate()).thenReturn(UUID.randomUUID());
+        when(clockPort.now()).thenReturn(now);
+        when(reactionRepositoryPort.save(any(Reaction.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SetReactionCommand command = new SetReactionCommand(userId, target, ReactionType.LIKE);
+        Reaction result = useCase.execute(command);
+
+        assertThat(result).isNotNull();
+        verify(commentRepositoryPort).findByIdForUpdate(commentId);
+        verify(reactionRepositoryPort).save(any(Reaction.class));
+    }
+
+    @Test
+    @DisplayName("Should reject reaction on deleted comment")
+    void shouldRejectReactionOnDeletedComment() {
+        UUID userId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.comment(commentId);
+        Instant now = Instant.parse("2026-09-26T10:00:00Z");
+
+        Comment comment = Comment.createRoot(commentId, CommentTarget.novelChapter(UUID.randomUUID()), UUID.randomUUID(), "Comment text", now);
+        // Simulate deleted comment by checking isDeleted (or mark deleted if domain allows)
+        // If domain comment is active vs deleted:
+        when(commentRepositoryPort.findByIdForUpdate(commentId)).thenReturn(Optional.empty());
+
+        SetReactionCommand command = new SetReactionCommand(userId, target, ReactionType.LIKE);
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(ReactionTargetNotEligibleException.class);
+
+        verify(commentRepositoryPort).findByIdForUpdate(commentId);
+        verify(reactionRepositoryPort, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should return existing reaction without saving or bumping updatedAt when same reaction type is requested (idempotent)")
     void shouldReturnExistingWithoutSavingWhenSameTypeRequested() {
         UUID userId = UUID.randomUUID();
         UUID existingId = UUID.randomUUID();
-        ReactionTarget target = ReactionTarget.comment(UUID.randomUUID());
+        ReactionTarget target = ReactionTarget.novelChapter(UUID.randomUUID());
         Instant createdAt = Instant.parse("2026-09-26T10:00:00Z");
 
         Reaction existing = Reaction.create(existingId, userId, target, ReactionType.FIRE, createdAt);
@@ -184,10 +274,6 @@ class SetReactionUseCaseTest {
                 .hasMessageContaining("ReactionType cannot be null");
     }
 
-    // =========================================================================
-    // DUPLICATE INSERT RACE RECOVERY
-    // =========================================================================
-
     @Test
     @DisplayName("Duplicate Race Scenario A: collision occurs, refetch returns SAME desired type -> converges without second insert")
     void shouldRecoverFromDuplicateCollisionWhenAuthoritativeHasSameType() {
@@ -200,14 +286,12 @@ class SetReactionUseCaseTest {
         Reaction authoritative = Reaction.create(concurrentId, userId, target, ReactionType.LOVE, t1);
 
         when(eligibilityPort.isEligible(target)).thenReturn(true);
-        // Initial lookup finds nothing
         when(reactionRepositoryPort.findByUserAndTarget(userId, target))
-                .thenReturn(Optional.empty()) // initial lookup
-                .thenReturn(Optional.of(authoritative)); // recovery lookup
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(authoritative));
         when(idGeneratorPort.generate()).thenReturn(generatedId);
         when(clockPort.now()).thenReturn(t1);
 
-        // Initial save throws DuplicateReactionException from database UNIQUE collision
         when(reactionRepositoryPort.save(any(Reaction.class)))
                 .thenThrow(new DuplicateReactionException(userId, target, new RuntimeException("duplicate")));
 
@@ -218,7 +302,6 @@ class SetReactionUseCaseTest {
         assertThat(result.getId()).isEqualTo(concurrentId);
         assertThat(result.getReactionType()).isEqualTo(ReactionType.LOVE);
 
-        // Only one save attempt (the initial one that threw duplicate key)
         verify(reactionRepositoryPort).save(any(Reaction.class));
     }
 
@@ -235,16 +318,14 @@ class SetReactionUseCaseTest {
         Reaction authoritative = Reaction.create(concurrentId, userId, target, ReactionType.FIRE, t1);
 
         when(eligibilityPort.isEligible(target)).thenReturn(true);
-        // Initial lookup finds nothing; recovery lookup finds concurrent reaction with FIRE
         when(reactionRepositoryPort.findByUserAndTarget(userId, target))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(authoritative));
         when(idGeneratorPort.generate()).thenReturn(generatedId);
         when(clockPort.now())
-                .thenReturn(t1) // for initial create
-                .thenReturn(t2); // for recovery changeReactionType
+                .thenReturn(t1)
+                .thenReturn(t2);
 
-        // First save throws DuplicateReactionException; second save succeeds
         when(reactionRepositoryPort.save(any(Reaction.class)))
                 .thenThrow(new DuplicateReactionException(userId, target, new RuntimeException("duplicate")))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -268,8 +349,8 @@ class SetReactionUseCaseTest {
 
         when(eligibilityPort.isEligible(target)).thenReturn(true);
         when(reactionRepositoryPort.findByUserAndTarget(userId, target))
-                .thenReturn(Optional.empty()) // initial lookup
-                .thenReturn(Optional.empty()); // recovery lookup unexpectedly empty
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
         when(idGeneratorPort.generate()).thenReturn(generatedId);
         when(clockPort.now()).thenReturn(t1);
 

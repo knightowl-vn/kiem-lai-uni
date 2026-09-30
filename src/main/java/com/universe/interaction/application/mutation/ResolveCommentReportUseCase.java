@@ -3,6 +3,7 @@ package com.universe.interaction.application.mutation;
 import com.universe.interaction.application.exceptions.CommentNotFoundException;
 import com.universe.interaction.application.exceptions.InteractionReportNotFoundException;
 import com.universe.interaction.application.exceptions.ReportAlreadyResolvedException;
+import com.universe.interaction.application.exceptions.UnsupportedReportModerationActionException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.application.ports.InteractionReportRepositoryPort;
@@ -11,6 +12,7 @@ import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,23 +31,20 @@ import java.util.UUID;
  * <p>Preserves clean architecture boundaries and transaction boundaries:
  * <ul>
  *   <li>The use case orchestrates the entire moderation mutation within a single transaction;</li>
- *   <li>Pessimistically locks the report first via {@link InteractionReportRepositoryPort#findByIdForUpdate};</li>
  *   <li>Guards against terminal report status, throwing {@link ReportAlreadyResolvedException};</li>
  *   <li>For {@link ReportModerationAction#DELETE_COMMENT}:
  *     <ul>
+ *       <li>Fails closed if the report target type is NOT {@link ReportTargetType#COMMENT};</li>
  *       <li>Pessimistically locks the target comment via {@link CommentRepositoryPort#findByIdForUpdate};</li>
  *       <li>If present: physically removes comment, descendant replies, revisions, and reactions;</li>
- *       <li>If already deleted: treats deletion as idempotently satisfied without mutating comment;</li>
- *       <li>Transitions report to {@code RESOLVED_ACTION_TAKEN} and saves report;</li>
+ *       <li>Transitions report to {@code RESOLVED_ACTION_TAKEN} with action {@code DELETE_COMMENT};</li>
  *     </ul>
  *   </li>
  *   <li>For {@link ReportModerationAction#NO_ACTION}:
  *     <ul>
- *       <li>Does not interact with comment, reaction, or revision repositories;</li>
- *       <li>Transitions report to {@code RESOLVED_NO_ACTION} and saves report;</li>
+ *       <li>Pessimistically locks report and transitions to {@code RESOLVED_NO_ACTION};</li>
  *     </ul>
  *   </li>
- *   <li>Sibling reports on the same comment remain untouched with independent lifecycles.</li>
  * </ul>
  */
 @Service
@@ -78,23 +77,46 @@ public class ResolveCommentReportUseCase {
      * @param command the moderation command containing report ID, moderator ID, and action
      * @throws InteractionReportNotFoundException if the report does not exist
      * @throws ReportAlreadyResolvedException if the report is already in a terminal status
+     * @throws UnsupportedReportModerationActionException if DELETE_COMMENT is attempted on a non-COMMENT target
      * @throws CommentNotFoundException if DELETE_COMMENT is requested but the target comment is not found
      */
     public void execute(ResolveCommentReportCommand command) {
         Objects.requireNonNull(command, "ResolveCommentReportCommand cannot be null");
 
-        InteractionReport report = reportRepositoryPort.findByIdForUpdate(command.reportId())
-                .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
-
-        if (!report.isPending()) {
-            throw new ReportAlreadyResolvedException(report.getId(), report.getStatus());
-        }
-
         switch (command.action()) {
             case DELETE_COMMENT -> {
-                Optional<Comment> commentOptional = commentRepositoryPort.findByIdForUpdate(report.getCommentId());
+                // 1. Discover target report metadata without locking or polluting persistence context
+                InteractionReportRepositoryPort.ReportTargetMetadata targetMetadata = reportRepositoryPort
+                        .findTargetMetadataById(command.reportId())
+                        .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
+
+                if (targetMetadata.targetType() != ReportTargetType.COMMENT) {
+                    throw new UnsupportedReportModerationActionException(
+                            targetMetadata.targetType(),
+                            command.action()
+                    );
+                }
+
+                UUID commentId = targetMetadata.targetId();
+
+                // 2. Lock target comment FIRST to ensure global lock ordering (Comment -> Reports)
+                Optional<Comment> commentOptional = commentRepositoryPort.findByIdForUpdate(commentId);
                 if (commentOptional.isEmpty()) {
-                    throw new CommentNotFoundException(report.getCommentId());
+                    // Check if the report was already resolved concurrently by another moderator
+                    InteractionReport currentReport = reportRepositoryPort.findByIdForUpdate(command.reportId())
+                            .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
+                    if (!currentReport.isPending()) {
+                        throw new ReportAlreadyResolvedException(currentReport.getId(), currentReport.getStatus());
+                    }
+                    throw new CommentNotFoundException(commentId);
+                }
+
+                // 3. Lock report SECOND with pessimistic write lock
+                InteractionReport report = reportRepositoryPort.findByIdForUpdate(command.reportId())
+                        .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
+
+                if (!report.isPending()) {
+                    throw new ReportAlreadyResolvedException(report.getId(), report.getStatus());
                 }
 
                 Comment comment = commentOptional.get();
@@ -121,15 +143,28 @@ public class ResolveCommentReportUseCase {
                     }
                 }
 
+                Instant now = clockPort.now();
+                reportRepositoryPort.stampTargetDeletedAtForTargets(
+                        ReportTargetType.COMMENT,
+                        commentIdsToDelete,
+                        now
+                );
                 reactionRepositoryPort.deleteAllByTargetIds(ReactionTargetType.COMMENT, commentIdsToDelete);
                 commentRevisionRepositoryPort.deleteAllByCommentIds(commentIdsToDelete);
                 commentRepositoryPort.deleteAllByIds(commentIdsToDelete);
 
-                Instant now = clockPort.now();
-                report.resolveActionTaken(command.moderatorUserId(), now);
+                report.markTargetDeleted(now);
+                report.resolveActionTaken(command.moderatorUserId(), now, ReportModerationAction.DELETE_COMMENT);
                 reportRepositoryPort.save(report);
             }
             case NO_ACTION -> {
+                InteractionReport report = reportRepositoryPort.findByIdForUpdate(command.reportId())
+                        .orElseThrow(() -> new InteractionReportNotFoundException(command.reportId()));
+
+                if (!report.isPending()) {
+                    throw new ReportAlreadyResolvedException(report.getId(), report.getStatus());
+                }
+
                 Instant now = clockPort.now();
                 report.resolveNoAction(command.moderatorUserId(), now);
                 reportRepositoryPort.save(report);

@@ -10,6 +10,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportDetailDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
 import com.universe.novel.contracts.dto.ChapterListItemDTO;
@@ -81,6 +82,7 @@ class AdminCommentReportDetailCoordinatorTest {
     void shouldComposeActiveNovelReportDetail() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -88,6 +90,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Nội dung quảng cáo vi phạm",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,
@@ -166,6 +169,7 @@ class AdminCommentReportDetailCoordinatorTest {
     void shouldComposeActiveWikiReportDetail() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.HARASSMENT,
@@ -173,6 +177,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Bình luận công kích nhân vật",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,
@@ -227,6 +232,7 @@ class AdminCommentReportDetailCoordinatorTest {
         Instant resolvedAt = baseTime.plusSeconds(3600);
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPOILER,
@@ -237,6 +243,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 resolverId,
                 resolvedAt,
                 ReportModerationAction.DELETE_COMMENT,
+                null,
                 true,
                 authorId,
                 CommentStatus.DELETED,
@@ -283,6 +290,7 @@ class AdminCommentReportDetailCoordinatorTest {
     void shouldHandleMissingIdentityProfilesGracefully() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.OTHER,
@@ -293,6 +301,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 resolverId,
                 baseTime.plusSeconds(60),
                 ReportModerationAction.NO_ACTION,
+                null,
                 true,
                 authorId,
                 CommentStatus.ACTIVE,
@@ -337,6 +346,7 @@ class AdminCommentReportDetailCoordinatorTest {
     void shouldHandleMissingTargetMetadataGracefully() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -344,6 +354,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Snapshot",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,
@@ -379,6 +390,7 @@ class AdminCommentReportDetailCoordinatorTest {
     void shouldHandleMissingCurrentCommentGracefully() {
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -386,6 +398,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Snapshot historical evidence",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,
@@ -430,6 +443,7 @@ class AdminCommentReportDetailCoordinatorTest {
         Instant deletedAt = baseTime.plusSeconds(200);
         InteractionReportDetailResult raw = new InteractionReportDetailResult(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.HARASSMENT,
@@ -437,6 +451,7 @@ class AdminCommentReportDetailCoordinatorTest {
                 "Snapshot evidence captured before deletion",
                 ReportStatus.PENDING,
                 baseTime,
+                null,
                 null,
                 null,
                 null,

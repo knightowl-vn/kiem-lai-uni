@@ -1,5 +1,6 @@
 package com.universe.interaction.application.mutation;
 
+import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.interaction.application.exceptions.CommentTargetNotEligibleException;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
@@ -17,11 +18,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +39,9 @@ class CreateRootCommentUseCaseTest {
     private CommentTargetEligibilityPort eligibilityPort;
 
     @Mock
+    private CommunityPostInteractionMutationPort communityPostMutationPort;
+
+    @Mock
     private IdGeneratorPort idGeneratorPort;
 
     @Mock
@@ -46,6 +52,7 @@ class CreateRootCommentUseCaseTest {
     private static final UUID ACTOR_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID GENERATED_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID CHAPTER_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID POST_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final Instant NOW = Instant.parse("2026-09-16T12:00:00Z");
 
     @BeforeEach
@@ -53,6 +60,7 @@ class CreateRootCommentUseCaseTest {
         useCase = new CreateRootCommentUseCase(
                 commentRepositoryPort,
                 eligibilityPort,
+                communityPostMutationPort,
                 idGeneratorPort,
                 clockPort
         );
@@ -86,6 +94,43 @@ class CreateRootCommentUseCaseTest {
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentRepositoryPort).save(captor.capture());
         assertThat(captor.getValue().getId()).isEqualTo(GENERATED_ID);
+    }
+
+    @Test
+    @DisplayName("Should acquire Community post mutation barrier when target is COMMUNITY_POST")
+    void shouldAcquireCommunityPostMutationBarrierForCommunityPostTarget() {
+        CommentTarget target = CommentTarget.communityPost(POST_ID);
+        CreateRootCommentCommand command = new CreateRootCommentCommand(ACTOR_ID, target, "Great community post!");
+
+        CommunityPostInteractionMutationPort.CommunityPostLockedView lockedView =
+                new CommunityPostInteractionMutationPort.CommunityPostLockedView(POST_ID, UUID.randomUUID(), "Post caption");
+
+        when(communityPostMutationPort.lockExistingPostForInteraction(POST_ID)).thenReturn(Optional.of(lockedView));
+        when(idGeneratorPort.generate()).thenReturn(GENERATED_ID);
+        when(clockPort.now()).thenReturn(NOW);
+        when(commentRepositoryPort.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Comment result = useCase.execute(command);
+
+        assertThat(result.getId()).isEqualTo(GENERATED_ID);
+        assertThat(result.getTarget()).isEqualTo(target);
+        verify(communityPostMutationPort).lockExistingPostForInteraction(POST_ID);
+        verify(commentRepositoryPort).save(any(Comment.class));
+    }
+
+    @Test
+    @DisplayName("Should reject root comment creation when COMMUNITY_POST does not exist under lock")
+    void shouldRejectWhenCommunityPostDoesNotExistUnderLock() {
+        CommentTarget target = CommentTarget.communityPost(POST_ID);
+        CreateRootCommentCommand command = new CreateRootCommentCommand(ACTOR_ID, target, "Comment on missing post");
+
+        when(communityPostMutationPort.lockExistingPostForInteraction(POST_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(CommentTargetNotEligibleException.class);
+
+        verify(communityPostMutationPort).lockExistingPostForInteraction(POST_ID);
+        verify(commentRepositoryPort, never()).save(any());
     }
 
     @Test

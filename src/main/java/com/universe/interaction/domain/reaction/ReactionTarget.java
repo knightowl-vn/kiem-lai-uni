@@ -28,4 +28,8 @@ public record ReactionTarget(
     public static ReactionTarget donghuaEpisode(UUID episodeId) {
         return new ReactionTarget(ReactionTargetType.DONGHUA_EPISODE, episodeId);
     }
+
+    public static ReactionTarget communityPost(UUID postId) {
+        return new ReactionTarget(ReactionTargetType.COMMUNITY_POST, postId);
+    }
 }

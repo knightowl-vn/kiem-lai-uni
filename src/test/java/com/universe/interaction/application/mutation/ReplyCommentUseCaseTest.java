@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -29,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -84,6 +86,7 @@ class ReplyCommentUseCaseTest {
         Comment root = Comment.createRoot(ROOT_ID, TARGET, ROOT_AUTHOR_ID, "Root body", T1);
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, ROOT_ID, "Direct reply body");
 
+        when(commentRepositoryPort.findById(ROOT_ID)).thenReturn(Optional.of(root));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
         when(eligibilityPort.isEligible(TARGET)).thenReturn(true);
         when(clockPort.now()).thenReturn(T2);
@@ -101,6 +104,7 @@ class ReplyCommentUseCaseTest {
         assertThat(reply.getStatus()).isEqualTo(CommentStatus.ACTIVE);
         assertThat(reply.isReply()).isTrue();
 
+        verify(commentRepositoryPort).findById(ROOT_ID);
         verify(commentRepositoryPort).findByIdForUpdate(ROOT_ID);
         verify(commentRepositoryPort).save(reply);
 
@@ -125,8 +129,9 @@ class ReplyCommentUseCaseTest {
         Comment directReply = Comment.createReply(REPLY_B_ID, root, PARENT_AUTHOR_ID, "Direct reply", T2);
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, REPLY_B_ID, "Nested reply body");
 
-        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
+        when(commentRepositoryPort.findById(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
+        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(eligibilityPort.isEligible(TARGET)).thenReturn(true);
         when(clockPort.now()).thenReturn(T3);
         when(idGeneratorPort.generate()).thenReturn(REPLY_C_ID);
@@ -143,8 +148,9 @@ class ReplyCommentUseCaseTest {
         assertThat(nestedReply.getStatus()).isEqualTo(CommentStatus.ACTIVE);
         assertThat(nestedReply.isReply()).isTrue();
 
-        verify(commentRepositoryPort).findByIdForUpdate(REPLY_B_ID);
+        verify(commentRepositoryPort).findById(REPLY_B_ID);
         verify(commentRepositoryPort).findByIdForUpdate(ROOT_ID);
+        verify(commentRepositoryPort).findByIdForUpdate(REPLY_B_ID);
         verify(commentRepositoryPort).save(nestedReply);
 
         ArgumentCaptor<NotificationDispatchCommand> notifCaptor = ArgumentCaptor.forClass(NotificationDispatchCommand.class);
@@ -161,11 +167,45 @@ class ReplyCommentUseCaseTest {
     }
 
     @Test
+    @DisplayName("Regression: Equal timestamp with inverted UUID order (parentId < rootId) must lock parentId FIRST in canonical order")
+    void shouldAcquireLocksInCanonicalTotalOrderWhenParentIdPrecedesRootId() {
+        UUID earlierParentId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID laterRootId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        assertThat(earlierParentId.toString().compareTo(laterRootId.toString())).isNegative();
+
+        Comment root = Comment.createRoot(laterRootId, TARGET, ROOT_AUTHOR_ID, "Root body", T1);
+        Comment parent = Comment.createReply(earlierParentId, root, PARENT_AUTHOR_ID, "Parent reply", T1);
+        ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, earlierParentId, "Nested reply with equal timestamp");
+
+        when(commentRepositoryPort.findById(earlierParentId)).thenReturn(Optional.of(parent));
+        when(commentRepositoryPort.findByIdForUpdate(earlierParentId)).thenReturn(Optional.of(parent));
+        when(commentRepositoryPort.findByIdForUpdate(laterRootId)).thenReturn(Optional.of(root));
+        when(eligibilityPort.isEligible(TARGET)).thenReturn(true);
+        when(clockPort.now()).thenReturn(T1);
+        when(idGeneratorPort.generate()).thenReturn(REPLY_C_ID);
+        when(commentRepositoryPort.save(any(Comment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Comment nestedReply = useCase.execute(command);
+
+        assertThat(nestedReply.getId()).isEqualTo(REPLY_C_ID);
+        assertThat(nestedReply.getParentCommentId()).isEqualTo(earlierParentId);
+        assertThat(nestedReply.getThreadRootCommentId()).isEqualTo(laterRootId);
+
+        // Verify that findByIdForUpdate was invoked in canonical ID ASC order: earlierParentId FIRST, laterRootId SECOND
+        InOrder inOrder = inOrder(commentRepositoryPort);
+        inOrder.verify(commentRepositoryPort).findById(earlierParentId);
+        inOrder.verify(commentRepositoryPort).findByIdForUpdate(earlierParentId);
+        inOrder.verify(commentRepositoryPort).findByIdForUpdate(laterRootId);
+        inOrder.verify(commentRepositoryPort).save(nestedReply);
+    }
+
+    @Test
     @DisplayName("Should suppress notification when actor replies to their own comment (self-reply)")
     void shouldSuppressNotificationOnSelfReply() {
         Comment root = Comment.createRoot(ROOT_ID, TARGET, ACTOR_ID, "Root by actor", T1);
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, ROOT_ID, "Actor replying to themselves");
 
+        when(commentRepositoryPort.findById(ROOT_ID)).thenReturn(Optional.of(root));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
         when(eligibilityPort.isEligible(TARGET)).thenReturn(true);
         when(clockPort.now()).thenReturn(T2);
@@ -184,7 +224,7 @@ class ReplyCommentUseCaseTest {
         UUID missingParentId = UUID.randomUUID();
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, missingParentId, "Reply body");
 
-        when(commentRepositoryPort.findByIdForUpdate(missingParentId)).thenReturn(Optional.empty());
+        when(commentRepositoryPort.findById(missingParentId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(CommentNotFoundException.class)
@@ -200,7 +240,7 @@ class ReplyCommentUseCaseTest {
         root.delete(T2);
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, ROOT_ID, "Reply to tombstone");
 
-        when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
+        when(commentRepositoryPort.findById(ROOT_ID)).thenReturn(Optional.of(root));
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(CommentMutationForbiddenException.class)
@@ -218,8 +258,9 @@ class ReplyCommentUseCaseTest {
 
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, REPLY_B_ID, "Nested reply");
 
-        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
+        when(commentRepositoryPort.findById(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
+        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(CommentMutationForbiddenException.class)
@@ -236,7 +277,7 @@ class ReplyCommentUseCaseTest {
 
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, REPLY_B_ID, "Nested reply");
 
-        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
+        when(commentRepositoryPort.findById(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> useCase.execute(command))
@@ -257,8 +298,9 @@ class ReplyCommentUseCaseTest {
 
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, REPLY_B_ID, "Nested reply");
 
-        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
+        when(commentRepositoryPort.findById(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(fakeRootThatIsReply));
+        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(CommentThreadIntegrityException.class)
@@ -276,8 +318,9 @@ class ReplyCommentUseCaseTest {
 
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, REPLY_B_ID, "Nested reply");
 
-        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
+        when(commentRepositoryPort.findById(REPLY_B_ID)).thenReturn(Optional.of(directReply));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
+        when(commentRepositoryPort.findByIdForUpdate(REPLY_B_ID)).thenReturn(Optional.of(directReply));
 
         assertThatThrownBy(() -> useCase.execute(command))
                 .isInstanceOf(CommentThreadIntegrityException.class)
@@ -292,6 +335,7 @@ class ReplyCommentUseCaseTest {
         Comment root = Comment.createRoot(ROOT_ID, TARGET, UUID.randomUUID(), "Root body", T1);
         ReplyCommentCommand command = new ReplyCommentCommand(ACTOR_ID, ROOT_ID, "Reply body");
 
+        when(commentRepositoryPort.findById(ROOT_ID)).thenReturn(Optional.of(root));
         when(commentRepositoryPort.findByIdForUpdate(ROOT_ID)).thenReturn(Optional.of(root));
         when(eligibilityPort.isEligible(TARGET)).thenReturn(false);
 

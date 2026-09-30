@@ -18,6 +18,13 @@ public class DuplicatePendingReportException extends BaseApplicationException {
         );
     }
 
+    public DuplicatePendingReportException(com.universe.interaction.domain.report.ReportTargetType targetType, UUID targetId, UUID reporterUserId) {
+        super(
+                "DUPLICATE_PENDING_REPORT",
+                "A pending report already exists for " + targetType + " " + targetId + " by reporter " + reporterUserId
+        );
+    }
+
     public DuplicatePendingReportException(String message) {
         super("DUPLICATE_PENDING_REPORT", message);
     }

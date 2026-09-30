@@ -1,5 +1,6 @@
 package com.universe.interaction.infrastructure.eligibility;
 
+import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.CommentTargetType;
@@ -19,6 +20,7 @@ import java.util.UUID;
  *       (and its parent volume) is currently published and readable.</li>
  *   <li>{@link CommentTargetType#WIKI_ARTICLE}: delegates to {@link WikiArticleQueryPort} to ensure the article
  *       is currently published and readable.</li>
+ *   <li>{@link CommentTargetType#COMMUNITY_POST}: delegates to {@link CommunityPostQueryPort} to ensure the post exists.</li>
  * </ul>
  */
 @Component
@@ -26,10 +28,12 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
 
     private final ReaderChapterAccessQueryPort readerChapterAccessQueryPort;
     private final WikiArticleQueryPort wikiArticleQueryPort;
+    private final CommunityPostQueryPort communityPostQueryPort;
 
     public CommentTargetEligibilityAdapter(
             ReaderChapterAccessQueryPort readerChapterAccessQueryPort,
-            WikiArticleQueryPort wikiArticleQueryPort
+            WikiArticleQueryPort wikiArticleQueryPort,
+            CommunityPostQueryPort communityPostQueryPort
     ) {
         this.readerChapterAccessQueryPort = Objects.requireNonNull(
                 readerChapterAccessQueryPort,
@@ -38,6 +42,10 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
         this.wikiArticleQueryPort = Objects.requireNonNull(
                 wikiArticleQueryPort,
                 "WikiArticleQueryPort cannot be null."
+        );
+        this.communityPostQueryPort = Objects.requireNonNull(
+                communityPostQueryPort,
+                "CommunityPostQueryPort cannot be null."
         );
     }
 
@@ -50,6 +58,7 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
         return switch (target.type()) {
             case NOVEL_CHAPTER -> isNovelChapterEligible(target.targetId());
             case WIKI_ARTICLE -> isWikiArticleEligible(target.targetId());
+            case COMMUNITY_POST -> isCommunityPostEligible(target.targetId());
         };
     }
 
@@ -65,5 +74,12 @@ public class CommentTargetEligibilityAdapter implements CommentTargetEligibility
             return false;
         }
         return wikiArticleQueryPort.isPublished(articleId);
+    }
+
+    private boolean isCommunityPostEligible(UUID postId) {
+        if (postId == null) {
+            return false;
+        }
+        return communityPostQueryPort.findPublicPostById(postId).isPresent();
     }
 }

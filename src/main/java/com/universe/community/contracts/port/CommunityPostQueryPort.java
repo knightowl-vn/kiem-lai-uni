@@ -1,7 +1,7 @@
-package com.universe.community.application.port.out;
+package com.universe.community.contracts.port;
 
-import com.universe.community.application.dto.CommunityPostPublicDTO;
-import com.universe.community.application.dto.CommunityPostRevisionPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 
 import java.util.List;
 import java.util.Optional;

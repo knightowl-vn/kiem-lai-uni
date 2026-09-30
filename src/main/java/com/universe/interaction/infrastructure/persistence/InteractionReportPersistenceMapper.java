@@ -4,6 +4,7 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import org.springframework.stereotype.Component;
 
 import java.util.UUID;
@@ -14,9 +15,9 @@ import java.util.UUID;
  * <p>Preserves all domain invariants during round-trip:
  * <ul>
  *   <li>Exact scalar UUID &harr; CHAR(36) String conversion;</li>
- *   <li>ReportReason and ReportStatus name preservation;</li>
+ *   <li>ReportTargetType, ReportReason, and ReportStatus name preservation;</li>
  *   <li>Snapshot evidence immutability;</li>
- *   <li>Nullable description and resolution fields;</li>
+ *   <li>Nullable description, resolution, and targetDeletedAt fields;</li>
  *   <li>Authoritative moderation action persistence;</li>
  *   <li>Reconstitution via {@link InteractionReport#reconstitute}.</li>
  * </ul>
@@ -34,16 +35,18 @@ public class InteractionReportPersistenceMapper {
 
         return new InteractionReportJpaEntity(
                 domain.getId().toString(),
-                domain.getCommentId().toString(),
+                domain.getTargetType().name(),
+                domain.getTargetId().toString(),
                 domain.getReporterUserId().toString(),
                 domain.getReason().name(),
                 domain.getDescription(),
-                domain.getReportedBodySnapshot(),
+                domain.getReportedContentSnapshot(),
                 domain.getStatus().name(),
                 domain.getCreatedAt(),
                 domain.getResolvedByUserId() != null ? domain.getResolvedByUserId().toString() : null,
                 domain.getResolvedAt(),
-                domain.getModerationAction() != null ? domain.getModerationAction().name() : null
+                domain.getModerationAction() != null ? domain.getModerationAction().name() : null,
+                domain.getTargetDeletedAt()
         );
     }
 
@@ -56,7 +59,8 @@ public class InteractionReportPersistenceMapper {
         }
 
         UUID id = parseUuid(entity.getId(), "Report ID");
-        UUID commentId = parseUuid(entity.getCommentId(), "Comment ID");
+        ReportTargetType targetType = parseTargetType(entity.getTargetType());
+        UUID targetId = parseUuid(entity.getTargetId(), "Target ID");
         UUID reporterUserId = parseUuid(entity.getReporterUserId(), "Reporter user ID");
         ReportReason reason = parseReason(entity.getReason());
         ReportStatus status = parseStatus(entity.getStatus());
@@ -67,16 +71,18 @@ public class InteractionReportPersistenceMapper {
 
         return InteractionReport.reconstitute(
                 id,
-                commentId,
+                targetType,
+                targetId,
                 reporterUserId,
                 reason,
                 entity.getDescription(),
-                entity.getReportedBodySnapshot(),
+                entity.getContentSnapshot(),
                 status,
                 entity.getCreatedAt(),
                 resolvedByUserId,
                 entity.getResolvedAt(),
-                moderationAction
+                moderationAction,
+                entity.getTargetDeletedAt()
         );
     }
 
@@ -88,6 +94,17 @@ public class InteractionReportPersistenceMapper {
             return UUID.fromString(value);
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException("Invalid UUID format for " + fieldName + ": " + value, ex);
+        }
+    }
+
+    private static ReportTargetType parseTargetType(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Report target type cannot be null.");
+        }
+        try {
+            return ReportTargetType.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("Unknown report target type: " + value, ex);
         }
     }
 

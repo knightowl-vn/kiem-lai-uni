@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({
         ReactionPersistenceAdapter.class,
         ReactionPersistenceMapper.class,
+        LockedReactionMutationExecutor.class,
         SetReactionUseCase.class,
         RemoveReactionUseCase.class,
         ReactionMutationConcurrencyIntegrationTest.TestConfig.class
@@ -60,6 +61,7 @@ class ReactionMutationConcurrencyIntegrationTest {
 
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
+        TestDatabaseSupport.resetTestDatabase("kiemlai_test");
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
@@ -267,6 +269,16 @@ class ReactionMutationConcurrencyIntegrationTest {
         }
 
         @Bean
+        public com.universe.interaction.application.ports.CommentRepositoryPort commentRepositoryPort() {
+            return org.mockito.Mockito.mock(com.universe.interaction.application.ports.CommentRepositoryPort.class);
+        }
+
+        @Bean
+        public com.universe.community.contracts.port.CommunityPostInteractionMutationPort communityPostInteractionMutationPort() {
+            return postId -> Optional.empty();
+        }
+
+        @Bean
         public ClockPort clockPort() {
             return Instant::now;
         }
@@ -379,6 +391,14 @@ class ReactionMutationConcurrencyIntegrationTest {
         @Override
         public long countTotalReactionsByTarget(ReactionTarget target) {
             return delegate.countTotalReactionsByTarget(target);
+        }
+
+        @Override
+        public java.util.Map<UUID, Long> countTotalReactionsByTargetIds(
+                com.universe.interaction.domain.reaction.ReactionTargetType targetType,
+                java.util.Collection<UUID> targetIds
+        ) {
+            return delegate.countTotalReactionsByTargetIds(targetType, targetIds);
         }
 
         @Override

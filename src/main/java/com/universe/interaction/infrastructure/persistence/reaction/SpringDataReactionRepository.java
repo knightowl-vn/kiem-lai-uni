@@ -38,6 +38,12 @@ public interface SpringDataReactionRepository extends JpaRepository<ReactionJpaE
             @Param("targetIds") Collection<String> targetIds
     );
 
+    @Query("SELECT r.targetId, COUNT(r) FROM ReactionJpaEntity r WHERE r.targetType = :targetType AND r.targetId IN :targetIds GROUP BY r.targetId")
+    List<Object[]> countTotalReactionsByTargetIds(
+            @Param("targetType") String targetType,
+            @Param("targetIds") Collection<String> targetIds
+    );
+
     @Query("SELECT COUNT(r) FROM ReactionJpaEntity r WHERE r.targetType = :targetType AND r.targetId = :targetId")
     long countTotalReactionsByTarget(
             @Param("targetType") String targetType,

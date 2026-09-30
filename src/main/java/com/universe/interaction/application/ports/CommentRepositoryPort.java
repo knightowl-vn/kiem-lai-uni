@@ -149,4 +149,40 @@ public interface CommentRepositoryPort {
      * @param commentIds collection of comment IDs to delete
      */
     void deleteAllByIds(Collection<UUID> commentIds);
+
+    /**
+     * Retrieves ALL comment IDs for a given target regardless of status or hierarchy.
+     *
+     * @param targetType the target type
+     * @param targetId the target ID
+     * @return list of comment UUIDs
+     */
+    List<UUID> findAllCommentIdsByTarget(com.universe.interaction.domain.CommentTargetType targetType, UUID targetId);
+
+    /**
+     * Counts active comments and replies grouped by targetId for multiple targets.
+     *
+     * @param targetType the target type
+     * @param targetIds collection of target IDs
+     * @return map of target ID to active comment count
+     */
+    Map<UUID, Long> countActiveCommentsByTargetIds(
+            com.universe.interaction.domain.CommentTargetType targetType,
+            Collection<UUID> targetIds
+    );
+
+    /**
+     * Finds and locks all comments for a target with an exclusive pessimistic write lock,
+     * ordered deterministically by createdAt ASC, id ASC.
+     *
+     * <p>Precondition: Must be invoked within an active mutation transaction.
+     *
+     * @param targetType the target type
+     * @param targetId the target ID
+     * @return list of locked domain comments
+     */
+    List<Comment> lockAllCommentsByTarget(
+            com.universe.interaction.domain.CommentTargetType targetType,
+            UUID targetId
+    );
 }

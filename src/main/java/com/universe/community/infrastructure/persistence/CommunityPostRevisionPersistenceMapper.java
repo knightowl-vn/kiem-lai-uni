@@ -1,6 +1,6 @@
 package com.universe.community.infrastructure.persistence;
 
-import com.universe.community.application.dto.CommunityPostRevisionPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPostRevision;
 import org.springframework.stereotype.Component;
 

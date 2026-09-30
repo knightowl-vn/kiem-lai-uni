@@ -42,11 +42,12 @@ class InteractionReportPersistenceMapperTest {
         InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
 
         assertThat(entity.getId()).isEqualTo(reportId.toString());
-        assertThat(entity.getCommentId()).isEqualTo(commentId.toString());
+        assertThat(entity.getTargetType()).isEqualTo("COMMENT");
+        assertThat(entity.getTargetId()).isEqualTo(commentId.toString());
         assertThat(entity.getReporterUserId()).isEqualTo(reporterUserId.toString());
         assertThat(entity.getReason()).isEqualTo("SPAM");
         assertThat(entity.getDescription()).isEqualTo("Link spam in comment");
-        assertThat(entity.getReportedBodySnapshot()).isEqualTo(snapshot);
+        assertThat(entity.getContentSnapshot()).isEqualTo(snapshot);
         assertThat(entity.getStatus()).isEqualTo("PENDING");
         assertThat(entity.getCreatedAt()).isEqualTo(createdAt);
         assertThat(entity.getResolvedByUserId()).isNull();
@@ -56,11 +57,12 @@ class InteractionReportPersistenceMapperTest {
         InteractionReport reconstituted = mapper.toDomain(entity);
 
         assertThat(reconstituted.getId()).isEqualTo(domain.getId());
-        assertThat(reconstituted.getCommentId()).isEqualTo(domain.getCommentId());
+        assertThat(reconstituted.getTargetType()).isEqualTo(domain.getTargetType());
+        assertThat(reconstituted.getTargetId()).isEqualTo(domain.getTargetId());
         assertThat(reconstituted.getReporterUserId()).isEqualTo(domain.getReporterUserId());
         assertThat(reconstituted.getReason()).isEqualTo(domain.getReason());
         assertThat(reconstituted.getDescription()).isEqualTo(domain.getDescription());
-        assertThat(reconstituted.getReportedBodySnapshot()).isEqualTo(domain.getReportedBodySnapshot());
+        assertThat(reconstituted.getReportedContentSnapshot()).isEqualTo(domain.getReportedContentSnapshot());
         assertThat(reconstituted.getStatus()).isEqualTo(domain.getStatus());
         assertThat(reconstituted.getCreatedAt()).isEqualTo(domain.getCreatedAt());
         assertThat(reconstituted.getResolvedByUserId()).isNull();
@@ -171,33 +173,33 @@ class InteractionReportPersistenceMapperTest {
     @DisplayName("Throws on corrupt UUID, enum, or moderation action values during toDomain")
     void shouldThrowOnCorruptValuesInEntity() {
         InteractionReportJpaEntity corruptId = new InteractionReportJpaEntity(
-                "invalid-uuid", commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "PENDING", createdAt, null, null, null
+                "invalid-uuid", "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "PENDING", createdAt, null, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid UUID format for Report ID");
 
         InteractionReportJpaEntity corruptReason = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "NON_EXISTENT_REASON", null, snapshot, "PENDING", createdAt, null, null, null
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "NON_EXISTENT_REASON", null, snapshot, "PENDING", createdAt, null, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptReason))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown report reason");
 
         InteractionReportJpaEntity corruptStatus = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "UNKNOWN_STATUS", createdAt, null, null, null
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "UNKNOWN_STATUS", createdAt, null, null, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptStatus))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown report status");
 
         InteractionReportJpaEntity corruptModerationAction = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
                 "SPAM", null, snapshot, "RESOLVED_ACTION_TAKEN", createdAt, resolverUserId.toString(), resolvedAt,
-                "UNKNOWN_ACTION"
+                "UNKNOWN_ACTION", null
         );
         assertThatThrownBy(() -> mapper.toDomain(corruptModerationAction))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -209,8 +211,8 @@ class InteractionReportPersistenceMapperTest {
     void shouldThrowWhenEntityStatusAndModerationActionViolateInvariants() {
         // PENDING with non-null moderation action
         InteractionReportJpaEntity pendingWithAction = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "PENDING", createdAt, null, null, "DELETE_COMMENT"
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "PENDING", createdAt, null, null, "DELETE_COMMENT", null
         );
         assertThatThrownBy(() -> mapper.toDomain(pendingWithAction))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -218,8 +220,8 @@ class InteractionReportPersistenceMapperTest {
 
         // RESOLVED_ACTION_TAKEN with null action
         InteractionReportJpaEntity actionTakenWithNull = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "RESOLVED_ACTION_TAKEN", createdAt, resolverUserId.toString(), resolvedAt, null
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "RESOLVED_ACTION_TAKEN", createdAt, resolverUserId.toString(), resolvedAt, null, null
         );
         assertThatThrownBy(() -> mapper.toDomain(actionTakenWithNull))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -227,11 +229,41 @@ class InteractionReportPersistenceMapperTest {
 
         // RESOLVED_NO_ACTION with wrong action (DELETE_COMMENT)
         InteractionReportJpaEntity noActionWithWrong = new InteractionReportJpaEntity(
-                reportId.toString(), commentId.toString(), reporterUserId.toString(),
-                "SPAM", null, snapshot, "RESOLVED_NO_ACTION", createdAt, resolverUserId.toString(), resolvedAt, "DELETE_COMMENT"
+                reportId.toString(), "COMMENT", commentId.toString(), reporterUserId.toString(),
+                "SPAM", null, snapshot, "RESOLVED_NO_ACTION", createdAt, resolverUserId.toString(), resolvedAt, "DELETE_COMMENT", null
         );
         assertThatThrownBy(() -> mapper.toDomain(noActionWithWrong))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ModerationAction must be NO_ACTION for RESOLVED_NO_ACTION report.");
+    }
+
+    @Test
+    @DisplayName("Maps COMMUNITY_POST target report to JPA entity and back with full roundtrip fidelity")
+    void shouldRoundTripCommunityPostReport() {
+        UUID postId = UUID.randomUUID();
+        InteractionReport domain = InteractionReport.createPending(
+                reportId,
+                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Inappropriate post caption",
+                "Post caption snapshot",
+                createdAt
+        );
+
+        InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
+
+        assertThat(entity.getId()).isEqualTo(reportId.toString());
+        assertThat(entity.getTargetType()).isEqualTo("COMMUNITY_POST");
+        assertThat(entity.getTargetId()).isEqualTo(postId.toString());
+        assertThat(entity.getContentSnapshot()).isEqualTo("Post caption snapshot");
+
+        InteractionReport reconstituted = mapper.toDomain(entity);
+
+        assertThat(reconstituted.getId()).isEqualTo(domain.getId());
+        assertThat(reconstituted.getTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
+        assertThat(reconstituted.getTargetId()).isEqualTo(postId);
+        assertThat(reconstituted.getReportedContentSnapshot()).isEqualTo("Post caption snapshot");
     }
 }

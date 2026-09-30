@@ -38,11 +38,12 @@ class InteractionReportTest {
             );
 
             assertThat(report.getId()).isEqualTo(reportId);
-            assertThat(report.getCommentId()).isEqualTo(commentId);
+            assertThat(report.getTargetType()).isEqualTo(ReportTargetType.COMMENT);
+            assertThat(report.getTargetId()).isEqualTo(commentId);
             assertThat(report.getReporterUserId()).isEqualTo(reporterUserId);
             assertThat(report.getReason()).isEqualTo(ReportReason.SPAM);
             assertThat(report.getDescription()).isEqualTo("Spam link detected");
-            assertThat(report.getReportedBodySnapshot()).isEqualTo(snapshot);
+            assertThat(report.getReportedContentSnapshot()).isEqualTo(snapshot);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.PENDING);
             assertThat(report.getCreatedAt()).isEqualTo(now);
             assertThat(report.getResolvedByUserId()).isNull();
@@ -125,12 +126,12 @@ class InteractionReportTest {
             assertThatThrownBy(() -> InteractionReport.createPending(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, null, now
             )).isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Reported body snapshot cannot be null");
+                    .hasMessageContaining("Reported content snapshot cannot be null");
 
             assertThatThrownBy(() -> InteractionReport.createPending(
                     reportId, commentId, reporterUserId, ReportReason.SPAM, null, "   ", now
             )).isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("Reported body snapshot cannot be blank");
+                    .hasMessageContaining("Reported content snapshot cannot be blank");
         }
 
         @Test
@@ -270,11 +271,12 @@ class InteractionReportTest {
             );
 
             assertThat(report.getId()).isEqualTo(reportId);
-            assertThat(report.getCommentId()).isEqualTo(commentId);
+            assertThat(report.getTargetType()).isEqualTo(ReportTargetType.COMMENT);
+            assertThat(report.getTargetId()).isEqualTo(commentId);
             assertThat(report.getReporterUserId()).isEqualTo(reporterUserId);
             assertThat(report.getReason()).isEqualTo(ReportReason.SPAM);
             assertThat(report.getDescription()).isEqualTo("Spam comment details");
-            assertThat(report.getReportedBodySnapshot()).isEqualTo(snapshot);
+            assertThat(report.getReportedContentSnapshot()).isEqualTo(snapshot);
             assertThat(report.getStatus()).isEqualTo(ReportStatus.PENDING);
             assertThat(report.getCreatedAt()).isEqualTo(now);
             assertThat(report.getResolvedByUserId()).isNull();
@@ -481,6 +483,72 @@ class InteractionReportTest {
             assertThat(report1).isEqualTo(report2);
             assertThat(report1.hashCode()).isEqualTo(report2.hashCode());
             assertThat(report1).isNotEqualTo(report3);
+        }
+
+        @Test
+        @DisplayName("COMMUNITY_POST report rejects resolveActionTaken with DELETE_COMMENT")
+        void shouldRejectDeleteCommentActionOnCommunityPostReport() {
+            UUID postId = UUID.randomUUID();
+            InteractionReport report = InteractionReport.createPending(
+                    reportId,
+                    ReportTargetType.COMMUNITY_POST,
+                    postId,
+                    reporterUserId,
+                    ReportReason.HARASSMENT,
+                    null,
+                    "Post caption",
+                    now
+            );
+
+            assertThatThrownBy(() -> report.resolveActionTaken(resolverUserId, now.plusSeconds(10)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Cannot default resolution action for non-COMMENT target: COMMUNITY_POST");
+
+            assertThatThrownBy(() -> report.resolveActionTaken(resolverUserId, now.plusSeconds(10), ReportModerationAction.DELETE_COMMENT))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("DELETE_COMMENT action is not supported for target type COMMUNITY_POST");
+        }
+
+        @Test
+        @DisplayName("COMMUNITY_POST report resolves successfully with resolveNoAction")
+        void shouldResolveNoActionOnCommunityPostReport() {
+            UUID postId = UUID.randomUUID();
+            InteractionReport report = InteractionReport.createPending(
+                    reportId,
+                    ReportTargetType.COMMUNITY_POST,
+                    postId,
+                    reporterUserId,
+                    ReportReason.HARASSMENT,
+                    null,
+                    "Post caption",
+                    now
+            );
+
+            Instant resolvedAt = now.plusSeconds(30);
+            report.resolveNoAction(resolverUserId, resolvedAt);
+
+            assertThat(report.getStatus()).isEqualTo(ReportStatus.RESOLVED_NO_ACTION);
+            assertThat(report.getModerationAction()).isEqualTo(ReportModerationAction.NO_ACTION);
+            assertThat(report.getResolvedByUserId()).isEqualTo(resolverUserId);
+            assertThat(report.getResolvedAt()).isEqualTo(resolvedAt);
+        }
+
+        @Test
+        @DisplayName("markTargetDeleted sets targetDeletedAt timestamp")
+        void shouldSetTargetDeletedAtTimestamp() {
+            InteractionReport report = InteractionReport.createPending(
+                    reportId, commentId, reporterUserId, ReportReason.SPAM, null, snapshot, now
+            );
+            assertThat(report.getTargetDeletedAt()).isNull();
+
+            Instant deletedAt = now.plusSeconds(60);
+            report.markTargetDeleted(deletedAt);
+
+            assertThat(report.getTargetDeletedAt()).isEqualTo(deletedAt);
+
+            assertThatThrownBy(() -> report.markTargetDeleted(null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("TargetDeletedAt cannot be null");
         }
     }
 }

@@ -5,19 +5,19 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Aggregate Root representing a user report against an Interaction Comment.
+ * Aggregate Root representing a user report against an Interaction content target (Comment, Community Post).
  *
  * <p>Invariants:
  * <ul>
- *   <li>Immutable scalar references to target comment and reporter user;</li>
- *   <li>Immutable snapshot evidence of the comment body at the moment of reporting;</li>
+ *   <li>Immutable scalar references to target (targetType + targetId) and reporter user;</li>
+ *   <li>Immutable snapshot evidence of the content (comment body or post caption) at the moment of reporting;</li>
  *   <li>Taxonomy-based report reason with mandatory description for {@link ReportReason#OTHER};</li>
  *   <li>Normalized description (trimmed, max 500 characters, whitespace-only collapsed to null);</li>
  *   <li>Explicit three-state lifecycle: PENDING &rarr; RESOLVED_ACTION_TAKEN | RESOLVED_NO_ACTION;</li>
  *   <li>Terminal states are immutable and cannot transition again;</li>
  *   <li>Temporal integrity: resolution timestamp cannot precede report creation;</li>
- *   <li>Zero ORM/framework annotations; pure Java domain model;</li>
- *   <li>No {@code updatedAt} field.</li>
+ *   <li>Target deletion evidence retention: {@code targetDeletedAt} records physical deletion of target;</li>
+ *   <li>Zero ORM/framework annotations; pure Java domain model.</li>
  * </ul>
  */
 public final class InteractionReport {
@@ -25,43 +25,48 @@ public final class InteractionReport {
     public static final int MAX_DESCRIPTION_LENGTH = 500;
 
     private final UUID id;
-    private final UUID commentId;
+    private final ReportTargetType targetType;
+    private final UUID targetId;
     private final UUID reporterUserId;
     private final ReportReason reason;
     private final String description;
-    private final String reportedBodySnapshot;
+    private final String reportedContentSnapshot;
     private ReportStatus status;
     private final Instant createdAt;
     private UUID resolvedByUserId;
     private Instant resolvedAt;
     private ReportModerationAction moderationAction;
+    private Instant targetDeletedAt;
 
     private InteractionReport(
             UUID id,
-            UUID commentId,
+            ReportTargetType targetType,
+            UUID targetId,
             UUID reporterUserId,
             ReportReason reason,
             String description,
-            String reportedBodySnapshot,
+            String reportedContentSnapshot,
             ReportStatus status,
             Instant createdAt,
             UUID resolvedByUserId,
             Instant resolvedAt,
-            ReportModerationAction moderationAction
+            ReportModerationAction moderationAction,
+            Instant targetDeletedAt
     ) {
         this.id = Objects.requireNonNull(id, "Report ID cannot be null.");
-        this.commentId = Objects.requireNonNull(commentId, "Comment ID cannot be null.");
+        this.targetType = Objects.requireNonNull(targetType, "Report target type cannot be null.");
+        this.targetId = Objects.requireNonNull(targetId, "Target ID cannot be null.");
         this.reporterUserId = Objects.requireNonNull(reporterUserId, "Reporter user ID cannot be null.");
         this.reason = Objects.requireNonNull(reason, "Report reason cannot be null.");
 
-        if (reportedBodySnapshot == null) {
-            throw new IllegalArgumentException("Reported body snapshot cannot be null.");
+        if (reportedContentSnapshot == null) {
+            throw new IllegalArgumentException("Reported content snapshot cannot be null.");
         }
-        String trimmedSnapshot = reportedBodySnapshot.trim();
+        String trimmedSnapshot = reportedContentSnapshot.trim();
         if (trimmedSnapshot.isEmpty()) {
-            throw new IllegalArgumentException("Reported body snapshot cannot be blank.");
+            throw new IllegalArgumentException("Reported content snapshot cannot be blank.");
         }
-        this.reportedBodySnapshot = trimmedSnapshot;
+        this.reportedContentSnapshot = trimmedSnapshot;
 
         String normalizedDesc = null;
         if (description != null) {
@@ -125,10 +130,41 @@ public final class InteractionReport {
         this.resolvedByUserId = resolvedByUserId;
         this.resolvedAt = resolvedAt;
         this.moderationAction = moderationAction;
+        this.targetDeletedAt = targetDeletedAt;
     }
 
     /**
-     * Factory method to create a new PENDING report.
+     * Factory method to create a new generic PENDING report.
+     */
+    public static InteractionReport createPending(
+            UUID id,
+            ReportTargetType targetType,
+            UUID targetId,
+            UUID reporterUserId,
+            ReportReason reason,
+            String description,
+            String reportedContentSnapshot,
+            Instant createdAt
+    ) {
+        return new InteractionReport(
+                id,
+                targetType,
+                targetId,
+                reporterUserId,
+                reason,
+                description,
+                reportedContentSnapshot,
+                ReportStatus.PENDING,
+                createdAt,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    /**
+     * Legacy factory method to create a new PENDING report targeting a comment.
      */
     public static InteractionReport createPending(
             UUID id,
@@ -139,23 +175,89 @@ public final class InteractionReport {
             String reportedBodySnapshot,
             Instant createdAt
     ) {
-        return new InteractionReport(
+        return createPending(
                 id,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 reason,
                 description,
                 reportedBodySnapshot,
-                ReportStatus.PENDING,
+                createdAt
+        );
+    }
+
+    /**
+     * Reconstitutes an existing report from persistence with all fields.
+     */
+    public static InteractionReport reconstitute(
+            UUID id,
+            ReportTargetType targetType,
+            UUID targetId,
+            UUID reporterUserId,
+            ReportReason reason,
+            String description,
+            String reportedContentSnapshot,
+            ReportStatus status,
+            Instant createdAt,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            ReportModerationAction moderationAction,
+            Instant targetDeletedAt
+    ) {
+        return new InteractionReport(
+                id,
+                targetType,
+                targetId,
+                reporterUserId,
+                reason,
+                description,
+                reportedContentSnapshot,
+                status,
                 createdAt,
-                null,
-                null,
+                resolvedByUserId,
+                resolvedAt,
+                moderationAction,
+                targetDeletedAt
+        );
+    }
+
+    /**
+     * Reconstitutes an existing report from persistence without targetDeletedAt.
+     */
+    public static InteractionReport reconstitute(
+            UUID id,
+            ReportTargetType targetType,
+            UUID targetId,
+            UUID reporterUserId,
+            ReportReason reason,
+            String description,
+            String reportedContentSnapshot,
+            ReportStatus status,
+            Instant createdAt,
+            UUID resolvedByUserId,
+            Instant resolvedAt,
+            ReportModerationAction moderationAction
+    ) {
+        return reconstitute(
+                id,
+                targetType,
+                targetId,
+                reporterUserId,
+                reason,
+                description,
+                reportedContentSnapshot,
+                status,
+                createdAt,
+                resolvedByUserId,
+                resolvedAt,
+                moderationAction,
                 null
         );
     }
 
     /**
-     * Reconstitutes an existing report from persistence.
+     * Backward-compatible reconstitute overload for comment reports.
      */
     public static InteractionReport reconstitute(
             UUID id,
@@ -170,8 +272,9 @@ public final class InteractionReport {
             Instant resolvedAt,
             ReportModerationAction moderationAction
     ) {
-        return new InteractionReport(
+        return reconstitute(
                 id,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 reason,
@@ -181,20 +284,37 @@ public final class InteractionReport {
                 createdAt,
                 resolvedByUserId,
                 resolvedAt,
-                moderationAction
+                moderationAction,
+                null
         );
     }
 
     /**
-     * Resolves the report with action taken (e.g. comment moderated or deleted).
+     * Resolves the report with action taken (comment deleted by moderation).
      */
-    public void resolveActionTaken(UUID resolverUserId, Instant resolvedAt) {
+    public void resolveActionTaken(UUID resolverUserId, Instant resolvedAt, ReportModerationAction moderationAction) {
         ensurePending();
         validateResolutionArguments(resolverUserId, resolvedAt);
+        if (moderationAction != ReportModerationAction.DELETE_COMMENT) {
+            throw new IllegalArgumentException("Action must be DELETE_COMMENT for resolveActionTaken.");
+        }
+        if (this.targetType != ReportTargetType.COMMENT) {
+            throw new IllegalArgumentException("DELETE_COMMENT action is not supported for target type " + this.targetType);
+        }
         this.status = ReportStatus.RESOLVED_ACTION_TAKEN;
-        this.moderationAction = ReportModerationAction.DELETE_COMMENT;
+        this.moderationAction = moderationAction;
         this.resolvedByUserId = resolverUserId;
         this.resolvedAt = resolvedAt;
+    }
+
+    /**
+     * Resolves the report with action taken (defaulting to DELETE_COMMENT for COMMENT targets).
+     */
+    public void resolveActionTaken(UUID resolverUserId, Instant resolvedAt) {
+        if (this.targetType != ReportTargetType.COMMENT) {
+            throw new IllegalArgumentException("Cannot default resolution action for non-COMMENT target: " + this.targetType);
+        }
+        resolveActionTaken(resolverUserId, resolvedAt, ReportModerationAction.DELETE_COMMENT);
     }
 
     /**
@@ -207,6 +327,16 @@ public final class InteractionReport {
         this.moderationAction = ReportModerationAction.NO_ACTION;
         this.resolvedByUserId = resolverUserId;
         this.resolvedAt = resolvedAt;
+    }
+
+    /**
+     * Marks the target as physically deleted, recording the deletion timestamp as retention anchor.
+     */
+    public void markTargetDeleted(Instant targetDeletedAt) {
+        if (targetDeletedAt == null) {
+            throw new IllegalArgumentException("TargetDeletedAt cannot be null.");
+        }
+        this.targetDeletedAt = targetDeletedAt;
     }
 
     private void ensurePending() {
@@ -231,8 +361,12 @@ public final class InteractionReport {
         return id;
     }
 
-    public UUID getCommentId() {
-        return commentId;
+    public ReportTargetType getTargetType() {
+        return targetType;
+    }
+
+    public UUID getTargetId() {
+        return targetId;
     }
 
     public UUID getReporterUserId() {
@@ -247,8 +381,8 @@ public final class InteractionReport {
         return description;
     }
 
-    public String getReportedBodySnapshot() {
-        return reportedBodySnapshot;
+    public String getReportedContentSnapshot() {
+        return reportedContentSnapshot;
     }
 
     public ReportStatus getStatus() {
@@ -269,6 +403,10 @@ public final class InteractionReport {
 
     public ReportModerationAction getModerationAction() {
         return moderationAction;
+    }
+
+    public Instant getTargetDeletedAt() {
+        return targetDeletedAt;
     }
 
     public boolean isPending() {
@@ -296,16 +434,18 @@ public final class InteractionReport {
     public String toString() {
         return "InteractionReport{" +
                 "id=" + id +
-                ", commentId=" + commentId +
+                ", targetType=" + targetType +
+                ", targetId=" + targetId +
                 ", reporterUserId=" + reporterUserId +
                 ", reason=" + reason +
                 ", description='" + (description != null ? "[PROTECTED]" : "null") + '\'' +
-                ", reportedBodySnapshot='" + (reportedBodySnapshot != null ? "[PROTECTED]" : "null") + '\'' +
+                ", reportedContentSnapshot='" + (reportedContentSnapshot != null ? "[PROTECTED]" : "null") + '\'' +
                 ", status=" + status +
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId=" + resolvedByUserId +
                 ", resolvedAt=" + resolvedAt +
                 ", moderationAction=" + moderationAction +
+                ", targetDeletedAt=" + targetDeletedAt +
                 '}';
     }
 }

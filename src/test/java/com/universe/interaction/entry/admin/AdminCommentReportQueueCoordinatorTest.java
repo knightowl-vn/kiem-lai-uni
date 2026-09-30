@@ -13,6 +13,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueueItemDTO;
 import com.universe.interaction.entry.admin.dto.AdminCommentReportQueuePageDTO;
 import com.universe.novel.application.ports.ChapterListQueryPort;
@@ -407,6 +408,7 @@ class AdminCommentReportQueueCoordinatorTest {
 
         InteractionReportQueueItem processedItem = new InteractionReportQueueItem(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 ReportReason.SPAM,
@@ -420,7 +422,8 @@ class AdminCommentReportQueueCoordinatorTest {
                 CommentStatus.DELETED,
                 ReportModerationAction.DELETE_COMMENT,
                 resolverId,
-                resolvedAt
+                resolvedAt,
+                null
         );
 
         InteractionReportQueueFilter processedFilter = new InteractionReportQueueFilter(
@@ -487,6 +490,7 @@ class AdminCommentReportQueueCoordinatorTest {
 
         return new InteractionReportQueueItem(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterId,
                 reason,
@@ -500,7 +504,8 @@ class AdminCommentReportQueueCoordinatorTest {
                 commentStatus,
                 action,
                 resolverId,
-                resolvedAt
+                resolvedAt,
+                null
         );
     }
 }

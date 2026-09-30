@@ -286,4 +286,37 @@ class GetInteractionReportDetailUseCaseTest {
         verify(reportRepositoryPort, times(1)).findById(reportId);
         verify(commentRepositoryPort, times(1)).findById(commentId);
     }
+
+    @Test
+    @DisplayName("Case G: COMMUNITY_POST report - report returned with liveCommentAvailable = false and zero commentRepository calls")
+    void shouldReturnDetailForCommunityPostReportWithoutCommentLookup() {
+        UUID postId = UUID.randomUUID();
+        InteractionReport report = InteractionReport.createPending(
+                reportId,
+                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Inappropriate caption",
+                "Community post caption snapshot",
+                baseTime
+        );
+
+        when(reportRepositoryPort.findById(reportId)).thenReturn(Optional.of(report));
+
+        InteractionReportDetailResult result = useCase.execute(reportId);
+
+        assertThat(result).isNotNull();
+        assertThat(result.reportId()).isEqualTo(reportId);
+        assertThat(result.reportTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
+        assertThat(result.reportTargetId()).isEqualTo(postId);
+        assertThat(result.reportedContentSnapshot()).isEqualTo("Community post caption snapshot");
+        assertThat(result.liveCommentAvailable()).isFalse();
+        assertThat(result.commentAuthorUserId()).isNull();
+        assertThat(result.contentTargetType()).isNull();
+        assertThat(result.contentTargetId()).isNull();
+
+        verify(reportRepositoryPort, times(1)).findById(reportId);
+        verifyNoInteractions(commentRepositoryPort);
+    }
 }

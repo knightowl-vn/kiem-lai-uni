@@ -125,11 +125,11 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport retrieved = found.get();
         assertThat(retrieved.getId()).isEqualTo(reportId);
-        assertThat(retrieved.getCommentId()).isEqualTo(commentId);
+        assertThat(retrieved.getTargetId()).isEqualTo(commentId);
         assertThat(retrieved.getReporterUserId()).isEqualTo(reporterUserId);
         assertThat(retrieved.getReason()).isEqualTo(ReportReason.SPAM);
         assertThat(retrieved.getDescription()).isEqualTo("Commercial promotional link");
-        assertThat(retrieved.getReportedBodySnapshot()).isEqualTo("Spam text snapshot");
+        assertThat(retrieved.getReportedContentSnapshot()).isEqualTo("Spam text snapshot");
         assertThat(retrieved.getStatus()).isEqualTo(ReportStatus.PENDING);
         assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
         assertThat(retrieved.getResolvedByUserId()).isNull();
@@ -338,11 +338,11 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         InteractionReport retrieved = found.get();
         assertThat(retrieved.getId()).isEqualTo(reportId);
-        assertThat(retrieved.getCommentId()).isEqualTo(commentId);
+        assertThat(retrieved.getTargetId()).isEqualTo(commentId);
         assertThat(retrieved.getReporterUserId()).isEqualTo(reporterUserId);
         assertThat(retrieved.getReason()).isEqualTo(ReportReason.SPOILER);
         assertThat(retrieved.getDescription()).isEqualTo("Major plot spoiler");
-        assertThat(retrieved.getReportedBodySnapshot()).isEqualTo("Spoiler text snapshot");
+        assertThat(retrieved.getReportedContentSnapshot()).isEqualTo("Spoiler text snapshot");
         assertThat(retrieved.getStatus()).isEqualTo(ReportStatus.PENDING);
         assertThat(retrieved.getCreatedAt()).isEqualTo(createdAt);
     }
@@ -480,24 +480,24 @@ class InteractionReportPersistenceAdapterIntegrationTest {
 
         // Invalid: PENDING with moderation_action set
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'PENDING', 'DELETE_COMMENT', ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");
 
         // Invalid: RESOLVED_ACTION_TAKEN with NULL moderation_action
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_ACTION_TAKEN', NULL, ?, ?, ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");
 
         // Invalid: RESOLVED_NO_ACTION with DELETE_COMMENT
         assertThatThrownBy(() -> jdbcTemplate.update(
-                "INSERT INTO interaction_reports (id, comment_id, reporter_user_id, reason, reported_body_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
-                        "VALUES (?, ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, content_snapshot, status, moderation_action, created_at, resolved_by_user_id, resolved_at) " +
+                        "VALUES (?, 'COMMENT', ?, ?, 'SPAM', 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
                 UUID.randomUUID().toString(), commentId.toString(), reporter.toString(), Timestamp.from(now), UUID.randomUUID().toString(), Timestamp.from(now)
         )).isInstanceOf(org.springframework.dao.DataAccessException.class)
                 .hasMessageContaining("chk_interaction_reports_moderation_action");

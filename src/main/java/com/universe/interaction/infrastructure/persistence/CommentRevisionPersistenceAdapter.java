@@ -134,4 +134,16 @@ public class CommentRevisionPersistenceAdapter implements CommentRevisionReposit
             repository.deleteAllByCommentIdIn(ids);
         }
     }
+
+    @Override
+    public long countByCommentIds(java.util.Collection<UUID> commentIds) {
+        if (commentIds == null || commentIds.isEmpty()) {
+            return 0L;
+        }
+        List<String> ids = commentIds.stream().filter(Objects::nonNull).map(UUID::toString).toList();
+        if (ids.isEmpty()) {
+            return 0L;
+        }
+        return repository.countByCommentIdIn(ids);
+    }
 }

@@ -73,6 +73,14 @@ public interface ReactionRepositoryPort {
     );
 
     /**
+     * Batch counts total reactions across all types for multiple target IDs of a given {@link ReactionTargetType}.
+     */
+    Map<UUID, Long> countTotalReactionsByTargetIds(
+            ReactionTargetType targetType,
+            Collection<UUID> targetIds
+    );
+
+    /**
      * Counts the total number of reactions across all types for a given target.
      */
     long countTotalReactionsByTarget(ReactionTarget target);

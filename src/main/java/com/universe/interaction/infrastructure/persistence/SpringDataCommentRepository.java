@@ -39,6 +39,23 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     Optional<CommentJpaEntity> findByIdForUpdate(@Param("id") String id);
 
     /**
+     * Retrieves all comments for a target with an exclusive pessimistic write lock (SELECT ... FOR UPDATE),
+     * forcing the index scan through {@code idx_interaction_comments_target_id} to guarantee that physical
+     * InnoDB row locks are acquired strictly in canonical {@code id ASC} order.
+     */
+    @Query(value = """
+            SELECT * FROM interaction_comments FORCE INDEX (idx_interaction_comments_target_id)
+            WHERE target_type = :targetType
+              AND target_id = :targetId
+            ORDER BY id ASC
+            FOR UPDATE
+            """, nativeQuery = true)
+    List<CommentJpaEntity> findAllByTargetForUpdate(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId
+    );
+
+    /**
      * Retrieves a pageable slice of active root comments for a given target.
      *
      * <p>Roots are characterized by {@code parent_comment_id IS NULL}.
@@ -199,6 +216,35 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
     @Modifying
     @Query("DELETE FROM CommentJpaEntity c WHERE c.id IN :ids")
     void deleteAllByIds(@Param("ids") Collection<String> ids);
+
+    /**
+     * Retrieves ALL comment IDs for a given target regardless of status or hierarchy.
+     */
+    @Query("""
+            SELECT c.id FROM CommentJpaEntity c
+            WHERE c.targetType = :targetType
+              AND c.targetId = :targetId
+            """)
+    List<String> findAllCommentIdsByTarget(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId
+    );
+
+    /**
+     * Counts active comments and replies grouped by targetId for multiple targets.
+     */
+    @Query("""
+            SELECT c.targetId, COUNT(c)
+            FROM CommentJpaEntity c
+            WHERE c.targetType = :targetType
+              AND c.targetId IN :targetIds
+              AND c.status = 'ACTIVE'
+            GROUP BY c.targetId
+            """)
+    List<Object[]> countActiveCommentsByTargetIds(
+            @Param("targetType") String targetType,
+            @Param("targetIds") Collection<String> targetIds
+    );
 
     /**
      * Checks whether any comments exist that have the specified comment as their direct parent.

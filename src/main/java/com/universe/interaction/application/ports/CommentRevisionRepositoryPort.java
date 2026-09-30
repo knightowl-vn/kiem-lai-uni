@@ -61,4 +61,12 @@ public interface CommentRevisionRepositoryPort {
      * @param commentIds collection of comment IDs whose revisions should be purged
      */
     void deleteAllByCommentIds(java.util.Collection<UUID> commentIds);
+
+    /**
+     * Counts the total number of revisions associated with a collection of comment IDs.
+     *
+     * @param commentIds collection of comment IDs
+     * @return count of revisions
+     */
+    long countByCommentIds(java.util.Collection<UUID> commentIds);
 }

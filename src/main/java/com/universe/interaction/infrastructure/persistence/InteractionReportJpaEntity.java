@@ -31,12 +31,19 @@ public class InteractionReportJpaEntity {
     private String id;
 
     @Column(
-            name = "comment_id",
+            name = "target_type",
+            nullable = false,
+            length = 40
+    )
+    private String targetType;
+
+    @Column(
+            name = "target_id",
             nullable = false,
             length = 36,
             columnDefinition = "CHAR(36)"
     )
-    private String commentId;
+    private String targetId;
 
     @Column(
             name = "reporter_user_id",
@@ -60,11 +67,11 @@ public class InteractionReportJpaEntity {
     private String description;
 
     @Column(
-            name = "reported_body_snapshot",
+            name = "content_snapshot",
             nullable = false,
             columnDefinition = "TEXT"
     )
-    private String reportedBodySnapshot;
+    private String contentSnapshot;
 
     @Column(
             name = "status",
@@ -97,33 +104,42 @@ public class InteractionReportJpaEntity {
     )
     private String moderationAction;
 
+    @Column(
+            name = "target_deleted_at"
+    )
+    private Instant targetDeletedAt;
+
     protected InteractionReportJpaEntity() {
     }
 
     public InteractionReportJpaEntity(
             String id,
-            String commentId,
+            String targetType,
+            String targetId,
             String reporterUserId,
             String reason,
             String description,
-            String reportedBodySnapshot,
+            String contentSnapshot,
             String status,
             Instant createdAt,
             String resolvedByUserId,
             Instant resolvedAt,
-            String moderationAction
+            String moderationAction,
+            Instant targetDeletedAt
     ) {
         this.id = id;
-        this.commentId = commentId;
+        this.targetType = targetType;
+        this.targetId = targetId;
         this.reporterUserId = reporterUserId;
         this.reason = reason;
         this.description = description;
-        this.reportedBodySnapshot = reportedBodySnapshot;
+        this.contentSnapshot = contentSnapshot;
         this.status = status;
         this.createdAt = createdAt;
         this.resolvedByUserId = resolvedByUserId;
         this.resolvedAt = resolvedAt;
         this.moderationAction = moderationAction;
+        this.targetDeletedAt = targetDeletedAt;
     }
 
     public String getId() {
@@ -134,12 +150,20 @@ public class InteractionReportJpaEntity {
         this.id = id;
     }
 
-    public String getCommentId() {
-        return commentId;
+    public String getTargetType() {
+        return targetType;
     }
 
-    public void setCommentId(String commentId) {
-        this.commentId = commentId;
+    public void setTargetType(String targetType) {
+        this.targetType = targetType;
+    }
+
+    public String getTargetId() {
+        return targetId;
+    }
+
+    public void setTargetId(String targetId) {
+        this.targetId = targetId;
     }
 
     public String getReporterUserId() {
@@ -166,12 +190,12 @@ public class InteractionReportJpaEntity {
         this.description = description;
     }
 
-    public String getReportedBodySnapshot() {
-        return reportedBodySnapshot;
+    public String getContentSnapshot() {
+        return contentSnapshot;
     }
 
-    public void setReportedBodySnapshot(String reportedBodySnapshot) {
-        this.reportedBodySnapshot = reportedBodySnapshot;
+    public void setContentSnapshot(String contentSnapshot) {
+        this.contentSnapshot = contentSnapshot;
     }
 
     public String getStatus() {
@@ -214,6 +238,14 @@ public class InteractionReportJpaEntity {
         this.moderationAction = moderationAction;
     }
 
+    public Instant getTargetDeletedAt() {
+        return targetDeletedAt;
+    }
+
+    public void setTargetDeletedAt(Instant targetDeletedAt) {
+        this.targetDeletedAt = targetDeletedAt;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -231,16 +263,18 @@ public class InteractionReportJpaEntity {
     public String toString() {
         return "InteractionReportJpaEntity{" +
                 "id='" + id + '\'' +
-                ", commentId='" + commentId + '\'' +
+                ", targetType='" + targetType + '\'' +
+                ", targetId='" + targetId + '\'' +
                 ", reporterUserId='" + reporterUserId + '\'' +
                 ", reason='" + reason + '\'' +
                 ", description='" + (description != null ? "[PROTECTED]" : "null") + '\'' +
-                ", reportedBodySnapshot='" + (reportedBodySnapshot != null ? "[PROTECTED]" : "null") + '\'' +
+                ", contentSnapshot='" + (contentSnapshot != null ? "[PROTECTED]" : "null") + '\'' +
                 ", status='" + status + '\'' +
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId='" + resolvedByUserId + '\'' +
                 ", resolvedAt=" + resolvedAt +
                 ", moderationAction='" + moderationAction + '\'' +
+                ", targetDeletedAt=" + targetDeletedAt +
                 '}';
     }
 }

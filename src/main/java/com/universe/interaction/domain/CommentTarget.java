@@ -29,4 +29,8 @@ public record CommentTarget(
     public static CommentTarget wikiArticle(UUID articleId) {
         return new CommentTarget(CommentTargetType.WIKI_ARTICLE, articleId);
     }
+
+    public static CommentTarget communityPost(UUID postId) {
+        return new CommentTarget(CommentTargetType.COMMUNITY_POST, postId);
+    }
 }

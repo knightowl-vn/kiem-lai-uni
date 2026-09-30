@@ -9,6 +9,7 @@ import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -74,41 +75,53 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
         }
 
         UUID reportId = parseUuid(row.getReportId(), "reportId");
-        UUID commentId = parseUuid(row.getCommentId(), "commentId");
+        ReportTargetType reportTargetType = parseReportTargetType(row.getReportTargetType());
+        UUID reportTargetId = parseUuid(row.getReportTargetId(), "reportTargetId");
         UUID reporterUserId = parseUuid(row.getReporterUserId(), "reporterUserId");
         ReportReason reason = parseReason(row.getReason());
         String description = row.getDescription(); // nullable
-        String reportedBodySnapshot = requireNonBlank(row.getReportedBodySnapshot(), "reportedBodySnapshot");
+        String reportedContentSnapshot = requireNonBlank(row.getReportedContentSnapshot(), "reportedContentSnapshot");
         ReportStatus status = parseStatus(row.getReportStatus());
         Instant createdAt = Objects.requireNonNull(row.getCreatedAt(), "createdAt cannot be null.");
 
-        UUID commentAuthorUserId = parseUuid(row.getCommentAuthorUserId(), "commentAuthorUserId");
-        CommentTargetType targetType = parseTargetType(row.getTargetType());
-        UUID targetId = parseUuid(row.getTargetId(), "targetId");
-        CommentStatus commentStatus = parseCommentStatus(row.getCommentStatus());
+        UUID commentAuthorUserId = row.getCommentAuthorUserId() != null
+                ? parseUuid(row.getCommentAuthorUserId(), "commentAuthorUserId")
+                : null;
+        CommentTargetType contentTargetType = row.getContentTargetType() != null
+                ? parseCommentTargetType(row.getContentTargetType())
+                : null;
+        UUID contentTargetId = row.getContentTargetId() != null
+                ? parseUuid(row.getContentTargetId(), "contentTargetId")
+                : null;
+        CommentStatus commentStatus = row.getCommentStatus() != null
+                ? parseCommentStatus(row.getCommentStatus())
+                : null;
 
         ReportModerationAction moderationAction = parseModerationAction(row.getModerationAction());
         UUID resolverUserId = row.getResolvedByUserId() != null
                 ? parseUuid(row.getResolvedByUserId(), "resolvedByUserId")
                 : null;
         Instant resolvedAt = row.getResolvedAt();
+        Instant targetDeletedAt = row.getTargetDeletedAt();
 
         return new InteractionReportQueueItem(
                 reportId,
-                commentId,
+                reportTargetType,
+                reportTargetId,
                 reporterUserId,
                 reason,
                 description,
-                reportedBodySnapshot,
+                reportedContentSnapshot,
                 status,
                 createdAt,
                 commentAuthorUserId,
-                targetType,
-                targetId,
+                contentTargetType,
+                contentTargetId,
                 commentStatus,
                 moderationAction,
                 resolverUserId,
-                resolvedAt
+                resolvedAt,
+                targetDeletedAt
         );
     }
 
@@ -120,6 +133,17 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
             return UUID.fromString(value);
         } catch (IllegalArgumentException ex) {
             throw new IllegalStateException("Invalid UUID format for " + fieldName + ": " + value, ex);
+        }
+    }
+
+    private static ReportTargetType parseReportTargetType(String value) {
+        if (value == null) {
+            throw new IllegalStateException("reportTargetType cannot be null in persisted queue row.");
+        }
+        try {
+            return ReportTargetType.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException("Invalid ReportTargetType: " + value, ex);
         }
     }
 
@@ -145,9 +169,9 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
         }
     }
 
-    private static CommentTargetType parseTargetType(String value) {
+    private static CommentTargetType parseCommentTargetType(String value) {
         if (value == null) {
-            throw new IllegalStateException("targetType cannot be null in persisted queue row.");
+            return null;
         }
         try {
             return CommentTargetType.valueOf(value);
@@ -158,7 +182,7 @@ public class InteractionReportQueuePersistenceAdapter implements InteractionRepo
 
     private static CommentStatus parseCommentStatus(String value) {
         if (value == null) {
-            throw new IllegalStateException("commentStatus cannot be null in persisted queue row.");
+            return null;
         }
         try {
             return CommentStatus.valueOf(value);

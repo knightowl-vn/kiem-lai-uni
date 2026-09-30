@@ -192,6 +192,43 @@ class CommunityPostPersistenceAdapterMySQLTest {
     }
 
     @Test
+    @DisplayName("Should throw IllegalTransactionStateException when findByIdForUpdate is called without transaction")
+    void shouldThrowWhenFindByIdForUpdateCalledWithoutTransaction() {
+        UUID postId = UUID.randomUUID();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adapter.findByIdForUpdate(postId))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("Should throw IllegalTransactionStateException when lockExistingPostForInteraction is called without transaction")
+    void shouldThrowWhenLockExistingPostForInteractionCalledWithoutTransaction() {
+        UUID postId = UUID.randomUUID();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adapter.lockExistingPostForInteraction(postId))
+                .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class)
+                .hasMessageContaining("No existing transaction found for transaction marked with propagation 'mandatory'");
+    }
+
+    @Test
+    @DisplayName("Should acquire lock via lockExistingPostForInteraction inside active transaction")
+    void shouldAcquireLockExistingPostForInteractionInsideTransaction() {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        CommunityPost post = CommunityPost.create(postId, authorId, "Locked view test", null, now);
+        adapter.save(post);
+
+        transactionTemplate.executeWithoutResult(status -> {
+            var lockedViewOpt = adapter.lockExistingPostForInteraction(postId);
+            assertThat(lockedViewOpt).isPresent();
+            assertThat(lockedViewOpt.get().postId()).isEqualTo(postId);
+            assertThat(lockedViewOpt.get().authorUserId()).isEqualTo(authorId);
+            assertThat(lockedViewOpt.get().caption()).isEqualTo("Locked view test");
+        });
+    }
+
+    @Test
     @DisplayName("Should verify existsById and deleteById")
     void shouldVerifyExistsAndDelete() {
         UUID postId = UUID.randomUUID();

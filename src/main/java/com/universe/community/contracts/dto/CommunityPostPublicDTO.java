@@ -1,4 +1,4 @@
-package com.universe.community.application.dto;
+package com.universe.community.contracts.dto;
 
 import java.time.Instant;
 import java.util.Objects;
