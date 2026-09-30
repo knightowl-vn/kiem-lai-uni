@@ -17,6 +17,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
  *   <li>Community application isolation (depends only inward on domain, no outer layers/persistence/web/foreign dependencies)</li>
  *   <li>Absence of cross-context persistence coupling across all Community packages</li>
  *   <li>Protection of Community internals from foreign bounded contexts</li>
+ *   <li>Community entry web controllers must not depend directly on infrastructure persistence</li>
+ *   <li>Community contracts DTOs must remain pure data contracts free of internal domain/application/persistence packages</li>
  * </ul>
  */
 @AnalyzeClasses(packages = "com.universe", importOptions = {ImportOption.DoNotIncludeTests.class})
@@ -92,5 +94,26 @@ public class CommunityArchitectureContractTest {
                             "com.universe.community.infrastructure.."
                     )
                     .because("External bounded contexts must not depend on Community internal implementation packages")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule communityEntryMustNotDependOnInfrastructurePersistence =
+            noClasses()
+                    .that().resideInAPackage("com.universe.community.entry..")
+                    .should().dependOnClassesThat().resideInAPackage("com.universe.community.infrastructure.persistence..")
+                    .because("Community web controllers must not couple directly to infrastructure persistence mappers or entities")
+                    .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule communityContractsMustNotDependOnInternalPackages =
+            noClasses()
+                    .that().resideInAPackage("com.universe.community.contracts..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.community.domain..",
+                            "com.universe.community.application..",
+                            "com.universe.community.infrastructure..",
+                            "com.universe.community.entry.."
+                    )
+                    .because("Community contracts must remain pure data contracts and not depend on internal domain, application, persistence, or entry packages")
                     .allowEmptyShould(true);
 }
