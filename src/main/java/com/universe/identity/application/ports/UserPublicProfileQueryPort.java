@@ -1,6 +1,7 @@
 package com.universe.identity.application.ports;
 
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,14 @@ public interface UserPublicProfileQueryPort {
      * @return Optional containing UserPublicProfileDTO if found and active
      */
     Optional<UserPublicProfileDTO> findPublicProfileByHandle(String publicHandle);
+
+    /**
+     * Retrieves detailed public user profile (including bio) by unique public handle.
+     *
+     * @param publicHandle public handle of the user
+     * @return Optional containing UserPublicProfileDetailsDTO if found and active
+     */
+    Optional<UserPublicProfileDetailsDTO> findPublicProfileDetailsByHandle(String publicHandle);
 
     /**
      * Searches active public users matching the search query with 5-tier ranking.

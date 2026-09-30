@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -143,5 +144,36 @@ class UserIdentityQueryServiceTest {
 
         assertThat(result).containsExactly(profile);
         verify(userPublicProfileQueryPort).searchPublicUsers("athena", 10);
+    }
+
+    @Test
+    @DisplayName("Should return empty when handle is null or blank for details query")
+    void shouldReturnEmptyWhenDetailsHandleNullOrBlank() {
+        assertThat(queryService.findPublicProfileDetailsByHandle(null)).isEmpty();
+        assertThat(queryService.findPublicProfileDetailsByHandle("   ")).isEmpty();
+        verify(userPublicProfileQueryPort, never()).findPublicProfileDetailsByHandle(any());
+    }
+
+    @Test
+    @DisplayName("Should delegate findPublicProfileDetailsByHandle to query port with canonical lowercase handle")
+    void shouldDelegateFindPublicProfileDetailsByHandle() {
+        UUID userId = UUID.randomUUID();
+        com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO details =
+                new com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO(
+                        userId,
+                        "Athena Goddess",
+                        "https://img.com/avatar.png",
+                        "athena_goddess",
+                        "Nữ thần trí tuệ."
+                );
+
+        when(userPublicProfileQueryPort.findPublicProfileDetailsByHandle("athena_goddess"))
+                .thenReturn(Optional.of(details));
+
+        Optional<com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO> result =
+                queryService.findPublicProfileDetailsByHandle("  Athena_Goddess  ");
+
+        assertThat(result).contains(details);
+        verify(userPublicProfileQueryPort).findPublicProfileDetailsByHandle("athena_goddess");
     }
 }

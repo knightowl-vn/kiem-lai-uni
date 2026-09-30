@@ -1,6 +1,7 @@
 package com.universe.identity.infrastructure.persistence;
 
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -169,12 +170,99 @@ class UserPublicProfileQueryAdapterTest {
         assertThat(adapter.searchPublicUsers("alex", -5)).isEmpty();
     }
 
+    @Test
+    @DisplayName("findPublicProfileDetailsByHandle trả về rỗng khi input null hoặc blank")
+    void shouldReturnEmptyWhenDetailsHandleNullOrBlank() {
+        assertThat(adapter.findPublicProfileDetailsByHandle(null)).isEmpty();
+        assertThat(adapter.findPublicProfileDetailsByHandle("  ")).isEmpty();
+        assertThat(adapter.findPublicProfileDetailsByHandle("@@@")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findPublicProfileDetailsByHandle trả về UserPublicProfileDetailsDTO khi tìm thấy kèm bio và avatar")
+    void shouldFindPublicProfileDetailsByHandleWithBioAndAvatar() {
+        UserPublicProfileDetailsProjection proj = createDetailsProjection(
+                USER_1_ID.toString(),
+                "Athena",
+                "https://img.com/a.png",
+                "athena",
+                "Nữ thần trí tuệ và chiến tranh chính nghĩa."
+        );
+        when(userRepository.findActivePublicProfileDetailsByHandle("athena")).thenReturn(Optional.of(proj));
+
+        Optional<UserPublicProfileDetailsDTO> result = adapter.findPublicProfileDetailsByHandle("athena");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().userId()).isEqualTo(USER_1_ID);
+        assertThat(result.get().displayName()).isEqualTo("Athena");
+        assertThat(result.get().publicHandle()).isEqualTo("athena");
+        assertThat(result.get().avatarUrl()).isEqualTo("https://img.com/a.png");
+        assertThat(result.get().bio()).isEqualTo("Nữ thần trí tuệ và chiến tranh chính nghĩa.");
+    }
+
+    @Test
+    @DisplayName("findPublicProfileDetailsByHandle hỗ trợ null bio và null avatar")
+    void shouldFindPublicProfileDetailsByHandleWithNullBioAndNullAvatar() {
+        UserPublicProfileDetailsProjection proj = createDetailsProjection(
+                USER_2_ID.toString(),
+                "Ẩn Danh",
+                null,
+                "an_danh",
+                null
+        );
+        when(userRepository.findActivePublicProfileDetailsByHandle("an_danh")).thenReturn(Optional.of(proj));
+
+        Optional<UserPublicProfileDetailsDTO> result = adapter.findPublicProfileDetailsByHandle("an_danh");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().userId()).isEqualTo(USER_2_ID);
+        assertThat(result.get().displayName()).isEqualTo("Ẩn Danh");
+        assertThat(result.get().publicHandle()).isEqualTo("an_danh");
+        assertThat(result.get().avatarUrl()).isNull();
+        assertThat(result.get().bio()).isNull();
+    }
+
+    @Test
+    @DisplayName("findPublicProfileDetailsByHandle chuẩn hóa tiền tố @ và chuyển chữ thường")
+    void shouldStripAtPrefixAndCanonicalizeCaseInFindPublicProfileDetailsByHandle() {
+        UserPublicProfileDetailsProjection proj = createDetailsProjection(
+                USER_1_ID.toString(),
+                "Athena",
+                "https://img.com/a.png",
+                "athena",
+                "Bio text"
+        );
+        when(userRepository.findActivePublicProfileDetailsByHandle("athena")).thenReturn(Optional.of(proj));
+
+        Optional<UserPublicProfileDetailsDTO> result = adapter.findPublicProfileDetailsByHandle("@Athena");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().publicHandle()).isEqualTo("athena");
+        verify(userRepository).findActivePublicProfileDetailsByHandle("athena");
+    }
+
     private UserPublicProfileProjection createProjection(String userId, String displayName, String avatarUrl, String publicHandle) {
         return new UserPublicProfileProjection() {
             @Override public String getUserId() { return userId; }
             @Override public String getDisplayName() { return displayName; }
             @Override public String getAvatarUrl() { return avatarUrl; }
             @Override public String getPublicHandle() { return publicHandle; }
+        };
+    }
+
+    private UserPublicProfileDetailsProjection createDetailsProjection(
+            String userId,
+            String displayName,
+            String avatarUrl,
+            String publicHandle,
+            String bio
+    ) {
+        return new UserPublicProfileDetailsProjection() {
+            @Override public String getUserId() { return userId; }
+            @Override public String getDisplayName() { return displayName; }
+            @Override public String getAvatarUrl() { return avatarUrl; }
+            @Override public String getPublicHandle() { return publicHandle; }
+            @Override public String getBio() { return bio; }
         };
     }
 }

@@ -4,6 +4,7 @@ import com.universe.identity.application.ports.UserPublicProfileQueryPort;
 import com.universe.identity.application.ports.UserRepositoryPort;
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.identity.domain.Email;
 import com.universe.identity.domain.User;
@@ -90,6 +91,17 @@ public class UserIdentityQueryService
         }
 
         return userPublicProfileQueryPort.findPublicProfileByHandle(publicHandle.trim().toLowerCase(Locale.ROOT));
+    }
+
+    @Override
+    public Optional<UserPublicProfileDetailsDTO> findPublicProfileDetailsByHandle(
+            String publicHandle
+    ) {
+        if (publicHandle == null || publicHandle.isBlank()) {
+            return Optional.empty();
+        }
+
+        return userPublicProfileQueryPort.findPublicProfileDetailsByHandle(publicHandle.trim().toLowerCase(Locale.ROOT));
     }
 
     @Override

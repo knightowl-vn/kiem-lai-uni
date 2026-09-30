@@ -2,6 +2,7 @@ package com.universe.identity.contracts.interfaces;
 
 import com.universe.identity.contracts.dto.UserDTO;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,14 @@ public interface UserIdentityContract {
     default Optional<UserPublicProfileDTO> findPublicProfileByHandle(String publicHandle) {
         return Optional.empty();
     }
+
+    /**
+     * Tra cứu thông tin chi tiết hồ sơ công khai (bao gồm bio) của người dùng theo public handle.
+     *
+     * @param publicHandle handle công khai
+     * @return UserPublicProfileDetailsDTO nếu tìm thấy và user đang ACTIVE
+     */
+    Optional<UserPublicProfileDetailsDTO> findPublicProfileDetailsByHandle(String publicHandle);
 
     /**
      * Tìm kiếm danh sách hồ sơ công khai của người dùng đang hoạt động (ACTIVE).

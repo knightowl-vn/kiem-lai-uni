@@ -2,6 +2,7 @@ package com.universe.identity.infrastructure.persistence;
 
 import com.universe.identity.application.ports.UserPublicProfileQueryPort;
 import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.dto.UserPublicProfileDetailsDTO;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
@@ -84,6 +85,38 @@ public class UserPublicProfileQueryAdapter implements UserPublicProfileQueryPort
                     try {
                         UUID uid = UUID.fromString(p.getUserId());
                         return new UserPublicProfileDTO(uid, p.getDisplayName(), p.getAvatarUrl(), p.getPublicHandle());
+                    } catch (IllegalArgumentException e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull);
+    }
+
+    @Override
+    public Optional<UserPublicProfileDetailsDTO> findPublicProfileDetailsByHandle(String publicHandle) {
+        if (publicHandle == null || publicHandle.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = publicHandle.trim();
+        while (normalized.startsWith("@")) {
+            normalized = normalized.substring(1).trim();
+        }
+        if (normalized.isEmpty()) {
+            return Optional.empty();
+        }
+        String canonicalHandle = normalized.toLowerCase(Locale.ROOT);
+        return userRepository.findActivePublicProfileDetailsByHandle(canonicalHandle)
+                .filter(p -> p != null && p.getUserId() != null && p.getDisplayName() != null && p.getPublicHandle() != null)
+                .map(p -> {
+                    try {
+                        UUID uid = UUID.fromString(p.getUserId());
+                        return new UserPublicProfileDetailsDTO(
+                                uid,
+                                p.getDisplayName(),
+                                p.getAvatarUrl(),
+                                p.getPublicHandle(),
+                                p.getBio()
+                        );
                     } catch (IllegalArgumentException e) {
                         return null;
                     }

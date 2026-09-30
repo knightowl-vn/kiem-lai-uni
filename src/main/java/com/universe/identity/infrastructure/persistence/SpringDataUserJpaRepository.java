@@ -71,6 +71,21 @@ public interface SpringDataUserJpaRepository
                 user.id AS userId,
                 user.displayName AS displayName,
                 user.avatarUrl AS avatarUrl,
+                user.publicHandle AS publicHandle,
+                user.bio AS bio
+            FROM UserJpaEntity user
+            WHERE user.publicHandle = :publicHandle
+              AND user.status = 'ACTIVE'
+            """)
+    Optional<UserPublicProfileDetailsProjection> findActivePublicProfileDetailsByHandle(
+            @Param("publicHandle") String publicHandle
+    );
+
+    @Query("""
+            SELECT
+                user.id AS userId,
+                user.displayName AS displayName,
+                user.avatarUrl AS avatarUrl,
                 user.publicHandle AS publicHandle
             FROM UserJpaEntity user
             WHERE user.status = 'ACTIVE'
