@@ -7,6 +7,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.domain.Pageable;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -24,4 +27,28 @@ public interface SpringDataCommunityPostJpaRepository extends JpaRepository<Comm
             WHERE p.id = :id
             """)
     Optional<CommunityPostJpaEntity> findByIdForUpdate(@Param("id") String id);
+
+    /**
+     * Fetches the first page of newest Community posts ordered by {@code (created_at DESC, id DESC)}.
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            ORDER BY p.createdAt DESC, p.id DESC
+            """)
+    List<CommunityPostJpaEntity> findNewestPostsFirstPage(Pageable pageable);
+
+    /**
+     * Fetches subsequent page of newest Community posts strictly after the cursor point {@code (created_at, id)}.
+     */
+    @Query("""
+            SELECT p FROM CommunityPostJpaEntity p
+            WHERE (p.createdAt < :cursorCreatedAt)
+               OR (p.createdAt = :cursorCreatedAt AND p.id < :cursorId)
+            ORDER BY p.createdAt DESC, p.id DESC
+            """)
+    List<CommunityPostJpaEntity> findNewestPostsAfterCursor(
+            @Param("cursorCreatedAt") Instant cursorCreatedAt,
+            @Param("cursorId") String cursorId,
+            Pageable pageable
+    );
 }

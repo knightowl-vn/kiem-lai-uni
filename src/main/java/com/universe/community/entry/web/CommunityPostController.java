@@ -3,6 +3,8 @@ package com.universe.community.entry.web;
 import com.universe.community.application.mapper.CommunityPostDTOMapper;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
@@ -16,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,7 +35,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Public REST controller for managing Community Posts (creation with optional image upload, deletion).
+ * Public REST controller for managing and reading Community Posts.
  */
 @RestController
 @RequestMapping("/api/community/posts")
@@ -40,10 +43,12 @@ public class CommunityPostController {
 
     private final CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase;
     private final DeleteCommunityPostUseCase deleteCommunityPostUseCase;
+    private final GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
 
     public CommunityPostController(
             CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase,
-            DeleteCommunityPostUseCase deleteCommunityPostUseCase
+            DeleteCommunityPostUseCase deleteCommunityPostUseCase,
+            GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase
     ) {
         this.createCommunityPostWithImageUseCase = Objects.requireNonNull(
                 createCommunityPostWithImageUseCase,
@@ -53,6 +58,28 @@ public class CommunityPostController {
                 deleteCommunityPostUseCase,
                 "DeleteCommunityPostUseCase cannot be null."
         );
+        this.getCommunityNewestFeedUseCase = Objects.requireNonNull(
+                getCommunityNewestFeedUseCase,
+                "GetCommunityNewestFeedUseCase cannot be null."
+        );
+    }
+
+    /**
+     * GET /api/community/posts
+     * Publicly retrieves a keyset-paginated slice of Community posts for the NEWEST feed.
+     */
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<CommunityNewestFeedResponseDTO> getFeed(
+            @RequestParam(value = "feed", required = false, defaultValue = "NEWEST") String feed,
+            @RequestParam(value = "cursor", required = false) String cursor,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size
+    ) {
+        if (feed != null && !feed.isBlank() && !"NEWEST".equalsIgnoreCase(feed.trim())) {
+            throw new CommunityPostValidationException("Unsupported feed selector: " + feed);
+        }
+
+        CommunityNewestFeedResponseDTO response = getCommunityNewestFeedUseCase.execute(cursor, size);
+        return ResponseEntity.ok(response);
     }
 
     /**

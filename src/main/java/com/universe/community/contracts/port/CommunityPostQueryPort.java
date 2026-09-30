@@ -27,4 +27,18 @@ public interface CommunityPostQueryPort {
      * @return list of public revision DTOs
      */
     List<CommunityPostRevisionPublicDTO> findPublicRevisionHistory(UUID postId);
+
+    /**
+     * Finds a keyset slice of public Community posts ordered by {@code (created_at DESC, id DESC)}.
+     *
+     * @param cursorCreatedAt timestamp of the last seen post (null for the first page)
+     * @param cursorPostId UUID of the last seen post (null for the first page)
+     * @param limit maximum number of posts to fetch (must be greater than 0)
+     * @return list of public post projection DTOs
+     */
+    List<CommunityPostPublicDTO> findNewestPostsKeyset(
+            java.time.Instant cursorCreatedAt,
+            UUID cursorPostId,
+            int limit
+    );
 }

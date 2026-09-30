@@ -2,6 +2,9 @@ package com.universe.community.entry.web;
 
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
+import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -22,6 +25,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.InputStream;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -33,6 +37,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -50,13 +55,17 @@ class CommunityPostControllerTest {
     @Mock
     private DeleteCommunityPostUseCase deleteCommunityPostUseCase;
 
+    @Mock
+    private GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         CommunityPostController controller = new CommunityPostController(
                 createCommunityPostWithImageUseCase,
-                deleteCommunityPostUseCase
+                deleteCommunityPostUseCase,
+                getCommunityNewestFeedUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -382,5 +391,108 @@ class CommunityPostControllerTest {
                         }))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    // =========================================================================
+    // GET /api/community/posts Feed Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("GET /api/community/posts should return 200 OK with default NEWEST feed for guest")
+    void shouldReturnDefaultNewestFeedForGuest() throws Exception {
+        UUID p1Id = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                p1Id, USER_ID, "Feed post caption", null, null, 0,
+                3L, 2L, 5L, now, now
+        );
+        CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
+                List.of(item), "next-cursor-token", 20, true
+        );
+
+        when(getCommunityNewestFeedUseCase.execute(null, 20)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(p1Id.toString()))
+                .andExpect(jsonPath("$.items[0].authorUserId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.items[0].caption").value("Feed post caption"))
+                .andExpect(jsonPath("$.items[0].reactionCount").value(3))
+                .andExpect(jsonPath("$.items[0].commentCount").value(2))
+                .andExpect(jsonPath("$.items[0].engagementScore").value(5))
+                .andExpect(jsonPath("$.nextCursor").value("next-cursor-token"))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        verify(getCommunityNewestFeedUseCase).execute(null, 20);
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=NEWEST&cursor=xxx&size=10 should pass params to use case")
+    void shouldPassExplicitCursorAndSizeParams() throws Exception {
+        CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 10, false
+        );
+
+        when(getCommunityNewestFeedUseCase.execute("custom-cursor", 10)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts")
+                        .param("feed", "NEWEST")
+                        .param("cursor", "custom-cursor")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(getCommunityNewestFeedUseCase).execute("custom-cursor", 10);
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=newest (case-insensitive) should pass to use case")
+    void shouldAcceptCaseInsensitiveNewestFeedSelector() throws Exception {
+        CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+
+        when(getCommunityNewestFeedUseCase.execute(null, 20)).thenReturn(responseDTO);
+
+        mockMvc.perform(get("/api/community/posts").param("feed", "newest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.size").value(20));
+
+        verify(getCommunityNewestFeedUseCase).execute(null, 20);
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=FEATURED should return 400 Bad Request in B5.1")
+    void shouldRejectUnsupportedFeaturedFeedInB51() throws Exception {
+        mockMvc.perform(get("/api/community/posts").param("feed", "FEATURED"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Unsupported feed selector: FEATURED"));
+
+        verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts?feed=UNKNOWN should return 400 Bad Request")
+    void shouldRejectUnknownFeedSelector() throws Exception {
+        mockMvc.perform(get("/api/community/posts").param("feed", "UNKNOWN"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Unsupported feed selector: UNKNOWN"));
+
+        verify(getCommunityNewestFeedUseCase, never()).execute(any(), any());
+    }
+
+    @Test
+    @DisplayName("GET /api/community/posts with malformed cursor should return 400 Bad Request")
+    void shouldReturnBadRequestOnMalformedCursor() throws Exception {
+        when(getCommunityNewestFeedUseCase.execute(eq("invalid-cursor"), eq(20)))
+                .thenThrow(new CommunityPostValidationException("Invalid cursor format."));
+
+        mockMvc.perform(get("/api/community/posts").param("cursor", "invalid-cursor"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid cursor format."));
     }
 }

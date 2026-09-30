@@ -126,6 +126,15 @@ class CommunityPostInteractionIntegrationTest {
                 public List<CommunityPostRevisionPublicDTO> findPublicRevisionHistory(UUID postId) {
                     return List.of();
                 }
+
+                @Override
+                public List<CommunityPostPublicDTO> findNewestPostsKeyset(
+                        java.time.Instant cursorCreatedAt,
+                        UUID cursorPostId,
+                        int limit
+                ) {
+                    return List.of();
+                }
             };
         }
 

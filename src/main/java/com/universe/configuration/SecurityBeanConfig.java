@@ -178,7 +178,9 @@ public class SecurityBeanConfig {
                                 "/api/wiki/articles/*/comments/feed",
                                 "/api/wiki/articles/*/comments/*/thread",
                                 "/api/wiki/articles/*/comments/*/revisions",
-                                "/api/interaction/reactions"
+                                "/api/interaction/reactions",
+                                "/api/community/posts",
+                                "/api/community/posts/**"
                         )
                         .permitAll()
 

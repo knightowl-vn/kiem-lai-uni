@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.flyway.enabled=true"
 })
 @Import({
+        CommunityPostQueryAdapter.class,
         CommunityPostPersistenceAdapter.class,
         CommunityPostRevisionPersistenceAdapter.class,
         CommunityPostPersistenceMapper.class,
@@ -53,7 +54,10 @@ class CommunityPostQueryAdapterMySQLTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private CommunityPostPersistenceAdapter adapter;
+    private CommunityPostQueryAdapter queryAdapter;
+
+    @Autowired
+    private CommunityPostPersistenceAdapter persistenceAdapter;
 
     @Autowired
     private CommunityPostRevisionPersistenceAdapter revisionAdapter;
@@ -74,9 +78,9 @@ class CommunityPostQueryAdapterMySQLTest {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         CommunityPost post = CommunityPost.create(postId, authorId, "Public post caption", mediaAssetId, now);
-        adapter.save(post);
+        persistenceAdapter.save(post);
 
-        Optional<CommunityPostPublicDTO> dtoOpt = adapter.findPublicPostById(postId);
+        Optional<CommunityPostPublicDTO> dtoOpt = queryAdapter.findPublicPostById(postId);
         assertThat(dtoOpt).isPresent();
         CommunityPostPublicDTO dto = dtoOpt.get();
         assertThat(dto.id()).isEqualTo(postId);
@@ -88,7 +92,7 @@ class CommunityPostQueryAdapterMySQLTest {
         assertThat(dto.updatedAt()).isEqualTo(now);
 
         // Non-existent post
-        assertThat(adapter.findPublicPostById(UUID.randomUUID())).isEmpty();
+        assertThat(queryAdapter.findPublicPostById(UUID.randomUUID())).isEmpty();
     }
 
     @Test
@@ -101,10 +105,10 @@ class CommunityPostQueryAdapterMySQLTest {
         Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         CommunityPost post = CommunityPost.create(postId, authorId, "v0", null, t0);
-        adapter.save(post);
+        persistenceAdapter.save(post);
 
         // Initially no revisions
-        assertThat(adapter.findPublicRevisionHistory(postId)).isEmpty();
+        assertThat(queryAdapter.findPublicRevisionHistory(postId)).isEmpty();
 
         // Add 2 revisions
         UUID rev1Id = UUID.randomUUID();
@@ -112,7 +116,7 @@ class CommunityPostQueryAdapterMySQLTest {
         revisionAdapter.save(new CommunityPostRevision(rev1Id, postId, 1, authorId, "v0", "v1", t1));
         revisionAdapter.save(new CommunityPostRevision(rev2Id, postId, 2, authorId, "v1", "v2", t2));
 
-        List<CommunityPostRevisionPublicDTO> history = adapter.findPublicRevisionHistory(postId);
+        List<CommunityPostRevisionPublicDTO> history = queryAdapter.findPublicRevisionHistory(postId);
         assertThat(history).hasSize(2);
 
         CommunityPostRevisionPublicDTO rev1 = history.get(0);
@@ -132,5 +136,61 @@ class CommunityPostQueryAdapterMySQLTest {
         assertThat(rev2.previousCaption()).isEqualTo("v1");
         assertThat(rev2.caption()).isEqualTo("v2");
         assertThat(rev2.editedAt()).isEqualTo(t2);
+    }
+
+    @Test
+    @DisplayName("Should query newest posts using keyset pagination with canonical DB id DESC tie-break on same createdAt")
+    void shouldQueryNewestPostsKeysetWithTieBreak() {
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        Instant t3 = now.minus(1, ChronoUnit.HOURS);
+        Instant t2 = now.minus(2, ChronoUnit.HOURS); // Shared timestamp
+        Instant t1 = now.minus(3, ChronoUnit.HOURS);
+        Instant t0 = now.minus(4, ChronoUnit.HOURS);
+
+        UUID id1 = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID id2B = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"); // shared t2, higher id
+        UUID id2A = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"); // shared t2, lower id
+        UUID id4 = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        UUID id5 = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1 (t3)", null, t3));
+        persistenceAdapter.save(CommunityPost.create(id2B, authorId, "Post 2B (t2, id=b...)", null, t2));
+        persistenceAdapter.save(CommunityPost.create(id2A, authorId, "Post 2A (t2, id=a...)", null, t2));
+        persistenceAdapter.save(CommunityPost.create(id4, authorId, "Post 4 (t1)", null, t1));
+        persistenceAdapter.save(CommunityPost.create(id5, authorId, "Post 5 (t0)", null, t0));
+
+        // --- Page 1 (limit 2) ---
+        List<CommunityPostPublicDTO> page1 = queryAdapter.findNewestPostsKeyset(null, null, 2);
+        assertThat(page1).hasSize(2);
+        assertThat(page1.get(0).id()).isEqualTo(id1);
+        assertThat(page1.get(1).id()).isEqualTo(id2B); // id2B comes before id2A due to id DESC
+
+        // --- Page 2 (limit 2, cursor = last item of page 1: t2, id2B) ---
+        CommunityPostPublicDTO lastOfPage1 = page1.get(1);
+        List<CommunityPostPublicDTO> page2 = queryAdapter.findNewestPostsKeyset(lastOfPage1.createdAt(), lastOfPage1.id(), 2);
+        assertThat(page2).hasSize(2);
+        assertThat(page2.get(0).id()).isEqualTo(id2A); // id2A with same t2 comes strictly after id2B
+        assertThat(page2.get(1).id()).isEqualTo(id4);
+
+        // --- Page 3 (limit 2, cursor = last item of page 2: t1, id4) ---
+        CommunityPostPublicDTO lastOfPage2 = page2.get(1);
+        List<CommunityPostPublicDTO> page3 = queryAdapter.findNewestPostsKeyset(lastOfPage2.createdAt(), lastOfPage2.id(), 2);
+        assertThat(page3).hasSize(1);
+        assertThat(page3.get(0).id()).isEqualTo(id5);
+
+        // --- Page 4 (limit 2, cursor = last item of page 3: t0, id5) ---
+        CommunityPostPublicDTO lastOfPage3 = page3.get(0);
+        List<CommunityPostPublicDTO> page4 = queryAdapter.findNewestPostsKeyset(lastOfPage3.createdAt(), lastOfPage3.id(), 2);
+        assertThat(page4).isEmpty();
+
+        // Verify total traversal: exactly 5 items, no duplicates, no omissions
+        List<UUID> fullSequence = List.of(
+                page1.get(0).id(), page1.get(1).id(),
+                page2.get(0).id(), page2.get(1).id(),
+                page3.get(0).id()
+        );
+        assertThat(fullSequence).containsExactly(id1, id2B, id2A, id4, id5);
     }
 }
