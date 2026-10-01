@@ -8,6 +8,9 @@ import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.community.domain.exception.CommunityPostValidationException;
+import com.universe.community.application.port.out.CommunityAuthorProfilePort;
+import com.universe.community.application.port.out.CommunityAuthorProfileSummary;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,16 +43,21 @@ class GetCommunityAuthorPostsUseCaseTest {
     @Mock
     private CommunityPostEngagementMetricsPort engagementMetricsPort;
 
+    @Mock
+    private CommunityAuthorProfilePort authorProfilePort;
+
     @Captor
     private ArgumentCaptor<List<UUID>> postIdsCaptor;
 
     private CommunityPostKeysetCursorCodec cursorCodec;
+    private CommunityPostFeedAuthorEnricher authorEnricher;
     private GetCommunityAuthorPostsUseCase useCase;
 
     @BeforeEach
     void setUp() {
         cursorCodec = new CommunityPostKeysetCursorCodec();
-        useCase = new GetCommunityAuthorPostsUseCase(postQueryPort, engagementMetricsPort, cursorCodec);
+        authorEnricher = new CommunityPostFeedAuthorEnricher(authorProfilePort);
+        useCase = new GetCommunityAuthorPostsUseCase(postQueryPort, engagementMetricsPort, cursorCodec, authorEnricher);
     }
 
     @Test

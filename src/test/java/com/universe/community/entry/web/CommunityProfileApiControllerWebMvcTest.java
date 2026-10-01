@@ -97,7 +97,8 @@ class CommunityProfileApiControllerWebMvcTest {
 
         UUID imageId = UUID.randomUUID();
         CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
-                postId, authorId, "Tác phẩm mới", imageId, "/media/assets/" + imageId + "/content", 0,
+                postId, authorId, "Linh Đạo", "linh_dao", null, "Tác phẩm mới",
+                imageId, "/media/assets/" + imageId + "/content", 0,
                 15L, 3L, 18L, now, now
         );
         CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(

@@ -5,11 +5,14 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Public read projection DTO representing an item in a Community feed.
+ * Public read projection DTO representing an item in a Community feed with public author presentation metadata.
  */
 public record CommunityPostFeedItemDTO(
         UUID id,
         UUID authorUserId,
+        String authorDisplayName,
+        String authorPublicHandle,
+        String authorAvatarUrl,
         String caption,
         UUID imageMediaAssetId,
         String imageUrl,

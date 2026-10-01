@@ -209,4 +209,66 @@ class UserPublicProfileDetailsPersistenceIntegrationTest {
         assertThat(searchList).hasSize(1);
         assertThat(searchList.get(0)).isEqualTo(summaryOpt.get());
     }
+
+    @Test
+    @DisplayName("Real DB Bulk Query: findPublicProfilesByIds includes ACTIVE users A and B, excludes BLOCKED user C, and returns pure public DTOs")
+    void shouldBulkFindActivePublicProfilesExcludingNonActiveAndPreservingPublicProjection() {
+        // Active User A
+        User userA = User.createLocal(
+                USER_1_ID,
+                new Email("user_a@example.com"),
+                "$2a$10$hashA",
+                "Alice Active",
+                "alice_act",
+                NOW
+        );
+        userA.updateAvatarUrl("https://img.example.com/alice.png");
+        userRepositoryAdapter.save(userA);
+
+        // Active User B
+        User userB = User.createLocal(
+                USER_2_ID,
+                new Email("user_b@example.com"),
+                "$2a$10$hashB",
+                "Bob Active",
+                "bob_act",
+                NOW
+        );
+        userRepositoryAdapter.save(userB);
+
+        // Blocked User C (non-ACTIVE)
+        User userC = User.createLocal(
+                USER_3_ID,
+                new Email("user_c@example.com"),
+                "$2a$10$hashC",
+                "Charlie Blocked",
+                "charlie_blk",
+                NOW
+        );
+        userC.block();
+        userRepositoryAdapter.save(userC);
+
+        // Bulk lookup {A, B, C}
+        Map<UUID, UserPublicProfileDTO> result = queryAdapter.findPublicProfilesByIds(Set.of(USER_1_ID, USER_2_ID, USER_3_ID));
+
+        // Result includes A and B, strictly excludes C
+        assertThat(result).hasSize(2);
+        assertThat(result).containsKey(USER_1_ID);
+        assertThat(result).containsKey(USER_2_ID);
+        assertThat(result).doesNotContainKey(USER_3_ID);
+
+        // Verify User A public projection
+        UserPublicProfileDTO dtoA = result.get(USER_1_ID);
+        assertThat(dtoA.userId()).isEqualTo(USER_1_ID);
+        assertThat(dtoA.displayName()).isEqualTo("Alice Active");
+        assertThat(dtoA.publicHandle()).isEqualTo("alice_act");
+        assertThat(dtoA.avatarUrl()).isEqualTo("https://img.example.com/alice.png");
+
+        // Verify User B public projection (null avatar)
+        UserPublicProfileDTO dtoB = result.get(USER_2_ID);
+        assertThat(dtoB.userId()).isEqualTo(USER_2_ID);
+        assertThat(dtoB.displayName()).isEqualTo("Bob Active");
+        assertThat(dtoB.publicHandle()).isEqualTo("bob_act");
+        assertThat(dtoB.avatarUrl()).isNull();
+    }
 }

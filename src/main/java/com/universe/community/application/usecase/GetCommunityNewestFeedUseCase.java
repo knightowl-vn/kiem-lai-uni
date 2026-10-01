@@ -3,6 +3,7 @@ package com.universe.community.application.usecase;
 import com.universe.community.application.cursor.CommunityPostKeysetCursor;
 import com.universe.community.application.cursor.CommunityPostKeysetCursorCodec;
 import com.universe.community.application.port.out.CommunityPostEngagementMetricsPort;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
@@ -18,7 +19,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Use case to retrieve a paginated slice of Community posts for the NEWEST feed using keyset pagination.
+ * Use case to retrieve a paginated slice of Community posts for the NEWEST feed using keyset pagination with author enrichment.
  */
 @Service
 @Transactional(readOnly = true)
@@ -31,15 +32,18 @@ public class GetCommunityNewestFeedUseCase {
     private final CommunityPostQueryPort postQueryPort;
     private final CommunityPostEngagementMetricsPort engagementMetricsPort;
     private final CommunityPostKeysetCursorCodec cursorCodec;
+    private final CommunityPostFeedAuthorEnricher authorEnricher;
 
     public GetCommunityNewestFeedUseCase(
             CommunityPostQueryPort postQueryPort,
             CommunityPostEngagementMetricsPort engagementMetricsPort,
-            CommunityPostKeysetCursorCodec cursorCodec
+            CommunityPostKeysetCursorCodec cursorCodec,
+            CommunityPostFeedAuthorEnricher authorEnricher
     ) {
         this.postQueryPort = Objects.requireNonNull(postQueryPort, "CommunityPostQueryPort cannot be null.");
         this.engagementMetricsPort = Objects.requireNonNull(engagementMetricsPort, "CommunityPostEngagementMetricsPort cannot be null.");
         this.cursorCodec = Objects.requireNonNull(cursorCodec, "CommunityPostKeysetCursorCodec cannot be null.");
+        this.authorEnricher = Objects.requireNonNull(authorEnricher, "CommunityPostFeedAuthorEnricher cannot be null.");
     }
 
     public CommunityNewestFeedResponseDTO execute(String rawCursor, Integer requestedSize) {
@@ -82,6 +86,9 @@ public class GetCommunityNewestFeedUseCase {
             feedItems.add(new CommunityPostFeedItemDTO(
                     post.id(),
                     post.authorUserId(),
+                    null,
+                    null,
+                    null,
                     post.caption(),
                     post.imageMediaAssetId(),
                     post.imageUrl(),
@@ -94,12 +101,14 @@ public class GetCommunityNewestFeedUseCase {
             ));
         }
 
+        List<CommunityPostFeedItemDTO> enrichedItems = authorEnricher.enrich(feedItems);
+
         String nextCursor = null;
         if (hasNext) {
             CommunityPostPublicDTO lastPost = pagePosts.get(pagePosts.size() - 1);
             nextCursor = cursorCodec.encode(new CommunityPostKeysetCursor(lastPost.createdAt(), lastPost.id()));
         }
 
-        return new CommunityNewestFeedResponseDTO(feedItems, nextCursor, size, hasNext);
+        return new CommunityNewestFeedResponseDTO(enrichedItems, nextCursor, size, hasNext);
     }
 }

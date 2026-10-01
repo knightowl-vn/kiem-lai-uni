@@ -94,7 +94,8 @@ class CommunityProfilePageControllerWebMvcTest {
         Instant now = Instant.parse("2026-09-30T12:00:00Z");
 
         CommunityPostFeedItemDTO postItem = new CommunityPostFeedItemDTO(
-                UUID.randomUUID(), authorId, "Post 1", null, null, 0,
+                UUID.randomUUID(), authorId, "Linh Đạo", "linh_dao", "https://cdn.example.com/avatar.jpg", "Post 1",
+                null, null, 0,
                 3L, 1L, 4L, now, now
         );
         CommunityNewestFeedResponseDTO feedDTO = new CommunityNewestFeedResponseDTO(

@@ -7,6 +7,9 @@ import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.community.domain.exception.CommunityPostValidationException;
+import com.universe.community.application.port.out.CommunityAuthorProfilePort;
+import com.universe.community.application.port.out.CommunityAuthorProfileSummary;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,11 +45,16 @@ class GetCommunityFeaturedFeedUseCaseTest {
     @Mock
     private CommunityPostEngagementMetricsPort engagementMetricsPort;
 
+    @Mock
+    private CommunityAuthorProfilePort authorProfilePort;
+
+    private CommunityPostFeedAuthorEnricher authorEnricher;
     private GetCommunityFeaturedFeedUseCase useCase;
 
     @BeforeEach
     void setUp() {
-        useCase = new GetCommunityFeaturedFeedUseCase(postQueryPort, engagementMetricsPort);
+        authorEnricher = new CommunityPostFeedAuthorEnricher(authorProfilePort);
+        useCase = new GetCommunityFeaturedFeedUseCase(postQueryPort, engagementMetricsPort, authorEnricher);
     }
 
     @Test
@@ -501,5 +510,35 @@ class GetCommunityFeaturedFeedUseCaseTest {
 
         assertThat(response.items()).hasSize(1);
         assertThat(response.items().get(0).id()).isEqualTo(winner1);
+    }
+
+    @Test
+    @DisplayName("U. Author metadata is enriched on the winning page items")
+    void shouldEnrichWinningPageAuthorMetadata() {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+
+        when(postQueryPort.findAllRankingCandidates()).thenReturn(List.of(
+                new CommunityPostRankingCandidateDTO(postId, now)
+        ));
+        when(engagementMetricsPort.getEngagementMetricsForPosts(List.of(postId))).thenReturn(Map.of(
+                postId, new CommunityPostEngagementMetricsPort.PostEngagementMetrics(5L, 2L)
+        ));
+        when(postQueryPort.findPublicPostsByIds(List.of(postId))).thenReturn(List.of(
+                new CommunityPostPublicDTO(postId, authorId, "Featured caption", null, 0, now, now)
+        ));
+        when(authorProfilePort.findAuthorProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new CommunityAuthorProfileSummary(authorId, "ninh_dao_gia", "Ninh Diêu", "https://cdn.example.com/ninh.jpg")
+        ));
+
+        CommunityFeaturedFeedResponseDTO response = useCase.execute(0, 20);
+
+        assertThat(response.items()).hasSize(1);
+        CommunityPostFeedItemDTO item = response.items().get(0);
+        assertThat(item.authorUserId()).isEqualTo(authorId);
+        assertThat(item.authorPublicHandle()).isEqualTo("ninh_dao_gia");
+        assertThat(item.authorDisplayName()).isEqualTo("Ninh Diêu");
+        assertThat(item.authorAvatarUrl()).isEqualTo("https://cdn.example.com/ninh.jpg");
     }
 }

@@ -47,6 +47,7 @@ public interface SpringDataUserJpaRepository
                 user.publicHandle AS publicHandle
             FROM UserJpaEntity user
             WHERE user.id IN :ids
+              AND user.status = 'ACTIVE'
             """)
     List<UserPublicProfileProjection> findPublicProfilesByIdIn(
             @Param("ids") Collection<String> ids

@@ -8,6 +8,9 @@ import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.port.CommunityPostQueryPort;
 import com.universe.community.domain.exception.CommunityPostValidationException;
+import com.universe.community.application.port.out.CommunityAuthorProfilePort;
+import com.universe.community.application.port.out.CommunityAuthorProfileSummary;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,13 +42,18 @@ class GetCommunityNewestFeedUseCaseTest {
     @Mock
     private CommunityPostEngagementMetricsPort engagementMetricsPort;
 
+    @Mock
+    private CommunityAuthorProfilePort authorProfilePort;
+
     private CommunityPostKeysetCursorCodec cursorCodec;
+    private CommunityPostFeedAuthorEnricher authorEnricher;
     private GetCommunityNewestFeedUseCase useCase;
 
     @BeforeEach
     void setUp() {
         cursorCodec = new CommunityPostKeysetCursorCodec();
-        useCase = new GetCommunityNewestFeedUseCase(postQueryPort, engagementMetricsPort, cursorCodec);
+        authorEnricher = new CommunityPostFeedAuthorEnricher(authorProfilePort);
+        useCase = new GetCommunityNewestFeedUseCase(postQueryPort, engagementMetricsPort, cursorCodec, authorEnricher);
     }
 
     @Test
@@ -175,5 +184,29 @@ class GetCommunityNewestFeedUseCaseTest {
         assertThatThrownBy(() -> useCase.execute("not-a-valid-cursor", 20))
                 .isInstanceOf(CommunityPostValidationException.class)
                 .hasMessage("Invalid cursor format.");
+    }
+
+    @Test
+    @DisplayName("Should enrich author metadata when available in authorProfilePort")
+    void shouldEnrichAuthorMetadataWhenAvailable() {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+
+        CommunityPostPublicDTO post = new CommunityPostPublicDTO(postId, authorId, "Enriched post", null, 0, now, now);
+        when(postQueryPort.findNewestPostsKeyset(null, null, 21)).thenReturn(List.of(post));
+        when(engagementMetricsPort.getEngagementMetricsForPosts(List.of(postId))).thenReturn(Map.of());
+        when(authorProfilePort.findAuthorProfilesByIds(Set.of(authorId))).thenReturn(Map.of(
+                authorId, new CommunityAuthorProfileSummary(authorId, "tran_binh_an", "Trần Bình An", "https://cdn.example.com/an.jpg")
+        ));
+
+        CommunityNewestFeedResponseDTO response = useCase.execute(null, 20);
+
+        assertThat(response.items()).hasSize(1);
+        CommunityPostFeedItemDTO item = response.items().get(0);
+        assertThat(item.authorUserId()).isEqualTo(authorId);
+        assertThat(item.authorPublicHandle()).isEqualTo("tran_binh_an");
+        assertThat(item.authorDisplayName()).isEqualTo("Trần Bình An");
+        assertThat(item.authorAvatarUrl()).isEqualTo("https://cdn.example.com/an.jpg");
     }
 }

@@ -76,6 +76,9 @@ class GetCommunityPublicProfileUseCaseTest {
         CommunityPostFeedItemDTO postItem = new CommunityPostFeedItemDTO(
                 p1Id,
                 authorId,
+                "Linh Đạo",
+                "linh_dao",
+                "https://cdn.example.com/avatar.jpg",
                 "Bài viết đầu tiên",
                 null,
                 null,

@@ -1,0 +1,351 @@
+/* ==========================================================================
+   KiemLai Community V1 — Community Feed & Composer Styling
+   ========================================================================== */
+
+.community-container {
+    max-width: 680px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+/* Header */
+.community-header {
+    margin-bottom: 1.5rem;
+}
+
+.community-title {
+    font-size: 1.625rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.community-subtitle {
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+/* Composer Card */
+.community-composer-card {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px var(--shadow-color);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.composer-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.composer-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.composer-author-name {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+}
+
+.composer-body {
+    margin-bottom: 0.75rem;
+}
+
+.composer-textarea {
+    width: 100%;
+    background: var(--input-bg);
+    color: var(--input-text);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    min-height: 80px;
+}
+
+.composer-textarea:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);
+}
+
+.composer-image-preview {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 0.75rem;
+    max-width: 100%;
+}
+
+.preview-img {
+    max-width: 100%;
+    max-height: 240px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+    display: block;
+}
+
+.btn-remove-image {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.65);
+    color: #ffffff;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: background-color 0.2s ease;
+}
+
+.btn-remove-image:hover {
+    background: rgba(0, 0, 0, 0.85);
+}
+
+.composer-error {
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+}
+
+.composer-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.composer-char-count {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    margin-right: 0.75rem;
+}
+
+.composer-submit-group {
+    display: flex;
+    align-items: center;
+}
+
+.composer-btn-attach {
+    font-size: 0.875rem;
+}
+
+/* Guest Card */
+.community-guest-card {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.guest-card-text {
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.guest-card-actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Feed Navigation Tabs */
+.community-feed-tabs {
+    display: flex;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1.25rem;
+}
+
+.feed-tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.2s ease, border-color 0.2s ease;
+    margin-bottom: -1px;
+}
+
+.feed-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.feed-tab-btn.is-active {
+    color: #0d6efd;
+    border-bottom-color: #0d6efd;
+}
+
+/* Feed Post Card */
+.community-post-card {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 1px 4px var(--shadow-color);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.post-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.post-author-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.post-author-avatar-link {
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.post-author-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.post-meta {
+    display: flex;
+    flex-direction: column;
+}
+
+.post-author-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+}
+
+.post-author-name {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.post-author-name:hover {
+    text-decoration: underline;
+}
+
+.post-author-handle {
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+}
+
+.post-time {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.post-caption {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 0.75rem;
+}
+
+.post-image-container {
+    margin-bottom: 0.75rem;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.post-image {
+    width: 100%;
+    max-height: 520px;
+    object-fit: cover;
+    display: block;
+}
+
+.post-footer {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.75rem;
+}
+
+.post-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Empty State */
+.empty-feed-card {
+    text-align: center;
+    padding: 3rem 1.5rem;
+    background: var(--surface-bg);
+    border: 1px dashed var(--border-color);
+    border-radius: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+}
+
+.empty-feed-icon {
+    font-size: 2.25rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-secondary);
+    display: block;
+}
+
+.empty-feed-text {
+    font-size: 0.9375rem;
+    margin: 0;
+}
+
+/* Load More */
+.community-load-more-container {
+    text-align: center;
+    margin-top: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.load-more-btn {
+    min-width: 140px;
+}
+
+.feed-spinner {
+    width: 2rem;
+    height: 2rem;
+}

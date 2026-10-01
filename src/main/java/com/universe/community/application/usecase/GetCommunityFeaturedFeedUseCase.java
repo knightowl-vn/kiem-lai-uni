@@ -1,6 +1,7 @@
 package com.universe.community.application.usecase;
 
 import com.universe.community.application.port.out.CommunityPostEngagementMetricsPort;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
@@ -24,7 +25,7 @@ import java.util.stream.Collectors;
  * Use case to retrieve a paginated slice of Community posts for the ALL-TIME FEATURED feed.
  * <p>
  * Evaluates global engagement score (active reactions + active comments/replies) across all live Community posts,
- * sorts globally in memory, slices the requested page window, and bulk-hydrates only winning posts.
+ * sorts globally in memory, slices the requested page window, and bulk-hydrates & enriches only winning posts.
  */
 @Service
 @Transactional(readOnly = true)
@@ -44,13 +45,16 @@ public class GetCommunityFeaturedFeedUseCase {
 
     private final CommunityPostQueryPort postQueryPort;
     private final CommunityPostEngagementMetricsPort engagementMetricsPort;
+    private final CommunityPostFeedAuthorEnricher authorEnricher;
 
     public GetCommunityFeaturedFeedUseCase(
             CommunityPostQueryPort postQueryPort,
-            CommunityPostEngagementMetricsPort engagementMetricsPort
+            CommunityPostEngagementMetricsPort engagementMetricsPort,
+            CommunityPostFeedAuthorEnricher authorEnricher
     ) {
         this.postQueryPort = Objects.requireNonNull(postQueryPort, "CommunityPostQueryPort cannot be null.");
         this.engagementMetricsPort = Objects.requireNonNull(engagementMetricsPort, "CommunityPostEngagementMetricsPort cannot be null.");
+        this.authorEnricher = Objects.requireNonNull(authorEnricher, "CommunityPostFeedAuthorEnricher cannot be null.");
     }
 
     public CommunityFeaturedFeedResponseDTO execute(Integer requestedPage, Integer requestedSize) {
@@ -69,23 +73,23 @@ public class GetCommunityFeaturedFeedUseCase {
             return new CommunityFeaturedFeedResponseDTO(List.of(), page, size, 0L, 0, false);
         }
 
-        List<UUID> allPostIds = candidates.stream().map(CommunityPostRankingCandidateDTO::postId).toList();
+        // Chunked batch fetching of engagement metrics for all candidate IDs
+        List<UUID> candidateIds = candidates.stream().map(CommunityPostRankingCandidateDTO::postId).toList();
+        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> metricsMap = new HashMap<>(candidateIds.size());
 
-        // Query Interaction metrics in bounded chunks of CHUNK_SIZE
-        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> allMetrics = new HashMap<>();
-        for (int i = 0; i < allPostIds.size(); i += CHUNK_SIZE) {
-            List<UUID> chunk = allPostIds.subList(i, Math.min(i + CHUNK_SIZE, allPostIds.size()));
+        for (int i = 0; i < candidateIds.size(); i += CHUNK_SIZE) {
+            List<UUID> chunk = candidateIds.subList(i, Math.min(i + CHUNK_SIZE, candidateIds.size()));
             Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> chunkMetrics =
                     engagementMetricsPort.getEngagementMetricsForPosts(chunk);
             if (chunkMetrics != null) {
-                allMetrics.putAll(chunkMetrics);
+                metricsMap.putAll(chunkMetrics);
             }
         }
 
-        // Compute scores and sort globally
+        // Score candidates
         List<ScoredCandidate> scoredCandidates = new ArrayList<>(candidates.size());
         for (CommunityPostRankingCandidateDTO candidate : candidates) {
-            CommunityPostEngagementMetricsPort.PostEngagementMetrics metrics = allMetrics.get(candidate.postId());
+            CommunityPostEngagementMetricsPort.PostEngagementMetrics metrics = metricsMap.get(candidate.postId());
             long reactionCount = (metrics != null) ? metrics.reactionCount() : 0L;
             long commentCount = (metrics != null) ? metrics.commentCount() : 0L;
             long engagementScore = reactionCount + commentCount;
@@ -129,6 +133,9 @@ public class GetCommunityFeaturedFeedUseCase {
                 feedItems.add(new CommunityPostFeedItemDTO(
                         post.id(),
                         post.authorUserId(),
+                        null,
+                        null,
+                        null,
                         post.caption(),
                         post.imageMediaAssetId(),
                         post.imageUrl(),
@@ -142,7 +149,9 @@ public class GetCommunityFeaturedFeedUseCase {
             }
         }
 
-        return new CommunityFeaturedFeedResponseDTO(feedItems, page, size, totalItems, totalPages, hasNext);
+        List<CommunityPostFeedItemDTO> enrichedItems = authorEnricher.enrich(feedItems);
+
+        return new CommunityFeaturedFeedResponseDTO(enrichedItems, page, size, totalItems, totalPages, hasNext);
     }
 
     private record ScoredCandidate(
@@ -151,5 +160,6 @@ public class GetCommunityFeaturedFeedUseCase {
             long reactionCount,
             long commentCount,
             long engagementScore
-    ) {}
+    ) {
+    }
 }

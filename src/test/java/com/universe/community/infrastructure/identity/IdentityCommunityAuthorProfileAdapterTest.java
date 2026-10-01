@@ -148,4 +148,50 @@ class IdentityCommunityAuthorProfileAdapterTest {
         assertThat(resultOpt).isEmpty();
         verify(userIdentityContract).findPublicProfileDetailsByHandle("nonexistent");
     }
+
+    // =========================================================================
+    // findAuthorProfilesByIds Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("findAuthorProfilesByIds: Should return empty map when userIds is null or empty")
+    void shouldReturnEmptyMapWhenUserIdsIsNullOrEmpty() {
+        assertThat(adapter.findAuthorProfilesByIds(null)).isEmpty();
+        assertThat(adapter.findAuthorProfilesByIds(java.util.Set.of())).isEmpty();
+        verifyNoInteractions(userIdentityContract);
+    }
+
+    @Test
+    @DisplayName("findAuthorProfilesByIds: Should map UserPublicProfileDTO map to CommunityAuthorProfileSummary map")
+    void shouldMapUserPublicProfilesSuccessfully() {
+        UUID u1 = UUID.randomUUID();
+        UUID u2 = UUID.randomUUID();
+
+        com.universe.identity.contracts.dto.UserPublicProfileDTO p1 = new com.universe.identity.contracts.dto.UserPublicProfileDTO(
+                u1, "User One", "https://cdn.example.com/u1.jpg", "handle_one"
+        );
+        com.universe.identity.contracts.dto.UserPublicProfileDTO p2 = new com.universe.identity.contracts.dto.UserPublicProfileDTO(
+                u2, "User Two", null, "handle_two"
+        );
+
+        when(userIdentityContract.findPublicProfilesByIds(java.util.Set.of(u1, u2)))
+                .thenReturn(java.util.Map.of(u1, p1, u2, p2));
+
+        java.util.Map<UUID, com.universe.community.application.port.out.CommunityAuthorProfileSummary> result =
+                adapter.findAuthorProfilesByIds(java.util.Set.of(u1, u2));
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(u1)).satisfies(s -> {
+            assertThat(s.userId()).isEqualTo(u1);
+            assertThat(s.publicHandle()).isEqualTo("handle_one");
+            assertThat(s.displayName()).isEqualTo("User One");
+            assertThat(s.avatarUrl()).isEqualTo("https://cdn.example.com/u1.jpg");
+        });
+        assertThat(result.get(u2)).satisfies(s -> {
+            assertThat(s.userId()).isEqualTo(u2);
+            assertThat(s.publicHandle()).isEqualTo("handle_two");
+            assertThat(s.displayName()).isEqualTo("User Two");
+            assertThat(s.avatarUrl()).isNull();
+        });
+    }
 }

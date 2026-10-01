@@ -3,6 +3,7 @@ package com.universe.community.application;
 import com.universe.community.application.cursor.CommunityPostKeysetCursorCodec;
 import com.universe.community.application.port.out.CommunityAuthorProfilePort;
 import com.universe.community.application.port.out.CommunityPostEngagementMetricsPort;
+import com.universe.community.application.service.CommunityPostFeedAuthorEnricher;
 import com.universe.community.application.usecase.GetCommunityAuthorPostsUseCase;
 import com.universe.community.application.usecase.GetCommunityPublicProfilePostsUseCase;
 import com.universe.community.application.usecase.GetCommunityPublicProfileUseCase;
@@ -69,6 +70,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         CommunityPostQueryAdapter.class,
         CommunityPostKeysetCursorCodec.class,
         IdentityCommunityAuthorProfileAdapter.class,
+        CommunityPostFeedAuthorEnricher.class,
 
         // Real Community Use Cases
         GetCommunityAuthorPostsUseCase.class,

@@ -439,7 +439,8 @@ class CommunityPostControllerWebMvcTest {
         UUID p1Id = UUID.randomUUID();
         Instant now = Instant.parse("2026-09-30T10:00:00Z");
         CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
-                p1Id, USER_ID, "Guest feed post", null, null, 0,
+                p1Id, USER_ID, "Author User", "author_user", "https://cdn.example.com/avatar.jpg", "Guest feed post",
+                null, null, 0,
                 5L, 2L, 7L, now, now
         );
         CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
@@ -521,7 +522,8 @@ class CommunityPostControllerWebMvcTest {
         UUID p1Id = UUID.randomUUID();
         Instant now = Instant.parse("2026-09-30T10:00:00Z");
         CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
-                p1Id, USER_ID, "Featured post", null, null, 0,
+                p1Id, USER_ID, "Author User", "author_user", "https://cdn.example.com/avatar.jpg", "Featured post",
+                null, null, 0,
                 10L, 5L, 15L, now, now
         );
         CommunityFeaturedFeedResponseDTO responseDTO = new CommunityFeaturedFeedResponseDTO(
