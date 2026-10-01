@@ -19,6 +19,7 @@
 <link rel="stylesheet" th:href="@{/css/theme.css}">
 <link rel="stylesheet" th:href="@{/css/navbar.css}">
 <link rel="stylesheet" th:href="@{/css/community/community.css}">
+<link rel="stylesheet" th:href="@{/css/shared/interaction-reactions.css}">
 </head>
 
 <body>
@@ -123,76 +124,12 @@
 		<!-- Feed List -->
 		<section class="community-feed-container" aria-label="Danh sách bài viết cộng đồng">
 			<div id="communityFeedList" class="community-feed-list"
-				th:attr="data-selected-feed=${selectedFeed},data-next-cursor=${nextCursor},data-next-page=${nextPage},data-has-next=${hasNext}">
+				th:attr="data-selected-feed=${selectedFeed},data-next-cursor=${nextCursor},data-next-page=${nextPage},data-has-next=${hasNext},data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'}">
 
 				<!-- SSR Post Cards -->
-				<article th:each="item : ${items}" class="community-post-card" th:attr="data-post-id=${item.id}">
-					<header class="post-header">
-						<!-- Author with handle link -->
-						<div th:if="${item.authorPublicHandle != null and !item.authorPublicHandle.isBlank()}" class="post-author-info">
-							<a th:href="@{'/community/@' + ${item.authorPublicHandle}}" class="post-author-avatar-link">
-								<img th:if="${item.authorAvatarUrl != null and !item.authorAvatarUrl.isBlank()}"
-									th:src="${item.authorAvatarUrl}"
-									src="/images/default_avatar.jpg"
-									alt="Ảnh đại diện"
-									class="post-author-avatar"
-									onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
-								<img th:unless="${item.authorAvatarUrl != null and !item.authorAvatarUrl.isBlank()}"
-									th:src="@{/images/default_avatar.jpg}"
-									src="/images/default_avatar.jpg"
-									alt="Ảnh đại diện"
-									class="post-author-avatar">
-							</a>
-							<div class="post-meta">
-								<div class="post-author-row">
-									<a th:href="@{'/community/@' + ${item.authorPublicHandle}}" class="post-author-name"
-										th:text="${item.authorDisplayName != null and !item.authorDisplayName.isBlank() ? item.authorDisplayName : 'Người dùng'}">
-										Tên tác giả
-									</a>
-									<span class="post-author-handle" th:text="'@' + ${item.authorPublicHandle}">@handle</span>
-								</div>
-								<time class="post-time" th:attr="datetime=${item.createdAt},data-relative-time=''" th:text="${item.createdAt}">Vừa xong</time>
-							</div>
-						</div>
-
-						<!-- Author fallback when summary unresolved -->
-						<div th:unless="${item.authorPublicHandle != null and !item.authorPublicHandle.isBlank()}" class="post-author-info">
-							<img th:src="@{/images/default_avatar.jpg}"
-								src="/images/default_avatar.jpg"
-								alt="Ảnh đại diện"
-								class="post-author-avatar">
-							<div class="post-meta">
-								<div class="post-author-row">
-									<span class="post-author-name"
-										th:text="${item.authorDisplayName != null and !item.authorDisplayName.isBlank() ? item.authorDisplayName : 'Người dùng'}">
-										Người dùng
-									</span>
-								</div>
-								<time class="post-time" th:attr="datetime=${item.createdAt},data-relative-time=''" th:text="${item.createdAt}">Vừa xong</time>
-							</div>
-						</div>
-					</header>
-
-					<!-- Post Caption (Escaped via th:text) -->
-					<p class="post-caption" th:text="${item.caption}">Nội dung bài viết</p>
-
-					<!-- Attached Image -->
-					<div th:if="${item.imageUrl != null and !item.imageUrl.isBlank()}" class="post-image-container">
-						<img th:src="${item.imageUrl}" alt="Ảnh đính kèm" class="post-image" loading="lazy">
-					</div>
-
-					<!-- Post Footer Metrics (Read-only for B8.1) -->
-					<footer class="post-footer">
-						<span class="post-metric">
-							<i class="fa-regular fa-thumbs-up me-1"></i>
-							<span th:text="${item.reactionCount}">0</span> lượt thích
-						</span>
-						<span class="post-metric">
-							<i class="fa-regular fa-comment me-1"></i>
-							<span th:text="${item.commentCount}">0</span> bình luận
-						</span>
-					</footer>
-				</article>
+				<th:block th:each="item : ${items}">
+					<th:block th:replace="~{community/fragments/post-card :: postCard(${item})}"/>
+				</th:block>
 
 				<!-- Empty State Message -->
 				<div id="emptyFeedMessage" class="empty-feed-card" th:hidden="${!items.isEmpty()}">
@@ -217,6 +154,8 @@
 
 	<script th:src="@{/js/theme.js}"></script>
 	<script th:src="@{/js/shared/relative-time.js}"></script>
+	<script th:src="@{/js/shared/interaction-reactions.js}" defer></script>
+	<script th:src="@{/js/community/community-post-card.js}"></script>
 	<script th:src="@{/js/community/community-composer.js}"></script>
 	<script th:src="@{/js/community/community-feed.js}"></script>
 </body>

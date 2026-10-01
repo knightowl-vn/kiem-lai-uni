@@ -349,3 +349,81 @@
     width: 2rem;
     height: 2rem;
 }
+
+/* Guest Reaction Login Link */
+.post-metric--login-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.post-metric--login-link:hover {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+/* ==========================================================================
+   Author Profile Styles (Shared Community Sheet)
+   ========================================================================== */
+
+.community-profile-container {
+    max-width: 680px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.profile-header-card {
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+    box-shadow: 0 1px 4px var(--shadow-color);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.profile-header-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.profile-header-info {
+    flex: 1;
+}
+
+.profile-display-name {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+}
+
+.profile-handle {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    display: block;
+}
+
+.profile-bio {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.profile-posts-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--text-primary);
+}

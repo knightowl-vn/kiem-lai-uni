@@ -9,7 +9,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("CommunityFeedClientContractTest — JavaScript Client Contracts for Feed & Composer")
+@DisplayName("CommunityFeedClientContractTest — JavaScript Client Contracts for Feed, Post Card & Composer")
 class CommunityFeedClientContractTest {
 
     @Test
@@ -56,7 +56,7 @@ class CommunityFeedClientContractTest {
     }
 
     @Test
-    @DisplayName("community-feed.js enforces NEWEST/FEATURED switching, isolated cursor/page pagination, safe DOM post card rendering, and global refresh hook")
+    @DisplayName("community-feed.js enforces NEWEST/FEATURED switching, isolated cursor/page pagination, delegation to CommunityPostCard, and relative-time/reaction hydration")
     void communityFeedClientContract() throws Exception {
         String js = read("src/main/resources/static/js/community/community-feed.js");
 
@@ -79,29 +79,64 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("window.CommunityFeed = {");
         assertThat(js).contains("refreshFeed: function (feedType)");
 
-        // 5. Safe DOM post card construction with textContent (zero XSS on dynamic content)
-        assertThat(js).contains("article.className = 'community-post-card'");
-        assertThat(js).contains("authorNameLink.textContent = displayName");
-        assertThat(js).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
-        assertThat(js).contains("captionP.textContent = item.caption");
-        assertThat(js).contains("likeCountSpan.textContent = item.reactionCount || 0");
-        assertThat(js).contains("commentCountSpan.textContent = item.commentCount || 0");
+        // 5. Delegation to CommunityPostCard module
+        assertThat(js).contains("window.CommunityPostCard.create(item");
 
-        // 6. Fallback avatar onerror & handle link encoding
-        assertThat(js).contains("defaultAvatar = '/images/default_avatar.jpg'");
-        assertThat(js).contains("this.src = defaultAvatar");
-        assertThat(js).contains("'/community/@' + encodeURIComponent(item.authorPublicHandle)");
-
-        // 7. Relative time attribute integration
-        assertThat(js).contains("timeEl.setAttribute('data-relative-time', '')");
+        // 6. Dynamic hydration of relative time and reactions on appended cards
         assertThat(js).contains("window.RelativeTime.formatTree(card)");
+        assertThat(js).contains("window.InteractionReactions.hydrate(card)");
 
-        // 8. Load-more & spinner state toggling
+        // 7. Load-more & spinner state toggling
         assertThat(js).contains("loadMorePosts()");
         assertThat(js).contains("spinner.removeAttribute('hidden')");
         assertThat(js).contains("spinner.setAttribute('hidden', '')");
         assertThat(js).contains("loadMoreBtn.removeAttribute('hidden')");
         assertThat(js).contains("loadMoreBtn.setAttribute('hidden', '')");
+    }
+
+    @Test
+    @DisplayName("community-post-card.js enforces safe DOM creation, XSS-safe textContent, author handle encoding, relative time, and reaction widget contracts")
+    void communityPostCardClientContract() throws Exception {
+        String js = read("src/main/resources/static/js/community/community-post-card.js");
+
+        // 1. Module export
+        assertThat(js).contains("root.CommunityPostCard = exports");
+
+        // 2. Card root and attributes
+        assertThat(js).contains("article.className = 'community-post-card'");
+        assertThat(js).contains("article.setAttribute('data-post-id', item.id)");
+        assertThat(js).contains("article.setAttribute('data-author-id', item.authorUserId)");
+
+        // 3. XSS-safe textContent for all user-supplied data (zero innerHTML)
+        assertThat(js).contains("captionP.textContent = item.caption");
+        assertThat(js).contains("authorNameLink.textContent = displayName");
+        assertThat(js).contains("authorNameSpan.textContent = displayName");
+        assertThat(js).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
+        assertThat(js).doesNotContain("innerHTML");
+
+        // 4. Author avatar fallback and handle linking
+        assertThat(js).contains("defaultAvatar = '/images/default_avatar.jpg'");
+        assertThat(js).contains("this.src = defaultAvatar");
+        assertThat(js).contains("'/community/@' + encodeURIComponent(item.authorPublicHandle)");
+
+        // 5. Relative-time formatting (never raw ISO assignment)
+        assertThat(js).contains("timeEl.setAttribute('data-relative-time', '')");
+        assertThat(js).contains("timeEl.setAttribute('datetime', item.createdAt)");
+        assertThat(js).contains("window.RelativeTime.format(item.createdAt)");
+        assertThat(js).doesNotContain("timeEl.textContent = item.createdAt");
+
+        // 6. Reaction widget contracts
+        assertThat(js).contains("reactionWidget.setAttribute('data-reaction-widget', '')");
+        assertThat(js).contains("reactionWidget.setAttribute('data-reaction-target-type', 'COMMUNITY_POST')");
+        assertThat(js).contains("reactionWidget.setAttribute('data-reaction-target-id', String(item.id))");
+        assertThat(js).contains("reactionWidget.setAttribute('data-reaction-total', String(item.reactionCount || 0))");
+
+        // 7. Guest read-only reaction affordance linking to login
+        assertThat(js).contains("post-metric--login-link");
+        assertThat(js).contains("guestLike.href = '/login?returnTo=' + returnTo");
+
+        // 8. Comment count metric
+        assertThat(js).contains("commentCountSpan.textContent = item.commentCount || 0");
     }
 
     private String read(String relativePath) throws Exception {

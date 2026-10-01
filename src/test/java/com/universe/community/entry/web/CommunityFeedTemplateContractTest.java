@@ -28,6 +28,7 @@ class CommunityFeedTemplateContractTest {
         assertThat(template).contains("th:href=\"@{/css/theme.css}\"");
         assertThat(template).contains("th:href=\"@{/css/navbar.css}\"");
         assertThat(template).contains("th:href=\"@{/css/community/community.css}\"");
+        assertThat(template).contains("th:href=\"@{/css/shared/interaction-reactions.css}\"");
     }
 
     @Test
@@ -76,24 +77,45 @@ class CommunityFeedTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Feed list and post cards use th:text for escaping, avatar fallback onerror, and relative time attributes")
+    @DisplayName("Feed list delegates post card rendering to canonical shared fragment, and fragment adheres to strict contracts")
     void postCardFeedLoopContract() throws Exception {
         String template = read("src/main/resources/templates/community/index.html");
+        String fragment = read("src/main/resources/templates/community/fragments/post-card.html");
 
+        // Feed list container
         assertThat(template).contains("id=\"communityFeedList\"");
         assertThat(template).contains("data-selected-feed");
         assertThat(template).contains("data-next-cursor");
         assertThat(template).contains("data-next-page");
         assertThat(template).contains("data-has-next");
+        assertThat(template).contains("data-authenticated");
+
+        // Delegates to shared fragment
+        assertThat(template).contains("th:replace=\"~{community/fragments/post-card :: postCard(${item})}\"");
+
+        // Fragment contracts
+        assertThat(fragment).contains("th:fragment=\"postCard(item)\"");
+        assertThat(fragment).contains("data-post-id");
+        assertThat(fragment).contains("data-author-id");
 
         // Escaped caption (NO th:utext anywhere)
-        assertThat(template).contains("th:text=\"${item.caption}\"");
+        assertThat(fragment).contains("th:text=\"${item.caption}\"");
+        assertThat(fragment).doesNotContain("th:utext");
         assertThat(template).doesNotContain("th:utext");
 
         // Avatar fallback and handle linking
-        assertThat(template).contains("onerror=\"this.onerror=null;this.src='/images/default_avatar.jpg';\"");
-        assertThat(template).contains("th:href=\"@{'/community/@' + ${item.authorPublicHandle}}\"");
-        assertThat(template).contains("data-relative-time");
+        assertThat(fragment).contains("onerror=\"this.onerror=null;this.src='/images/default_avatar.jpg';\"");
+        assertThat(fragment).contains("th:href=\"@{'/community/@' + ${item.authorPublicHandle}}\"");
+        assertThat(fragment).contains("data-relative-time");
+        assertThat(fragment).contains("th:text=\"${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}\"");
+        assertThat(fragment).doesNotContain("th:text=\"${item.createdAt}\"");
+
+        // Reaction and comments affordances
+        assertThat(fragment).contains("data-reaction-widget");
+        assertThat(fragment).contains("data-reaction-target-type=\"COMMUNITY_POST\"");
+        assertThat(fragment).contains("sec:authorize=\"isAuthenticated()\"");
+        assertThat(fragment).contains("sec:authorize=\"isAnonymous()\"");
+        assertThat(fragment).contains("th:text=\"${item.commentCount}\"");
 
         // Load more container
         assertThat(template).contains("id=\"communityLoadMoreBtn\"");
@@ -101,12 +123,14 @@ class CommunityFeedTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Static scripts (theme.js, relative-time.js, community-composer.js, community-feed.js) are imported")
+    @DisplayName("Static scripts (theme.js, relative-time.js, interaction-reactions.js, community-post-card.js, community-composer.js, community-feed.js) are imported")
     void scriptImportsContract() throws Exception {
         String template = read("src/main/resources/templates/community/index.html");
 
         assertThat(template).contains("th:src=\"@{/js/theme.js}\"");
         assertThat(template).contains("th:src=\"@{/js/shared/relative-time.js}\"");
+        assertThat(template).contains("th:src=\"@{/js/shared/interaction-reactions.js}\"");
+        assertThat(template).contains("th:src=\"@{/js/community/community-post-card.js}\"");
         assertThat(template).contains("th:src=\"@{/js/community/community-composer.js}\"");
         assertThat(template).contains("th:src=\"@{/js/community/community-feed.js}\"");
     }
@@ -116,16 +140,26 @@ class CommunityFeedTemplateContractTest {
     void javaScriptSourceContract() throws Exception {
         String composerJs = read("src/main/resources/static/js/community/community-composer.js");
         String feedJs = read("src/main/resources/static/js/community/community-feed.js");
+        String postCardJs = read("src/main/resources/static/js/community/community-post-card.js");
 
         // Composer limits
         assertThat(composerJs).contains("MAX_CAPTION_LENGTH = 2000");
         assertThat(composerJs).contains("10 * 1024 * 1024");
         assertThat(composerJs).contains("/api/community/posts");
 
-        // Feed JS uses textContent for caption, handle, display name
-        assertThat(feedJs).contains("textContent = item.caption");
+        // Feed JS uses CommunityPostCard module and handles hydration
+        assertThat(feedJs).contains("CommunityPostCard.create");
+        assertThat(feedJs).contains("RelativeTime.formatTree");
+        assertThat(feedJs).contains("InteractionReactions.hydrate");
         assertThat(feedJs).contains("window.CommunityFeed");
         assertThat(feedJs).contains("/api/community/posts?feed=");
+
+        // Post Card JS uses textContent for all user-supplied data
+        assertThat(postCardJs).contains("captionP.textContent = item.caption");
+        assertThat(postCardJs).contains("authorNameLink.textContent = displayName");
+        assertThat(postCardJs).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
+        assertThat(postCardJs).doesNotContain("innerHTML");
+        assertThat(postCardJs).contains("COMMUNITY_POST");
     }
 
     private String read(String relativePath) throws Exception {
