@@ -32,6 +32,116 @@
     const postStates = new Map(); // postId -> { page, hasNext, isLoading, isLoaded, roots }
     let injectedFetch = null;
     let isInitialized = false;
+    let injectedIsMobile = null;
+    let savedScrollY = 0;
+    let currentDrawerPostId = null;
+
+    const DRAWER_ID = 'communityCommentsDrawer';
+    const BACKDROP_ID = 'communityCommentsBackdrop';
+
+    function isMobileViewport() {
+        if (injectedIsMobile !== null) {
+            return injectedIsMobile;
+        }
+        if (typeof window !== 'undefined') {
+            if (typeof window.matchMedia === 'function') {
+                const mq = window.matchMedia('(max-width: 767.98px)');
+                if (mq && typeof mq.matches === 'boolean') {
+                    return mq.matches;
+                }
+            }
+            if (typeof window.innerWidth === 'number') {
+                return window.innerWidth <= 767.98;
+            }
+        }
+        return false;
+    }
+
+    function setMobileViewport(value) {
+        injectedIsMobile = typeof value === 'boolean' ? value : null;
+    }
+
+    function getDrawerElements(doc) {
+        const d = doc || getDoc();
+        if (!d) return { drawer: null, backdrop: null };
+        return {
+            drawer: d.getElementById(DRAWER_ID),
+            backdrop: d.getElementById(BACKDROP_ID)
+        };
+    }
+
+    function ensureDrawerElements(doc) {
+        const d = doc || getDoc();
+        if (!d) return { drawer: null, backdrop: null };
+
+        let backdrop = d.getElementById(BACKDROP_ID);
+        if (!backdrop) {
+            backdrop = d.createElement('div');
+            backdrop.id = BACKDROP_ID;
+            backdrop.setAttribute('id', BACKDROP_ID);
+            backdrop.className = 'community-comments-backdrop';
+            backdrop.hidden = true;
+            if (d.body) {
+                d.body.appendChild(backdrop);
+            }
+        }
+
+        let drawer = d.getElementById(DRAWER_ID);
+        if (!drawer) {
+            drawer = d.createElement('div');
+            drawer.id = DRAWER_ID;
+            drawer.setAttribute('id', DRAWER_ID);
+            drawer.className = 'community-comments-drawer';
+            drawer.setAttribute('role', 'dialog');
+            drawer.setAttribute('aria-modal', 'true');
+            drawer.setAttribute('aria-label', 'Bình luận');
+            drawer.hidden = true;
+
+            const header = d.createElement('div');
+            header.className = 'community-comments-drawer__header';
+
+            const titleDiv = d.createElement('div');
+            titleDiv.className = 'community-comments-drawer__header-title';
+            const title = d.createElement('h5');
+            title.className = 'community-comments-drawer__title m-0';
+            title.textContent = 'Bình luận';
+            titleDiv.appendChild(title);
+
+            const closeBtn = d.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'btn-close community-comments-drawer__close';
+            closeBtn.setAttribute('data-action', 'close-comments-drawer');
+            closeBtn.setAttribute('aria-label', 'Đóng');
+            closeBtn.textContent = '×';
+
+            header.appendChild(titleDiv);
+            header.appendChild(closeBtn);
+            drawer.appendChild(header);
+
+            const body = d.createElement('div');
+            body.className = 'community-comments-drawer__body';
+            body.setAttribute('data-drawer-body', '');
+            drawer.appendChild(body);
+
+            const footer = d.createElement('div');
+            footer.className = 'community-comments-drawer__footer';
+            footer.setAttribute('data-drawer-footer', '');
+            drawer.appendChild(footer);
+
+            if (d.body) {
+                d.body.appendChild(drawer);
+            }
+        }
+
+        return { drawer, backdrop };
+    }
+
+    function isDrawerOpen() {
+        const doc = getDoc();
+        if (!doc) return false;
+        const { drawer } = getDrawerElements(doc);
+        return Boolean(drawer && !drawer.hidden && drawer.classList.contains('is-open'));
+    }
 
     function getDoc() {
         return typeof document !== 'undefined' ? document : null;
@@ -281,13 +391,10 @@
         return replyContainer;
     }
 
-    function initContainerShell(container, postId) {
-        const d = getDoc();
-        if (!d || !container) return;
+    function buildComposerOrGuestPrompt(postId, doc) {
+        const d = doc || getDoc();
+        if (!d) return null;
 
-        container.innerHTML = '';
-
-        // Composer or Guest Prompt
         if (isUserAuthenticated()) {
             const composerEl = d.createElement('div');
             composerEl.className = 'community-comment-composer';
@@ -326,27 +433,31 @@
             errorEl.hidden = true;
             composerEl.appendChild(errorEl);
 
-            container.appendChild(composerEl);
+            return composerEl;
         } else {
             const guestEl = d.createElement('div');
             guestEl.className = 'community-comment-guest-prompt';
 
             const loginLink = d.createElement('a');
             loginLink.className = 'btn btn-sm btn-outline-secondary';
-            loginLink.href = '/login?returnTo=' + getReturnToUrl();
+            const loginUrl = '/login?returnTo=' + getReturnToUrl();
+            loginLink.href = loginUrl;
+            loginLink.setAttribute('href', loginUrl);
             loginLink.textContent = 'Đăng nhập để tham gia bình luận';
 
             guestEl.appendChild(loginLink);
-            container.appendChild(guestEl);
+            return guestEl;
         }
+    }
 
-        // Thread List Container
+    function buildThreadListAndMore(postId, doc) {
+        const d = doc || getDoc();
+        if (!d) return { listEl: null, moreContainer: null };
+
         const listEl = d.createElement('div');
         listEl.className = 'community-comments-list';
         listEl.setAttribute('data-thread-list', String(postId));
-        container.appendChild(listEl);
 
-        // Load More Container
         const moreContainer = d.createElement('div');
         moreContainer.className = 'community-comments-more';
         moreContainer.setAttribute('data-more-container', String(postId));
@@ -360,7 +471,68 @@
         moreBtn.textContent = 'Xem thêm bình luận';
         moreContainer.appendChild(moreBtn);
 
-        container.appendChild(moreContainer);
+        return { listEl: listEl, moreContainer: moreContainer };
+    }
+
+    function initContainerShell(container, postId) {
+        const d = getDoc();
+        if (!d || !container) return;
+
+        container.innerHTML = '';
+        const composer = buildComposerOrGuestPrompt(postId, d);
+        if (composer) container.appendChild(composer);
+
+        const { listEl, moreContainer } = buildThreadListAndMore(postId, d);
+        if (listEl) container.appendChild(listEl);
+        if (moreContainer) container.appendChild(moreContainer);
+    }
+
+    function initDrawerShell(drawer, postId) {
+        const d = getDoc();
+        if (!d || !drawer) return;
+
+        const bodyEl = drawer.querySelector('[data-drawer-body]');
+        const footerEl = drawer.querySelector('[data-drawer-footer]');
+
+        if (bodyEl) {
+            bodyEl.innerHTML = '';
+            const { listEl, moreContainer } = buildThreadListAndMore(postId, d);
+            if (listEl) bodyEl.appendChild(listEl);
+            if (moreContainer) bodyEl.appendChild(moreContainer);
+        }
+
+        if (footerEl) {
+            footerEl.innerHTML = '';
+            const composer = buildComposerOrGuestPrompt(postId, d);
+            if (composer) footerEl.appendChild(composer);
+        }
+    }
+
+    function renderCachedRoots(postId, doc) {
+        const d = doc || getDoc();
+        if (!d) return;
+        const state = postStates.get(postId);
+        if (!state || !Array.isArray(state.roots)) return;
+
+        const listEls = d.querySelectorAll('[data-thread-list="' + postId + '"]');
+        const moreContainers = d.querySelectorAll('[data-more-container="' + postId + '"]');
+
+        listEls.forEach(listEl => {
+            const childCount = listEl.children ? listEl.children.length : (listEl.childNodes ? listEl.childNodes.length : 0);
+            if (childCount === 0) {
+                state.roots.forEach(item => {
+                    const threadEl = renderRootCommentItem(item, postId, d);
+                    if (threadEl) {
+                        listEl.appendChild(threadEl);
+                    }
+                });
+                hydrateComponents(listEl);
+            }
+        });
+
+        moreContainers.forEach(moreContainer => {
+            moreContainer.hidden = !state.hasNext;
+        });
     }
 
     async function fetchComments(postId, page) {
@@ -376,11 +548,8 @@
         if (state.isLoading) return;
         state.isLoading = true;
 
-        const container = doc.querySelector('[data-post-comments="' + postId + '"]');
-        if (!container) return;
-
-        const listEl = container.querySelector('[data-thread-list="' + postId + '"]');
-        const moreContainer = container.querySelector('[data-more-container="' + postId + '"]');
+        const listEls = doc.querySelectorAll('[data-thread-list="' + postId + '"]');
+        const moreContainers = doc.querySelectorAll('[data-more-container="' + postId + '"]');
 
         const fetchFn = getFetch();
         if (!fetchFn) {
@@ -402,42 +571,54 @@
             state.hasNext = data.hasNext;
             state.isLoaded = true;
 
-            updateCommentCount(postId, data.commentCount);
-
-            if (page === 0 && listEl) {
-                listEl.innerHTML = '';
+            const rawRoots = data.roots || data.threads || [];
+            if (page === 0) {
+                state.roots = Array.isArray(rawRoots) ? rawRoots : [];
+            } else if (Array.isArray(rawRoots)) {
+                state.roots = (state.roots || []).concat(rawRoots);
             }
 
-            const rawRoots = data.roots || data.threads || [];
-            if (Array.isArray(rawRoots) && listEl) {
+            updateCommentCount(postId, data.commentCount);
+
+            if (page === 0) {
+                listEls.forEach(listEl => { listEl.innerHTML = ''; });
+            }
+
+            if (Array.isArray(rawRoots)) {
                 rawRoots.forEach(item => {
-                    const threadEl = renderRootCommentItem(item, postId, doc);
-                    if (threadEl) {
-                        listEl.appendChild(threadEl);
-                    }
+                    listEls.forEach(listEl => {
+                        const threadEl = renderRootCommentItem(item, postId, doc);
+                        if (threadEl) {
+                            listEl.appendChild(threadEl);
+                        }
+                    });
                 });
             }
 
-            if (moreContainer) {
+            moreContainers.forEach(moreContainer => {
                 moreContainer.hidden = !state.hasNext;
-            }
+            });
 
-            hydrateComponents(container);
+            listEls.forEach(listEl => {
+                hydrateComponents(listEl);
+            });
         } catch (err) {
             console.error('Failed to load comments for post ' + postId, err);
-            if (page === 0 && listEl) {
-                listEl.innerHTML = '';
-                const errDiv = doc.createElement('div');
-                errDiv.className = 'community-comments-error text-danger small p-2';
-                errDiv.textContent = 'Không thể tải bình luận. ';
-                const retryBtn = doc.createElement('button');
-                retryBtn.type = 'button';
-                retryBtn.className = 'btn btn-sm btn-link p-0';
-                retryBtn.setAttribute('data-action', 'retry-comments');
-                retryBtn.setAttribute('data-post-id', String(postId));
-                retryBtn.textContent = 'Thử lại';
-                errDiv.appendChild(retryBtn);
-                listEl.appendChild(errDiv);
+            if (page === 0) {
+                listEls.forEach(listEl => {
+                    listEl.innerHTML = '';
+                    const errDiv = doc.createElement('div');
+                    errDiv.className = 'community-comments-error text-danger small p-2';
+                    errDiv.textContent = 'Không thể tải bình luận. ';
+                    const retryBtn = doc.createElement('button');
+                    retryBtn.type = 'button';
+                    retryBtn.className = 'btn btn-sm btn-link p-0';
+                    retryBtn.setAttribute('data-action', 'retry-comments');
+                    retryBtn.setAttribute('data-post-id', String(postId));
+                    retryBtn.textContent = 'Thử lại';
+                    errDiv.appendChild(retryBtn);
+                    listEl.appendChild(errDiv);
+                });
             }
         } finally {
             state.isLoading = false;
@@ -448,33 +629,36 @@
         const doc = getDoc();
         if (!doc || !postId || !rootId) return;
 
-        const repliesContainer = doc.querySelector('.community-comment-replies[data-replies-for="' + rootId + '"]');
-        const toggleBtn = doc.querySelector('.community-thread-toggle-btn[data-root-id="' + rootId + '"]');
-        if (!repliesContainer || !toggleBtn) return;
+        const repliesContainers = doc.querySelectorAll('.community-comment-replies[data-replies-for="' + rootId + '"]');
+        const toggleBtns = doc.querySelectorAll('.community-thread-toggle-btn[data-root-id="' + rootId + '"]');
+        if (repliesContainers.length === 0 || toggleBtns.length === 0) return;
 
-        const replyCount = toggleBtn.getAttribute('data-reply-count') || '0';
-        const isLoaded = repliesContainer.getAttribute('data-loaded') === 'true';
+        const firstContainer = repliesContainers[0];
+        const firstBtn = toggleBtns[0];
+        const replyCount = firstBtn.getAttribute('data-reply-count') || '0';
+        const isLoaded = firstContainer.getAttribute('data-loaded') === 'true';
 
         if (isLoaded) {
-            // Already loaded, just toggle visibility
-            if (repliesContainer.hidden) {
-                repliesContainer.hidden = false;
-                toggleBtn.textContent = 'Ẩn phản hồi';
-            } else {
-                repliesContainer.hidden = true;
-                toggleBtn.textContent = 'Xem ' + replyCount + ' phản hồi';
-            }
+            const willHide = !firstContainer.hidden;
+            repliesContainers.forEach(rc => { rc.hidden = willHide; });
+            toggleBtns.forEach(btn => {
+                btn.textContent = willHide ? ('Xem ' + replyCount + ' phản hồi') : 'Ẩn phản hồi';
+            });
             return;
         }
 
         // Lazy fetch replies for this thread
-        toggleBtn.disabled = true;
-        toggleBtn.textContent = 'Đang tải...';
+        toggleBtns.forEach(btn => {
+            btn.disabled = true;
+            btn.textContent = 'Đang tải...';
+        });
 
         const fetchFn = getFetch();
         if (!fetchFn) {
-            toggleBtn.disabled = false;
-            toggleBtn.textContent = 'Xem ' + replyCount + ' phản hồi';
+            toggleBtns.forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = 'Xem ' + replyCount + ' phản hồi';
+            });
             return;
         }
 
@@ -488,25 +672,40 @@
             }
 
             const threadData = await resp.json();
-            repliesContainer.innerHTML = '';
-            if (Array.isArray(threadData.replies)) {
-                threadData.replies.forEach(reply => {
-                    const replyContainer = renderReplyItem(reply, rootId, postId, doc);
-                    if (replyContainer) {
-                        repliesContainer.appendChild(replyContainer);
-                    }
-                });
+
+            let state = postStates.get(postId);
+            if (state && Array.isArray(state.roots)) {
+                const idx = state.roots.findIndex(r => (r.root && String(r.root.id) === String(rootId)) || String(r.id) === String(rootId));
+                if (idx !== -1) {
+                    state.roots[idx] = threadData;
+                }
             }
 
-            repliesContainer.hidden = false;
-            repliesContainer.setAttribute('data-loaded', 'true');
-            toggleBtn.textContent = 'Ẩn phản hồi';
-            hydrateComponents(repliesContainer);
+            repliesContainers.forEach(rc => {
+                rc.innerHTML = '';
+                if (Array.isArray(threadData.replies)) {
+                    threadData.replies.forEach(reply => {
+                        const replyContainer = renderReplyItem(reply, rootId, postId, doc);
+                        if (replyContainer) {
+                            rc.appendChild(replyContainer);
+                        }
+                    });
+                }
+                rc.hidden = false;
+                rc.setAttribute('data-loaded', 'true');
+                hydrateComponents(rc);
+            });
+
+            toggleBtns.forEach(btn => {
+                btn.textContent = 'Ẩn phản hồi';
+                btn.disabled = false;
+            });
         } catch (err) {
             console.error('Failed to load replies for root ' + rootId, err);
-            toggleBtn.textContent = 'Lỗi tải phản hồi. Thử lại';
-        } finally {
-            toggleBtn.disabled = false;
+            toggleBtns.forEach(btn => {
+                btn.textContent = 'Lỗi tải phản hồi. Thử lại';
+                btn.disabled = false;
+            });
         }
     }
 
@@ -514,12 +713,33 @@
         const doc = getDoc();
         if (!doc || !postId) return;
 
-        const container = doc.querySelector('[data-post-comments="' + postId + '"]');
-        if (!container) return;
+        let input = null;
+        let submitBtn = null;
+        let errorEl = null;
 
-        const input = container.querySelector('[data-input-root="' + postId + '"]');
-        const submitBtn = container.querySelector('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
-        const errorEl = container.querySelector('[data-error-root="' + postId + '"]');
+        if (isDrawerOpen()) {
+            const drawerFooter = doc.querySelector('[data-drawer-footer]');
+            if (drawerFooter) {
+                input = drawerFooter.querySelector('[data-input-root="' + postId + '"]');
+                submitBtn = drawerFooter.querySelector('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
+                errorEl = drawerFooter.querySelector('[data-error-root="' + postId + '"]');
+            }
+        }
+
+        if (!input) {
+            const container = doc.querySelector('[data-post-comments="' + postId + '"]');
+            if (container) {
+                input = container.querySelector('[data-input-root="' + postId + '"]');
+                submitBtn = container.querySelector('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
+                errorEl = container.querySelector('[data-error-root="' + postId + '"]');
+            }
+        }
+
+        if (!input || !submitBtn) {
+            input = doc.querySelector('[data-input-root="' + postId + '"]');
+            submitBtn = doc.querySelector('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
+            errorEl = doc.querySelector('[data-error-root="' + postId + '"]');
+        }
 
         if (!input || !submitBtn) return;
         const bodyText = input.value.trim();
@@ -548,8 +768,10 @@
             }
 
             const result = await resp.json();
-            input.value = '';
-            submitBtn.disabled = true;
+            const inputs = doc.querySelectorAll('[data-input-root="' + postId + '"]');
+            inputs.forEach(inp => { inp.value = ''; });
+            const submitBtns = doc.querySelectorAll('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
+            submitBtns.forEach(b => { b.disabled = true; });
 
             updateCommentCount(postId, result.updatedCommentCount);
 
@@ -708,20 +930,109 @@
             if (!resp.ok) return;
             const threadData = await resp.json();
 
-            const threadEl = doc.querySelector('.community-comment-thread[data-thread-id="' + rootId + '"]');
-            if (threadEl) {
+            let state = postStates.get(postId);
+            if (state && Array.isArray(state.roots)) {
+                const idx = state.roots.findIndex(r => (r.root && String(r.root.id) === String(rootId)) || String(r.id) === String(rootId));
+                if (idx !== -1) {
+                    state.roots[idx] = threadData;
+                }
+            }
+
+            const threadEls = doc.querySelectorAll('.community-comment-thread[data-thread-id="' + rootId + '"]');
+            threadEls.forEach(threadEl => {
                 const updatedThreadEl = renderRootCommentItem(threadData, postId, doc);
                 if (updatedThreadEl && threadEl.parentNode) {
                     threadEl.parentNode.replaceChild(updatedThreadEl, threadEl);
                     hydrateComponents(updatedThreadEl);
                 }
-            }
+            });
         } catch (err) {
             console.error('Failed to refresh thread ' + rootId, err);
         }
     }
 
-    function toggleComments(postId) {
+    function openCommentsDrawer(postId) {
+        const doc = getDoc();
+        if (!doc || !postId) return;
+
+        const { drawer, backdrop } = ensureDrawerElements(doc);
+        if (!drawer || !backdrop) return;
+
+        if (isDrawerOpen() && currentDrawerPostId === postId) {
+            closeCommentsDrawer();
+            return;
+        }
+
+        if (typeof window !== 'undefined') {
+            savedScrollY = window.scrollY || window.pageYOffset || (doc.documentElement && doc.documentElement.scrollTop) || 0;
+        }
+
+        currentDrawerPostId = postId;
+        drawer.setAttribute('data-active-post-id', String(postId));
+
+        if (doc.body) {
+            doc.body.classList.add('has-community-comments-open');
+        }
+
+        drawer.hidden = false;
+        drawer.classList.add('is-open');
+        backdrop.hidden = false;
+        backdrop.classList.add('is-open');
+
+        const btns = doc.querySelectorAll('[data-action="toggle-comments"][data-post-id="' + postId + '"]');
+        btns.forEach(btn => {
+            btn.setAttribute('aria-expanded', 'true');
+            btn.classList.add('is-active');
+        });
+
+        initDrawerShell(drawer, postId);
+
+        let state = postStates.get(postId);
+        if (!state || !state.isLoaded) {
+            fetchComments(postId, 0);
+        } else {
+            renderCachedRoots(postId, doc);
+        }
+    }
+
+    function closeCommentsDrawer() {
+        const doc = getDoc();
+        if (!doc) return;
+
+        const { drawer, backdrop } = getDrawerElements(doc);
+        if (drawer) {
+            drawer.classList.remove('is-open');
+            drawer.hidden = true;
+            drawer.removeAttribute('data-active-post-id');
+        }
+        if (backdrop) {
+            backdrop.classList.remove('is-open');
+            backdrop.hidden = true;
+        }
+
+        if (doc.body) {
+            doc.body.classList.remove('has-community-comments-open');
+        }
+
+        if (currentDrawerPostId) {
+            const btns = doc.querySelectorAll('[data-action="toggle-comments"][data-post-id="' + currentDrawerPostId + '"]');
+            btns.forEach(btn => {
+                btn.setAttribute('aria-expanded', 'false');
+                btn.classList.remove('is-active');
+            });
+        }
+        currentDrawerPostId = null;
+
+        if (typeof window !== 'undefined') {
+            if (typeof window.scrollTo === 'function') {
+                window.scrollTo(0, savedScrollY);
+            } else if (doc.documentElement) {
+                doc.documentElement.scrollTop = savedScrollY;
+            }
+        }
+    }
+
+    function toggleInlineComments(postId) {
         const doc = getDoc();
         if (!doc || !postId) return;
 
@@ -740,6 +1051,8 @@
             if (!state || !state.isLoaded) {
                 initContainerShell(container, postId);
                 fetchComments(postId, 0);
+            } else {
+                renderCachedRoots(postId, doc);
             }
         } else {
             container.hidden = true;
@@ -750,9 +1063,32 @@
         }
     }
 
+    function toggleComments(postId) {
+        if (isMobileViewport()) {
+            openCommentsDrawer(postId);
+        } else {
+            toggleInlineComments(postId);
+        }
+    }
+
     function handleDelegatedClick(event) {
         const target = event.target;
         if (!target) return;
+
+        // Close drawer button
+        const closeDrawerBtn = target.closest('[data-action="close-comments-drawer"]');
+        if (closeDrawerBtn) {
+            event.preventDefault();
+            closeCommentsDrawer();
+            return;
+        }
+
+        // Backdrop click
+        if (target.id === BACKDROP_ID || (target.classList && target.classList.contains('community-comments-backdrop'))) {
+            event.preventDefault();
+            closeCommentsDrawer();
+            return;
+        }
 
         // Toggle comments button
         const toggleBtn = target.closest('[data-action="toggle-comments"]');
@@ -840,26 +1176,48 @@
         }
     }
 
+    function handleKeydown(event) {
+        if (!event) return;
+        if (event.key === 'Escape' || event.key === 'Esc' || event.keyCode === 27) {
+            if (isDrawerOpen()) {
+                closeCommentsDrawer();
+            }
+        }
+    }
+
     function init(options) {
         if (isInitialized && (!options || !options.force)) return;
         const opts = options || {};
         if (opts.fetch) injectedFetch = opts.fetch;
+        if (opts.isMobile !== undefined) setMobileViewport(opts.isMobile);
 
         const doc = getDoc();
         if (doc) {
             doc.addEventListener('click', handleDelegatedClick);
+            doc.addEventListener('keydown', handleKeydown);
         }
         isInitialized = true;
     }
 
     function reset() {
+        closeCommentsDrawer();
         postStates.clear();
         const doc = getDoc();
         if (doc) {
             doc.removeEventListener('click', handleDelegatedClick);
+            doc.removeEventListener('keydown', handleKeydown);
+            const { drawer, backdrop } = getDrawerElements(doc);
+            if (drawer && drawer.parentNode) drawer.parentNode.removeChild(drawer);
+            if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+            if (doc.body) {
+                doc.body.classList.remove('has-community-comments-open');
+            }
         }
         isInitialized = false;
         injectedFetch = null;
+        injectedIsMobile = null;
+        savedScrollY = 0;
+        currentDrawerPostId = null;
     }
 
     // Auto-init in browser DOM environment
@@ -875,6 +1233,11 @@
         init: init,
         reset: reset,
         toggleComments: toggleComments,
+        openCommentsDrawer: openCommentsDrawer,
+        closeCommentsDrawer: closeCommentsDrawer,
+        isDrawerOpen: isDrawerOpen,
+        setMobileViewport: setMobileViewport,
+        isMobileViewport: isMobileViewport,
         fetchComments: fetchComments,
         toggleThreadReplies: toggleThreadReplies,
         submitRootComment: submitRootComment,

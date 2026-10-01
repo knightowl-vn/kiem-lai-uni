@@ -46,6 +46,31 @@ class FakeElement {
         }
     }
 
+    get id() { return this.attributes['id'] || ''; }
+    set id(val) {
+        if (val) this.setAttribute('id', val);
+        else this.removeAttribute('id');
+    }
+
+    get dataset() {
+        const ds = {};
+        for (const [k, v] of Object.entries(this.attributes)) {
+            if (k.startsWith('data-')) {
+                const camel = k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+                ds[camel] = v;
+            }
+        }
+        return ds;
+    }
+
+    get children() { return this.childNodes; }
+
+    get href() { return this.attributes['href'] || ''; }
+    set href(val) {
+        if (val) this.setAttribute('href', val);
+        else this.removeAttribute('href');
+    }
+
     get className() { return this.attributes['class'] || ''; }
     set className(val) {
         this.attributes['class'] = val || '';
@@ -289,6 +314,12 @@ describe('CommunityComments Module Unit Tests', () => {
         globalThis.document = doc;
         globalThis.window = {
             location: { pathname: '/community', search: '' },
+            scrollY: 0,
+            scrollTo: (x, y) => { globalThis.window.scrollY = y; },
+            matchMedia: (query) => ({
+                matches: false,
+                media: query
+            }),
             CommentPresentation: CommentPresentation,
             RelativeTime: RelativeTime,
             InteractionReactions: { hydrate: () => {} }
@@ -362,6 +393,11 @@ describe('CommunityComments Module Unit Tests', () => {
 
         assert.strictEqual(typeof CommunityComments.init, 'function');
         assert.strictEqual(typeof CommunityComments.toggleComments, 'function');
+        assert.strictEqual(typeof CommunityComments.openCommentsDrawer, 'function');
+        assert.strictEqual(typeof CommunityComments.closeCommentsDrawer, 'function');
+        assert.strictEqual(typeof CommunityComments.isDrawerOpen, 'function');
+        assert.strictEqual(typeof CommunityComments.setMobileViewport, 'function');
+        assert.strictEqual(typeof CommunityComments.isMobileViewport, 'function');
         assert.strictEqual(typeof CommunityComments.fetchComments, 'function');
         assert.strictEqual(typeof CommunityComments.toggleThreadReplies, 'function');
         assert.strictEqual(typeof CommunityComments.submitRootComment, 'function');
@@ -714,5 +750,474 @@ describe('CommunityComments Module Unit Tests', () => {
         // Count synchronized across all cards
         const countSpans = doc.querySelectorAll('.post-comment-count');
         countSpans.forEach(s => assert.strictEqual(s.textContent, '8'));
+    });
+});
+
+describe('Mobile Comments Drawer Contract Tests (MS-07B8.2.2-MOBILE-COMMENTS-UX)', () => {
+    let doc;
+    const POST_ID = 'post-1111';
+
+    beforeEach(() => {
+        doc = new FakeDocument();
+        globalThis.document = doc;
+        globalThis.window = {
+            location: { pathname: '/community', search: '' },
+            scrollY: 0,
+            scrollTo: (x, y) => { globalThis.window.scrollY = y; },
+            matchMedia: (query) => ({
+                matches: query.includes('max-width: 767.98px'),
+                media: query
+            }),
+            CommentPresentation: CommentPresentation,
+            RelativeTime: RelativeTime,
+            InteractionReactions: { hydrate: () => {} }
+        };
+
+        const csrfMeta = doc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'token-abc');
+        doc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = doc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        doc.head.appendChild(csrfHeaderMeta);
+
+        const authMeta = doc.createElement('meta');
+        authMeta.setAttribute('name', '_authenticated');
+        authMeta.setAttribute('content', 'true');
+        doc.head.appendChild(authMeta);
+
+        // Build 2 post cards for POST_ID
+        for (let i = 0; i < 2; i++) {
+            const article = doc.createElement('article');
+            article.className = 'community-post-card';
+            article.setAttribute('data-post-id', POST_ID);
+
+            const footer = doc.createElement('footer');
+            footer.className = 'post-footer';
+
+            const toggleBtn = doc.createElement('button');
+            toggleBtn.className = 'post-metric post-comment-toggle-btn';
+            toggleBtn.setAttribute('data-action', 'toggle-comments');
+            toggleBtn.setAttribute('data-post-id', POST_ID);
+            toggleBtn.setAttribute('aria-expanded', 'false');
+
+            const countSpan = doc.createElement('span');
+            countSpan.className = 'post-comment-count';
+            countSpan.textContent = '0';
+            toggleBtn.appendChild(countSpan);
+            footer.appendChild(toggleBtn);
+            article.appendChild(footer);
+
+            const commentsContainer = doc.createElement('section');
+            commentsContainer.className = 'post-comments-container';
+            commentsContainer.setAttribute('data-post-comments', POST_ID);
+            commentsContainer.hidden = true;
+            article.appendChild(commentsContainer);
+
+            doc.body.appendChild(article);
+        }
+
+        CommunityComments.reset();
+    });
+
+    afterEach(() => {
+        CommunityComments.reset();
+        delete globalThis.document;
+        delete globalThis.window;
+    });
+
+    test('1. Mobile initialization has 0 fetch calls', () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return { ok: true, json: async () => ({}) };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+
+        assert.strictEqual(fetchCalls, 0, 'Must make zero network requests on init');
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), false);
+    });
+
+    test('2. Mobile comment toggle opens drawer, makes exactly 1 root-feed fetch, and keeps inline container hidden', async () => {
+        let fetchCalls = 0;
+        let requestedUrl = null;
+
+        const mockFetch = async (url) => {
+            fetchCalls++;
+            requestedUrl = url;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{
+                        root: { id: 'root-101', body: 'Mobile root 101', author: { displayName: 'Tester' } },
+                        replyCount: 0
+                    }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"]');
+        assert.ok(toggleBtn);
+
+        // Click toggle button on mobile
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        // 1. Drawer becomes visible
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const backdrop = doc.getElementById('communityCommentsBackdrop');
+        assert.ok(drawer);
+        assert.ok(backdrop);
+        assert.strictEqual(drawer.hidden, false);
+        assert.strictEqual(backdrop.hidden, false);
+        assert.ok(drawer.classList.contains('is-open'));
+        assert.ok(backdrop.classList.contains('is-open'));
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'true');
+        assert.ok(toggleBtn.classList.contains('is-active'));
+
+        // 2. Exactly 1 root-feed fetch
+        assert.strictEqual(fetchCalls, 1);
+        assert.ok(requestedUrl.includes('/api/community/posts/' + POST_ID + '/comments?page=0&size=10'));
+        assert.ok(!requestedUrl.includes('/thread'));
+
+        // 3. Inline post card discussion container does NOT expand
+        const inlineContainers = doc.querySelectorAll('.post-comments-container');
+        assert.strictEqual(inlineContainers.length, 2);
+        inlineContainers.forEach(container => {
+            assert.strictEqual(container.hidden, true, 'Inline container must remain hidden on mobile');
+            assert.strictEqual(container.childNodes.length, 0, 'Inline container must remain empty on mobile');
+        });
+
+        // 4. Discussion is populated inside drawer body
+        const drawerBody = drawer.querySelector('[data-drawer-body]');
+        assert.ok(drawerBody);
+        const threadList = drawerBody.querySelector('[data-thread-list="' + POST_ID + '"]');
+        assert.ok(threadList);
+        assert.strictEqual(threadList.childNodes.length, 1);
+
+        // 5. Drawer footer has composer for authenticated user
+        const drawerFooter = drawer.querySelector('[data-drawer-footer]');
+        assert.ok(drawerFooter);
+        assert.ok(drawerFooter.querySelector('[data-composer-root="' + POST_ID + '"]'));
+    });
+
+    test('3. Root with replies does NOT request thread upon opening drawer', async () => {
+        let fetchUrls = [];
+
+        const mockFetch = async (url) => {
+            fetchUrls.push(url);
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{
+                        root: { id: 'root-202', body: 'Root with 5 replies', author: { displayName: 'Tester' } },
+                        replyCount: 5,
+                        replies: []
+                    }],
+                    commentCount: 6,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        assert.strictEqual(fetchUrls.length, 1);
+        assert.ok(fetchUrls[0].includes('page=0'));
+        assert.ok(!fetchUrls.some(u => u.includes('/thread')), 'No thread fetch on initial drawer open');
+
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const toggleThreadBtn = drawer.querySelector('[data-action="toggle-thread"][data-root-id="root-202"]');
+        assert.ok(toggleThreadBtn);
+        assert.strictEqual(toggleThreadBtn.textContent, 'Xem 5 phản hồi');
+
+        const repliesContainer = drawer.querySelector('.community-comment-replies[data-replies-for="root-202"]');
+        assert.ok(repliesContainer);
+        assert.strictEqual(repliesContainer.hidden, true);
+    });
+
+    test('4. Explicit "Xem N phản hồi" click makes exactly 1 thread request and renders replies in drawer', async () => {
+        let threadFetchCalls = 0;
+
+        const mockFetch = async (url) => {
+            if (url.includes('/thread')) {
+                threadFetchCalls++;
+                return {
+                    ok: true,
+                    json: async () => ({
+                        root: { id: 'root-202', body: 'Root with replies', author: { displayName: 'Tester' } },
+                        replies: [
+                            { id: 'reply-1', body: 'Reply 1', author: { displayName: 'Replier 1' } },
+                            { id: 'reply-2', body: 'Reply 2', author: { displayName: 'Replier 2' } }
+                        ]
+                    })
+                };
+            }
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{
+                        root: { id: 'root-202', body: 'Root with replies', author: { displayName: 'Tester' } },
+                        replyCount: 2,
+                        replies: []
+                    }],
+                    commentCount: 3,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        assert.strictEqual(threadFetchCalls, 0);
+
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const toggleThreadBtn = drawer.querySelector('[data-action="toggle-thread"][data-root-id="root-202"]');
+        assert.ok(toggleThreadBtn);
+
+        // Click "Xem 2 phản hồi"
+        doc.dispatchEvent({ type: 'click', target: toggleThreadBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        assert.strictEqual(threadFetchCalls, 1);
+        assert.strictEqual(toggleThreadBtn.textContent, 'Ẩn phản hồi');
+
+        const repliesContainer = drawer.querySelector('.community-comment-replies[data-replies-for="root-202"]');
+        assert.strictEqual(repliesContainer.hidden, false);
+        assert.strictEqual(repliesContainer.childNodes.length, 2);
+    });
+
+    test('5. Close hides drawer, removes body scroll lock, and preserves feed scroll position', async () => {
+        const mockFetch = async () => ({
+            ok: true,
+            json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+        });
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+
+        // Simulate user scrolled down 500px in the feed
+        globalThis.window.scrollY = 500;
+
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const backdrop = doc.getElementById('communityCommentsBackdrop');
+
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), true, 'Body must have scroll lock');
+
+        // Simulate user scrolling inside drawer / modifying window scroll
+        globalThis.window.scrollY = 120;
+
+        // Click close button inside drawer
+        const closeBtn = drawer.querySelector('[data-action="close-comments-drawer"]');
+        assert.ok(closeBtn);
+        doc.dispatchEvent({ type: 'click', target: closeBtn, preventDefault: () => {} });
+
+        // Drawer hidden & backdrop hidden
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+        assert.strictEqual(drawer.hidden, true);
+        assert.strictEqual(backdrop.hidden, true);
+        assert.strictEqual(drawer.classList.contains('is-open'), false);
+
+        // Body scroll lock removed
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), false);
+
+        // Feed scroll position restored to saved position (500)
+        assert.strictEqual(globalThis.window.scrollY, 500);
+
+        // Toggle button aria-expanded reset
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"]');
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(toggleBtn.classList.contains('is-active'), false);
+    });
+
+    test('6. Reopening drawer uses cached roots without duplicate fetch or duplicated event listeners', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-cached', body: 'Cached root' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+
+        // First open: fetch 1
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        assert.strictEqual(fetchCalls, 1);
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+
+        // Close via backdrop click
+        const backdrop = doc.getElementById('communityCommentsBackdrop');
+        doc.dispatchEvent({ type: 'click', target: backdrop, preventDefault: () => {} });
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+
+        // Reopen: no new network fetch
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        assert.strictEqual(fetchCalls, 1, 'Reopening must not trigger duplicate fetch');
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+
+        // Cached roots are populated in drawer
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const threadList = drawer.querySelector('[data-thread-list="' + POST_ID + '"]');
+        assert.strictEqual(threadList.childNodes.length, 1);
+
+        // Close via Escape key
+        doc.dispatchEvent({ type: 'keydown', key: 'Escape', keyCode: 27, preventDefault: () => {} });
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+    });
+
+    test('7. Desktop viewport retains existing inline expandable behavior', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-desktop', body: 'Desktop root' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const container = doc.querySelector('[data-post-comments="' + POST_ID + '"]');
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"]');
+        assert.strictEqual(container.hidden, true);
+
+        // Toggle on desktop
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        // Inline container expanded
+        assert.strictEqual(container.hidden, false);
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(fetchCalls, 1);
+
+        // Drawer remains completely closed/hidden
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        if (drawer) {
+            assert.strictEqual(drawer.hidden, true);
+        }
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), false);
+    });
+
+    test('8. Mobile drawer root comment submission updates badge and refreshes drawer discussion', async () => {
+        let postBody = null;
+        let fetchCalls = 0;
+
+        const mockFetch = async (url, opts) => {
+            fetchCalls++;
+            if (opts && opts.method === 'POST') {
+                postBody = JSON.parse(opts.body);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        commentId: 'new-root-999',
+                        updatedCommentCount: 5
+                    })
+                };
+            }
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [
+                        { root: { id: 'new-root-999', body: 'New mobile root' }, replyCount: 0 }
+                    ],
+                    commentCount: 5,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const input = drawer.querySelector('[data-input-root="' + POST_ID + '"]');
+        assert.ok(input);
+        input.value = 'Hello from mobile drawer';
+
+        const submitBtn = drawer.querySelector('[data-action="submit-root-comment"]');
+        assert.ok(submitBtn);
+
+        doc.dispatchEvent({ type: 'click', target: submitBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        assert.strictEqual(postBody.body, 'Hello from mobile drawer');
+
+        // All post card badges synchronized to 5
+        const countSpans = doc.querySelectorAll('.post-comment-count');
+        countSpans.forEach(s => assert.strictEqual(s.textContent, '5'));
+
+        // Input cleared
+        assert.strictEqual(input.value, '');
+    });
+
+    test('9. Guest user sees login prompt instead of composer inside mobile drawer', async () => {
+        // Mark as unauthenticated
+        const authMeta = doc.head.querySelector('meta[name="_authenticated"]');
+        if (authMeta) authMeta.setAttribute('content', 'false');
+
+        const mockFetch = async () => ({
+            ok: true,
+            json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+        });
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+        CommunityComments.toggleComments(POST_ID);
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        const footer = drawer.querySelector('[data-drawer-footer]');
+        assert.ok(footer);
+
+        const guestPrompt = footer.querySelector('.community-comment-guest-prompt');
+        assert.ok(guestPrompt);
+        const loginLink = guestPrompt.querySelector('a');
+        assert.ok(loginLink);
+        assert.ok(loginLink.getAttribute('href').includes('/login?returnTo='));
+
+        // No textarea or submit button
+        assert.strictEqual(footer.querySelector('textarea'), null);
+        assert.strictEqual(footer.querySelector('[data-action="submit-root-comment"]'), null);
     });
 });
