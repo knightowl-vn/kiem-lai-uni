@@ -20,6 +20,7 @@ import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.community.dto.CommunityDiscussionFeedResponseDTO;
 import com.universe.interaction.entry.community.dto.CommunityRootCommentDTO;
@@ -178,7 +179,7 @@ class CommunityPostCommentControllerWebMvcTest {
                 List.of(rootRow), 3L, 0, 10, false
         );
 
-        when(communityPostDiscussionQueryCoordinator.getDiscussionFeed(POST_ID, 0, 10, null))
+        when(communityPostDiscussionQueryCoordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED))
                 .thenReturn(feedResponse);
 
         mockMvc.perform(get("/api/community/posts/" + POST_ID + "/comments")
@@ -202,6 +203,41 @@ class CommunityPostCommentControllerWebMvcTest {
     void shouldReturn404ForRemovedFeedAlias() throws Exception {
         mockMvc.perform(get("/api/community/posts/" + POST_ID + "/comments/feed"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Explicit sort param is forwarded to coordinator")
+    void shouldForwardExplicitSortParam() throws Exception {
+        CommunityDiscussionFeedResponseDTO feedResponse = new CommunityDiscussionFeedResponseDTO(
+                List.of(), 0L, 0, 10, false
+        );
+
+        when(communityPostDiscussionQueryCoordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.NEWEST))
+                .thenReturn(feedResponse);
+        when(communityPostDiscussionQueryCoordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED))
+                .thenReturn(feedResponse);
+
+        mockMvc.perform(get("/api/community/posts/" + POST_ID + "/comments")
+                        .param("sort", "NEWEST"))
+                .andExpect(status().isOk());
+
+        verify(communityPostDiscussionQueryCoordinator).getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.NEWEST);
+
+        mockMvc.perform(get("/api/community/posts/" + POST_ID + "/comments")
+                        .param("sort", "FEATURED"))
+                .andExpect(status().isOk());
+
+        verify(communityPostDiscussionQueryCoordinator).getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Invalid sort param returns 400 Bad Request")
+    void shouldReturn400ForInvalidSortParam() throws Exception {
+        mockMvc.perform(get("/api/community/posts/" + POST_ID + "/comments")
+                        .param("sort", "INVALID_SORT"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

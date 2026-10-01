@@ -34,8 +34,6 @@ class FakeElement {
         this.childNodes = [];
         this.parentNode = null;
         this.classList = new FakeClassList(this);
-        this.style = {};
-        this.hidden = false;
         this.disabled = false;
         this.value = '';
         this._textContent = '';
@@ -43,6 +41,17 @@ class FakeElement {
 
         for (const [k, v] of Object.entries(attrs)) {
             this.setAttribute(k, v);
+        }
+    }
+
+    get hidden() {
+        return this.attributes['hidden'] !== undefined;
+    }
+    set hidden(val) {
+        if (val) {
+            this.attributes['hidden'] = '';
+        } else {
+            delete this.attributes['hidden'];
         }
     }
 
@@ -622,8 +631,9 @@ describe('CommunityComments Module Unit Tests', () => {
         CommunityComments.toggleComments(POST_ID);
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        const state = CommunityComments._states.get(POST_ID);
+        const state = CommunityComments.getPostState(POST_ID);
         assert.ok(state);
+        assert.strictEqual(CommunityComments._states.has(POST_ID), false, 'Legacy unqualified postId key must not exist');
         assert.strictEqual(state.isLoaded, false);
 
         const errorEl = doc.querySelector('.community-comments-error');
@@ -1219,5 +1229,707 @@ describe('Mobile Comments Drawer Contract Tests (MS-07B8.2.2-MOBILE-COMMENTS-UX)
         // No textarea or submit button
         assert.strictEqual(footer.querySelector('textarea'), null);
         assert.strictEqual(footer.querySelector('[data-action="submit-root-comment"]'), null);
+    });
+});
+
+describe('Desktop Inline Comments & Cross-Presentation Contract Tests (MS-07B8.2.2-DESKTOP-INLINE-REGRESSION)', () => {
+    let doc;
+    const POST_ID = 'post-desktop-contract';
+
+    beforeEach(() => {
+        doc = new FakeDocument();
+        globalThis.document = doc;
+        globalThis.window = {
+            innerWidth: 1024,
+            scrollY: 0,
+            scrollTo: () => {},
+            matchMedia: () => ({ matches: false }),
+            location: { pathname: '/community', search: '' },
+            CommentPresentation: CommentPresentation,
+            RelativeTime: RelativeTime,
+            InteractionReactions: { hydrate: () => {} }
+        };
+
+        const csrfMeta = doc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'token-abc');
+        doc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = doc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        doc.head.appendChild(csrfHeaderMeta);
+
+        const authMeta = doc.createElement('meta');
+        authMeta.setAttribute('name', '_authenticated');
+        authMeta.setAttribute('content', 'true');
+        doc.head.appendChild(authMeta);
+
+        // Build 2 post cards for POST_ID
+        for (let i = 0; i < 2; i++) {
+            const article = doc.createElement('article');
+            article.className = 'community-post-card';
+            article.setAttribute('data-post-id', POST_ID);
+
+            const footer = doc.createElement('footer');
+            footer.className = 'post-footer';
+
+            const toggleBtn = doc.createElement('button');
+            toggleBtn.className = 'post-metric post-comment-toggle-btn';
+            toggleBtn.setAttribute('data-action', 'toggle-comments');
+            toggleBtn.setAttribute('data-post-id', POST_ID);
+            toggleBtn.setAttribute('aria-expanded', 'false');
+
+            const countSpan = doc.createElement('span');
+            countSpan.className = 'post-comment-count';
+            countSpan.textContent = '2';
+            toggleBtn.appendChild(countSpan);
+            footer.appendChild(toggleBtn);
+            article.appendChild(footer);
+
+            const commentsContainer = doc.createElement('section');
+            commentsContainer.className = 'post-comments-container';
+            commentsContainer.setAttribute('data-post-comments', POST_ID);
+            commentsContainer.hidden = true;
+            commentsContainer.setAttribute('hidden', '');
+            article.appendChild(commentsContainer);
+
+            doc.body.appendChild(article);
+        }
+
+        CommunityComments.reset();
+    });
+
+    afterEach(() => {
+        CommunityComments.reset();
+        delete globalThis.document;
+        delete globalThis.window;
+    });
+
+    test('1. desktop initial state: inline hidden, drawer closed, 0 fetches', () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => { fetchCalls++; return { ok: true, json: async () => ({}) }; };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const containers = doc.querySelectorAll('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(containers.length, 2);
+        containers.forEach(c => {
+            assert.strictEqual(c.hidden, true);
+            assert.strictEqual(c.hasAttribute('hidden'), true);
+            assert.strictEqual(c.childNodes.length, 0);
+        });
+
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+        assert.strictEqual(fetchCalls, 0);
+    });
+
+    test('2. first desktop toggle: inline becomes visible, exactly 1 fetch, roots inserted into INLINE container, drawer closed', async () => {
+        let fetchCalls = 0;
+        let requestedUrl = null;
+        const mockFetch = async (url) => {
+            fetchCalls++;
+            requestedUrl = url;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-d1', body: 'Bình luận desktop đầu tiên' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(container.hidden, false);
+        assert.strictEqual(container.hasAttribute('hidden'), false);
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'true');
+        assert.strictEqual(toggleBtn.classList.contains('is-active'), true);
+
+        assert.strictEqual(fetchCalls, 1);
+        assert.ok(requestedUrl.includes('/api/community/posts/' + POST_ID + '/comments?page=0&size=10'));
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+
+        // Shell and roots are actually inserted inside INLINE container
+        const listEl = container.querySelector('[data-thread-list="' + POST_ID + '"]');
+        assert.ok(listEl, 'Inline listEl must exist');
+        assert.ok(listEl.childNodes.length > 0, 'Inline listEl must contain rendered threads');
+    });
+
+    test('3. existing comment payload: visible comment body text exists under the post card', async () => {
+        const mockFetch = async () => ({
+            ok: true,
+            json: async () => ({
+                roots: [{
+                    root: { id: 'root-d3', body: 'Đạo hữu viết rất xuất sắc!', author: { displayName: 'Hàn Lập' } },
+                    replyCount: 0
+                }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.ok(container.textContent.includes('Đạo hữu viết rất xuất sắc!'), 'Comment body must be in inline container');
+        assert.ok(container.textContent.includes('Hàn Lập'), 'Author name must be in inline container');
+        assert.ok(container.querySelector('[data-composer-root="' + POST_ID + '"]'), 'Composer must be in inline container');
+    });
+
+    test('4. second toggle: inline collapses', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-d4', body: 'Comment test 4' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+
+        // First click expands
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(container.hidden, false);
+
+        // Second click collapses
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(container.hidden, true);
+        assert.strictEqual(container.hasAttribute('hidden'), true);
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(toggleBtn.classList.contains('is-active'), false);
+        assert.strictEqual(fetchCalls, 1, 'Collapsing makes zero network requests');
+    });
+
+    test('5. third toggle: inline reopens, cached roots render correctly, no unintended duplicate fetch', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-d5', body: 'Cached desktop body' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+
+        // First click expands
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        // Second click collapses
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        // Third click reopens
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(container.hidden, false);
+        assert.strictEqual(container.hasAttribute('hidden'), false);
+        assert.strictEqual(toggleBtn.getAttribute('aria-expanded'), 'true');
+        assert.ok(container.textContent.includes('Cached desktop body'));
+        assert.strictEqual(fetchCalls, 1, 'Reopening must use cache without duplicate fetch');
+    });
+
+    test('6. cross-presentation cache: load mobile drawer, close drawer, switch to desktop, desktop inline renders cached roots', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-cross-1', body: 'Cross presentation shared comment!' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        // Start on mobile
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+
+        // Mobile click -> drawer opens
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+        assert.strictEqual(fetchCalls, 1);
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        assert.ok(drawer.textContent.includes('Cross presentation shared comment!'));
+
+        // Close drawer
+        CommunityComments.closeCommentsDrawer();
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+
+        // Switch to desktop viewport
+        CommunityComments.setMobileViewport(false);
+
+        // Click desktop toggle button
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(container.hidden, false);
+        assert.strictEqual(container.hasAttribute('hidden'), false);
+        // Cached roots are populated in inline container
+        assert.ok(container.textContent.includes('Cross presentation shared comment!'), 'Desktop inline must render cached roots');
+        // ZERO additional fetch
+        assert.strictEqual(fetchCalls, 1, 'Switching from mobile to desktop presentation must not refetch');
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+    });
+
+    test('7. inverse: desktop inline loaded first, mobile drawer later renders cached roots', async () => {
+        let fetchCalls = 0;
+        const mockFetch = async () => {
+            fetchCalls++;
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-cross-2', body: 'Desktop loaded first body' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        // Start on desktop
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+
+        // Click desktop toggle -> inline expands
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(container.hidden, false);
+        assert.ok(container.textContent.includes('Desktop loaded first body'));
+        assert.strictEqual(fetchCalls, 1);
+
+        // Switch to mobile viewport
+        CommunityComments.setMobileViewport(true);
+
+        // Click toggle button on mobile
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+        const drawer = doc.getElementById('communityCommentsDrawer');
+        assert.ok(drawer.textContent.includes('Desktop loaded first body'), 'Drawer must render cached roots from desktop');
+        assert.strictEqual(fetchCalls, 1, 'Switching from desktop to mobile must not duplicate fetch');
+    });
+
+    test('8. profile and main-feed DOM contracts both work', async () => {
+        // Clear body and build feed container and profile container side by side
+        doc.body.childNodes = [];
+
+        // Feed container
+        const feedWrapper = doc.createElement('div');
+        feedWrapper.id = 'communityFeedList';
+        feedWrapper.setAttribute('data-authenticated', 'true');
+        const feedCard = doc.createElement('article');
+        feedCard.className = 'community-post-card';
+        feedCard.setAttribute('data-post-id', 'feed-p1');
+        const feedBtn = doc.createElement('button');
+        feedBtn.className = 'post-metric post-comment-toggle-btn';
+        feedBtn.setAttribute('data-action', 'toggle-comments');
+        feedBtn.setAttribute('data-post-id', 'feed-p1');
+        feedCard.appendChild(feedBtn);
+        const feedContainer = doc.createElement('section');
+        feedContainer.className = 'post-comments-container';
+        feedContainer.setAttribute('data-post-comments', 'feed-p1');
+        feedContainer.hidden = true;
+        feedContainer.setAttribute('hidden', '');
+        feedCard.appendChild(feedContainer);
+        feedWrapper.appendChild(feedCard);
+        doc.body.appendChild(feedWrapper);
+
+        // Profile container
+        const profileWrapper = doc.createElement('div');
+        profileWrapper.className = 'community-profile-container';
+        profileWrapper.setAttribute('data-authenticated', 'true');
+        const profileCard = doc.createElement('article');
+        profileCard.className = 'community-post-card';
+        profileCard.setAttribute('data-post-id', 'prof-p1');
+        const profBtn = doc.createElement('button');
+        profBtn.className = 'post-metric post-comment-toggle-btn';
+        profBtn.setAttribute('data-action', 'toggle-comments');
+        profBtn.setAttribute('data-post-id', 'prof-p1');
+        profileCard.appendChild(profBtn);
+        const profContainer = doc.createElement('section');
+        profContainer.className = 'post-comments-container';
+        profContainer.setAttribute('data-post-comments', 'prof-p1');
+        profContainer.hidden = true;
+        profContainer.setAttribute('hidden', '');
+        profileCard.appendChild(profContainer);
+        profileWrapper.appendChild(profileCard);
+        doc.body.appendChild(profileWrapper);
+
+        const mockFetch = async (url) => {
+            const pid = url.includes('feed-p1') ? 'feed-p1' : 'prof-p1';
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-' + pid, body: 'Body for ' + pid }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Toggle feed card
+        doc.dispatchEvent({ type: 'click', target: feedBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(feedContainer.hidden, false);
+        assert.ok(feedContainer.textContent.includes('Body for feed-p1'));
+
+        // Toggle profile card
+        doc.dispatchEvent({ type: 'click', target: profBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(profContainer.hidden, false);
+        assert.ok(profContainer.textContent.includes('Body for prof-p1'));
+    });
+
+    test('9. thread loading remains explicit', async () => {
+        let threadFetches = 0;
+        const mockFetch = async (url) => {
+            if (url.includes('/thread')) {
+                threadFetches++;
+                return {
+                    ok: true,
+                    json: async () => ({
+                        root: { id: 'root-t9', body: 'Thread parent' },
+                        replies: [{ id: 'reply-t9-1', body: 'Phản hồi chi tiết 1' }]
+                    })
+                };
+            }
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-t9', body: 'Thread parent' }, replyCount: 1 }],
+                    commentCount: 2,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        assert.strictEqual(threadFetches, 0, 'Thread replies must NOT be fetched eagerly');
+
+        const toggleThreadBtn = container.querySelector('[data-action="toggle-thread"][data-root-id="root-t9"]');
+        assert.ok(toggleThreadBtn);
+        assert.strictEqual(toggleThreadBtn.textContent, 'Xem 1 phản hồi');
+
+        const repliesContainer = container.querySelector('.community-comment-replies[data-replies-for="root-t9"]');
+        assert.ok(repliesContainer);
+        assert.strictEqual(repliesContainer.hidden, true);
+
+        // Click toggle-thread
+        doc.dispatchEvent({ type: 'click', target: toggleThreadBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(threadFetches, 1, 'Exactly one thread fetch on explicit click');
+        assert.strictEqual(repliesContainer.hidden, false);
+        assert.ok(repliesContainer.textContent.includes('Phản hồi chi tiết 1'));
+        assert.strictEqual(toggleThreadBtn.textContent, 'Ẩn phản hồi');
+    });
+
+    test('10. root/reply mutation count synchronization remains intact', async () => {
+        let postBody = null;
+        let currentCount = 3;
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                postBody = JSON.parse(opts.body);
+                currentCount = 7;
+                return {
+                    ok: true,
+                    json: async () => ({
+                        comment: { id: 'new-root', body: postBody.body },
+                        updatedCommentCount: currentCount
+                    })
+                };
+            }
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-sync', body: 'Sync root' }, replyCount: 0 }],
+                    commentCount: currentCount,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        const container = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"]');
+        const input = container.querySelector('[data-input-root="' + POST_ID + '"]');
+        const submitBtn = container.querySelector('[data-action="submit-root-comment"]');
+        assert.ok(input);
+        assert.ok(submitBtn);
+
+        input.value = 'New desktop root comment';
+        doc.dispatchEvent({ type: 'click', target: submitBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(postBody.body, 'New desktop root comment');
+        const countSpans = doc.querySelectorAll('.post-comment-count');
+        countSpans.forEach(s => assert.strictEqual(s.textContent, '7'));
+    });
+
+    test('11. initial expansion defaults to NEWEST and appends sort=NEWEST', async () => {
+        const requestedUrls = [];
+        const mockFetch = async (url) => {
+            requestedUrls.push(url);
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-n1', body: 'Newest root' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        assert.strictEqual(requestedUrls.length, 1);
+        assert.ok(requestedUrls[0].includes('sort=NEWEST'), 'Must request sort=NEWEST by default: ' + requestedUrls[0]);
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+
+        const sortControls = doc.querySelector('.post-comments-container[data-post-comments="' + POST_ID + '"] .kl-sort-dropdown');
+        assert.ok(sortControls, 'Sort dropdown must be rendered in desktop container');
+    });
+
+    test('12. switching to FEATURED triggers fetch with sort=FEATURED and switching back uses cache', async () => {
+        const requestedUrls = [];
+        const mockFetch = async (url) => {
+            requestedUrls.push(url);
+            const isFeatured = url.includes('sort=FEATURED');
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: isFeatured ? 'root-f' : 'root-n', body: isFeatured ? 'Featured' : 'Newest' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 1);
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+
+        // Switch to FEATURED
+        await CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2);
+        assert.ok(requestedUrls[1].includes('sort=FEATURED'));
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'FEATURED');
+
+        // Switch back to NEWEST (served from cache)
+        await CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2, 'Must not issue another network fetch for cached NEWEST');
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+    });
+
+    test('13. reaction update event invalidates FEATURED cache', async () => {
+        const requestedUrls = [];
+        const mockFetch = async (url) => {
+            requestedUrls.push(url);
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [{ root: { id: 'root-1', body: 'Root' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 1);
+
+        // Switch to FEATURED (fetch 2)
+        await CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2);
+
+        // Switch to NEWEST (served from cache, length remains 2)
+        await CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2);
+
+        // Dispatch reaction update
+        doc.dispatchEvent({
+            type: 'kiemlai:reaction-updated',
+            detail: { targetType: 'COMMENT', targetId: 'root-1' }
+        });
+
+        // Switching back to FEATURED must now refetch because FEATURED cache was invalidated
+        await CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 3, 'Must refetch FEATURED after reaction invalidation');
+    });
+
+    test('14. load NEWEST, load FEATURED with different root order/content, switch repeatedly without cross-sort cache contamination', async () => {
+        const requestedUrls = [];
+        const mockFetch = async (url) => {
+            requestedUrls.push(url);
+            if (url.includes('sort=FEATURED')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        roots: [
+                            { root: { id: 'root-featured-1', body: 'Featured Top Engagement' }, replyCount: 5 },
+                            { root: { id: 'root-featured-2', body: 'Featured Second Engagement' }, replyCount: 2 }
+                        ],
+                        commentCount: 2,
+                        page: 0,
+                        size: 10,
+                        hasNext: false
+                    })
+                };
+            }
+            // NEWEST response (different roots and order)
+            return {
+                ok: true,
+                json: async () => ({
+                    roots: [
+                        { root: { id: 'root-newest-2', body: 'Newest Second Item' }, replyCount: 0 },
+                        { root: { id: 'root-newest-1', body: 'Newest First Item' }, replyCount: 0 }
+                    ],
+                    commentCount: 2,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(resolve => setTimeout(resolve, 15));
+
+        // Step 1: Initial load is NEWEST
+        assert.strictEqual(requestedUrls.length, 1);
+        assert.ok(requestedUrls[0].includes('sort=NEWEST'));
+        assert.strictEqual(CommunityComments._states.has(POST_ID), false, 'Must never create unqualified postId cache key');
+        assert.strictEqual(CommunityComments._states.has(POST_ID + ':NEWEST'), true);
+        assert.strictEqual(CommunityComments._states.has(POST_ID + ':FEATURED'), false);
+
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        let renderedThreads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(renderedThreads.length, 2);
+        assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-newest-2');
+        assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-newest-1');
+
+        // Step 2: Switch to FEATURED
+        await CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2);
+        assert.ok(requestedUrls[1].includes('sort=FEATURED'));
+        assert.strictEqual(CommunityComments._states.has(POST_ID), false, 'Must never create unqualified postId cache key');
+        assert.strictEqual(CommunityComments._states.has(POST_ID + ':FEATURED'), true);
+
+        renderedThreads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(renderedThreads.length, 2);
+        assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-featured-1');
+        assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-featured-2');
+
+        // Step 3: Switch back to NEWEST (served strictly from cache, 0 new network calls)
+        await CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2, 'Zero network calls when switching to cached NEWEST');
+        renderedThreads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(renderedThreads.length, 2);
+        assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-newest-2');
+        assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-newest-1');
+
+        // Step 4: Switch back to FEATURED (served strictly from cache, 0 new network calls)
+        await CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2, 'Zero network calls when switching to cached FEATURED');
+        renderedThreads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(renderedThreads.length, 2);
+        assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-featured-1');
+        assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-featured-2');
+
+        // Step 5: Switch back to NEWEST again
+        await CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(resolve => setTimeout(resolve, 15));
+        assert.strictEqual(requestedUrls.length, 2);
+        renderedThreads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-newest-2');
+        assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-newest-1');
+        assert.strictEqual(CommunityComments._states.has(POST_ID), false, 'Unqualified postId key remains non-existent throughout');
     });
 });

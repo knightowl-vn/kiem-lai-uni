@@ -1,5 +1,6 @@
 package com.universe.interaction.infrastructure.persistence;
 
+import com.universe.interaction.infrastructure.persistence.reaction.ReactionJpaEntity;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -71,6 +72,32 @@ public interface SpringDataCommentRepository extends JpaRepository<CommentJpaEnt
             ORDER BY c.createdAt DESC, c.id DESC
             """)
     Slice<CommentJpaEntity> findActiveRoots(
+            @Param("targetType") String targetType,
+            @Param("targetId") String targetId,
+            Pageable pageable
+    );
+
+    /**
+     * Retrieves a pageable slice of active root comments for a given target ordered by FEATURED engagement.
+     *
+     * <p>Roots are characterized by {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
+     * Global ranking formula:
+     * {@code engagementScore = (active root reaction count) + (active visible reply count)}.
+     * Deterministic ordering by {@code engagementScore DESC, createdAt DESC, id DESC}.
+     */
+    @Query("""
+            SELECT c FROM CommentJpaEntity c
+            WHERE c.targetType = :targetType
+              AND c.targetId = :targetId
+              AND c.parentCommentId IS NULL
+              AND c.status = 'ACTIVE'
+            ORDER BY (
+                (SELECT COUNT(r) FROM ReactionJpaEntity r WHERE r.targetType = 'COMMENT' AND r.targetId = c.id)
+                +
+                (SELECT COUNT(rep) FROM CommentJpaEntity rep WHERE rep.threadRootCommentId = c.id AND rep.status = 'ACTIVE')
+            ) DESC, c.createdAt DESC, c.id DESC
+            """)
+    Slice<CommentJpaEntity> findFeaturedRoots(
             @Param("targetType") String targetType,
             @Param("targetId") String targetId,
             Pageable pageable

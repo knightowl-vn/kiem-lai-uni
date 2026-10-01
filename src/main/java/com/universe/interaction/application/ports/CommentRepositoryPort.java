@@ -2,6 +2,7 @@ package com.universe.interaction.application.ports;
 
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 
 import java.util.Collection;
@@ -51,17 +52,19 @@ public interface CommentRepositoryPort {
     Optional<Comment> findByIdForUpdate(UUID commentId);
 
     /**
-     * Finds active root comments for the given target using zero-based slice pagination.
+     * Finds active root comments for the given target using zero-based slice pagination and the specified sort mode.
      *
      * <p>Roots have {@code parent_comment_id IS NULL} and {@code status = 'ACTIVE'}.
-     * Ordered deterministically by {@code createdAt DESC, id DESC}.
+     * When {@code sortMode == CommentSortMode.FEATURED}, ordered by {@code engagementScore DESC, createdAt DESC, id DESC}.
+     * When {@code sortMode == CommentSortMode.NEWEST}, ordered by {@code createdAt DESC, id DESC}.
      *
      * @param target target entity (cannot be null)
+     * @param sortMode sorting mode (cannot be null)
      * @param page zero-based page index (>= 0)
      * @param size page size (> 0)
      * @return immutable slice of root comments
      */
-    CommentSlice findActiveRoots(CommentTarget target, int page, int size);
+    CommentSlice findActiveRoots(CommentTarget target, CommentSortMode sortMode, int page, int size);
 
     /**
      * Finds all replies for a thread root comment, ordered chronologically.

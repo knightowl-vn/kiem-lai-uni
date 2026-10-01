@@ -817,7 +817,219 @@
         return commentEl;
     }
 
+    const SORT_MODES = Object.freeze({
+        FEATURED: 'FEATURED',
+        NEWEST: 'NEWEST'
+    });
+
+    /**
+     * Renders canonical comment/feed sort dropdown.
+     *
+     * @param {Object} options
+     * @param {string} [options.currentValue] - 'NEWEST' or 'FEATURED' (defaults to 'NEWEST')
+     * @param {string} [options.currentSort] - fallback alias for currentValue
+     * @param {Array<{value: string, label: string}>} [options.options] - options list
+     * @param {string} [options.targetId] - target entity ID (e.g. postId, articleId, chapterId)
+     * @param {string} [options.actionName] - action name on options, defaults to 'change-comment-sort'
+     * @param {string} [options.ariaLabel] - aria-label, defaults to 'Sắp xếp bình luận'
+     * @param {string} [options.className] - optional container className
+     * @param {string} [options.id] - optional container ID
+     * @param {string} [options.triggerId] - optional trigger ID
+     * @param {Function} [options.onSelect] - optional callback(value)
+     * @param {Document} [doc] - optional document
+     * @returns {HTMLElement|null}
+     */
+    function renderSortDropdown(options, doc) {
+        const d = doc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return null;
+
+        bindDocument(d);
+
+        const opts = options || {};
+        const rawCurrent = opts.currentValue || opts.currentSort;
+        const current = (rawCurrent === SORT_MODES.FEATURED) ? SORT_MODES.FEATURED : SORT_MODES.NEWEST;
+        const targetId = opts.targetId ? String(opts.targetId) : '';
+        const customClass = opts.className ? ' ' + opts.className : '';
+        const actionName = opts.actionName || 'change-comment-sort';
+        const ariaLabel = opts.ariaLabel || 'Sắp xếp bình luận';
+
+        const dropdownOptions = Array.isArray(opts.options) && opts.options.length > 0
+            ? opts.options
+            : [
+                { value: SORT_MODES.NEWEST, label: 'Mới nhất' },
+                { value: SORT_MODES.FEATURED, label: 'Nổi bật' }
+            ];
+
+        const container = d.createElement('div');
+        container.className = 'kl-sort-dropdown' + customClass;
+        container.setAttribute('data-sort-dropdown', '');
+        container.setAttribute('role', 'region');
+        container.setAttribute('aria-label', ariaLabel);
+        if (opts.id) {
+            container.id = String(opts.id);
+        }
+        if (targetId) {
+            container.setAttribute('data-target-id', targetId);
+            container.setAttribute('data-post-id', targetId);
+        }
+
+        const currentOpt = dropdownOptions.find(function (o) { return o.value === current; }) || dropdownOptions[0];
+        const currentLabel = currentOpt ? currentOpt.label : 'Mới nhất';
+
+        const trigger = d.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'kl-sort-dropdown__trigger';
+        trigger.setAttribute('aria-haspopup', 'menu');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.setAttribute('data-action', 'toggle-sort-dropdown');
+        if (opts.triggerId) {
+            trigger.id = String(opts.triggerId);
+        }
+
+        const labelSpan = d.createElement('span');
+        labelSpan.className = 'kl-sort-dropdown__label';
+        labelSpan.textContent = currentLabel;
+        trigger.appendChild(labelSpan);
+
+        const chevron = d.createElement('i');
+        chevron.className = 'fa-solid fa-chevron-down kl-sort-dropdown__chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        trigger.appendChild(chevron);
+
+        const menu = d.createElement('div');
+        menu.className = 'kl-sort-dropdown__menu';
+        menu.setAttribute('role', 'menu');
+        menu.hidden = true;
+        menu.setAttribute('hidden', '');
+
+        dropdownOptions.forEach(function (opt) {
+            const itemBtn = d.createElement('button');
+            itemBtn.type = 'button';
+            const isSelected = (opt.value === current);
+            itemBtn.className = 'kl-sort-dropdown__item' + (isSelected ? ' is-selected' : '');
+            itemBtn.setAttribute('role', 'menuitemradio');
+            itemBtn.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+            itemBtn.setAttribute('data-action', actionName);
+            itemBtn.setAttribute('data-sort-mode', opt.value);
+            if (targetId) {
+                itemBtn.setAttribute('data-target-id', targetId);
+                itemBtn.setAttribute('data-post-id', targetId);
+            }
+
+            const check = d.createElement('i');
+            check.className = 'fa-solid fa-check kl-sort-dropdown__check';
+            check.setAttribute('aria-hidden', 'true');
+            itemBtn.appendChild(check);
+
+            const textSpan = d.createElement('span');
+            textSpan.className = 'kl-sort-dropdown__text';
+            textSpan.textContent = opt.label;
+            itemBtn.appendChild(textSpan);
+
+            menu.appendChild(itemBtn);
+        });
+
+        // Trigger click toggle
+        trigger.addEventListener('click', function (e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            if (activeOpenMenu && activeOpenMenu.triggerEl === trigger) {
+                closeActiveMenu(false);
+            } else {
+                openMenu(trigger, menu, container);
+            }
+        });
+
+        // Menu item click listener: close menu and update presentation state
+        menu.addEventListener('click', function (event) {
+            const target = event && event.target ? event.target : null;
+            if (!target) return;
+            let itemBtn = null;
+            if (typeof target.closest === 'function') {
+                itemBtn = target.closest('.kl-sort-dropdown__item');
+            } else if (target.getAttribute && target.getAttribute('role') === 'menuitemradio') {
+                itemBtn = target;
+            }
+            if (itemBtn && !itemBtn.disabled) {
+                const val = itemBtn.getAttribute('data-sort-mode');
+                const optObj = dropdownOptions.find(function (o) { return o.value === val; });
+                if (optObj) {
+                    labelSpan.textContent = optObj.label;
+                    const items = menu.querySelectorAll('.kl-sort-dropdown__item');
+                    items.forEach(function (btn) {
+                        const isThis = btn.getAttribute('data-sort-mode') === val;
+                        if (isThis) {
+                            btn.classList.add('is-selected');
+                            btn.setAttribute('aria-checked', 'true');
+                        } else {
+                            btn.classList.remove('is-selected');
+                            btn.setAttribute('aria-checked', 'false');
+                        }
+                    });
+                }
+                closeActiveMenu(false);
+                if (typeof opts.onSelect === 'function') {
+                    opts.onSelect(val);
+                }
+            }
+        });
+
+        container.appendChild(trigger);
+        container.appendChild(menu);
+
+        return container;
+    }
+
+    /**
+     * Updates an existing sort dropdown's active selection and label.
+     *
+     * @param {HTMLElement} dropdownEl
+     * @param {string} activeSort
+     */
+    function updateSortDropdown(dropdownEl, activeSort) {
+        if (!dropdownEl) return;
+        const isFeatured = (activeSort === SORT_MODES.FEATURED);
+        const labelEl = dropdownEl.querySelector('.kl-sort-dropdown__label');
+        if (labelEl) {
+            labelEl.textContent = isFeatured ? 'Nổi bật' : 'Mới nhất';
+        }
+        const items1 = dropdownEl.querySelectorAll('.kl-sort-dropdown__item');
+        const items2 = dropdownEl.querySelectorAll('.kl-comment-sort-btn');
+        const items = (Array.isArray(items1) ? items1 : Array.from(items1))
+            .concat(Array.isArray(items2) ? items2 : Array.from(items2));
+        items.forEach(function (btn) {
+            const mode = btn.getAttribute('data-sort-mode');
+            const isActive = (mode === activeSort);
+            if (isActive) {
+                btn.classList.add('is-selected');
+                btn.classList.add('is-active');
+                btn.setAttribute('aria-checked', 'true');
+                btn.setAttribute('aria-pressed', 'true');
+            } else {
+                btn.classList.remove('is-selected');
+                btn.classList.remove('is-active');
+                btn.setAttribute('aria-checked', 'false');
+                btn.setAttribute('aria-pressed', 'false');
+            }
+        });
+    }
+
+    /**
+     * Renders canonical comment sort controls. Delegates to renderSortDropdown.
+     *
+     * @param {Object} options
+     * @param {Document} [doc]
+     * @returns {HTMLElement}
+     */
+    function renderSortControls(options, doc) {
+        return renderSortDropdown(options, doc);
+    }
+
     return {
+        SORT_MODES: SORT_MODES,
+        renderSortDropdown: renderSortDropdown,
+        updateSortDropdown: updateSortDropdown,
+        renderSortControls: renderSortControls,
         sanitizeAvatarUrl: sanitizeAvatarUrl,
         createAvatarFallback: createAvatarFallback,
         renderAvatar: renderAvatar,

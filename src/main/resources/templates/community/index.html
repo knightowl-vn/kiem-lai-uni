@@ -106,21 +106,33 @@
 			</div>
 		</section>
 
-		<!-- Feed Navigation Tabs -->
-		<nav class="community-feed-tabs" role="tablist" aria-label="Bộ lọc bài viết">
-			<button type="button" id="tabNewest" class="feed-tab-btn"
-				th:classappend="${selectedFeed == 'NEWEST'} ? ' is-active' : ''"
-				data-feed="NEWEST" role="tab"
-				th:attr="aria-selected=${selectedFeed == 'NEWEST'}">
-				Mới nhất
+		<!-- Feed Sort Dropdown -->
+		<div class="kl-sort-dropdown community-feed-sort-dropdown" id="communityFeedSortDropdown" data-sort-dropdown role="region" aria-label="Sắp xếp bài viết">
+			<button type="button" id="communityFeedSortTrigger" class="kl-sort-dropdown__trigger"
+				aria-haspopup="menu" aria-expanded="false" data-action="toggle-feed-sort">
+				<span id="communityFeedSortLabel" class="kl-sort-dropdown__label"
+					th:text="${selectedFeed == 'FEATURED' ? 'Nổi bật' : 'Mới nhất'}">Mới nhất</span>
+				<i class="fa-solid fa-chevron-down kl-sort-dropdown__chevron" aria-hidden="true"></i>
 			</button>
-			<button type="button" id="tabFeatured" class="feed-tab-btn"
-				th:classappend="${selectedFeed == 'FEATURED'} ? ' is-active' : ''"
-				data-feed="FEATURED" role="tab"
-				th:attr="aria-selected=${selectedFeed == 'FEATURED'}">
-				Nổi bật
-			</button>
-		</nav>
+			<div id="communityFeedSortMenu" class="kl-sort-dropdown__menu" role="menu" hidden>
+				<button type="button" class="kl-sort-dropdown__item"
+					th:classappend="${selectedFeed != 'FEATURED'} ? ' is-selected' : ''"
+					role="menuitemradio"
+					th:attr="aria-checked=${selectedFeed != 'FEATURED' ? 'true' : 'false'}"
+					data-action="change-feed-sort" data-feed="NEWEST">
+					<i class="fa-solid fa-check kl-sort-dropdown__check" aria-hidden="true"></i>
+					<span class="kl-sort-dropdown__text">Mới nhất</span>
+				</button>
+				<button type="button" class="kl-sort-dropdown__item"
+					th:classappend="${selectedFeed == 'FEATURED'} ? ' is-selected' : ''"
+					role="menuitemradio"
+					th:attr="aria-checked=${selectedFeed == 'FEATURED' ? 'true' : 'false'}"
+					data-action="change-feed-sort" data-feed="FEATURED">
+					<i class="fa-solid fa-check kl-sort-dropdown__check" aria-hidden="true"></i>
+					<span class="kl-sort-dropdown__text">Nổi bật</span>
+				</button>
+			</div>
+		</div>
 
 		<!-- Feed List -->
 		<section class="community-feed-container" aria-label="Danh sách bài viết cộng đồng">

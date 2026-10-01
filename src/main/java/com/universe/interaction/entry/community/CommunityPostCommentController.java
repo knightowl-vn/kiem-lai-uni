@@ -15,6 +15,7 @@ import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.query.GetCommentTargetMetricsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.community.dto.CommunityCommentCreatedResponseDTO;
 import com.universe.interaction.entry.community.dto.CommunityDiscussionFeedResponseDTO;
@@ -101,6 +102,7 @@ public class CommunityPostCommentController {
     @GetMapping
     public ResponseEntity<CommunityDiscussionFeedResponseDTO> getDiscussionFeed(
             @PathVariable UUID postId,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             HttpServletRequest request
@@ -112,12 +114,14 @@ public class CommunityPostCommentController {
             size = MAX_PAGE_SIZE;
         }
 
+        CommentSortMode sortMode = CommentSortMode.parseOrDefault(sort);
+
         UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
                 .map(AuthenticatedRequestIdentity::userId)
                 .orElse(null);
 
         CommunityDiscussionFeedResponseDTO response =
-                communityPostDiscussionQueryCoordinator.getDiscussionFeed(postId, page, size, viewerUserId);
+                communityPostDiscussionQueryCoordinator.getDiscussionFeed(postId, page, size, viewerUserId, sortMode);
 
         return ResponseEntity.ok(response);
     }

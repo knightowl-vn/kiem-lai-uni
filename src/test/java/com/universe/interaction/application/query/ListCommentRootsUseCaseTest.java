@@ -3,6 +3,7 @@ package com.universe.interaction.application.query;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentSlice;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,9 +53,9 @@ class ListCommentRootsUseCaseTest {
 
         CommentSlice domainSlice = new CommentSlice(List.of(root1, root2), 0, 10, true);
 
-        when(commentRepositoryPort.findActiveRoots(TARGET, 0, 10)).thenReturn(domainSlice);
+        when(commentRepositoryPort.findActiveRoots(TARGET, CommentSortMode.FEATURED, 0, 10)).thenReturn(domainSlice);
 
-        CommentReadSlice readSlice = useCase.execute(TARGET, 0, 10);
+        CommentReadSlice readSlice = useCase.execute(TARGET, CommentSortMode.FEATURED, 0, 10);
 
         assertThat(readSlice).isNotNull();
         assertThat(readSlice.getPage()).isEqualTo(0);
@@ -80,7 +81,7 @@ class ListCommentRootsUseCaseTest {
         assertThat(readSlice.getItems()).extracting(CommentReadItem::getId)
                 .containsExactly(root1Id, root2Id);
 
-        verify(commentRepositoryPort).findActiveRoots(TARGET, 0, 10);
+        verify(commentRepositoryPort).findActiveRoots(TARGET, CommentSortMode.FEATURED, 0, 10);
         // Verify no N+1 reply queries issued
         verify(commentRepositoryPort, never()).findThreadReplies(any());
         verify(commentRepositoryPort, never()).findById(any());
@@ -92,34 +93,59 @@ class ListCommentRootsUseCaseTest {
     void shouldReturnEmptySliceWhenNoRootsExist() {
         CommentSlice emptyDomainSlice = new CommentSlice(List.of(), 1, 10, false);
 
-        when(commentRepositoryPort.findActiveRoots(TARGET, 1, 10)).thenReturn(emptyDomainSlice);
+        when(commentRepositoryPort.findActiveRoots(TARGET, CommentSortMode.FEATURED, 1, 10)).thenReturn(emptyDomainSlice);
 
-        CommentReadSlice readSlice = useCase.execute(TARGET, 1, 10);
+        CommentReadSlice readSlice = useCase.execute(TARGET, CommentSortMode.FEATURED, 1, 10);
 
         assertThat(readSlice).isNotNull();
         assertThat(readSlice.getPage()).isEqualTo(1);
         assertThat(readSlice.getSize()).isEqualTo(10);
         assertThat(readSlice.isHasNext()).isFalse();
         assertThat(readSlice.getItems()).isEmpty();
+        verify(commentRepositoryPort).findActiveRoots(TARGET, CommentSortMode.FEATURED, 1, 10);
     }
 
     @Test
     @DisplayName("Should validate pagination input arguments")
     void shouldValidateInputArguments() {
-        assertThatThrownBy(() -> useCase.execute(null, 0, 10))
+        assertThatThrownBy(() -> useCase.execute(null, CommentSortMode.FEATURED, 0, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CommentTarget cannot be null.");
 
-        assertThatThrownBy(() -> useCase.execute(TARGET, -1, 10))
+        assertThatThrownBy(() -> useCase.execute(TARGET, CommentSortMode.FEATURED, -1, 10))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page index cannot be negative");
 
-        assertThatThrownBy(() -> useCase.execute(TARGET, 0, 0))
+        assertThatThrownBy(() -> useCase.execute(TARGET, CommentSortMode.FEATURED, 0, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
 
-        assertThatThrownBy(() -> useCase.execute(TARGET, 0, -5))
+        assertThatThrownBy(() -> useCase.execute(TARGET, CommentSortMode.FEATURED, 0, -5))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Page size must be greater than zero");
+    }
+
+    @Test
+    @DisplayName("Should pass explicit sort mode to repository")
+    void shouldPassExplicitSortModeToRepository() {
+        CommentSlice domainSlice = new CommentSlice(List.of(), 0, 10, false);
+        when(commentRepositoryPort.findActiveRoots(TARGET, CommentSortMode.NEWEST, 0, 10)).thenReturn(domainSlice);
+
+        CommentReadSlice readSlice = useCase.execute(TARGET, CommentSortMode.NEWEST, 0, 10);
+
+        assertThat(readSlice).isNotNull();
+        verify(commentRepositoryPort).findActiveRoots(TARGET, CommentSortMode.NEWEST, 0, 10);
+    }
+
+    @Test
+    @DisplayName("Should default to FEATURED sort mode when sort mode is null")
+    void shouldDefaultToFeaturedSortWhenNull() {
+        CommentSlice domainSlice = new CommentSlice(List.of(), 0, 10, false);
+        when(commentRepositoryPort.findActiveRoots(TARGET, CommentSortMode.FEATURED, 0, 10)).thenReturn(domainSlice);
+
+        CommentReadSlice readSlice = useCase.execute(TARGET, null, 0, 10);
+
+        assertThat(readSlice).isNotNull();
+        verify(commentRepositoryPort).findActiveRoots(TARGET, CommentSortMode.FEATURED, 0, 10);
     }
 }

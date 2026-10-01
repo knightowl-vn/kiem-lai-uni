@@ -12,6 +12,7 @@ import com.universe.interaction.application.mutation.ReplyCommentUseCase;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
@@ -198,7 +199,7 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        ChapterDiscussionFeedResponseDTO responseA = feedCoordinator.getDiscussionFeed(chapterId, 0, 20);
+        ChapterDiscussionFeedResponseDTO responseA = feedCoordinator.getDiscussionFeed(chapterId, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(responseA.items()).hasSize(1);
         int queriesA = StatementCounter.totalCount();
@@ -235,7 +236,7 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        ChapterDiscussionFeedResponseDTO responseB = feedCoordinator.getDiscussionFeed(chapterId, 0, 20);
+        ChapterDiscussionFeedResponseDTO responseB = feedCoordinator.getDiscussionFeed(chapterId, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(responseB.items()).hasSize(20);
         int queriesB = StatementCounter.totalCount();
@@ -392,7 +393,7 @@ class NovelCommentSqlQueryShapeAuditIntegrationTest {
         StatementCounter.reset();
         statistics().clear();
 
-        ChapterDiscussionFeedResponseDTO response = feedCoordinator.getDiscussionFeed(chapterId, 0, 20);
+        ChapterDiscussionFeedResponseDTO response = feedCoordinator.getDiscussionFeed(chapterId, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(response.items()).hasSize(20);
 

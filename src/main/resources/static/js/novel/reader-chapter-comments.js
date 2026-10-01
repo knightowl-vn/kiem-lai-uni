@@ -44,6 +44,11 @@
     const INITIAL_VISIBLE_REPLIES = 3;
     const REPLY_REVEAL_BATCH_SIZE = 5;
 
+    const SORT_MODES = Object.freeze({
+        FEATURED: 'FEATURED',
+        NEWEST: 'NEWEST'
+    });
+
     // Internal module state
     let currentDoc = null;
     let currentChapterId = null;
@@ -57,6 +62,9 @@
     let isLoadingMore = false;
     let isRefreshing = false;
     let rootPageMap = Object.create(null);
+    let currentSort = SORT_MODES.NEWEST;
+    const sortCaches = new Map();
+    let reactionUpdatedHandler = null;
     let injectedAuthenticated = null;
     let injectedReportModal = null;
     let injectedCommentPresentation = undefined;
@@ -870,6 +878,145 @@
     }
 
     /**
+     * Ensures sort controls exist in the DOM above the comment list and status element.
+     *
+     * @param {Document} [doc]
+     * @returns {Element|null}
+     */
+    function ensureSortControls(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !currentChapterId) return null;
+        const { listEl, statusEl } = getElements();
+        const anchor = statusEl || listEl;
+        if (!anchor || !anchor.parentNode) return null;
+
+        const oldControls = anchor.parentNode.querySelector('.kl-sort-dropdown, .kl-comment-sort-controls');
+        if (oldControls && oldControls.getAttribute('data-target-id') !== String(currentChapterId)) {
+            if (oldControls.parentNode) {
+                oldControls.parentNode.removeChild(oldControls);
+            }
+        }
+
+        let controls = anchor.parentNode.querySelector('.kl-sort-dropdown[data-target-id="' + currentChapterId + '"], .kl-comment-sort-controls[data-target-id="' + currentChapterId + '"]');
+        if (!controls) {
+            const pres = resolveCommentPresentation();
+            if (pres && (typeof pres.renderSortDropdown === 'function' || typeof pres.renderSortControls === 'function')) {
+                const renderer = pres.renderSortDropdown || pres.renderSortControls;
+                controls = renderer({
+                    currentSort: currentSort,
+                    targetId: currentChapterId,
+                    actionName: 'change-comment-sort'
+                }, d);
+                if (controls && anchor.parentNode) {
+                    anchor.parentNode.insertBefore(controls, anchor);
+                }
+            }
+        }
+        return controls;
+    }
+
+    /**
+     * Updates visual and aria state on sort buttons.
+     *
+     * @param {string} activeSort
+     * @param {Document} [doc]
+     */
+    function updateSortControlsActiveState(activeSort, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d || !currentChapterId) return;
+        const pres = resolveCommentPresentation();
+        const controls = d.querySelectorAll('.kl-sort-dropdown[data-target-id="' + currentChapterId + '"], .kl-comment-sort-controls[data-target-id="' + currentChapterId + '"]');
+        controls.forEach(function (ctrl) {
+            if (pres && typeof pres.updateSortDropdown === 'function') {
+                pres.updateSortDropdown(ctrl, activeSort);
+            } else {
+                const labelEl = ctrl.querySelector('.kl-sort-dropdown__label');
+                if (labelEl) {
+                    labelEl.textContent = (activeSort === SORT_MODES.FEATURED) ? 'Nổi bật' : 'Mới nhất';
+                }
+                const btns = ctrl.querySelectorAll('[data-action="change-comment-sort"], .kl-sort-dropdown__item, .kl-comment-sort-btn');
+                btns.forEach(function (btn) {
+                    const mode = btn.getAttribute('data-sort-mode');
+                    const isActive = (mode === activeSort);
+                    btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+                    btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
+                    if (isActive) {
+                        btn.classList.add('is-active');
+                        btn.classList.add('is-selected');
+                    } else {
+                        btn.classList.remove('is-active');
+                        btn.classList.remove('is-selected');
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Switches the active sort mode between FEATURED and NEWEST.
+     *
+     * @param {string} newSort
+     * @param {Document} [doc]
+     * @returns {Promise<void>}
+     */
+    async function switchSort(newSort, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        const normalizedSort = (newSort === SORT_MODES.NEWEST) ? SORT_MODES.NEWEST : SORT_MODES.FEATURED;
+        if (normalizedSort === currentSort) {
+            updateSortControlsActiveState(currentSort, d);
+            return;
+        }
+
+        currentSort = normalizedSort;
+        updateSortControlsActiveState(currentSort, d);
+
+        const cached = sortCaches.get(currentSort);
+        if (cached && Array.isArray(cached.items)) {
+            loadToken++;
+            const { listEl, statusEl, countEl, moreEl } = getElements();
+            currentPage = cached.page;
+            hasNext = cached.hasNext;
+            currentItems = cached.items.slice();
+            rootPageMap = Object.assign({}, cached.rootPageMap);
+
+            if (listEl) {
+                clearElement(listEl);
+                currentItems.forEach(function (item) {
+                    const threadCard = renderThread(item, d);
+                    if (threadCard) {
+                        listEl.appendChild(threadCard);
+                    }
+                });
+            }
+            if (countEl) {
+                countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
+            }
+            if (statusEl) {
+                clearElement(statusEl);
+                if (currentItems.length === 0) {
+                    renderEmpty(statusEl, listEl, countEl, moreEl, d);
+                } else {
+                    currentStatus = 'populated';
+                }
+            }
+            if (moreEl) {
+                if (hasNext) {
+                    renderMoreReady(moreEl, d);
+                } else {
+                    renderMoreHidden(moreEl);
+                }
+            }
+            notifyFeedRendered(d, currentChapterId);
+        } else {
+            const { listEl } = getElements();
+            if (listEl) {
+                clearElement(listEl);
+            }
+            fetchFeed();
+        }
+    }
+
+    /**
      * Resolves the CommentReportModal module or singleton instance.
      *
      * @returns {Object|null}
@@ -1092,6 +1239,23 @@
                         return;
                     }
                 }
+            }
+
+            let sortBtn = null;
+            if (typeof target.closest === 'function') {
+                sortBtn = target.closest('[data-action="change-comment-sort"]');
+            } else if (target.getAttribute && target.getAttribute('data-action') === 'change-comment-sort') {
+                sortBtn = target;
+            }
+            if (sortBtn) {
+                if (e && typeof e.preventDefault === 'function') {
+                    e.preventDefault();
+                }
+                const sortMode = sortBtn.getAttribute('data-sort-mode');
+                if (sortMode) {
+                    switchSort(sortMode, currentDoc);
+                }
+                return;
             }
         }
     }
@@ -1967,6 +2131,9 @@
             return;
         }
 
+        ensureSortControls(doc);
+        updateSortControlsActiveState(currentSort, doc);
+
         const token = ++loadToken;
         const targetChapterId = currentChapterId;
         currentPage = 0;
@@ -1974,7 +2141,7 @@
         isLoadingMore = false;
         renderLoading(statusEl, listEl, countEl, moreEl, doc);
 
-        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20';
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20&sort=' + encodeURIComponent(currentSort);
 
         fetchFn(url)
             .then(function (res) {
@@ -2005,9 +2172,21 @@
                 isLoadingMore = false;
 
                 if (items.length === 0) {
+                    sortCaches.set(currentSort, {
+                        page: 0,
+                        hasNext: false,
+                        items: [],
+                        rootPageMap: {}
+                    });
                     renderEmpty(statusEl, listEl, countEl, moreEl, doc);
                 } else {
                     renderPopulated(items, statusEl, listEl, countEl, doc);
+                    sortCaches.set(currentSort, {
+                        page: currentPage,
+                        hasNext: hasNext,
+                        items: currentItems.slice(),
+                        rootPageMap: Object.assign({}, rootPageMap)
+                    });
                     if (hasNext) {
                         renderMoreReady(moreEl, doc);
                     } else {
@@ -2061,7 +2240,7 @@
         const token = loadToken;
         const targetChapterId = currentChapterId;
         const requestedPage = currentPage + 1;
-        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=' + requestedPage + '&size=20';
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=' + requestedPage + '&size=20&sort=' + encodeURIComponent(currentSort);
 
         fetchFn(url)
             .then(function (res) {
@@ -2099,6 +2278,13 @@
                 currentPage = requestedPage;
                 hasNext = Boolean(data.hasNext);
 
+                sortCaches.set(currentSort, {
+                    page: currentPage,
+                    hasNext: hasNext,
+                    items: currentItems.slice(),
+                    rootPageMap: Object.assign({}, rootPageMap)
+                });
+
                 if (countEl) {
                     countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
                 }
@@ -2131,6 +2317,8 @@
         pendingDeepLink = null;
         isRefreshing = false;
         rootPageMap = Object.create(null);
+        currentSort = SORT_MODES.NEWEST;
+        sortCaches.clear();
 
         const doc = currentDoc || (typeof document !== 'undefined' ? document : null);
         const { sectionEl, moreEl } = getElements();
@@ -2186,7 +2374,7 @@
         isRefreshing = true;
         isLoadingMore = false;
 
-        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20';
+        const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) + '/comments/feed?page=0&size=20&sort=' + encodeURIComponent(currentSort);
 
         return fetchFn(url)
             .then(function (res) {
@@ -2218,6 +2406,14 @@
                 }
                 currentPage = 0;
                 hasNext = Boolean(data.hasNext);
+
+                sortCaches.clear();
+                sortCaches.set(currentSort, {
+                    page: currentPage,
+                    hasNext: hasNext,
+                    items: currentItems.slice(),
+                    rootPageMap: Object.assign({}, rootPageMap)
+                });
 
                 if (items.length === 0) {
                     renderEmpty(statusEl, listEl, countEl, moreEl, doc);
@@ -2306,7 +2502,7 @@
         isRefreshing = true;
 
         const url = '/api/novel/chapters/' + encodeURIComponent(targetChapterId) +
-            '/comments/feed?page=' + encodeURIComponent(sourcePage) + '&size=20';
+            '/comments/feed?page=' + encodeURIComponent(sourcePage) + '&size=20&sort=' + encodeURIComponent(currentSort);
 
         try {
             const res = await fetchFn(url);
@@ -2395,6 +2591,25 @@
                 countEl.textContent = formatCommentCount(getActiveCommentCount(currentItems));
             }
 
+            // Invalidate FEATURED cache on reply mutation
+            sortCaches.delete(SORT_MODES.FEATURED);
+
+            // Update thread in other caches (e.g. NEWEST)
+            for (const cache of sortCaches.values()) {
+                if (cache && Array.isArray(cache.items)) {
+                    const cIdx = cache.items.findIndex(function (it) {
+                        return it && String(it.rootCommentId || it.id) === strRootId;
+                    });
+                    if (cIdx >= 0) {
+                        if (isHiddenRoot) {
+                            cache.items.splice(cIdx, 1);
+                        } else {
+                            cache.items[cIdx] = foundItem;
+                        }
+                    }
+                }
+            }
+
             isRefreshing = false;
             return foundItem;
         } catch (err) {
@@ -2472,6 +2687,16 @@
         if (typeof currentDoc.addEventListener === 'function') {
             currentDoc.addEventListener(EVENT_CHAPTER_CHANGED, chapterChangedHandler);
             currentDoc.addEventListener('click', documentClickHandler);
+
+            if (reactionUpdatedHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
+            }
+            reactionUpdatedHandler = function (e) {
+                const detail = e && e.detail;
+                if (!detail || detail.targetType !== 'COMMENT') return;
+                sortCaches.delete(SORT_MODES.FEATURED);
+            };
+            currentDoc.addEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
         }
 
         const deepLink = extractDeepLinkParams(currentDoc, opts);
@@ -2502,10 +2727,24 @@
             if (documentClickHandler && typeof currentDoc.removeEventListener === 'function') {
                 currentDoc.removeEventListener('click', documentClickHandler);
             }
+            if (reactionUpdatedHandler && typeof currentDoc.removeEventListener === 'function') {
+                currentDoc.removeEventListener('kiemlai:reaction-updated', reactionUpdatedHandler);
+            }
         }
+
+        reactionUpdatedHandler = null;
+        currentSort = SORT_MODES.NEWEST;
+        sortCaches.clear();
 
         const { statusEl, listEl, countEl, moreEl } = getElements();
         if (listEl) {
+            const parent = (statusEl && statusEl.parentNode) ? statusEl.parentNode : listEl.parentNode;
+            if (parent) {
+                const controls = parent.querySelector('.kl-sort-dropdown, .kl-comment-sort-controls');
+                if (controls && controls.parentNode) {
+                    controls.parentNode.removeChild(controls);
+                }
+            }
             clearElement(listEl);
             listEl.setAttribute('aria-busy', 'false');
         }
@@ -2550,7 +2789,8 @@
             hasNext: hasNext,
             isLoadingMore: isLoadingMore,
             isRefreshing: isRefreshing,
-            rootPageMap: Object.assign({}, rootPageMap)
+            rootPageMap: Object.assign({}, rootPageMap),
+            currentSort: currentSort
         };
     }
 
@@ -2610,6 +2850,10 @@
         setAuthenticatedImplementation: function (val) { injectedAuthenticated = val; },
         isUserAuthenticated: isUserAuthenticated,
         buildOverflowActionDescriptors: buildOverflowActionDescriptors,
-        createActionsMenu: createActionsMenu
+        createActionsMenu: createActionsMenu,
+        switchSort: switchSort,
+        getCurrentSort: function () { return currentSort; },
+        SORT_MODES: SORT_MODES,
+        _sortCaches: sortCaches
     };
 });

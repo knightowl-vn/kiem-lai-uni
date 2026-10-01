@@ -29,6 +29,7 @@ import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
@@ -196,7 +197,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 List.of(thread), 1, 1, 0, 20, false
         );
 
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED))
                 .thenReturn(feedResponse);
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
@@ -213,6 +214,41 @@ class WikiArticleCommentControllerIntegrationTest {
                 .andExpect(jsonPath("$.threads[0].root.author.displayName").value("Scholar User"))
                 .andExpect(jsonPath("$.threads[0].root.canEdit").value(false))
                 .andExpect(jsonPath("$.threads[0].root.canDelete").value(false));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Explicit sort param is forwarded to wiki coordinator")
+    void shouldForwardExplicitSortParam() throws Exception {
+        WikiDiscussionFeedResponseDTO feedResponse = new WikiDiscussionFeedResponseDTO(
+                List.of(), 0, 0, 0, 20, false
+        );
+
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.NEWEST))
+                .thenReturn(feedResponse);
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED))
+                .thenReturn(feedResponse);
+
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "NEWEST"))
+                .andExpect(status().isOk());
+
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.NEWEST);
+
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "FEATURED"))
+                .andExpect(status().isOk());
+
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 20, null, CommentSortMode.FEATURED);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("Invalid sort param returns 400 Bad Request on wiki comments")
+    void shouldReturn400ForInvalidSortParam() throws Exception {
+        mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
+                        .param("sort", "INVALID_SORT"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -275,7 +311,7 @@ class WikiArticleCommentControllerIntegrationTest {
     @WithAnonymousUser
     @DisplayName("Feed returns 404 when Wiki article is not published or missing")
     void shouldFailClosedOnFeedWhenArticleUnpublished() throws Exception {
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(eq(ARTICLE_ID), any(Integer.class), any(Integer.class), any()))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(eq(ARTICLE_ID), any(Integer.class), any(Integer.class), any(), any()))
                 .thenThrow(new com.universe.wiki.application.exceptions.PublishedWikiArticleNotFoundException(ARTICLE_ID));
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments"))
@@ -637,7 +673,7 @@ class WikiArticleCommentControllerIntegrationTest {
         WikiDiscussionFeedResponseDTO feedResponse = new WikiDiscussionFeedResponseDTO(
                 List.of(), 0, 0, 0, 50, false
         );
-        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 50, null))
+        when(wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(ARTICLE_ID, 0, 50, null, CommentSortMode.FEATURED))
                 .thenReturn(feedResponse);
 
         mockMvc.perform(get("/api/wiki/articles/" + ARTICLE_ID + "/comments")
@@ -645,7 +681,7 @@ class WikiArticleCommentControllerIntegrationTest {
                         .param("size", "100"))
                 .andExpect(status().isOk());
 
-        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 50, null);
+        verify(wikiArticleDiscussionQueryCoordinator).getDiscussionFeed(ARTICLE_ID, 0, 50, null, CommentSortMode.FEATURED);
     }
 
     @Test

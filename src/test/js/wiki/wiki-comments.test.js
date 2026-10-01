@@ -1,4 +1,4 @@
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 
@@ -498,7 +498,7 @@ describe('WikiArticleComments Module Tests', () => {
         wikiCommentsModule.resetState();
     });
 
-    test('1. Initial GET URL: initiates GET to /api/wiki/articles/{articleId}/comments?page=0&size=20', async () => {
+    test('1. Initial GET URL: initiates GET to /api/wiki/articles/{articleId}/comments?page=0&size=20&sort=NEWEST', async () => {
         const doc = createEnvironment();
         let requestedUrl = null;
         let requestedMethod = null;
@@ -524,7 +524,7 @@ describe('WikiArticleComments Module Tests', () => {
         assert.strictEqual(requestedMethod, 'GET');
         assert.strictEqual(
             requestedUrl,
-            '/api/wiki/articles/' + ARTICLE_ID + '/comments?page=0&size=20'
+            '/api/wiki/articles/' + ARTICLE_ID + '/comments?page=0&size=20&sort=NEWEST'
         );
     });
 
@@ -7406,6 +7406,192 @@ describe('MS-05E / E8E-5C2B Wiki Public Discussion Exact Comment Context Focus (
 
             const submitBtn = form.querySelector('.wiki-comment-btn--primary');
             assert.ok(submitBtn.classList.contains('kl-comment-composer__submit'));
+        });
+    });
+
+    describe('MS-07B8.2.3 Wiki Article Comments Sorting (FEATURED + NEWEST)', () => {
+        afterEach(() => {
+            wikiCommentsModule.resetState();
+            wikiCommentsModule.setFetchImplementation(null);
+        });
+
+        test('WIKI-SORT-1: Initial feed load defaults to NEWEST and appends &sort=NEWEST', async () => {
+            const doc = createEnvironment();
+            let requestedUrl = null;
+            wikiCommentsModule.setFetchImplementation(async (url) => {
+                requestedUrl = url;
+                return {
+                    status: 200,
+                    json: async () => ({
+                        threads: [],
+                        threadCount: 0,
+                        commentCount: 0,
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            });
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+
+            assert.ok(requestedUrl.includes('&sort=NEWEST'), 'Must request sort=NEWEST by default: ' + requestedUrl);
+            assert.strictEqual(wikiCommentsModule.getCurrentSort(), 'NEWEST');
+
+            const sortControls = doc.querySelector('.kl-sort-dropdown');
+            assert.ok(sortControls, 'Sort dropdown must be rendered above thread list');
+        });
+
+        test('WIKI-SORT-2: Switching to FEATURED triggers fetch with &sort=FEATURED', async () => {
+            const doc = createEnvironment();
+            const requestedUrls = [];
+            wikiCommentsModule.setFetchImplementation(async (url) => {
+                requestedUrls.push(url);
+                return {
+                    status: 200,
+                    json: async () => ({
+                        threads: [{
+                            root: { id: 'root-w1', content: 'Wiki comment', author: { displayName: 'User 1' }, createdAt: '2026-09-18T10:00:00Z' },
+                            replies: []
+                        }],
+                        threadCount: 1,
+                        commentCount: 1,
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            });
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+            assert.strictEqual(requestedUrls.length, 1);
+            assert.ok(requestedUrls[0].includes('&sort=NEWEST'));
+
+            await wikiCommentsModule.switchSort('FEATURED', doc);
+            assert.strictEqual(requestedUrls.length, 2);
+            assert.ok(requestedUrls[1].includes('&sort=FEATURED'));
+            assert.strictEqual(wikiCommentsModule.getCurrentSort(), 'FEATURED');
+        });
+
+        test('WIKI-SORT-3: Switching back to NEWEST serves from cache with 0 network calls', async () => {
+            const doc = createEnvironment();
+            const requestedUrls = [];
+            wikiCommentsModule.setFetchImplementation(async (url) => {
+                requestedUrls.push(url);
+                const isFeatured = url.includes('sort=FEATURED');
+                return {
+                    status: 200,
+                    json: async () => ({
+                        threads: [{
+                            root: { id: isFeatured ? 'root-w-feat' : 'root-w-new', content: isFeatured ? 'Feat' : 'New', author: { displayName: 'User 1' }, createdAt: '2026-09-18T10:00:00Z' },
+                            replies: []
+                        }],
+                        threadCount: 1,
+                        commentCount: 1,
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            });
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+            assert.strictEqual(requestedUrls.length, 1);
+
+            // Switch to FEATURED (cache miss -> 1 fetch)
+            await wikiCommentsModule.switchSort('FEATURED', doc);
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Switch back to NEWEST (cache hit -> 0 network calls)
+            await wikiCommentsModule.switchSort('NEWEST', doc);
+            assert.strictEqual(requestedUrls.length, 2, 'Must not issue another network fetch for cached NEWEST');
+            assert.strictEqual(wikiCommentsModule.getCurrentSort(), 'NEWEST');
+        });
+
+        test('WIKI-SORT-4: Reaction update event invalidates FEATURED cache', async () => {
+            const doc = createEnvironment();
+            const requestedUrls = [];
+            wikiCommentsModule.setFetchImplementation(async (url) => {
+                requestedUrls.push(url);
+                return {
+                    status: 200,
+                    json: async () => ({
+                        threads: [{
+                            root: { id: 'root-w1', content: 'Wiki comment', author: { displayName: 'User 1' }, createdAt: '2026-09-18T10:00:00Z' },
+                            replies: []
+                        }],
+                        threadCount: 1,
+                        commentCount: 1,
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            });
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+            assert.strictEqual(requestedUrls.length, 1);
+
+            // Switch to FEATURED (fetch 2)
+            await wikiCommentsModule.switchSort('FEATURED', doc);
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Switch to NEWEST (served from cache, fetch remains 2)
+            await wikiCommentsModule.switchSort('NEWEST', doc);
+            assert.strictEqual(requestedUrls.length, 2);
+
+            // Dispatch reaction update
+            doc.dispatchEvent({
+                type: 'kiemlai:reaction-updated',
+                detail: { targetType: 'COMMENT', targetId: 'root-w1' }
+            });
+
+            // Switching back to FEATURED must now refetch because FEATURED cache was invalidated
+            await wikiCommentsModule.switchSort('FEATURED', doc);
+            assert.strictEqual(requestedUrls.length, 3, 'Must refetch FEATURED after reaction invalidation');
+        });
+
+        test('WIKI-SORT-5: Sort dropdown item click invokes switchSort', async () => {
+            const doc = createEnvironment();
+            const requestedUrls = [];
+            wikiCommentsModule.setFetchImplementation(async (url) => {
+                requestedUrls.push(url);
+                return {
+                    status: 200,
+                    json: async () => ({
+                        threads: [],
+                        threadCount: 0,
+                        commentCount: 0,
+                        page: 0,
+                        size: 20,
+                        hasNext: false
+                    })
+                };
+            });
+
+            wikiCommentsModule.init(doc);
+            await new Promise(process.nextTick);
+            assert.strictEqual(requestedUrls.length, 1);
+
+            const sortControls = doc.querySelector('.kl-sort-dropdown');
+            assert.ok(sortControls);
+            const featuredItem = sortControls.querySelector('[data-sort-mode="FEATURED"]');
+            assert.ok(featuredItem);
+
+            const section = doc.getElementById(wikiCommentsModule.SECTION_ID);
+            section.dispatchEvent({
+                type: 'click',
+                target: featuredItem,
+                preventDefault() {}
+            });
+            await new Promise(process.nextTick);
+
+            assert.strictEqual(wikiCommentsModule.getCurrentSort(), 'FEATURED');
+            assert.strictEqual(requestedUrls.length, 2);
         });
     });
 });

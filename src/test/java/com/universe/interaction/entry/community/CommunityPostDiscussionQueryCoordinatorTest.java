@@ -18,6 +18,7 @@ import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.domain.reaction.ReactionType;
@@ -113,15 +114,15 @@ class CommunityPostDiscussionQueryCoordinatorTest {
     @Test
     @DisplayName("Should throw IllegalArgumentException when arguments are invalid")
     void shouldThrowWhenArgumentsAreInvalid() {
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(null, 0, 10))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(null, 0, 10, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("postId cannot be null");
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, -1, 10))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, -1, 10, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("page cannot be negative");
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, 0, 0))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, 0, 0, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size must be greater than zero");
 
@@ -139,13 +140,13 @@ class CommunityPostDiscussionQueryCoordinatorTest {
     void shouldThrowWhenPostNotFound() {
         when(communityPostQueryPort.findPublicPostById(POST_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, 0, 10))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED))
                 .isInstanceOf(CommentTargetNotEligibleException.class);
 
         assertThatThrownBy(() -> coordinator.getCommentThread(POST_ID, ROOT_1_ID, null))
                 .isInstanceOf(CommentTargetNotEligibleException.class);
 
-        verify(listCommentRootsUseCase, never()).execute(any(), any(Integer.class), any(Integer.class));
+        verify(listCommentRootsUseCase, never()).execute(any(), any(), any(Integer.class), any(Integer.class));
     }
 
     @Test
@@ -155,10 +156,10 @@ class CommunityPostDiscussionQueryCoordinatorTest {
         CommentTarget target = CommentTarget.communityPost(POST_ID);
         when(getCommentTargetMetricsUseCase.execute(target)).thenReturn(new CommentTargetMetrics(0L, 0L));
 
-        when(listCommentRootsUseCase.execute(target, 0, 10))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
                 .thenReturn(new CommentReadSlice(List.of(), 0, 10, false));
 
-        CommunityDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(POST_ID, 0, 10);
+        CommunityDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED);
 
         assertThat(response.roots()).isEmpty();
         assertThat(response.commentCount()).isEqualTo(0L);
@@ -180,7 +181,7 @@ class CommunityPostDiscussionQueryCoordinatorTest {
         Comment rootComment = Comment.createRoot(ROOT_1_ID, target, AUTHOR_1_ID, "Root comment body", NOW);
         CommentReadItem rootItem = CommentReadItem.fromRoot(rootComment);
 
-        when(listCommentRootsUseCase.execute(target, 0, 10))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 10))
                 .thenReturn(new CommentReadSlice(List.of(rootItem), 0, 10, false));
 
         // Active reply count is 5 for ROOT_1_ID
@@ -201,7 +202,7 @@ class CommunityPostDiscussionQueryCoordinatorTest {
         when(getBatchReactionSummariesUseCase.execute(eq(ReactionTargetType.COMMENT), eq(List.of(ROOT_1_ID)), any()))
                 .thenReturn(Map.of(ROOT_1_ID, rootReactionSummary));
 
-        CommunityDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(POST_ID, 0, 10);
+        CommunityDiscussionFeedResponseDTO response = coordinator.getDiscussionFeed(POST_ID, 0, 10, null, CommentSortMode.FEATURED);
 
         assertThat(response.roots()).hasSize(1);
         assertThat(response.commentCount()).isEqualTo(6L);

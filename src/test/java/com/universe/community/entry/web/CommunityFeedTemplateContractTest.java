@@ -65,16 +65,36 @@ class CommunityFeedTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Feed tabs define NEWEST and FEATURED tabs with correct data-feed attributes and active state")
-    void feedTabsContract() throws Exception {
+    @DisplayName("Feed sort dropdown defines compact dropdown with NEWEST default, FEATURED option, and old tabs removed")
+    void feedSortDropdownContract() throws Exception {
         String template = read("src/main/resources/templates/community/index.html");
 
-        assertThat(template).contains("id=\"tabNewest\"");
-        assertThat(template).contains("id=\"tabFeatured\"");
+        // Old tabs/pills are removed
+        assertThat(template).doesNotContain("class=\"community-feed-tabs\"");
+        assertThat(template).doesNotContain("class=\"feed-tab-btn\"");
+        assertThat(template).doesNotContain("id=\"tabNewest\"");
+        assertThat(template).doesNotContain("id=\"tabFeatured\"");
+
+        // Compact sort dropdown container and trigger
+        assertThat(template).contains("id=\"communityFeedSortDropdown\"");
+        assertThat(template).contains("class=\"kl-sort-dropdown community-feed-sort-dropdown\"");
+        assertThat(template).contains("id=\"communityFeedSortTrigger\"");
+        assertThat(template).contains("aria-haspopup=\"menu\"");
+        assertThat(template).contains("aria-expanded=\"false\"");
+        assertThat(template).contains("data-action=\"toggle-feed-sort\"");
+
+        // Dynamic trigger label reflecting current feed (defaulting to Mới nhất)
+        assertThat(template).contains("id=\"communityFeedSortLabel\"");
+        assertThat(template).contains("th:text=\"${selectedFeed == 'FEATURED' ? 'Nổi bật' : 'Mới nhất'}\"");
+
+        // Menu with NEWEST and FEATURED options
+        assertThat(template).contains("id=\"communityFeedSortMenu\"");
+        assertThat(template).contains("role=\"menu\"");
+        assertThat(template).contains("data-action=\"change-feed-sort\"");
         assertThat(template).contains("data-feed=\"NEWEST\"");
         assertThat(template).contains("data-feed=\"FEATURED\"");
-        assertThat(template).contains("th:classappend=\"${selectedFeed == 'NEWEST'} ? ' is-active' : ''\"");
-        assertThat(template).contains("th:classappend=\"${selectedFeed == 'FEATURED'} ? ' is-active' : ''\"");
+        assertThat(template).contains("role=\"menuitemradio\"");
+        assertThat(template).contains("kl-sort-dropdown__check");
     }
 
     @Test
@@ -117,6 +137,10 @@ class CommunityFeedTemplateContractTest {
         assertThat(fragment).contains("sec:authorize=\"isAuthenticated()\"");
         assertThat(fragment).contains("sec:authorize=\"isAnonymous()\"");
         assertThat(fragment).contains("th:text=\"${item.commentCount}\"");
+        assertThat(fragment).contains("data-action=\"toggle-comments\"");
+        assertThat(fragment).contains("data-post-comments");
+        assertThat(fragment).contains("class=\"post-comments-container\"");
+        assertThat(fragment).contains("class=\"post-metric post-comment-toggle-btn\"");
 
         // Load more container
         assertThat(template).contains("id=\"communityLoadMoreBtn\"");

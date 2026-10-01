@@ -377,6 +377,10 @@ class FakeDocument {
 }
 
 function createMatcher(selector) {
+    if (selector.includes(',')) {
+        const parts = selector.split(',').map(s => createMatcher(s.trim()));
+        return el => parts.some(matchFn => matchFn(el));
+    }
     if (selector.startsWith('.')) {
         const className = selector.slice(1);
         return el => el.classList && el.classList.contains(className);
@@ -1237,5 +1241,175 @@ describe('CommentPresentation Module', () => {
         assert.strictEqual(authorSpan.tagName.toLowerCase(), 'span');
         assert.strictEqual(authorSpan.hasAttribute('href'), false);
         assert.strictEqual(authorSpan.textContent, 'Anonymous Scholar');
+    });
+
+    // AC: renderSortDropdown Tests (MS-07B8.2.3-UI-CORRECTIVE)
+    describe('AC. renderSortDropdown: Shared sort dropdown presentation and interaction', () => {
+        test('AC-1: initial state defaults to NEWEST, label is "Mới nhất", menu is closed', () => {
+            const dropdown = CommentPresentation.renderSortDropdown({ targetId: 'post-100' }, doc);
+            assert.ok(dropdown);
+            assert.ok(dropdown.classList.contains('kl-sort-dropdown'));
+            assert.strictEqual(dropdown.getAttribute('data-target-id'), 'post-100');
+
+            const trigger = dropdown.querySelector('.kl-sort-dropdown__trigger');
+            assert.ok(trigger);
+            assert.strictEqual(trigger.getAttribute('aria-haspopup'), 'menu');
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+
+            const label = dropdown.querySelector('.kl-sort-dropdown__label');
+            assert.ok(label);
+            assert.strictEqual(label.textContent, 'Mới nhất');
+
+            const chevron = dropdown.querySelector('.kl-sort-dropdown__chevron');
+            assert.ok(chevron);
+
+            const menu = dropdown.querySelector('.kl-sort-dropdown__menu');
+            assert.ok(menu);
+            assert.strictEqual(menu.getAttribute('role'), 'menu');
+            assert.strictEqual(menu.hidden, true);
+
+            const newestItem = menu.querySelector('[data-sort-mode="NEWEST"]');
+            assert.ok(newestItem);
+            assert.ok(newestItem.classList.contains('is-selected'));
+            assert.strictEqual(newestItem.getAttribute('aria-checked'), 'true');
+            assert.strictEqual(newestItem.getAttribute('role'), 'menuitemradio');
+            assert.ok(newestItem.querySelector('.kl-sort-dropdown__check'));
+
+            const featuredItem = menu.querySelector('[data-sort-mode="FEATURED"]');
+            assert.ok(featuredItem);
+            assert.strictEqual(featuredItem.classList.contains('is-selected'), false);
+            assert.strictEqual(featuredItem.getAttribute('aria-checked'), 'false');
+            assert.strictEqual(featuredItem.getAttribute('role'), 'menuitemradio');
+            assert.ok(featuredItem.querySelector('.kl-sort-dropdown__check'));
+        });
+
+        test('AC-2: clicking trigger toggles menu open and closed with aria-expanded update', () => {
+            const dropdown = CommentPresentation.renderSortDropdown({ targetId: 'post-101' }, doc);
+            const trigger = dropdown.querySelector('.kl-sort-dropdown__trigger');
+            const menu = dropdown.querySelector('.kl-sort-dropdown__menu');
+
+            // Click trigger to open
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'true');
+            assert.strictEqual(menu.hidden, false);
+            assert.ok(dropdown.classList.contains('is-open'));
+
+            // Click trigger again to close
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(dropdown.classList.contains('is-open'), false);
+        });
+
+        test('AC-3: selecting FEATURED updates label, aria-checked, closes menu, and fires onSelect', () => {
+            let selectedValue = null;
+            const dropdown = CommentPresentation.renderSortDropdown({
+                targetId: 'post-102',
+                currentSort: 'NEWEST',
+                onSelect: (val) => { selectedValue = val; }
+            }, doc);
+
+            const trigger = dropdown.querySelector('.kl-sort-dropdown__trigger');
+            const menu = dropdown.querySelector('.kl-sort-dropdown__menu');
+            const label = dropdown.querySelector('.kl-sort-dropdown__label');
+
+            // Open menu
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(menu.hidden, false);
+
+            // Click FEATURED option
+            const featuredBtn = menu.querySelector('[data-sort-mode="FEATURED"]');
+            featuredBtn.dispatchEvent({ type: 'click', target: featuredBtn, preventDefault() {} });
+
+            // Label updated
+            assert.strictEqual(label.textContent, 'Nổi bật');
+            assert.strictEqual(selectedValue, 'FEATURED');
+
+            // Menu closed
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+
+            // Checked state updated
+            assert.strictEqual(featuredBtn.getAttribute('aria-checked'), 'true');
+            assert.ok(featuredBtn.classList.contains('is-selected'));
+
+            const newestBtn = menu.querySelector('[data-sort-mode="NEWEST"]');
+            assert.strictEqual(newestBtn.getAttribute('aria-checked'), 'false');
+            assert.strictEqual(newestBtn.classList.contains('is-selected'), false);
+
+            // Reopen and select NEWEST
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(menu.hidden, false);
+
+            newestBtn.dispatchEvent({ type: 'click', target: newestBtn, preventDefault() {} });
+            assert.strictEqual(label.textContent, 'Mới nhất');
+            assert.strictEqual(selectedValue, 'NEWEST');
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(newestBtn.getAttribute('aria-checked'), 'true');
+            assert.ok(newestBtn.classList.contains('is-selected'));
+            assert.strictEqual(featuredBtn.getAttribute('aria-checked'), 'false');
+        });
+
+        test('AC-4: outside click closes open dropdown', () => {
+            const dropdown = CommentPresentation.renderSortDropdown({ targetId: 'post-103' }, doc);
+            const trigger = dropdown.querySelector('.kl-sort-dropdown__trigger');
+            const menu = dropdown.querySelector('.kl-sort-dropdown__menu');
+
+            // Open menu
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(menu.hidden, false);
+
+            // Outside click on document
+            const outsideEl = new FakeElement('div');
+            doc.body.appendChild(outsideEl);
+            doc.dispatchEvent({ type: 'click', target: outsideEl });
+
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(dropdown.classList.contains('is-open'), false);
+        });
+
+        test('AC-5: Escape key closes open dropdown and restores focus to trigger', () => {
+            const dropdown = CommentPresentation.renderSortDropdown({ targetId: 'post-104' }, doc);
+            const trigger = dropdown.querySelector('.kl-sort-dropdown__trigger');
+            const menu = dropdown.querySelector('.kl-sort-dropdown__menu');
+
+            // Open menu
+            trigger.dispatchEvent({ type: 'click', target: trigger, preventDefault() {}, stopPropagation() {} });
+            assert.strictEqual(menu.hidden, false);
+
+            // Press Escape
+            doc.dispatchEvent({ type: 'keydown', key: 'Escape', preventDefault() {} });
+
+            assert.strictEqual(trigger.getAttribute('aria-expanded'), 'false');
+            assert.strictEqual(menu.hidden, true);
+            assert.strictEqual(trigger.isFocused, true, 'Trigger must regain focus after Escape dismissal');
+        });
+
+        test('AC-6: updateSortDropdown updates label and item attributes programmatically', () => {
+            const dropdown = CommentPresentation.renderSortDropdown({ targetId: 'post-105', currentSort: 'NEWEST' }, doc);
+            const label = dropdown.querySelector('.kl-sort-dropdown__label');
+            assert.strictEqual(label.textContent, 'Mới nhất');
+
+            CommentPresentation.updateSortDropdown(dropdown, 'FEATURED');
+            assert.strictEqual(label.textContent, 'Nổi bật');
+            const featuredBtn = dropdown.querySelector('[data-sort-mode="FEATURED"]');
+            assert.strictEqual(featuredBtn.getAttribute('aria-checked'), 'true');
+            assert.ok(featuredBtn.classList.contains('is-selected'));
+
+            CommentPresentation.updateSortDropdown(dropdown, 'NEWEST');
+            assert.strictEqual(label.textContent, 'Mới nhất');
+            const newestBtn = dropdown.querySelector('[data-sort-mode="NEWEST"]');
+            assert.strictEqual(newestBtn.getAttribute('aria-checked'), 'true');
+            assert.ok(newestBtn.classList.contains('is-selected'));
+        });
+
+        test('AC-7: renderSortControls delegates to renderSortDropdown', () => {
+            const controls = CommentPresentation.renderSortControls({ targetId: 'post-106' }, doc);
+            assert.ok(controls);
+            assert.ok(controls.classList.contains('kl-sort-dropdown'));
+            assert.ok(controls.querySelector('.kl-sort-dropdown__trigger'));
+            assert.ok(controls.querySelector('.kl-sort-dropdown__menu'));
+        });
     });
 });

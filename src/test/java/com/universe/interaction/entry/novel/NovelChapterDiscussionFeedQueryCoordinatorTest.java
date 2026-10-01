@@ -7,6 +7,7 @@ import com.universe.interaction.application.query.CommentReadSlice;
 import com.universe.interaction.application.query.CommentThreadView;
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedResponseDTO;
@@ -89,15 +90,15 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
     @Test
     @DisplayName("Should throw IllegalArgumentException when arguments are invalid")
     void shouldValidateArguments() {
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(null, 0, 20))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(null, 0, 20, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("chapterId cannot be null");
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(CHAPTER_ID, -1, 20))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(CHAPTER_ID, -1, 20, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("page cannot be negative");
 
-        assertThatThrownBy(() -> coordinator.getDiscussionFeed(CHAPTER_ID, 0, 0))
+        assertThatThrownBy(() -> coordinator.getDiscussionFeed(CHAPTER_ID, 0, 0, null, CommentSortMode.FEATURED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size must be greater than zero");
     }
@@ -106,10 +107,10 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
     @DisplayName("Should return empty feed response without calling downstream collaborators when slice is empty")
     void shouldReturnEmptyFeedWhenNoRoots() {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_ID);
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(Collections.emptyList(), 0, 20, false));
 
-        ChapterDiscussionFeedResponseDTO result = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20);
+        ChapterDiscussionFeedResponseDTO result = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(result.items()).isEmpty();
         assertThat(result.page()).isEqualTo(0);
@@ -132,7 +133,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         CommentReadItem sliceRoot3 = new CommentReadItem(ROOT_3_ID, AUTHOR_1_ID, null, null, "Slice Root 3", false, T1, T1);
         CommentReadItem sliceRoot4 = new CommentReadItem(ROOT_4_ID, UUID.fromString("99999999-9999-9999-9999-999999999999"), null, null, "Slice Root 4", false, T1, T1);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(sliceRoot1, sliceRoot2, sliceRoot3, sliceRoot4), 0, 20, true));
 
         // Authoritative thread views from GetCommentThreadsByRootIdsUseCase:
@@ -189,7 +190,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
                 ));
 
         // Execute coordinator for guest (viewerUserId = null)
-        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20);
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(feed).isNotNull();
         assertThat(feed.page()).isEqualTo(0);
@@ -276,7 +277,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         CommentReadItem root1 = new CommentReadItem(ROOT_1_ID, AUTHOR_1_ID, null, null, "Root 1", false, T1, T1);
         CommentReadItem root2 = new CommentReadItem(ROOT_2_ID, AUTHOR_2_ID, null, null, "Root 2", false, T1, T1);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(root1, root2), 0, 20, false));
 
         // Under Root 1: reply 1 by Author 1 (owner), reply 2 by Author 2 (non-owner), reply 3 tombstone
@@ -294,7 +295,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         when(resolveChapterCommentAnchorsByRootIdsUseCase.execute(CHAPTER_ID, List.of(ROOT_1_ID, ROOT_2_ID))).thenReturn(List.of());
 
         // Execute as AUTHOR_1_ID
-        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID);
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID, CommentSortMode.FEATURED);
 
         // Root 1 is owned by AUTHOR_1_ID
         ChapterDiscussionFeedItemDTO item1 = feed.items().get(0);
@@ -332,7 +333,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         CommentReadItem root2 = new CommentReadItem(ROOT_2_ID, AUTHOR_2_ID, null, null, "Root 2 - will be deleted", false, T1, T1);
         CommentReadItem root3 = new CommentReadItem(ROOT_3_ID, AUTHOR_1_ID, null, null, "Root 3", false, T1, T1);
 
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(root1, root2, root3), 0, 20, true));
 
         // But batch thread query finds ONLY Root 1 and Root 3 (Root 2 was deleted concurrently!)
@@ -346,7 +347,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         when(resolveChapterCommentAnchorsByRootIdsUseCase.execute(CHAPTER_ID, List.of(ROOT_1_ID, ROOT_3_ID)))
                 .thenReturn(List.of());
 
-        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20);
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, null, CommentSortMode.FEATURED);
 
         // Exactly 2 items returned; Root 2 completely omitted; slice order preserved
         assertThat(feed.items()).hasSize(2);
@@ -369,13 +370,13 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         CommentTarget target = CommentTarget.novelChapter(CHAPTER_ID);
 
         CommentReadItem root1 = new CommentReadItem(ROOT_1_ID, AUTHOR_1_ID, null, null, "Root 1", false, T1, T1);
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(root1), 0, 20, false));
 
         when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                 .thenReturn(List.of()); // Root 1 gone!
 
-        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20);
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, null, CommentSortMode.FEATURED);
 
         assertThat(feed.items()).isEmpty();
         assertThat(feed.page()).isEqualTo(0);
@@ -424,7 +425,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         CommentReadItem reply2Tombstone = new CommentReadItem(REPLY_2_ID, AUTHOR_1_ID, ROOT_1_ID, null, null, true, T3, T3);
         CommentThreadView thread1 = new CommentThreadView(root1, List.of(reply1Active, reply2Tombstone));
 
-        when(listCommentRootsUseCase.execute(target, 0, 20))
+        when(listCommentRootsUseCase.execute(target, CommentSortMode.FEATURED, 0, 20))
                 .thenReturn(new CommentReadSlice(List.of(root1), 0, 20, false));
         when(getCommentThreadsByRootIdsUseCase.execute(target, List.of(ROOT_1_ID)))
                 .thenReturn(List.of(thread1));
@@ -447,7 +448,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         when(getBatchReactionSummariesUseCase.execute(ReactionTargetType.COMMENT, List.of(ROOT_1_ID, REPLY_1_ID), AUTHOR_1_ID))
                 .thenReturn(Map.of(ROOT_1_ID, rootSummary, REPLY_1_ID, replySummary));
 
-        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID);
+        ChapterDiscussionFeedResponseDTO feed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID, CommentSortMode.FEATURED);
 
         assertThat(feed.items()).hasSize(1);
         ChapterDiscussionFeedItemDTO item = feed.items().get(0);
@@ -471,7 +472,7 @@ class NovelChapterDiscussionFeedQueryCoordinatorTest {
         when(getBatchReactionSummariesUseCase.execute(any(), any(), any()))
                 .thenThrow(new RuntimeException("Database timeout on reaction aggregation"));
 
-        ChapterDiscussionFeedResponseDTO degradedFeed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID);
+        ChapterDiscussionFeedResponseDTO degradedFeed = coordinator.getDiscussionFeed(CHAPTER_ID, 0, 20, AUTHOR_1_ID, CommentSortMode.FEATURED);
         assertThat(degradedFeed.items()).hasSize(1);
         assertThat(degradedFeed.items().get(0).reactionSummary()).isNull();
         assertThat(degradedFeed.items().get(0).replies().get(0).reactionSummary()).isNull();

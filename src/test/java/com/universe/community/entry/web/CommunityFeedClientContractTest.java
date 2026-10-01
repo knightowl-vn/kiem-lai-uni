@@ -60,9 +60,10 @@ class CommunityFeedClientContractTest {
     void communityFeedClientContract() throws Exception {
         String js = read("src/main/resources/static/js/community/community-feed.js");
 
-        // 1. Feed tab switching & browser URL pushState
-        assertThat(js).contains("switchFeed('NEWEST')");
-        assertThat(js).contains("switchFeed('FEATURED')");
+        // 1. Feed sort dropdown switching & browser URL pushState
+        assertThat(js).contains("communityFeedSortDropdown");
+        assertThat(js).contains("communityFeedSortTrigger");
+        assertThat(js).contains("switchFeed(feedType)");
         assertThat(js).contains("window.history.pushState({ feed: feedType }, '', newUrl)");
         assertThat(js).contains("'/community?feed=' + feedType");
 

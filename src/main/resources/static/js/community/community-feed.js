@@ -35,25 +35,70 @@
         nextPage = (pageAttr && pageAttr !== '') ? parseInt(pageAttr, 10) : null;
         hasNext = feedListEl.getAttribute('data-has-next') === 'true';
 
-        // Bind tab buttons
-        const tabNewest = document.getElementById('tabNewest');
-        const tabFeatured = document.getElementById('tabFeatured');
+        // Bind feed sort dropdown
+        const sortContainer = document.getElementById('communityFeedSortDropdown');
+        const sortTrigger = document.getElementById('communityFeedSortTrigger');
+        const sortMenu = document.getElementById('communityFeedSortMenu');
 
-        if (tabNewest) {
-            tabNewest.addEventListener('click', function () {
-                if (currentFeed !== 'NEWEST' && !isLoading) {
-                    switchFeed('NEWEST');
+        function openFeedSort() {
+            if (sortTrigger && sortMenu) {
+                sortTrigger.setAttribute('aria-expanded', 'true');
+                sortMenu.hidden = false;
+                sortMenu.removeAttribute('hidden');
+                if (sortContainer) sortContainer.classList.add('is-open');
+            }
+        }
+
+        function closeFeedSort(restoreFocus) {
+            if (sortTrigger && sortMenu) {
+                sortTrigger.setAttribute('aria-expanded', 'false');
+                sortMenu.hidden = true;
+                sortMenu.setAttribute('hidden', '');
+                if (sortContainer) sortContainer.classList.remove('is-open');
+                if (restoreFocus && typeof sortTrigger.focus === 'function') {
+                    try { sortTrigger.focus(); } catch (_) {}
+                }
+            }
+        }
+
+        if (sortTrigger) {
+            sortTrigger.addEventListener('click', function (e) {
+                if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+                const isExpanded = sortTrigger.getAttribute('aria-expanded') === 'true';
+                if (isExpanded) {
+                    closeFeedSort(false);
+                } else {
+                    openFeedSort();
                 }
             });
         }
 
-        if (tabFeatured) {
-            tabFeatured.addEventListener('click', function () {
-                if (currentFeed !== 'FEATURED' && !isLoading) {
-                    switchFeed('FEATURED');
-                }
+        if (sortMenu) {
+            const sortItems = sortMenu.querySelectorAll('[data-action="change-feed-sort"]');
+            sortItems.forEach(function (btn) {
+                btn.addEventListener('click', function (e) {
+                    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+                    const feedType = btn.getAttribute('data-feed');
+                    closeFeedSort(false);
+                    if (feedType && feedType !== currentFeed && !isLoading) {
+                        switchFeed(feedType);
+                    }
+                });
             });
         }
+
+        document.addEventListener('click', function (e) {
+            if (sortContainer && !sortContainer.contains(e.target)) {
+                closeFeedSort(false);
+            }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
+                closeFeedSort(true);
+            }
+        });
 
         // Bind Load More button
         const loadMoreBtn = document.getElementById('communityLoadMoreBtn');
@@ -69,7 +114,12 @@
         window.CommunityFeed = {
             refreshFeed: function (feedType) {
                 switchFeed(feedType || currentFeed);
-            }
+            },
+            switchFeed: switchFeed,
+            getCurrentFeed: function () {
+                return currentFeed;
+            },
+            init: initFeed
         };
     }
 
@@ -79,7 +129,7 @@
         nextPage = (feedType === 'FEATURED') ? 0 : null;
         hasNext = false;
 
-        updateTabUi(feedType);
+        updateFeedSortUi(feedType);
         updateBrowserUrl(feedType);
 
         // Clear existing cards
@@ -95,29 +145,30 @@
         fetchFeedPage(true);
     }
 
+    function updateFeedSortUi(feedType) {
+        const sortLabel = document.getElementById('communityFeedSortLabel');
+        if (sortLabel) {
+            sortLabel.textContent = (feedType === 'FEATURED') ? 'Nổi bật' : 'Mới nhất';
+        }
+        const sortMenu = document.getElementById('communityFeedSortMenu');
+        if (sortMenu) {
+            const items = sortMenu.querySelectorAll('[data-action="change-feed-sort"]');
+            items.forEach(function (btn) {
+                const feed = btn.getAttribute('data-feed');
+                const isSelected = (feed === feedType);
+                if (isSelected) {
+                    btn.classList.add('is-selected');
+                    btn.setAttribute('aria-checked', 'true');
+                } else {
+                    btn.classList.remove('is-selected');
+                    btn.setAttribute('aria-checked', 'false');
+                }
+            });
+        }
+    }
+
     function updateTabUi(feedType) {
-        const tabNewest = document.getElementById('tabNewest');
-        const tabFeatured = document.getElementById('tabFeatured');
-
-        if (tabNewest) {
-            if (feedType === 'NEWEST') {
-                tabNewest.classList.add('is-active');
-                tabNewest.setAttribute('aria-selected', 'true');
-            } else {
-                tabNewest.classList.remove('is-active');
-                tabNewest.setAttribute('aria-selected', 'false');
-            }
-        }
-
-        if (tabFeatured) {
-            if (feedType === 'FEATURED') {
-                tabFeatured.classList.add('is-active');
-                tabFeatured.setAttribute('aria-selected', 'true');
-            } else {
-                tabFeatured.classList.remove('is-active');
-                tabFeatured.setAttribute('aria-selected', 'false');
-            }
-        }
+        updateFeedSortUi(feedType);
     }
 
     function updateBrowserUrl(feedType) {

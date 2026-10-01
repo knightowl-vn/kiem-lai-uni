@@ -34,6 +34,7 @@ import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCa
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.ChapterBlockDiscussionResponseDTO;
 import com.universe.interaction.entry.dto.ChapterCommentBlockIndicatorDTO;
@@ -168,6 +169,7 @@ public class NovelChapterCommentController {
     @GetMapping
     public ResponseEntity<CommentSliceResponseDTO> listRootComments(
             @PathVariable UUID chapterId,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request
@@ -179,6 +181,8 @@ public class NovelChapterCommentController {
             size = MAX_PAGE_SIZE;
         }
 
+        CommentSortMode sortMode = CommentSortMode.parseOrDefault(sort);
+
         if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -188,7 +192,7 @@ public class NovelChapterCommentController {
                 .orElse(null);
 
         CommentTarget target = CommentTarget.novelChapter(chapterId);
-        CommentReadSlice slice = listCommentRootsUseCase.execute(target, page, size);
+        CommentReadSlice slice = listCommentRootsUseCase.execute(target, sortMode, page, size);
 
         List<UUID> activeIds = slice.items().stream()
                 .filter(item -> !item.tombstone())
@@ -232,6 +236,7 @@ public class NovelChapterCommentController {
     @GetMapping("/feed")
     public ResponseEntity<ChapterDiscussionFeedResponseDTO> getDiscussionFeed(
             @PathVariable UUID chapterId,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request
@@ -243,6 +248,8 @@ public class NovelChapterCommentController {
             size = MAX_PAGE_SIZE;
         }
 
+        CommentSortMode sortMode = CommentSortMode.parseOrDefault(sort);
+
         if (readerChapterAccessQueryPort.findPublishedById(chapterId).isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
@@ -251,8 +258,9 @@ public class NovelChapterCommentController {
                 .map(AuthenticatedRequestIdentity::userId)
                 .orElse(null);
 
-        ChapterDiscussionFeedResponseDTO response =
-                novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(chapterId, page, size, viewerUserId);
+        ChapterDiscussionFeedResponseDTO response = novelChapterDiscussionFeedQueryCoordinator.getDiscussionFeed(
+                chapterId, page, size, viewerUserId, sortMode
+        );
 
         return ResponseEntity.ok(response);
     }

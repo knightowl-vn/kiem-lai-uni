@@ -24,6 +24,7 @@ import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.GetPublicCommentRevisionsUseCase;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentCreatedResponse;
 import com.universe.interaction.entry.dto.CommentReadDTO;
@@ -118,6 +119,7 @@ public class WikiArticleCommentController {
     @GetMapping({"", "/feed"})
     public ResponseEntity<WikiDiscussionFeedResponseDTO> getDiscussionFeed(
             @PathVariable UUID articleId,
+            @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest request
@@ -129,12 +131,14 @@ public class WikiArticleCommentController {
             size = MAX_PAGE_SIZE;
         }
 
+        CommentSortMode sortMode = CommentSortMode.parseOrDefault(sort);
+
         UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
                 .map(AuthenticatedRequestIdentity::userId)
                 .orElse(null);
 
         WikiDiscussionFeedResponseDTO response =
-                wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(articleId, page, size, viewerUserId);
+                wikiArticleDiscussionQueryCoordinator.getDiscussionFeed(articleId, page, size, viewerUserId, sortMode);
 
         return ResponseEntity.ok(response);
     }

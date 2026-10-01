@@ -14,6 +14,7 @@ import com.universe.interaction.application.query.GetCommentThreadUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ReactionSummary;
 import com.universe.interaction.application.query.ValidateCommentTargetScopeUseCase;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.community.dto.CommunityDiscussionFeedResponseDTO;
@@ -99,20 +100,9 @@ public class CommunityPostDiscussionQueryCoordinator {
         );
     }
 
-    /**
-     * Resolves a paginated slice of Community post discussion feed items for anonymous guests.
-     *
-     * @param postId scalar UUID of the Community post
-     * @param page zero-based page index
-     * @param size page size
-     * @return immutable {@link CommunityDiscussionFeedResponseDTO}
-     */
-    public CommunityDiscussionFeedResponseDTO getDiscussionFeed(UUID postId, int page, int size) {
-        return getDiscussionFeed(postId, page, size, null);
-    }
 
     /**
-     * Resolves a paginated slice of Community post discussion feed items with optional viewer capabilities.
+     * Resolves a paginated slice of Community post discussion feed items with optional viewer capabilities and sort mode.
      *
      * <p>Loads ONLY root comments and indicator reply counts. Does NOT materialize reply bodies.
      * Resolves authors strictly for root comments present in the returned slice.
@@ -121,9 +111,16 @@ public class CommunityPostDiscussionQueryCoordinator {
      * @param page zero-based page index
      * @param size page size
      * @param viewerUserId optional scalar UUID of the authenticated viewer (null for guests)
+     * @param sortMode comment sort mode (defaults to FEATURED if null)
      * @return immutable {@link CommunityDiscussionFeedResponseDTO}
      */
-    public CommunityDiscussionFeedResponseDTO getDiscussionFeed(UUID postId, int page, int size, UUID viewerUserId) {
+    public CommunityDiscussionFeedResponseDTO getDiscussionFeed(
+            UUID postId,
+            int page,
+            int size,
+            UUID viewerUserId,
+            CommentSortMode sortMode
+    ) {
         if (postId == null) {
             throw new IllegalArgumentException("postId cannot be null");
         }
@@ -134,6 +131,7 @@ public class CommunityPostDiscussionQueryCoordinator {
             throw new IllegalArgumentException("size must be greater than zero: " + size);
         }
 
+        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
         CommentTarget target = CommentTarget.communityPost(postId);
 
         // 1. Post existence gate: fail closed if post is missing or not public
@@ -144,7 +142,7 @@ public class CommunityPostDiscussionQueryCoordinator {
         long commentCount = getCommentTargetMetricsUseCase.execute(target).commentCount();
 
         // 3. Load active root comments slice for this post (roots only, no reply hydration)
-        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, page, size);
+        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, effectiveSortMode, page, size);
         if (rootSlice.items().isEmpty()) {
             return new CommunityDiscussionFeedResponseDTO(
                     List.of(),

@@ -9,6 +9,7 @@ import com.universe.interaction.application.query.GetBatchReactionSummariesUseCa
 import com.universe.interaction.application.query.GetCommentThreadsByRootIdsUseCase;
 import com.universe.interaction.application.query.ListCommentRootsUseCase;
 import com.universe.interaction.application.query.ReactionSummary;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
 import com.universe.interaction.entry.dto.ChapterDiscussionFeedItemDTO;
@@ -82,28 +83,24 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
         );
     }
 
-    /**
-     * Resolves a paginated slice of chapter discussion feed items for anonymous guests.
-     *
-     * @param chapterId scalar UUID of the chapter
-     * @param page zero-based page index
-     * @param size page size
-     * @return immutable {@link ChapterDiscussionFeedResponseDTO}
-     */
-    public ChapterDiscussionFeedResponseDTO getDiscussionFeed(UUID chapterId, int page, int size) {
-        return getDiscussionFeed(chapterId, page, size, null);
-    }
 
     /**
-     * Resolves a paginated slice of chapter discussion feed items with optional viewer capabilities.
+     * Resolves a paginated slice of chapter discussion feed items with optional viewer capabilities and sort mode.
      *
      * @param chapterId scalar UUID of the chapter
      * @param page zero-based page index
      * @param size page size
      * @param viewerUserId optional scalar UUID of the authenticated viewer (null for guests)
+     * @param sortMode comment sort mode (defaults to FEATURED if null)
      * @return immutable {@link ChapterDiscussionFeedResponseDTO}
      */
-    public ChapterDiscussionFeedResponseDTO getDiscussionFeed(UUID chapterId, int page, int size, UUID viewerUserId) {
+    public ChapterDiscussionFeedResponseDTO getDiscussionFeed(
+            UUID chapterId,
+            int page,
+            int size,
+            UUID viewerUserId,
+            CommentSortMode sortMode
+    ) {
         if (chapterId == null) {
             throw new IllegalArgumentException("chapterId cannot be null");
         }
@@ -114,9 +111,10 @@ public class NovelChapterDiscussionFeedQueryCoordinator {
             throw new IllegalArgumentException("size must be greater than zero: " + size);
         }
 
+        CommentSortMode effectiveSortMode = (sortMode != null) ? sortMode : CommentSortMode.FEATURED;
         // 1. Interaction query: load active root comments slice for this chapter
         CommentTarget target = CommentTarget.novelChapter(chapterId);
-        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, page, size);
+        CommentReadSlice rootSlice = listCommentRootsUseCase.execute(target, effectiveSortMode, page, size);
 
         if (rootSlice.items().isEmpty()) {
             return new ChapterDiscussionFeedResponseDTO(

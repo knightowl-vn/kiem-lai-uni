@@ -4,6 +4,7 @@ import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentSlice;
 import com.universe.interaction.application.query.CommentTargetMetrics;
 import com.universe.interaction.domain.Comment;
+import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.CommentTarget;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -75,9 +76,12 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
     }
 
     @Override
-    public CommentSlice findActiveRoots(CommentTarget target, int page, int size) {
+    public CommentSlice findActiveRoots(CommentTarget target, CommentSortMode sortMode, int page, int size) {
         if (target == null) {
             throw new IllegalArgumentException("CommentTarget cannot be null.");
+        }
+        if (sortMode == null) {
+            sortMode = CommentSortMode.FEATURED;
         }
         if (page < 0) {
             throw new IllegalArgumentException("Page index cannot be negative: " + page);
@@ -87,11 +91,20 @@ public class CommentPersistenceAdapter implements CommentRepositoryPort {
         }
 
         Pageable pageable = PageRequest.of(page, size);
-        Slice<CommentJpaEntity> slice = repository.findActiveRoots(
-                target.type().name(),
-                target.targetId().toString(),
-                pageable
-        );
+        Slice<CommentJpaEntity> slice;
+        if (sortMode == CommentSortMode.NEWEST) {
+            slice = repository.findActiveRoots(
+                    target.type().name(),
+                    target.targetId().toString(),
+                    pageable
+            );
+        } else {
+            slice = repository.findFeaturedRoots(
+                    target.type().name(),
+                    target.targetId().toString(),
+                    pageable
+            );
+        }
 
         List<Comment> items = slice.getContent().stream()
                 .map(mapper::toDomain)
