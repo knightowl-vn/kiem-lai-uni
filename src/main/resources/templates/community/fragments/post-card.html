@@ -87,12 +87,23 @@
 				<span th:text="${item.reactionCount}">0</span> lượt thích
 			</a>
 
-			<!-- Comment Metric (Read-only for B8.2.1) -->
-			<span class="post-metric">
+			<!-- Comment Toggle Button -->
+			<button type="button"
+				class="post-metric post-comment-toggle-btn"
+				data-action="toggle-comments"
+				th:attr="data-post-id=${item.id}"
+				aria-expanded="false"
+				title="Bình luận">
 				<i class="fa-regular fa-comment me-1" aria-hidden="true"></i>
 				<span class="post-comment-count" th:text="${item.commentCount}">0</span> bình luận
-			</span>
+			</button>
 		</footer>
+
+		<!-- Inline Comments Container (Lazy-loaded on first toggle) -->
+		<section class="post-comments-container"
+			th:attr="data-post-comments=${item.id}"
+			hidden>
+		</section>
 	</article>
 </th:block>
 

@@ -187,12 +187,20 @@
             footer.appendChild(guestLike);
         }
 
-        // Comment count metric (Read-only for B8.2.1)
-        const commentMetric = document.createElement('span');
-        commentMetric.className = 'post-metric';
+        // Comment toggle button
+        const commentMetric = document.createElement('button');
+        commentMetric.type = 'button';
+        commentMetric.className = 'post-metric post-comment-toggle-btn';
+        commentMetric.setAttribute('data-action', 'toggle-comments');
+        commentMetric.setAttribute('data-post-id', String(item.id));
+        commentMetric.setAttribute('aria-expanded', 'false');
+        commentMetric.title = 'Bình luận';
+
         const commentIcon = document.createElement('i');
         commentIcon.className = 'fa-regular fa-comment me-1';
+        commentIcon.setAttribute('aria-hidden', 'true');
         commentMetric.appendChild(commentIcon);
+
         const commentCountSpan = document.createElement('span');
         commentCountSpan.className = 'post-comment-count';
         commentCountSpan.textContent = item.commentCount || 0;
@@ -201,6 +209,14 @@
         footer.appendChild(commentMetric);
 
         article.appendChild(footer);
+
+        // Inline Comments Container (Lazy-loaded on first toggle)
+        const commentsContainer = document.createElement('section');
+        commentsContainer.className = 'post-comments-container';
+        commentsContainer.setAttribute('data-post-comments', String(item.id));
+        commentsContainer.hidden = true;
+        article.appendChild(commentsContainer);
+
         return article;
     }
 

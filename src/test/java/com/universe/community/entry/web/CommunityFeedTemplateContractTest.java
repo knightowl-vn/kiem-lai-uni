@@ -28,6 +28,7 @@ class CommunityFeedTemplateContractTest {
         assertThat(template).contains("th:href=\"@{/css/theme.css}\"");
         assertThat(template).contains("th:href=\"@{/css/navbar.css}\"");
         assertThat(template).contains("th:href=\"@{/css/community/community.css}\"");
+        assertThat(template).contains("th:href=\"@{/css/shared/comments.css}\"");
         assertThat(template).contains("th:href=\"@{/css/shared/interaction-reactions.css}\"");
     }
 
@@ -123,13 +124,15 @@ class CommunityFeedTemplateContractTest {
     }
 
     @Test
-    @DisplayName("Static scripts (theme.js, relative-time.js, interaction-reactions.js, community-post-card.js, community-composer.js, community-feed.js) are imported")
+    @DisplayName("Static scripts (theme.js, relative-time.js, comment-presentation.js, interaction-reactions.js, community-comments.js, community-post-card.js, community-composer.js, community-feed.js) are imported")
     void scriptImportsContract() throws Exception {
         String template = read("src/main/resources/templates/community/index.html");
 
         assertThat(template).contains("th:src=\"@{/js/theme.js}\"");
         assertThat(template).contains("th:src=\"@{/js/shared/relative-time.js}\"");
+        assertThat(template).contains("th:src=\"@{/js/shared/comment-presentation.js}\"");
         assertThat(template).contains("th:src=\"@{/js/shared/interaction-reactions.js}\"");
+        assertThat(template).contains("th:src=\"@{/js/community/community-comments.js}\"");
         assertThat(template).contains("th:src=\"@{/js/community/community-post-card.js}\"");
         assertThat(template).contains("th:src=\"@{/js/community/community-composer.js}\"");
         assertThat(template).contains("th:src=\"@{/js/community/community-feed.js}\"");

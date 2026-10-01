@@ -245,7 +245,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                     ? authorsMap.get(authoritativeRoot.authorUserId())
                     : null;
             CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
+                    ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
                     : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
             ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(rootId);
@@ -264,7 +264,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                                 ? authorsMap.get(replyItem.authorUserId())
                                 : null;
                         CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
+                                ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                                 : CommentAuthorDTO.fallback(replyItem.authorUserId());
                         ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
                         replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));
@@ -363,7 +363,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                 ? authorsMap.get(authoritativeRoot.authorUserId())
                 : null;
         CommentAuthorDTO rootAuthorDTO = (rootProfile != null)
-                ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl())
+                ? new CommentAuthorDTO(authoritativeRoot.authorUserId(), rootProfile.displayName(), rootProfile.avatarUrl(), rootProfile.publicHandle())
                 : CommentAuthorDTO.fallback(authoritativeRoot.authorUserId());
 
         ReactionSummaryResponseDTO rootReactionSummary = reactionSummariesByCommentId.get(authoritativeRoot.id());
@@ -382,7 +382,7 @@ public class WikiArticleDiscussionQueryCoordinator {
                             ? authorsMap.get(replyItem.authorUserId())
                             : null;
                     CommentAuthorDTO replyAuthorDTO = (replyProfile != null)
-                            ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl())
+                            ? new CommentAuthorDTO(replyItem.authorUserId(), replyProfile.displayName(), replyProfile.avatarUrl(), replyProfile.publicHandle())
                             : CommentAuthorDTO.fallback(replyItem.authorUserId());
                     ReactionSummaryResponseDTO replyReactionSummary = reactionSummariesByCommentId.get(replyItem.id());
                     replyDTOs.add(CommentReadDTO.from(replyItem, replyAuthorDTO, viewerUserId, replyReactionSummary));

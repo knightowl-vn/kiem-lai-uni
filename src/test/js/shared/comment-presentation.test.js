@@ -1177,4 +1177,65 @@ describe('CommentPresentation Module', () => {
         assert.strictEqual(CommentPresentation.createReactionHost('id-1', null, doc), null);
         assert.strictEqual(CommentPresentation.createReactionHost('id-1', 'not-an-object', doc), null);
     });
+
+    test('AA. renderComment: renders avatar and author name links to /community/@publicHandle when publicHandle is present', () => {
+        const commentEl = CommentPresentation.renderComment({
+            id: 'comment-with-handle',
+            author: {
+                displayName: 'Quettye User',
+                avatarUrl: 'https://example.com/avatar.png',
+                publicHandle: 'quettye'
+            },
+            body: 'Hello with handle',
+            createdAt: new Date().toISOString()
+        }, doc);
+
+        const header = commentEl.querySelector('.kl-comment__header');
+        assert.ok(header);
+
+        // Avatar link
+        const avatarLink = header.querySelector('.kl-comment__avatar-link');
+        assert.ok(avatarLink, 'Must wrap avatar in .kl-comment__avatar-link');
+        assert.strictEqual(avatarLink.tagName.toLowerCase(), 'a');
+        assert.strictEqual(avatarLink.getAttribute('href'), '/community/@quettye');
+        const avatarImg = avatarLink.querySelector('.kl-comment__avatar');
+        assert.ok(avatarImg, 'Avatar img must be child of avatar link');
+
+        // Author name link
+        const authorLink = header.querySelector('.kl-comment__author');
+        assert.ok(authorLink, 'Must render .kl-comment__author');
+        assert.strictEqual(authorLink.tagName.toLowerCase(), 'a');
+        assert.strictEqual(authorLink.getAttribute('href'), '/community/@quettye');
+        assert.strictEqual(authorLink.textContent, 'Quettye User');
+    });
+
+    test('AB. renderComment: renders plain avatar and span author when publicHandle is omitted or blank', () => {
+        const commentEl = CommentPresentation.renderComment({
+            id: 'comment-without-handle',
+            author: {
+                displayName: 'Anonymous Scholar',
+                avatarUrl: 'https://example.com/avatar.png',
+                publicHandle: '   '
+            },
+            body: 'Hello without handle',
+            createdAt: new Date().toISOString()
+        }, doc);
+
+        const header = commentEl.querySelector('.kl-comment__header');
+        assert.ok(header);
+
+        // No avatar link wrapper
+        const avatarLink = header.querySelector('.kl-comment__avatar-link');
+        assert.strictEqual(avatarLink, null, 'Must NOT wrap avatar in link');
+        const avatarImg = header.querySelector('.kl-comment__avatar');
+        assert.ok(avatarImg, 'Avatar img must be direct child of header');
+        assert.strictEqual(avatarImg.parentNode, header);
+
+        // Author is span
+        const authorSpan = header.querySelector('.kl-comment__author');
+        assert.ok(authorSpan, 'Must render .kl-comment__author');
+        assert.strictEqual(authorSpan.tagName.toLowerCase(), 'span');
+        assert.strictEqual(authorSpan.hasAttribute('href'), false);
+        assert.strictEqual(authorSpan.textContent, 'Anonymous Scholar');
+    });
 });

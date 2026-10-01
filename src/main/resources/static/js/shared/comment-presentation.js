@@ -629,26 +629,49 @@
         }
         header.className = headerCls;
 
-        // Avatar
-        const avatarEl = renderAvatar(desc.author, d, { legacyPrefix: legacyPrefix });
-        if (avatarEl) {
-            header.appendChild(avatarEl);
-        }
-
-        // Author Name
+        // Author details & links
         const authorObj = (desc.author && typeof desc.author === 'object') ? desc.author : null;
         const authorName = (authorObj && typeof authorObj.displayName === 'string' && authorObj.displayName.trim())
             ? authorObj.displayName.trim()
             : 'Người dùng';
+        const publicHandle = (authorObj && typeof authorObj.publicHandle === 'string')
+            ? authorObj.publicHandle.trim()
+            : '';
+        const hasHandle = publicHandle.length > 0;
+        const profileUrl = hasHandle ? '/community/@' + encodeURIComponent(publicHandle) : null;
 
-        const authorSpan = d.createElement('span');
+        // Avatar
+        const avatarEl = renderAvatar(desc.author, d, { legacyPrefix: legacyPrefix });
+        if (avatarEl) {
+            if (hasHandle) {
+                const avatarLink = d.createElement('a');
+                let linkCls = 'kl-comment__avatar-link';
+                if (legacyPrefix) {
+                    linkCls += ' ' + legacyPrefix + '-avatar-link';
+                }
+                avatarLink.className = linkCls;
+                avatarLink.href = profileUrl;
+                avatarLink.setAttribute('href', profileUrl);
+                avatarLink.appendChild(avatarEl);
+                header.appendChild(avatarLink);
+            } else {
+                header.appendChild(avatarEl);
+            }
+        }
+
+        // Author Name
+        const authorEl = d.createElement(hasHandle ? 'a' : 'span');
         let authorCls = 'kl-comment__author';
         if (legacyPrefix) {
             authorCls += ' ' + legacyPrefix + '-author';
         }
-        authorSpan.className = authorCls;
-        authorSpan.textContent = authorName;
-        header.appendChild(authorSpan);
+        authorEl.className = authorCls;
+        authorEl.textContent = authorName;
+        if (hasHandle) {
+            authorEl.href = profileUrl;
+            authorEl.setAttribute('href', profileUrl);
+        }
+        header.appendChild(authorEl);
 
         // Timestamp
         const rt = resolveRelativeTime();

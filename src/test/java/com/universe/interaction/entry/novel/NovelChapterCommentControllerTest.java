@@ -1825,13 +1825,13 @@ class NovelChapterCommentControllerTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_2_ID, "Author Two", null),
+                new CommentAuthorDTO(USER_2_ID, "Author Two", null, "author_two"),
                 false,
                 false
         );
         ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
                 ROOT_COMMENT_ID,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 "Feed root comment body",
                 NOW,
                 NOW,
@@ -1893,13 +1893,13 @@ class NovelChapterCommentControllerTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 true,
                 true
         );
         ChapterDiscussionFeedItemDTO item = new ChapterDiscussionFeedItemDTO(
                 ROOT_COMMENT_ID,
-                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png"),
+                new CommentAuthorDTO(USER_1_ID, "Author One", "https://img/a1.png", "author_one"),
                 "Feed root comment body",
                 NOW,
                 NOW,

@@ -232,7 +232,7 @@ public class NovelBlockDiscussionQueryCoordinator {
         UserPublicProfileDTO profile = authorsMap != null ? authorsMap.get(authorId) : null;
         CommentAuthorDTO authorDTO;
         if (profile != null) {
-            authorDTO = new CommentAuthorDTO(authorId, profile.displayName(), profile.avatarUrl());
+            authorDTO = new CommentAuthorDTO(authorId, profile.displayName(), profile.avatarUrl(), profile.publicHandle());
         } else {
             authorDTO = CommentAuthorDTO.fallback(authorId);
         }

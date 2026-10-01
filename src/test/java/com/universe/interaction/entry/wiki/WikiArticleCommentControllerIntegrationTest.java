@@ -187,7 +187,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Scholar User", null),
+                new CommentAuthorDTO(USER_1_ID, "Scholar User", null, "scholar_user"),
                 false,
                 false
         );
@@ -228,7 +228,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 false,
                 NOW,
                 NOW,
-                new CommentAuthorDTO(USER_1_ID, "Scholar User", null),
+                new CommentAuthorDTO(USER_1_ID, "Scholar User", null, "scholar_user"),
                 false,
                 false
         );

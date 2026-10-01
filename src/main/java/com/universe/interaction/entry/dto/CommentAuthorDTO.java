@@ -11,12 +11,14 @@ import java.util.UUID;
  *   <li>{@code userId}: Author's user UUID</li>
  *   <li>{@code displayName}: Safe public display name (defaults to 'Người dùng')</li>
  *   <li>{@code avatarUrl}: Optional public avatar URL</li>
+ *   <li>{@code publicHandle}: Optional public handle for profile navigation</li>
  * </ul>
  */
 public record CommentAuthorDTO(
         UUID userId,
         String displayName,
-        String avatarUrl
+        String avatarUrl,
+        String publicHandle
 ) {
     public static final String DEFAULT_DISPLAY_NAME = "Người dùng";
 
@@ -25,9 +27,12 @@ public record CommentAuthorDTO(
         displayName = (displayName != null && !displayName.trim().isEmpty())
                 ? displayName.trim()
                 : DEFAULT_DISPLAY_NAME;
+        publicHandle = (publicHandle != null && !publicHandle.trim().isEmpty())
+                ? publicHandle.trim()
+                : null;
     }
 
     public static CommentAuthorDTO fallback(UUID userId) {
-        return new CommentAuthorDTO(userId, DEFAULT_DISPLAY_NAME, null);
+        return new CommentAuthorDTO(userId, DEFAULT_DISPLAY_NAME, null, null);
     }
 }
