@@ -116,4 +116,16 @@ public class CommunityArchitectureContractTest {
                     )
                     .because("Community contracts must remain pure data contracts and not depend on internal domain, application, persistence, or entry packages")
                     .allowEmptyShould(true);
+
+    @ArchTest
+    public static final ArchRule communityInfrastructureIdentityMustOnlyDependOnIdentityContracts =
+            noClasses()
+                    .that().resideInAPackage("com.universe.community.infrastructure.identity..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "com.universe.identity.application..",
+                            "com.universe.identity.domain..",
+                            "com.universe.identity.infrastructure.."
+                    )
+                    .because("Community infrastructure identity adapter must interact with Identity context exclusively via identity.contracts.*")
+                    .allowEmptyShould(true);
 }

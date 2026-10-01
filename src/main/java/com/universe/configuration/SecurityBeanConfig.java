@@ -180,7 +180,11 @@ public class SecurityBeanConfig {
                                 "/api/wiki/articles/*/comments/*/revisions",
                                 "/api/interaction/reactions",
                                 "/api/community/posts",
-                                "/api/community/posts/**"
+                                "/api/community/posts/**",
+                                "/api/community/profiles",
+                                "/api/community/profiles/**",
+                                "/community",
+                                "/community/**"
                         )
                         .permitAll()
 

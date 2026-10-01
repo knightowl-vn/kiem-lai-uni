@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+	xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title th:text="${profile.displayName} + ' (@' + ${profile.publicHandle} + ') - Kiếm Lai Universe'">Hồ sơ tác giả - Kiếm Lai Universe</title>
+<link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
+
+<link
+	href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+	rel="stylesheet">
+
+<link rel="stylesheet" th:href="@{/css/theme.css}">
+<link rel="stylesheet" th:href="@{/css/navbar.css}">
+<style>
+.community-profile-container {
+	max-width: 720px;
+	margin: 2rem auto;
+	padding: 0 1rem;
+}
+.profile-header-card {
+	background: var(--card-bg, #ffffff);
+	border: 1px solid var(--border-color, #e5e7eb);
+	border-radius: 12px;
+	padding: 2rem;
+	margin-bottom: 2rem;
+	display: flex;
+	align-items: flex-start;
+	gap: 1.5rem;
+}
+.profile-header-avatar {
+	width: 96px;
+	height: 96px;
+	border-radius: 50%;
+	object-fit: cover;
+	border: 2px solid var(--border-color, #e5e7eb);
+	flex-shrink: 0;
+}
+.profile-header-info {
+	flex: 1;
+}
+.profile-display-name {
+	font-size: 1.5rem;
+	font-weight: 700;
+	margin-bottom: 0.25rem;
+	color: var(--text-primary, #111827);
+}
+.profile-handle {
+	font-size: 1rem;
+	color: var(--text-secondary, #6b7280);
+	margin-bottom: 0.75rem;
+	display: block;
+}
+.profile-bio {
+	font-size: 0.95rem;
+	line-height: 1.5;
+	color: var(--text-primary, #374151);
+	margin: 0;
+	white-space: pre-wrap;
+}
+.profile-posts-title {
+	font-size: 1.25rem;
+	font-weight: 600;
+	margin-bottom: 1rem;
+	color: var(--text-primary, #111827);
+}
+.community-post-card {
+	background: var(--card-bg, #ffffff);
+	border: 1px solid var(--border-color, #e5e7eb);
+	border-radius: 12px;
+	padding: 1.5rem;
+	margin-bottom: 1.25rem;
+}
+.post-caption {
+	font-size: 1rem;
+	line-height: 1.6;
+	color: var(--text-primary, #1f2937);
+	white-space: pre-wrap;
+	margin-bottom: 1rem;
+}
+.post-image {
+	max-width: 100%;
+	max-height: 500px;
+	border-radius: 8px;
+	margin-bottom: 1rem;
+	object-fit: cover;
+}
+.post-footer {
+	display: flex;
+	align-items: center;
+	gap: 1.5rem;
+	font-size: 0.875rem;
+	color: var(--text-secondary, #6b7280);
+	border-top: 1px solid var(--border-color, #f3f4f6);
+	padding-top: 0.75rem;
+}
+.post-metric {
+	display: flex;
+	align-items: center;
+	gap: 0.35rem;
+}
+.empty-feed-card {
+	text-align: center;
+	padding: 3rem 1rem;
+	background: var(--card-bg, #ffffff);
+	border: 1px dashed var(--border-color, #d1d5db);
+	border-radius: 12px;
+	color: var(--text-secondary, #6b7280);
+}
+</style>
+</head>
+
+<body>
+
+	<div th:replace="~{fragments/navbar :: navbar(activeNav='community')}"></div>
+
+	<main class="community-profile-container">
+
+		<!-- Profile Header -->
+		<section class="profile-header-card" aria-label="Thông tin tác giả">
+			<img th:if="${profile.avatarUrl != null and !profile.avatarUrl.isBlank()}"
+				th:src="${profile.avatarUrl}"
+				src="/images/default_avatar.jpg"
+				alt="Ảnh đại diện tác giả"
+				class="profile-header-avatar"
+				onerror="this.onerror=null;this.src='/images/default_avatar.jpg';">
+
+			<img th:unless="${profile.avatarUrl != null and !profile.avatarUrl.isBlank()}"
+				th:src="@{/images/default_avatar.jpg}"
+				src="/images/default_avatar.jpg"
+				alt="Ảnh đại diện mặc định"
+				class="profile-header-avatar">
+
+			<div class="profile-header-info">
+				<h1 class="profile-display-name" th:text="${profile.displayName}">Tên người dùng</h1>
+				<span class="profile-handle" th:text="'@' + ${profile.publicHandle}">@handle</span>
+				<p class="profile-bio" th:if="${profile.bio != null and !profile.bio.isBlank()}" th:text="${profile.bio}">Tiểu sử</p>
+			</div>
+		</section>
+
+		<!-- Authored Posts -->
+		<section aria-label="Bài viết của tác giả">
+			<h2 class="profile-posts-title">Bài viết cộng đồng</h2>
+
+			<div th:if="${!profile.posts.items.isEmpty()}">
+				<article th:each="post : ${profile.posts.items}" class="community-post-card">
+					<p class="post-caption" th:text="${post.caption}">Nội dung bài viết</p>
+
+					<img th:if="${post.imageUrl != null and !post.imageUrl.isBlank()}"
+						th:src="${post.imageUrl}"
+						alt="Ảnh bài viết"
+						class="post-image"
+						loading="lazy">
+
+					<div class="post-footer">
+						<span class="post-metric">
+							<span th:text="${post.reactionCount}">0</span> lượt thích
+						</span>
+						<span class="post-metric">
+							<span th:text="${post.commentCount}">0</span> bình luận
+						</span>
+					</div>
+				</article>
+			</div>
+
+			<div th:if="${profile.posts.items.isEmpty()}" class="empty-feed-card">
+				<p class="m-0">Chưa có bài viết nào từ tác giả này.</p>
+			</div>
+		</section>
+
+	</main>
+
+	<script th:src="@{/js/theme.js}"></script>
+</body>
+</html>
