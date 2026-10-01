@@ -52,7 +52,7 @@
 
 				<input th:if="${activeNav != 'novel'}"
 					type="hidden" name="scope"
-					th:value="${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : 'all')}">
+					th:value="${navbarSearchScope != null and !navbarSearchScope.isBlank() ? navbarSearchScope : (activeNav == 'wiki' ? 'wiki' : (activeNav == 'community' ? 'community' : 'all'))}">
 
 				<input id="navbarWikiKeyword"
 					class="navbar-wiki-search-input" type="search" name="q"

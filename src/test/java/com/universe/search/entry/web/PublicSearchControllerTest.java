@@ -2,6 +2,8 @@ package com.universe.search.entry.web;
 
 import com.universe.novel.contracts.dto.locator.NovelChapterLocatorItemDTO;
 import com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO;
+import com.universe.search.contracts.dto.CommunityProfileSearchItemDTO;
+import com.universe.search.contracts.dto.CommunityProfileSearchResultDTO;
 import com.universe.search.contracts.dto.SearchAggregationResultDTO;
 import com.universe.search.contracts.dto.SearchScope;
 import com.universe.search.contracts.interfaces.SearchAggregationContract;
@@ -66,7 +68,8 @@ class PublicSearchControllerTest {
                 "tran binh an",
                 SearchScope.ALL,
                 new WikiNavigationalSearchResultDTO("tran binh an", List.of(wikiItem)),
-                new NovelChapterLocatorResultDTO("tran binh an", null, List.of())
+                new NovelChapterLocatorResultDTO("tran binh an", null, List.of()),
+                new CommunityProfileSearchResultDTO("tran binh an", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("tran binh an"), eq(SearchScope.ALL), eq(20)))
@@ -104,7 +107,8 @@ class PublicSearchControllerTest {
                 "kiem lai",
                 SearchScope.ALL,
                 new WikiNavigationalSearchResultDTO("kiem lai", List.of(item1, item2)),
-                new NovelChapterLocatorResultDTO("kiem lai", null, List.of())
+                new NovelChapterLocatorResultDTO("kiem lai", null, List.of()),
+                new CommunityProfileSearchResultDTO("kiem lai", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("kiem lai"), eq(SearchScope.ALL), eq(20)))
@@ -131,7 +135,8 @@ class PublicSearchControllerTest {
                 "dong thuy",
                 SearchScope.WIKI,
                 new WikiNavigationalSearchResultDTO("dong thuy", List.of()),
-                new NovelChapterLocatorResultDTO("", null, List.of())
+                new NovelChapterLocatorResultDTO("", null, List.of()),
+                new CommunityProfileSearchResultDTO("", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("dong thuy"), eq(SearchScope.WIKI), eq(20)))
@@ -166,7 +171,8 @@ class PublicSearchControllerTest {
                 "chuong 10",
                 SearchScope.NOVEL,
                 new WikiNavigationalSearchResultDTO("", List.of()),
-                new NovelChapterLocatorResultDTO("chuong 10", 10, List.of(chapterItem))
+                new NovelChapterLocatorResultDTO("chuong 10", 10, List.of(chapterItem)),
+                new CommunityProfileSearchResultDTO("", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("chuong 10"), eq(SearchScope.NOVEL), eq(20)))
@@ -187,13 +193,49 @@ class PublicSearchControllerTest {
     }
 
     @Test
+    @DisplayName("GET /search khi scope='community' -> SearchScope.COMMUNITY và KHÔNG gọi appreciation contract")
+    void searchWithScopeCommunity() {
+        CommunityProfileSearchItemDTO commItem = new CommunityProfileSearchItemDTO(
+                "Cố Huỳnh",
+                "cohuynh",
+                "https://img/co.png",
+                "/community/@cohuynh"
+        );
+
+        SearchAggregationResultDTO mockResult = new SearchAggregationResultDTO(
+                "cohuynh",
+                SearchScope.COMMUNITY,
+                new WikiNavigationalSearchResultDTO("", List.of()),
+                new NovelChapterLocatorResultDTO("", null, List.of()),
+                new CommunityProfileSearchResultDTO("cohuynh", List.of(commItem))
+        );
+
+        when(searchAggregationContract.aggregate(eq("cohuynh"), eq(SearchScope.COMMUNITY), eq(20)))
+                .thenReturn(mockResult);
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String view = controller.search("cohuynh", "community", model);
+
+        assertThat(view).isEqualTo("search/index");
+        assertThat(model.get("scope")).isEqualTo("community");
+        assertThat(model.get("query")).isEqualTo("cohuynh");
+        assertThat(model.get("navbarSearchScope")).isEqualTo("community");
+        assertThat(model.get("navbarSearchQuery")).isEqualTo("cohuynh");
+        assertThat(model.get("appreciationSummaries")).isEqualTo(Map.of());
+
+        verify(searchAggregationContract).aggregate("cohuynh", SearchScope.COMMUNITY, 20);
+        verifyNoInteractions(wikiAppreciationContract);
+    }
+
+    @Test
     @DisplayName("GET /search khi scope không hợp lệ (ví dụ 'invalid-scope') -> fallback SearchScope.ALL")
     void searchWithInvalidScopeFallsBackToAll() {
         SearchAggregationResultDTO mockResult = new SearchAggregationResultDTO(
                 "test",
                 SearchScope.ALL,
                 new WikiNavigationalSearchResultDTO("test", List.of()),
-                new NovelChapterLocatorResultDTO("test", null, List.of())
+                new NovelChapterLocatorResultDTO("test", null, List.of()),
+                new CommunityProfileSearchResultDTO("test", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("test"), eq(SearchScope.ALL), eq(20)))
@@ -219,7 +261,8 @@ class PublicSearchControllerTest {
                 "",
                 SearchScope.ALL,
                 new WikiNavigationalSearchResultDTO("", List.of()),
-                new NovelChapterLocatorResultDTO("", null, List.of())
+                new NovelChapterLocatorResultDTO("", null, List.of()),
+                new CommunityProfileSearchResultDTO("", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq(null), eq(SearchScope.ALL), eq(20)))
@@ -247,7 +290,8 @@ class PublicSearchControllerTest {
                 "tran binh an",
                 SearchScope.ALL,
                 new WikiNavigationalSearchResultDTO("tran binh an", List.of()),
-                new NovelChapterLocatorResultDTO("tran binh an", null, List.of())
+                new NovelChapterLocatorResultDTO("tran binh an", null, List.of()),
+                new CommunityProfileSearchResultDTO("tran binh an", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("   tran    binh   an   "), eq(SearchScope.ALL), eq(20)))
@@ -280,7 +324,8 @@ class PublicSearchControllerTest {
                 "test",
                 SearchScope.WIKI,
                 new WikiNavigationalSearchResultDTO("test", List.of(item1, item2, item3, item4, item5)),
-                new NovelChapterLocatorResultDTO("", null, List.of())
+                new NovelChapterLocatorResultDTO("", null, List.of()),
+                new CommunityProfileSearchResultDTO("", List.of())
         );
 
         when(searchAggregationContract.aggregate(eq("test"), eq(SearchScope.WIKI), eq(20)))

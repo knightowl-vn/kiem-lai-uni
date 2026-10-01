@@ -34,6 +34,14 @@ class SearchScopeTest {
         assertThat(SearchScope.fromNullable("  Novel  ")).isEqualTo(SearchScope.NOVEL);
     }
 
+    @Test
+    @DisplayName("fromNullable converts valid 'community' and 'COMMUNITY' to SearchScope.COMMUNITY")
+    void fromNullable_whenCommunity_returnsCommunity() {
+        assertThat(SearchScope.fromNullable("community")).isEqualTo(SearchScope.COMMUNITY);
+        assertThat(SearchScope.fromNullable("COMMUNITY")).isEqualTo(SearchScope.COMMUNITY);
+        assertThat(SearchScope.fromNullable("  Community  ")).isEqualTo(SearchScope.COMMUNITY);
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"   ", "\t", "\n"})
@@ -43,7 +51,7 @@ class SearchScopeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"invalid", "donghua", "manhua", "community", "user", "123", "random_string"})
+    @ValueSource(strings = {"invalid", "donghua", "manhua", "user", "123", "random_string"})
     @DisplayName("fromNullable falls back to SearchScope.ALL for unrecognized or unsupported scopes")
     void fromNullable_whenUnrecognized_returnsAll(String rawScope) {
         assertThat(SearchScope.fromNullable(rawScope)).isEqualTo(SearchScope.ALL);
@@ -58,6 +66,7 @@ class SearchScopeTest {
             assertThat(SearchScope.fromNullable("wiki")).isEqualTo(SearchScope.WIKI);
             assertThat(SearchScope.fromNullable("all")).isEqualTo(SearchScope.ALL);
             assertThat(SearchScope.fromNullable("novel")).isEqualTo(SearchScope.NOVEL);
+            assertThat(SearchScope.fromNullable("community")).isEqualTo(SearchScope.COMMUNITY);
         } finally {
             java.util.Locale.setDefault(originalLocale);
         }

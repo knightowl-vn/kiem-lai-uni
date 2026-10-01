@@ -1,7 +1,11 @@
 package com.universe.search.application;
 
+import com.universe.identity.contracts.dto.UserPublicProfileDTO;
+import com.universe.identity.contracts.interfaces.UserIdentityContract;
 import com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO;
 import com.universe.novel.contracts.interfaces.NovelChapterLocatorContract;
+import com.universe.search.contracts.dto.CommunityProfileSearchItemDTO;
+import com.universe.search.contracts.dto.CommunityProfileSearchResultDTO;
 import com.universe.search.contracts.dto.SearchAggregationResultDTO;
 import com.universe.search.contracts.dto.SearchScope;
 import com.universe.search.contracts.interfaces.SearchAggregationContract;
@@ -14,8 +18,8 @@ import java.util.Objects;
 
 /**
  * Use case orchestrating cross-context navigational search aggregation.
- * Delegates to WikiNavigationalSearchContract and NovelChapterLocatorContract
- * according to the requested SearchScope without cross-context ranking.
+ * Delegates to WikiNavigationalSearchContract, NovelChapterLocatorContract,
+ * and UserIdentityContract according to the requested SearchScope without cross-context ranking.
  */
 @Service
 public class SearchAggregationUseCase implements SearchAggregationContract {
@@ -24,10 +28,12 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
 
     private final WikiNavigationalSearchContract wikiNavigationalSearchContract;
     private final NovelChapterLocatorContract novelChapterLocatorContract;
+    private final UserIdentityContract userIdentityContract;
 
     public SearchAggregationUseCase(
             WikiNavigationalSearchContract wikiNavigationalSearchContract,
-            NovelChapterLocatorContract novelChapterLocatorContract
+            NovelChapterLocatorContract novelChapterLocatorContract,
+            UserIdentityContract userIdentityContract
     ) {
         this.wikiNavigationalSearchContract = Objects.requireNonNull(
                 wikiNavigationalSearchContract,
@@ -36,6 +42,10 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
         this.novelChapterLocatorContract = Objects.requireNonNull(
                 novelChapterLocatorContract,
                 "NovelChapterLocatorContract must not be null"
+        );
+        this.userIdentityContract = Objects.requireNonNull(
+                userIdentityContract,
+                "UserIdentityContract must not be null"
         );
     }
 
@@ -49,7 +59,8 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
                     "",
                     effectiveScope,
                     emptyWikiResult(),
-                    emptyNovelResult()
+                    emptyNovelResult(),
+                    emptyCommunityResult()
             );
         }
 
@@ -57,19 +68,28 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
 
         WikiNavigationalSearchResultDTO wikiResult;
         NovelChapterLocatorResultDTO novelResult;
+        CommunityProfileSearchResultDTO communityResult;
 
         switch (effectiveScope) {
             case WIKI -> {
                 wikiResult = wikiNavigationalSearchContract.search(normalizedQuery, effectiveLimit);
                 novelResult = emptyNovelResult();
+                communityResult = emptyCommunityResult();
             }
             case NOVEL -> {
                 wikiResult = emptyWikiResult();
                 novelResult = novelChapterLocatorContract.locateChapters(normalizedQuery, effectiveLimit);
+                communityResult = emptyCommunityResult();
+            }
+            case COMMUNITY -> {
+                wikiResult = emptyWikiResult();
+                novelResult = emptyNovelResult();
+                communityResult = searchCommunityProfiles(normalizedQuery, effectiveLimit);
             }
             case ALL -> {
                 wikiResult = wikiNavigationalSearchContract.search(normalizedQuery, effectiveLimit);
                 novelResult = novelChapterLocatorContract.locateChapters(normalizedQuery, effectiveLimit);
+                communityResult = searchCommunityProfiles(normalizedQuery, effectiveLimit);
             }
             default -> throw new IllegalStateException("Unexpected scope: " + effectiveScope);
         }
@@ -78,8 +98,31 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
                 normalizedQuery,
                 effectiveScope,
                 wikiResult,
-                novelResult
+                novelResult,
+                communityResult
         );
+    }
+
+    private CommunityProfileSearchResultDTO searchCommunityProfiles(String query, int limit) {
+        List<UserPublicProfileDTO> users = Objects.requireNonNull(
+                userIdentityContract.searchPublicUsers(query, limit),
+                "community must not be null"
+        );
+        if (users.isEmpty()) {
+            return emptyCommunityResult();
+        }
+
+        List<CommunityProfileSearchItemDTO> items = users.stream()
+                .filter(Objects::nonNull)
+                .map(u -> new CommunityProfileSearchItemDTO(
+                        u.displayName(),
+                        u.publicHandle(),
+                        u.avatarUrl(),
+                        "/community/@" + u.publicHandle()
+                ))
+                .toList();
+
+        return new CommunityProfileSearchResultDTO(query, items);
     }
 
     private String normalizeQuery(String rawQuery) {
@@ -106,5 +149,9 @@ public class SearchAggregationUseCase implements SearchAggregationContract {
 
     private NovelChapterLocatorResultDTO emptyNovelResult() {
         return new NovelChapterLocatorResultDTO("", null, List.of());
+    }
+
+    private CommunityProfileSearchResultDTO emptyCommunityResult() {
+        return new CommunityProfileSearchResultDTO("", List.of());
     }
 }

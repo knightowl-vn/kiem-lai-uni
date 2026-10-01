@@ -81,7 +81,5 @@ public interface UserIdentityContract {
      * @param limit số lượng kết quả tối đa (tối đa 50)
      * @return danh sách UserPublicProfileDTO đã được xếp hạng
      */
-    default List<UserPublicProfileDTO> searchPublicUsers(String query, int limit) {
-        return List.of();
-    }
+    List<UserPublicProfileDTO> searchPublicUsers(String query, int limit);
 }

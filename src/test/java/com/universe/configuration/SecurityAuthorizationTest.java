@@ -782,7 +782,8 @@ class SecurityAuthorizationTest {
                         "kiem-lai",
                         com.universe.search.contracts.dto.SearchScope.ALL,
                         new com.universe.wiki.contracts.dto.search.WikiNavigationalSearchResultDTO("kiem-lai", List.of()),
-                        new com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO("kiem-lai", null, List.of())
+                        new com.universe.novel.contracts.dto.locator.NovelChapterLocatorResultDTO("kiem-lai", null, List.of()),
+                        new com.universe.search.contracts.dto.CommunityProfileSearchResultDTO("kiem-lai", List.of())
                 ));
 
         mockMvc.perform(get("/search").param("q", "kiem-lai"))
