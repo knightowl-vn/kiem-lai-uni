@@ -1,7 +1,9 @@
 package com.universe.community.entry.web;
 
+import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
@@ -31,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.test.context.support.WithAnonymousUser;
@@ -46,6 +49,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -57,7 +61,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = CommunityPostController.class)
@@ -98,6 +104,9 @@ class CommunityPostControllerWebMvcTest {
 
     @MockBean
     private DeleteCommunityPostUseCase deleteCommunityPostUseCase;
+
+    @MockBean
+    private EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase;
 
     @MockBean
     private GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
@@ -426,6 +435,188 @@ class CommunityPostControllerWebMvcTest {
                         .with(authenticatedIdentity(USER_ID)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    // =========================================================================
+    // PATCH /api/community/posts/{postId} Slice Tests
+    // =========================================================================
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 1. owner + valid caption -> 200 OK & 2. response uses CommunityPostPublicDTO contract")
+    void shouldEditCaptionSuccessfullyInSlice() throws Exception {
+        String newCaption = "Updated caption through WebMvc slice";
+        Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
+        Instant updatedAt = Instant.parse("2026-09-30T11:00:00Z");
+        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, 1, createdAt, updatedAt);
+
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class))).thenReturn(post);
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + newCaption + "\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(POST_ID.toString()))
+                .andExpect(jsonPath("$.authorUserId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.caption").value(newCaption))
+                .andExpect(jsonPath("$.imageMediaAssetId").doesNotExist())
+                .andExpect(jsonPath("$.imageUrl").doesNotExist())
+                .andExpect(jsonPath("$.contentVersion").value(1))
+                .andExpect(jsonPath("$.createdAt").exists())
+                .andExpect(jsonPath("$.updatedAt").exists());
+
+        verify(editCommunityPostCaptionUseCase).execute(any(EditCommunityPostCaptionCommand.class));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 3. raw caption sent to use case correctly")
+    void shouldSendRawCaptionToUseCaseWithoutClientNormalization() throws Exception {
+        String rawCaption = "  Raw caption with leading and trailing spaces  ";
+        Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, "Raw caption with leading and trailing spaces", null, createdAt);
+
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class))).thenReturn(post);
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + rawCaption + "\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isOk());
+
+        verify(editCommunityPostCaptionUseCase).execute(argThat(cmd ->
+                cmd.postId().equals(POST_ID)
+                        && cmd.actorUserId().equals(USER_ID)
+                        && cmd.newCaption().equals(rawCaption)
+        ));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 4. blank caption -> 400 Bad Request")
+    void shouldReturnBadRequestWhenCaptionIsBlankInSlice() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostValidationException("Post caption cannot be blank."));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"   \"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Post caption cannot be blank."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 5. caption > 2000 chars -> 400 Bad Request")
+    void shouldReturnBadRequestWhenCaptionExceeds2000CharsInSlice() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostValidationException("Post caption length (2001) exceeds maximum limit of 2000 characters."));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + "a".repeat(2001) + "\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Post caption length (2001) exceeds maximum limit of 2000 characters."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 6a. guest with missing identity accessor -> 401 Unauthorized")
+    void shouldRejectEditWhenUnauthenticatedInSlice() throws Exception {
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(csrf()))
+                .andExpect(status().isUnauthorized());
+
+        verify(editCommunityPostCaptionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("PATCH /api/community/posts/{postId} 6b. anonymous user -> 302 Redirection to login")
+    void shouldRedirectAnonymousEditToLoginInSlice() throws Exception {
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(csrf()))
+                .andExpect(status().is3xxRedirection());
+
+        verify(editCommunityPostCaptionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 7. non-owner -> 403 Forbidden")
+    void shouldReturnForbiddenWhenNonOwnerEditsPostInSlice() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostUnauthorizedException(USER_ID, POST_ID));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("User " + USER_ID + " is not authorized to modify post " + POST_ID));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 8. missing post -> 404 Not Found")
+    void shouldReturnNotFoundWhenPostMissingInSlice() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostNotFoundException(POST_ID));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 9. CSRF missing -> rejected by Spring Security (redirected to /access-denied)")
+    void shouldRejectEditWhenCsrfMissingInSlice() throws Exception {
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(editCommunityPostCaptionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PATCH /api/community/posts/{postId} 10. normalized-identical/no-op still returns 200 through existing use case")
+    void shouldReturnOkOnNoOpEditInSlice() throws Exception {
+        String caption = "Identical normalized caption";
+        Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, createdAt);
+
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenReturn(post);
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + caption + "\"}")
+                        .with(csrf())
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caption").value(caption))
+                .andExpect(jsonPath("$.contentVersion").value(0));
     }
 
     // =========================================================================

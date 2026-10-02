@@ -1,13 +1,16 @@
 package com.universe.community.entry.web;
 
+import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.mapper.CommunityPostDTOMapper;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.EditCommunityPostCaptionRequestDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -21,8 +24,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,12 +50,14 @@ public class CommunityPostController {
 
     private final CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase;
     private final DeleteCommunityPostUseCase deleteCommunityPostUseCase;
+    private final EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase;
     private final GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
     private final GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
 
     public CommunityPostController(
             CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase,
             DeleteCommunityPostUseCase deleteCommunityPostUseCase,
+            EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase,
             GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase,
             GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase
     ) {
@@ -61,6 +68,10 @@ public class CommunityPostController {
         this.deleteCommunityPostUseCase = Objects.requireNonNull(
                 deleteCommunityPostUseCase,
                 "DeleteCommunityPostUseCase cannot be null."
+        );
+        this.editCommunityPostCaptionUseCase = Objects.requireNonNull(
+                editCommunityPostCaptionUseCase,
+                "EditCommunityPostCaptionUseCase cannot be null."
         );
         this.getCommunityNewestFeedUseCase = Objects.requireNonNull(
                 getCommunityNewestFeedUseCase,
@@ -182,6 +193,46 @@ public class CommunityPostController {
         deleteCommunityPostUseCase.execute(actorUserId, postId);
 
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * PATCH /api/community/posts/{postId}
+     * Edits the caption of an existing Community Post owned by the authenticated actor.
+     */
+    @PatchMapping(
+            value = "/{postId}",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<CommunityPostPublicDTO> editCaption(
+            @PathVariable("postId") UUID postId,
+            @RequestBody(required = false) EditCommunityPostCaptionRequestDTO requestDto,
+            HttpServletRequest request
+    ) {
+        Optional<AuthenticatedRequestIdentity> identityOpt = AuthenticatedRequestIdentityAccessor.find(request);
+        if (identityOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        if (requestDto == null || requestDto.caption() == null) {
+            throw new CommunityPostValidationException("Post caption cannot be null.");
+        }
+
+        UUID actorUserId = identityOpt.get().userId();
+        EditCommunityPostCaptionCommand command = new EditCommunityPostCaptionCommand(
+                postId,
+                actorUserId,
+                requestDto.caption()
+        );
+
+        CommunityPost post = editCommunityPostCaptionUseCase.execute(command);
+        return ResponseEntity.ok(CommunityPostDTOMapper.toPublicDTO(post));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleHttpMessageNotReadableException(org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", "Malformed or missing request body"));
     }
 
     @ExceptionHandler(CommunityPostNotFoundException.class)

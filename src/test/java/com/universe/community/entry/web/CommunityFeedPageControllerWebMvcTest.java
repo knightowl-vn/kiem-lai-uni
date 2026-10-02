@@ -38,7 +38,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
@@ -116,17 +119,21 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("activeNav", "community"))
                 .andExpect(model().attribute("items", List.of(item)))
                 .andExpect(model().attribute("nextCursor", "next-cursor-token"))
-                .andExpect(model().attribute("hasNext", true));
+                .andExpect(model().attribute("hasNext", true))
+                .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
+                .andExpect(content().string(not(containsString("post-actions-dropdown"))))
+                .andExpect(content().string(not(containsString("data-action=\"edit-post\""))));
 
         verify(getCommunityNewestFeedUseCase).execute(null, 20);
     }
 
     @Test
     @WithMockUser(username = "user@universe.com")
-    @DisplayName("GET /community as authenticated user -> 200 OK with currentUser populated")
+    @DisplayName("GET /community as authenticated user -> 200 OK with currentUser populated and owner edit affordance rendered")
     void shouldRenderCommunityFeedPageForAuthenticatedUser() throws Exception {
+        UUID currentUserId = UUID.randomUUID();
         CurrentUserView currentUser = new CurrentUserView(
-                UUID.randomUUID().toString(),
+                currentUserId.toString(),
                 "user@universe.com",
                 "Đạo Hữu",
                 "https://cdn.example.com/me.png",
@@ -140,10 +147,24 @@ class CommunityFeedPageControllerWebMvcTest {
         when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of("user@universe.com"));
         when(currentUserQueryPort.findByEmail("user@universe.com")).thenReturn(Optional.of(currentUser));
 
-        CommunityNewestFeedResponseDTO emptyFeed = new CommunityNewestFeedResponseDTO(
-                List.of(), null, 20, false
+        UUID ownerPostId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPostFeedItemDTO ownerItem = new CommunityPostFeedItemDTO(
+                ownerPostId, currentUserId, "Đạo Hữu", "dao_huu", null, "Owner caption",
+                null, null, 0,
+                1L, 0L, 1L, now, now
         );
-        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(emptyFeed);
+        UUID otherPostId = UUID.randomUUID();
+        CommunityPostFeedItemDTO otherItem = new CommunityPostFeedItemDTO(
+                otherPostId, UUID.randomUUID(), "Other Author", "other_author", null, "Other caption",
+                null, null, 0,
+                2L, 0L, 2L, now, now
+        );
+
+        CommunityNewestFeedResponseDTO feed = new CommunityNewestFeedResponseDTO(
+                List.of(ownerItem, otherItem), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(feed);
 
         mockMvc.perform(get("/community"))
                 .andExpect(status().isOk())
@@ -151,8 +172,13 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("currentUser", currentUser))
                 .andExpect(model().attribute("selectedFeed", "NEWEST"))
                 .andExpect(model().attribute("activeNav", "community"))
-                .andExpect(model().attribute("items", List.of()))
-                .andExpect(model().attribute("hasNext", false));
+                .andExpect(model().attribute("items", List.of(ownerItem, otherItem)))
+                .andExpect(model().attribute("hasNext", false))
+                .andExpect(content().string(containsString("<meta name=\"current-user-id\" content=\"" + currentUserId + "\">")))
+                .andExpect(content().string(containsString("data-current-user-id=\"" + currentUserId + "\"")))
+                .andExpect(content().string(containsString("data-action=\"edit-post\" data-post-id=\"" + ownerPostId + "\"")))
+                .andExpect(content().string(containsString("Chỉnh sửa bài viết")))
+                .andExpect(content().string(not(containsString("data-action=\"edit-post\" data-post-id=\"" + otherPostId + "\""))));
 
         verify(getCommunityNewestFeedUseCase).execute(null, 20);
     }

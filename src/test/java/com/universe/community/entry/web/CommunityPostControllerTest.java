@@ -1,7 +1,9 @@
 package com.universe.community.entry.web;
 
+import com.universe.community.application.command.EditCommunityPostCaptionCommand;
 import com.universe.community.application.usecase.CreateCommunityPostWithImageUseCase;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
+import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -42,6 +45,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,6 +63,9 @@ class CommunityPostControllerTest {
     private DeleteCommunityPostUseCase deleteCommunityPostUseCase;
 
     @Mock
+    private EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase;
+
+    @Mock
     private GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
 
     @Mock
@@ -71,6 +78,7 @@ class CommunityPostControllerTest {
         CommunityPostController controller = new CommunityPostController(
                 createCommunityPostWithImageUseCase,
                 deleteCommunityPostUseCase,
+                editCommunityPostCaptionUseCase,
                 getCommunityNewestFeedUseCase,
                 getCommunityFeaturedFeedUseCase
         );
@@ -398,6 +406,173 @@ class CommunityPostControllerTest {
                         }))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    // =========================================================================
+    // PATCH /api/community/posts/{postId} Tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} should reject unauthenticated request with 401 Unauthorized")
+    void shouldRejectUnauthenticatedEditRequest() throws Exception {
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"New caption\"}"))
+                .andExpect(status().isUnauthorized());
+
+        verify(editCommunityPostCaptionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} should successfully update caption for authenticated owner -> 200 OK")
+    void shouldEditCaptionSuccessfullyForOwner() throws Exception {
+        String newCaption = "Updated post caption text";
+        Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
+        Instant updatedAt = Instant.parse("2026-09-30T11:00:00Z");
+        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, 1, createdAt, updatedAt);
+
+        when(editCommunityPostCaptionUseCase.execute(eq(new EditCommunityPostCaptionCommand(POST_ID, USER_ID, newCaption))))
+                .thenReturn(post);
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + newCaption + "\"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(POST_ID.toString()))
+                .andExpect(jsonPath("$.authorUserId").value(USER_ID.toString()))
+                .andExpect(jsonPath("$.caption").value(newCaption))
+                .andExpect(jsonPath("$.contentVersion").value(1))
+                .andExpect(jsonPath("$.createdAt").exists())
+                .andExpect(jsonPath("$.updatedAt").exists());
+
+        verify(editCommunityPostCaptionUseCase).execute(new EditCommunityPostCaptionCommand(POST_ID, USER_ID, newCaption));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} no-op edit (identical text) still returns 200 OK")
+    void shouldReturnOkOnNoOpEdit() throws Exception {
+        String caption = "Same caption unchanged";
+        Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, createdAt);
+
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenReturn(post);
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"  " + caption + "  \"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.caption").value(caption))
+                .andExpect(jsonPath("$.contentVersion").value(0));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} with null caption field -> 400 Bad Request")
+    void shouldReturnBadRequestWhenCaptionIsNull() throws Exception {
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":null}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Post caption cannot be null."));
+
+        verify(editCommunityPostCaptionUseCase, never()).execute(any());
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} with blank caption -> 400 Bad Request")
+    void shouldReturnBadRequestWhenCaptionIsBlank() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostValidationException("Post caption cannot be blank."));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"   \"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Post caption cannot be blank."));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} with >2000 chars -> 400 Bad Request")
+    void shouldReturnBadRequestWhenCaptionExceedsMaxLength() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostValidationException("Post caption length (2001) exceeds maximum limit of 2000 characters."));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"" + "a".repeat(2001) + "\"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Post caption length (2001) exceeds maximum limit of 2000 characters."));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} for non-existent post -> 404 Not Found")
+    void shouldReturnNotFoundWhenEditingNonExistentPost() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostNotFoundException(POST_ID));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} as non-owner -> 403 Forbidden")
+    void shouldReturnForbiddenWhenEditingPostAsNonOwner() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new CommunityPostUnauthorizedException(USER_ID, POST_ID));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("User " + USER_ID + " is not authorized to modify post " + POST_ID));
+    }
+
+    @Test
+    @DisplayName("PATCH /api/community/posts/{postId} on unexpected error -> 500 Internal Server Error")
+    void shouldReturnInternalServerErrorOnUnexpectedEditFailure() throws Exception {
+        when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
+                .thenThrow(new IllegalStateException("Failed to update post"));
+
+        mockMvc.perform(patch("/api/community/posts/{postId}", POST_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"caption\":\"Valid caption\"}")
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.message").value("Failed to update post"));
     }
 
     // =========================================================================

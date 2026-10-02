@@ -6,6 +6,7 @@ import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.configuration.SecurityBeanConfig;
 import com.universe.identity.application.ports.CurrentUserQueryPort;
+import com.universe.identity.contracts.currentuser.CurrentUserView;
 import com.universe.identity.infrastructure.security.AccountStatusFilter;
 import com.universe.identity.infrastructure.security.CustomAuthenticationFailureHandler;
 import com.universe.identity.infrastructure.security.GoogleOAuthSuccessHandler;
@@ -31,12 +32,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
@@ -116,18 +120,52 @@ class CommunityProfilePageControllerWebMvcTest {
                 .andExpect(view().name("community/profile"))
                 .andExpect(model().attributeExists("profile"))
                 .andExpect(model().attribute("profile", profileDTO))
-                .andExpect(model().attribute("activeNav", "community"));
+                .andExpect(model().attribute("activeNav", "community"))
+                .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
+                .andExpect(content().string(not(containsString("post-actions-dropdown"))))
+                .andExpect(content().string(not(containsString("data-action=\"edit-post\""))));
 
         verify(getCommunityPublicProfileUseCase).execute(handle);
     }
 
     @Test
-    @WithMockUser
-    @DisplayName("GET /community/@{publicHandle} as authenticated user -> 200 OK with profile view")
+    @WithMockUser(username = "user@universe.com")
+    @DisplayName("GET /community/@{publicHandle} as authenticated user -> 200 OK with profile view and owner edit affordance rendered")
     void shouldRenderProfilePageForAuthenticatedUser() throws Exception {
         String handle = "tien_nghich";
+        UUID currentUserId = UUID.randomUUID();
+        CurrentUserView currentUser = new CurrentUserView(
+                currentUserId.toString(),
+                "user@universe.com",
+                "Tiên Nghịch",
+                "https://cdn.example.com/me.png",
+                "Bio",
+                "ACTIVE",
+                "USER",
+                "LOCAL",
+                Instant.now(),
+                true
+        );
+        when(authenticatedEmailResolver.resolve(any())).thenReturn(Optional.of("user@universe.com"));
+        when(currentUserQueryPort.findByEmail("user@universe.com")).thenReturn(Optional.of(currentUser));
+
+        UUID ownerPostId = UUID.randomUUID();
+        UUID otherPostId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T12:00:00Z");
+
+        CommunityPostFeedItemDTO ownerPost = new CommunityPostFeedItemDTO(
+                ownerPostId, currentUserId, "Tiên Nghịch", "tien_nghich", null, "Owner post caption",
+                null, null, 0,
+                3L, 1L, 4L, now, now
+        );
+        CommunityPostFeedItemDTO otherPost = new CommunityPostFeedItemDTO(
+                otherPostId, UUID.randomUUID(), "Other Author", "other_author", null, "Other post caption",
+                null, null, 0,
+                1L, 0L, 1L, now, now
+        );
+
         CommunityNewestFeedResponseDTO feedDTO = new CommunityNewestFeedResponseDTO(
-                List.of(), null, 20, false
+                List.of(ownerPost, otherPost), null, 20, false
         );
         CommunityAuthorProfileDTO profileDTO = new CommunityAuthorProfileDTO(
                 handle,
@@ -143,7 +181,12 @@ class CommunityProfilePageControllerWebMvcTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("community/profile"))
                 .andExpect(model().attribute("profile", profileDTO))
-                .andExpect(model().attribute("activeNav", "community"));
+                .andExpect(model().attribute("activeNav", "community"))
+                .andExpect(content().string(containsString("<meta name=\"current-user-id\" content=\"" + currentUserId + "\">")))
+                .andExpect(content().string(containsString("data-current-user-id=\"" + currentUserId + "\"")))
+                .andExpect(content().string(containsString("data-action=\"edit-post\" data-post-id=\"" + ownerPostId + "\"")))
+                .andExpect(content().string(containsString("Chỉnh sửa bài viết")))
+                .andExpect(content().string(not(containsString("data-action=\"edit-post\" data-post-id=\"" + otherPostId + "\""))));
 
         verify(getCommunityPublicProfileUseCase).execute(handle);
     }

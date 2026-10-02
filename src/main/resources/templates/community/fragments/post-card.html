@@ -58,6 +58,31 @@
 						th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
 				</div>
 			</div>
+
+			<!-- Post Actions Dropdown (Owner Only) -->
+			<div sec:authorize="isAuthenticated()"
+				th:if="${currentUser != null and item.authorUserId != null and currentUser.id == item.authorUserId.toString()}"
+				class="post-actions-dropdown">
+				<button type="button"
+					class="post-actions-trigger"
+					data-action="toggle-post-menu"
+					aria-haspopup="menu"
+					aria-expanded="false"
+					aria-label="Tùy chọn bài viết"
+					title="Tùy chọn">
+					<i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+				</button>
+				<div class="post-actions-menu" role="menu" hidden>
+					<button type="button"
+						class="post-actions-item"
+						role="menuitem"
+						data-action="edit-post"
+						th:attr="data-post-id=${item.id}">
+						<i class="fa-regular fa-pen-to-square me-2" aria-hidden="true"></i>
+						<span>Chỉnh sửa bài viết</span>
+					</button>
+				</div>
+			</div>
 		</header>
 
 		<!-- Post Caption (Escaped via th:text) -->

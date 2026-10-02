@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta th:if="${_csrf != null}" name="_csrf" th:content="${_csrf.token}">
 <meta th:if="${_csrf != null}" name="_csrf_header" th:content="${_csrf.headerName}">
+<meta th:if="${currentUser != null}" name="current-user-id" th:content="${currentUser.id}">
 
 <title>Cộng đồng - Kiếm Lai Universe</title>
 <link rel="icon" type="image/png" th:href="@{/images/favicon.png}">
@@ -137,7 +138,7 @@
 		<!-- Feed List -->
 		<section class="community-feed-container" aria-label="Danh sách bài viết cộng đồng">
 			<div id="communityFeedList" class="community-feed-list"
-				th:attr="data-selected-feed=${selectedFeed},data-next-cursor=${nextCursor},data-next-page=${nextPage},data-has-next=${hasNext},data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'}">
+				th:attr="data-selected-feed=${selectedFeed},data-next-cursor=${nextCursor},data-next-page=${nextPage},data-has-next=${hasNext},data-authenticated=${#authorization.expression('isAuthenticated()') ? 'true' : 'false'},data-current-user-id=${currentUser != null ? currentUser.id : ''}">
 
 				<!-- SSR Post Cards -->
 				<th:block th:each="item : ${items}">
