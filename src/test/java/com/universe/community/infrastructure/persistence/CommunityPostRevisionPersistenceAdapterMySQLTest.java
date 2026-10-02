@@ -57,6 +57,9 @@ class CommunityPostRevisionPersistenceAdapterMySQLTest {
     @Autowired
     private CommunityPostRevisionPersistenceAdapter revisionAdapter;
 
+    @Autowired
+    private SpringDataCommunityPostRevisionJpaRepository springDataRepository;
+
     @BeforeEach
     @AfterEach
     void cleanData() {
@@ -152,5 +155,45 @@ class CommunityPostRevisionPersistenceAdapterMySQLTest {
 
         assertThatThrownBy(() -> revisionAdapter.save(revDuplicate))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("Should query revisions ordered newest-first (DESC) from Spring Data repository")
+    void shouldFindRevisionsOrderByRevisionNumberDesc() {
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        Instant t0 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, t0);
+        postAdapter.save(post);
+
+        CommunityPostRevision rev1 = new CommunityPostRevision(
+                UUID.randomUUID(),
+                postId,
+                1,
+                authorId,
+                "Initial",
+                "Rev 1",
+                t1
+        );
+        revisionAdapter.save(rev1);
+
+        CommunityPostRevision rev2 = new CommunityPostRevision(
+                UUID.randomUUID(),
+                postId,
+                2,
+                authorId,
+                "Rev 1",
+                "Rev 2",
+                t2
+        );
+        revisionAdapter.save(rev2);
+
+        List<CommunityPostRevisionJpaEntity> entities = springDataRepository.findByPostIdOrderByRevisionNumberDesc(postId.toString());
+        assertThat(entities).hasSize(2);
+        assertThat(entities.get(0).getRevisionNumber()).isEqualTo(2);
+        assertThat(entities.get(1).getRevisionNumber()).isEqualTo(1);
     }
 }

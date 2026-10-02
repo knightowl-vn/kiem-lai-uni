@@ -40,6 +40,11 @@
     let activeDeleteCardEl = null;
     let isDeleting = false;
 
+    let currentRevisionSessionId = 0;
+    let activeRevisionPostId = null;
+    let activeRevisionTrigger = null;
+    let isFetchingRevisions = false;
+
     function resolveCurrentUserId(doc) {
         if (!doc) return null;
         const metaUser = doc.querySelector('meta[name="current-user-id"]');
@@ -173,6 +178,18 @@
 
         postMeta.appendChild(authorRow);
         postMeta.appendChild(timeEl);
+
+        if (Number(item.contentVersion) > 0) {
+            const editedBtn = document.createElement('button');
+            editedBtn.type = 'button';
+            editedBtn.className = 'post-edited-indicator';
+            editedBtn.setAttribute('data-action', 'view-revisions');
+            editedBtn.setAttribute('data-post-id', String(item.id));
+            editedBtn.setAttribute('title', 'Xem lịch sử chỉnh sửa');
+            editedBtn.textContent = 'Đã chỉnh sửa';
+            postMeta.appendChild(editedBtn);
+        }
+
         authorInfo.appendChild(postMeta);
         header.appendChild(authorInfo);
 
@@ -731,6 +748,24 @@
                     if (captionEl) {
                         captionEl.textContent = updatedPost.caption;
                     }
+                    if (Number(updatedPost.contentVersion) > 0) {
+                        const postMeta = submittedCardEl.querySelector('.post-meta');
+                        if (postMeta && !postMeta.querySelector('.post-edited-indicator')) {
+                            const editedBtn = doc.createElement('button');
+                            editedBtn.type = 'button';
+                            editedBtn.className = 'post-edited-indicator';
+                            editedBtn.setAttribute('data-action', 'view-revisions');
+                            editedBtn.setAttribute('data-post-id', String(submittedPostId));
+                            editedBtn.setAttribute('title', 'Xem lịch sử chỉnh sửa');
+                            editedBtn.textContent = 'Đã chỉnh sửa';
+                            const timeEl = postMeta.querySelector('.post-time');
+                            if (timeEl && timeEl.nextSibling) {
+                                postMeta.insertBefore(editedBtn, timeEl.nextSibling);
+                            } else {
+                                postMeta.appendChild(editedBtn);
+                            }
+                        }
+                    }
                 }
                 setSubmittingState(modal, false);
                 closeEditModal(doc);
@@ -1130,6 +1165,391 @@
         }
     }
 
+    function getOrCreateRevisionModal(targetDoc) {
+        if (!targetDoc) return null;
+        let modal = targetDoc.getElementById('communityRevisionHistoryModal');
+        if (modal) return modal;
+
+        modal = targetDoc.createElement('div');
+        modal.id = 'communityRevisionHistoryModal';
+        modal.className = 'kl-modal community-history-modal';
+        modal.hidden = true;
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'communityRevisionModalTitle');
+
+        const backdrop = targetDoc.createElement('div');
+        backdrop.className = 'kl-modal-backdrop';
+        backdrop.setAttribute('data-action', 'close-revision-modal');
+        modal.appendChild(backdrop);
+
+        const dialog = targetDoc.createElement('div');
+        dialog.className = 'kl-modal-dialog';
+
+        const content = targetDoc.createElement('div');
+        content.className = 'kl-modal-content';
+
+        // Header
+        const header = targetDoc.createElement('div');
+        header.className = 'kl-modal-header';
+
+        const title = targetDoc.createElement('h3');
+        title.id = 'communityRevisionModalTitle';
+        title.className = 'kl-modal-title';
+        title.textContent = 'Lịch sử chỉnh sửa';
+        header.appendChild(title);
+
+        const closeBtn = targetDoc.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.id = 'communityRevisionCloseBtn';
+        closeBtn.className = 'kl-modal-close';
+        closeBtn.setAttribute('data-action', 'close-revision-modal');
+        closeBtn.setAttribute('aria-label', 'Đóng');
+        closeBtn.textContent = '×';
+        header.appendChild(closeBtn);
+
+        content.appendChild(header);
+
+        // Body
+        const body = targetDoc.createElement('div');
+        body.className = 'kl-modal-body';
+
+        const alertDiv = targetDoc.createElement('div');
+        alertDiv.id = 'communityRevisionModalAlert';
+        alertDiv.className = 'alert alert-danger mb-3';
+        alertDiv.setAttribute('role', 'alert');
+        alertDiv.hidden = true;
+        body.appendChild(alertDiv);
+
+        const spinner = targetDoc.createElement('div');
+        spinner.id = 'communityRevisionModalSpinner';
+        spinner.className = 'text-center py-4';
+        spinner.hidden = true;
+        const spinnerBorder = targetDoc.createElement('span');
+        spinnerBorder.className = 'spinner-border text-primary';
+        spinnerBorder.setAttribute('role', 'status');
+        const spinnerText = targetDoc.createElement('span');
+        spinnerText.className = 'visually-hidden';
+        spinnerText.textContent = 'Đang tải...';
+        spinnerBorder.appendChild(spinnerText);
+        spinner.appendChild(spinnerBorder);
+        body.appendChild(spinner);
+
+        const listContainer = targetDoc.createElement('div');
+        listContainer.id = 'communityRevisionList';
+        listContainer.className = 'community-revision-list';
+        body.appendChild(listContainer);
+
+        content.appendChild(body);
+
+        // Footer
+        const footer = targetDoc.createElement('div');
+        footer.className = 'kl-modal-footer';
+
+        const footerCloseBtn = targetDoc.createElement('button');
+        footerCloseBtn.type = 'button';
+        footerCloseBtn.id = 'communityRevisionFooterCloseBtn';
+        footerCloseBtn.className = 'btn btn-secondary';
+        footerCloseBtn.setAttribute('data-action', 'close-revision-modal');
+        footerCloseBtn.textContent = 'Đóng';
+        footer.appendChild(footerCloseBtn);
+
+        content.appendChild(footer);
+        dialog.appendChild(content);
+        modal.appendChild(dialog);
+
+        if (targetDoc.body) {
+            targetDoc.body.appendChild(modal);
+        }
+        return modal;
+    }
+
+    function showRevisionError(modal, message) {
+        if (!modal) return;
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        const spinner = modal.querySelector('#communityRevisionModalSpinner');
+        const listContainer = modal.querySelector('#communityRevisionList');
+        if (spinner) spinner.hidden = true;
+        if (listContainer) listContainer.innerHTML = '';
+        if (alertDiv) {
+            alertDiv.textContent = message;
+            alertDiv.hidden = false;
+        }
+    }
+
+    function renderRevisionList(modal, revisions, doc) {
+        if (!modal) return;
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        const spinner = modal.querySelector('#communityRevisionModalSpinner');
+        const listContainer = modal.querySelector('#communityRevisionList');
+        if (spinner) spinner.hidden = true;
+        if (alertDiv) {
+            alertDiv.textContent = '';
+            alertDiv.hidden = true;
+        }
+        if (!listContainer) return;
+        listContainer.innerHTML = '';
+
+        const targetDoc = doc || modal.ownerDocument || (typeof document !== 'undefined' ? document : null);
+        if (!Array.isArray(revisions) || revisions.length === 0) {
+            const emptyP = targetDoc.createElement('p');
+            emptyP.className = 'text-muted text-center py-3 mb-0';
+            emptyP.textContent = 'Chưa có lịch sử chỉnh sửa.';
+            listContainer.appendChild(emptyP);
+            return;
+        }
+
+        revisions.forEach(function (rev) {
+            const itemDiv = targetDoc.createElement('div');
+            itemDiv.className = 'community-history-item';
+
+            const headerDiv = targetDoc.createElement('div');
+            headerDiv.className = 'community-history-item-header';
+
+            const versionBadge = targetDoc.createElement('span');
+            versionBadge.className = 'community-history-version-badge';
+            versionBadge.textContent = 'Phiên bản #' + rev.revisionNumber;
+            headerDiv.appendChild(versionBadge);
+
+            const timeSpan = targetDoc.createElement('time');
+            timeSpan.className = 'community-history-time';
+            if (rev.editedAt) {
+                timeSpan.setAttribute('datetime', rev.editedAt);
+                if (typeof window !== 'undefined' && window.RelativeTime && typeof window.RelativeTime.format === 'function') {
+                    timeSpan.textContent = window.RelativeTime.format(rev.editedAt);
+                } else {
+                    timeSpan.textContent = rev.editedAt;
+                }
+            }
+            headerDiv.appendChild(timeSpan);
+            itemDiv.appendChild(headerDiv);
+
+            // Previous caption
+            const prevLabel = targetDoc.createElement('div');
+            prevLabel.className = 'community-history-caption-label text-muted';
+            prevLabel.textContent = 'Nội dung trước:';
+            itemDiv.appendChild(prevLabel);
+
+            const prevBox = targetDoc.createElement('div');
+            prevBox.className = 'community-history-caption-box mb-2';
+            prevBox.textContent = rev.previousCaption != null ? rev.previousCaption : '';
+            itemDiv.appendChild(prevBox);
+
+            // Current caption
+            const nextLabel = targetDoc.createElement('div');
+            nextLabel.className = 'community-history-caption-label text-muted';
+            nextLabel.textContent = 'Nội dung sau:';
+            itemDiv.appendChild(nextLabel);
+
+            const nextBox = targetDoc.createElement('div');
+            nextBox.className = 'community-history-caption-box';
+            nextBox.textContent = rev.caption != null ? rev.caption : '';
+            itemDiv.appendChild(nextBox);
+
+            listContainer.appendChild(itemDiv);
+        });
+    }
+
+    function classifyRevisionResponse(response, bodyText) {
+        if (!response) {
+            return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+        }
+
+        // 1. Explicit redirect handling (e.g. Spring Security 302 -> /login or /access-denied)
+        const isRedirected = Boolean(
+            response.redirected ||
+            (response.url && (response.url.includes('/login') || response.url.includes('/access-denied')))
+        );
+        const urlStr = response.url || '';
+        if (isRedirected || urlStr.includes('/login') || urlStr.includes('/access-denied')) {
+            if (urlStr.includes('/login')) {
+                return { success: false, message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.' };
+            }
+            return { success: false, message: 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.' };
+        }
+
+        // 2. HTTP Status classification
+        if (response.status === 401) {
+            return { success: false, message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.' };
+        }
+        if (response.status === 403) {
+            return { success: false, message: 'Bạn không có quyền xem lịch sử chỉnh sửa của bài viết này.' };
+        }
+        if (response.status === 404) {
+            return { success: false, message: 'Bài viết không còn tồn tại hoặc đã bị xóa.' };
+        }
+        if (response.status >= 500 && response.status < 600) {
+            return { success: false, message: 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại sau.' };
+        }
+
+        // Must be exactly 200 OK (reject any other 2xx, 3xx, 4xx)
+        if (response.status !== 200) {
+            return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+        }
+
+        // 3. Content-Type check (must include application/json)
+        const contentType = response.headers && typeof response.headers.get === 'function'
+            ? (response.headers.get('content-type') || '')
+            : '';
+        if (!contentType.includes('application/json')) {
+            return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+        }
+
+        // 4. Parse JSON
+        let data;
+        try {
+            if (typeof bodyText === 'string') {
+                data = JSON.parse(bodyText);
+            } else if (bodyText && typeof bodyText === 'object') {
+                data = bodyText;
+            } else {
+                return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+            }
+        } catch (_) {
+            return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+        }
+
+        // 5. Must be a JSON array
+        if (!Array.isArray(data)) {
+            return { success: false, message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' };
+        }
+
+        return { success: true, data: data };
+    }
+
+    async function fetchRevisions(postId, sessionId, modal, doc) {
+        isFetchingRevisions = true;
+        let response;
+        try {
+            const fetchFn = (typeof globalThis !== 'undefined' && globalThis.fetch)
+                ? globalThis.fetch.bind(globalThis)
+                : (typeof window !== 'undefined' && window.fetch)
+                    ? window.fetch.bind(window)
+                    : null;
+
+            if (!fetchFn) {
+                throw new Error('fetch is not available');
+            }
+
+            response = await fetchFn('/api/community/posts/' + encodeURIComponent(postId) + '/revisions', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+        } catch (_) {
+            if (sessionId !== currentRevisionSessionId) {
+                return;
+            }
+            isFetchingRevisions = false;
+            showRevisionError(modal, 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng.');
+            return;
+        }
+
+        if (sessionId !== currentRevisionSessionId) {
+            return;
+        }
+
+        let bodyText = '';
+        try {
+            if (response && typeof response.text === 'function') {
+                bodyText = await response.text();
+            } else if (response && typeof response.json === 'function') {
+                bodyText = await response.json();
+            }
+        } catch (_) {
+            if (sessionId !== currentRevisionSessionId) return;
+            isFetchingRevisions = false;
+            showRevisionError(modal, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            return;
+        }
+
+        if (sessionId !== currentRevisionSessionId) {
+            return;
+        }
+
+        isFetchingRevisions = false;
+        const result = classifyRevisionResponse(response, bodyText);
+        if (result.success) {
+            renderRevisionList(modal, result.data, doc);
+        } else {
+            showRevisionError(modal, result.message);
+        }
+    }
+
+    function openRevisionModal(postId, triggerEl, doc) {
+        const targetDoc = doc || (triggerEl ? triggerEl.ownerDocument : (typeof document !== 'undefined' ? document : null));
+        if (!targetDoc || !postId) return false;
+
+        currentRevisionSessionId++;
+        const thisSessionId = currentRevisionSessionId;
+        activeRevisionPostId = postId;
+        activeRevisionTrigger = triggerEl || null;
+
+        const modal = getOrCreateRevisionModal(targetDoc);
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        const spinner = modal.querySelector('#communityRevisionModalSpinner');
+        const listContainer = modal.querySelector('#communityRevisionList');
+
+        if (alertDiv) {
+            alertDiv.textContent = '';
+            alertDiv.hidden = true;
+        }
+        if (listContainer) {
+            listContainer.innerHTML = '';
+        }
+        if (spinner) {
+            spinner.hidden = false;
+        }
+
+        modal.hidden = false;
+        closeAllPostMenus(targetDoc);
+
+        const closeBtn = modal.querySelector('#communityRevisionCloseBtn');
+        if (closeBtn && typeof closeBtn.focus === 'function') {
+            closeBtn.focus();
+        }
+
+        fetchRevisions(postId, thisSessionId, modal, targetDoc);
+        return true;
+    }
+
+    function closeRevisionModal(doc) {
+        const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
+        const modal = targetDoc ? targetDoc.getElementById('communityRevisionHistoryModal') : null;
+        if (modal) {
+            modal.hidden = true;
+            const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+            const spinner = modal.querySelector('#communityRevisionModalSpinner');
+            const listContainer = modal.querySelector('#communityRevisionList');
+            if (alertDiv) {
+                alertDiv.textContent = '';
+                alertDiv.hidden = true;
+            }
+            if (spinner) {
+                spinner.hidden = true;
+            }
+            if (listContainer) {
+                listContainer.innerHTML = '';
+            }
+        }
+
+        const triggerToRestore = activeRevisionTrigger;
+
+        currentRevisionSessionId++;
+        activeRevisionPostId = null;
+        activeRevisionTrigger = null;
+        isFetchingRevisions = false;
+
+        if (triggerToRestore && typeof triggerToRestore.focus === 'function') {
+            try {
+                triggerToRestore.focus();
+            } catch (_) {}
+        }
+
+        return true;
+    }
+
     function initDelegation(doc) {
         const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
         if (!targetDoc || targetDoc._communityDelegationInitialized) return;
@@ -1202,7 +1622,28 @@
                 return;
             }
 
-            // 7. Outside clicks close open dropdown menus
+            // 7. View revisions click
+            const viewRevBtn = target.closest ? target.closest('[data-action="view-revisions"]') : null;
+            if (viewRevBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const cardEl = viewRevBtn.closest('.community-post-card');
+                const postId = viewRevBtn.getAttribute('data-post-id') || (cardEl ? cardEl.getAttribute('data-post-id') : null);
+                if (postId) {
+                    openRevisionModal(postId, viewRevBtn, targetDoc);
+                }
+                return;
+            }
+
+            // 8. Close revision modal click
+            const closeRevBtn = target.closest ? target.closest('[data-action="close-revision-modal"]') : null;
+            if (closeRevBtn) {
+                e.preventDefault();
+                closeRevisionModal(targetDoc);
+                return;
+            }
+
+            // 9. Outside clicks close open dropdown menus
             if (!target.closest || !target.closest('.post-actions-dropdown')) {
                 closeAllPostMenus(targetDoc);
             }
@@ -1210,6 +1651,11 @@
 
         targetDoc.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' || e.keyCode === 27) {
+                const revModal = targetDoc.getElementById('communityRevisionHistoryModal');
+                if (revModal && !revModal.hidden) {
+                    closeRevisionModal(targetDoc);
+                    return;
+                }
                 const deleteModal = targetDoc.getElementById('communityDeletePostModal');
                 if (deleteModal && !deleteModal.hidden) {
                     if (isDeleting) return;
@@ -1244,10 +1690,13 @@
         closeEditModal: closeEditModal,
         openDeleteModal: openDeleteModal,
         closeDeleteModal: closeDeleteModal,
+        openRevisionModal: openRevisionModal,
+        closeRevisionModal: closeRevisionModal,
         closeAllPostMenus: closeAllPostMenus,
         togglePostMenu: togglePostMenu,
         getOrCreateEditModal: getOrCreateEditModal,
         getOrCreateDeleteModal: getOrCreateDeleteModal,
+        getOrCreateRevisionModal: getOrCreateRevisionModal,
         handleEditSubmit: handleEditSubmit,
         handleDeleteSubmit: handleDeleteSubmit,
         initDelegation: initDelegation,
@@ -1262,6 +1711,13 @@
         },
         isDeleting: function () {
             return isDeleting;
-        }
+        },
+        getCurrentRevisionSessionId: function () {
+            return currentRevisionSessionId;
+        },
+        isFetchingRevisions: function () {
+            return isFetchingRevisions;
+        },
+        classifyRevisionResponse: classifyRevisionResponse
     };
 });

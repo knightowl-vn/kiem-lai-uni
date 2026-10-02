@@ -97,7 +97,7 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should query public revision history ordered oldest-first (ASC)")
+    @DisplayName("Should query public revision history ordered newest-first (DESC)")
     void shouldFindPublicRevisionHistory() {
         UUID postId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -120,16 +120,8 @@ class CommunityPostQueryAdapterMySQLTest {
         List<CommunityPostRevisionPublicDTO> history = queryAdapter.findPublicRevisionHistory(postId);
         assertThat(history).hasSize(2);
 
-        CommunityPostRevisionPublicDTO rev1 = history.get(0);
-        assertThat(rev1.id()).isEqualTo(rev1Id);
-        assertThat(rev1.postId()).isEqualTo(postId);
-        assertThat(rev1.revisionNumber()).isEqualTo(1);
-        assertThat(rev1.editorUserId()).isEqualTo(authorId);
-        assertThat(rev1.previousCaption()).isEqualTo("v0");
-        assertThat(rev1.caption()).isEqualTo("v1");
-        assertThat(rev1.editedAt()).isEqualTo(t1);
-
-        CommunityPostRevisionPublicDTO rev2 = history.get(1);
+        // First item must be rev2 (revisionNumber 2) - Newest First (DESC)
+        CommunityPostRevisionPublicDTO rev2 = history.get(0);
         assertThat(rev2.id()).isEqualTo(rev2Id);
         assertThat(rev2.postId()).isEqualTo(postId);
         assertThat(rev2.revisionNumber()).isEqualTo(2);
@@ -137,6 +129,16 @@ class CommunityPostQueryAdapterMySQLTest {
         assertThat(rev2.previousCaption()).isEqualTo("v1");
         assertThat(rev2.caption()).isEqualTo("v2");
         assertThat(rev2.editedAt()).isEqualTo(t2);
+
+        // Second item must be rev1 (revisionNumber 1)
+        CommunityPostRevisionPublicDTO rev1 = history.get(1);
+        assertThat(rev1.id()).isEqualTo(rev1Id);
+        assertThat(rev1.postId()).isEqualTo(postId);
+        assertThat(rev1.revisionNumber()).isEqualTo(1);
+        assertThat(rev1.editorUserId()).isEqualTo(authorId);
+        assertThat(rev1.previousCaption()).isEqualTo("v0");
+        assertThat(rev1.caption()).isEqualTo("v1");
+        assertThat(rev1.editedAt()).isEqualTo(t1);
     }
 
     @Test

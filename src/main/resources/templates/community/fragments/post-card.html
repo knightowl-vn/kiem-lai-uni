@@ -36,6 +36,12 @@
 						data-relative-time
 						th:datetime="${item.createdAt}"
 						th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
+					<button th:if="${item.contentVersion > 0}"
+						type="button"
+						class="post-edited-indicator"
+						data-action="view-revisions"
+						th:attr="data-post-id=${item.id}"
+						title="Xem lịch sử chỉnh sửa">Đã chỉnh sửa</button>
 				</div>
 			</div>
 
@@ -56,6 +62,12 @@
 						data-relative-time
 						th:datetime="${item.createdAt}"
 						th:text="${#temporals.format(item.createdAt, 'dd/MM/yyyy HH:mm')}">Vừa xong</time>
+					<button th:if="${item.contentVersion > 0}"
+						type="button"
+						class="post-edited-indicator"
+						data-action="view-revisions"
+						th:attr="data-post-id=${item.id}"
+						title="Xem lịch sử chỉnh sửa">Đã chỉnh sửa</button>
 				</div>
 			</div>
 

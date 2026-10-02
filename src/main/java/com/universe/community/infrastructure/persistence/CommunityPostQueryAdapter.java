@@ -53,7 +53,7 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
         if (postId == null) {
             throw new IllegalArgumentException("Post ID cannot be null.");
         }
-        return revisionRepository.findByPostIdOrderByRevisionNumberAsc(postId.toString()).stream()
+        return revisionRepository.findByPostIdOrderByRevisionNumberDesc(postId.toString()).stream()
                 .map(revisionMapper::toPublicDTO)
                 .toList();
     }

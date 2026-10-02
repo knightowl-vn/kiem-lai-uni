@@ -142,6 +142,13 @@ class CommunityFeedTemplateContractTest {
         assertThat(fragment).contains("class=\"post-comments-container\"");
         assertThat(fragment).contains("class=\"post-metric post-comment-toggle-btn\"");
 
+        // B8.3.3 Public post revision indicator contract
+        assertThat(fragment).contains("class=\"post-edited-indicator\"");
+        assertThat(fragment).contains("data-action=\"view-revisions\"");
+        assertThat(fragment).contains("th:if=\"${item.contentVersion > 0}\"");
+        assertThat(fragment).contains("Đã chỉnh sửa");
+        assertThat(fragment).doesNotContain("• Đã chỉnh sửa");
+
         // Load more container
         assertThat(template).contains("id=\"communityLoadMoreBtn\"");
         assertThat(template).contains("id=\"feedLoadingSpinner\"");
@@ -196,6 +203,16 @@ class CommunityFeedTemplateContractTest {
         assertThat(postCardJs).contains("data-action=\"delete-post\"");
         assertThat(postCardJs).contains("communityDeletePostModal");
         assertThat(postCardJs).contains("response.status === 204");
+
+        // B8.3.3 Public Revision History contract
+        assertThat(postCardJs).contains("data-action=\"view-revisions\"");
+        assertThat(postCardJs).contains("post-edited-indicator");
+        assertThat(postCardJs).contains("Number(item.contentVersion) > 0");
+        assertThat(postCardJs).contains("communityRevisionHistoryModal");
+        assertThat(postCardJs).contains("prevBox.textContent = ");
+        assertThat(postCardJs).contains("nextBox.textContent = ");
+        assertThat(postCardJs).doesNotContain("prevBox.innerHTML");
+        assertThat(postCardJs).doesNotContain("nextBox.innerHTML");
     }
 
     private String read(String relativePath) throws Exception {

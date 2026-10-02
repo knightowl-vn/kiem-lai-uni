@@ -7,9 +7,11 @@ import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.application.usecase.GetCommunityPostRevisionsUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
+import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.contracts.dto.EditCommunityPostCaptionRequestDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
@@ -53,13 +55,15 @@ public class CommunityPostController {
     private final EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase;
     private final GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase;
     private final GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
+    private final GetCommunityPostRevisionsUseCase getCommunityPostRevisionsUseCase;
 
     public CommunityPostController(
             CreateCommunityPostWithImageUseCase createCommunityPostWithImageUseCase,
             DeleteCommunityPostUseCase deleteCommunityPostUseCase,
             EditCommunityPostCaptionUseCase editCommunityPostCaptionUseCase,
             GetCommunityNewestFeedUseCase getCommunityNewestFeedUseCase,
-            GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase
+            GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase,
+            GetCommunityPostRevisionsUseCase getCommunityPostRevisionsUseCase
     ) {
         this.createCommunityPostWithImageUseCase = Objects.requireNonNull(
                 createCommunityPostWithImageUseCase,
@@ -80,6 +84,10 @@ public class CommunityPostController {
         this.getCommunityFeaturedFeedUseCase = Objects.requireNonNull(
                 getCommunityFeaturedFeedUseCase,
                 "GetCommunityFeaturedFeedUseCase cannot be null."
+        );
+        this.getCommunityPostRevisionsUseCase = Objects.requireNonNull(
+                getCommunityPostRevisionsUseCase,
+                "GetCommunityPostRevisionsUseCase cannot be null."
         );
     }
 
@@ -236,6 +244,18 @@ public class CommunityPostController {
 
         CommunityPost post = editCommunityPostCaptionUseCase.execute(command);
         return ResponseEntity.ok(CommunityPostDTOMapper.toPublicDTO(post));
+    }
+
+    /**
+     * GET /api/community/posts/{postId}/revisions
+     * Publicly retrieves the historical edit revisions for a Community post, ordered newest-first.
+     */
+    @GetMapping(value = "/{postId}/revisions", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<CommunityPostRevisionPublicDTO>> getPostRevisions(
+            @PathVariable("postId") UUID postId
+    ) {
+        List<CommunityPostRevisionPublicDTO> revisions = getCommunityPostRevisionsUseCase.execute(postId);
+        return ResponseEntity.ok(revisions);
     }
 
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)

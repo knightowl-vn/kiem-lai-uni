@@ -22,4 +22,14 @@ public interface SpringDataCommunityPostRevisionJpaRepository extends JpaReposit
             ORDER BY r.revisionNumber ASC
             """)
     List<CommunityPostRevisionJpaEntity> findByPostIdOrderByRevisionNumberAsc(@Param("postId") String postId);
+
+    /**
+     * Finds all revisions for a given post ID ordered newest first (revision_number DESC).
+     */
+    @Query("""
+            SELECT r FROM CommunityPostRevisionJpaEntity r
+            WHERE r.postId = :postId
+            ORDER BY r.revisionNumber DESC
+            """)
+    List<CommunityPostRevisionJpaEntity> findByPostIdOrderByRevisionNumberDesc(@Param("postId") String postId);
 }

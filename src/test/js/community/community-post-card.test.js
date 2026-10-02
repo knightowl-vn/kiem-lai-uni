@@ -127,6 +127,31 @@ class FakeElement {
         }
         return child;
     }
+    get nextSibling() {
+        if (!this.parentNode) return null;
+        const siblings = this.parentNode.childNodes;
+        const idx = siblings.indexOf(this);
+        return idx !== -1 && idx + 1 < siblings.length ? siblings[idx + 1] : null;
+    }
+    insertBefore(newChild, refChild) {
+        if (!newChild) return null;
+        newChild.remove();
+        newChild.parentNode = this;
+        if (!newChild.ownerDocument && this.ownerDocument) {
+            newChild.ownerDocument = this.ownerDocument;
+        }
+        if (!refChild) {
+            this.childNodes.push(newChild);
+        } else {
+            const idx = this.childNodes.indexOf(refChild);
+            if (idx === -1) {
+                this.childNodes.push(newChild);
+            } else {
+                this.childNodes.splice(idx, 0, newChild);
+            }
+        }
+        return newChild;
+    }
 
     remove() {
         if (this.parentNode) {
@@ -2178,5 +2203,859 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
         await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
 
         assert.strictEqual(mockDoc.querySelectorAll('.community-post-card[data-post-id="' + POST_A_ID + '"]').length, 0, 'All matching cards must be removed');
+    });
+});
+
+describe('CommunityPostCard Revision History UX Test Matrix (MS-07B8.3.3)', () => {
+
+    const OWNER_ID = '11111111-1111-1111-1111-111111111111';
+    const OTHER_USER_ID = '99999999-9999-9999-9999-999999999999';
+    const POST_A_ID = 'aaaa1111-1111-1111-1111-111111111111';
+    const POST_B_ID = 'bbbb2222-2222-2222-2222-222222222222';
+
+    let originalDoc;
+    let originalFetch;
+    let mockDoc;
+
+    beforeEach(() => {
+        originalDoc = global.document;
+        originalFetch = global.fetch;
+
+        mockDoc = new FakeDocument();
+        global.document = mockDoc;
+
+        // Default CSRF meta
+        const csrfMeta = mockDoc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-xyz');
+        mockDoc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = mockDoc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        mockDoc.head.appendChild(csrfHeaderMeta);
+
+        // Default current user meta
+        const userMeta = mockDoc.createElement('meta');
+        userMeta.setAttribute('name', 'current-user-id');
+        userMeta.setAttribute('content', OWNER_ID);
+        mockDoc.head.appendChild(userMeta);
+
+        CommunityPostCard.initDelegation(mockDoc);
+    });
+
+    afterEach(() => {
+        global.document = originalDoc;
+        global.fetch = originalFetch;
+        CommunityPostCard.closeEditModal(mockDoc);
+        CommunityPostCard.closeDeleteModal(mockDoc);
+        CommunityPostCard.closeRevisionModal(mockDoc);
+    });
+
+    test('1. contentVersion 0 -> no indicator', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Original post caption',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 0
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        const indicator = card.querySelector('.post-edited-indicator');
+        assert.strictEqual(indicator, null, 'Unedited post with contentVersion 0 must NOT have edited indicator');
+    });
+
+    test('2. contentVersion > 0 -> indicator exists', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Edited post caption',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 1
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        const indicator = card.querySelector('.post-edited-indicator');
+        assert.notStrictEqual(indicator, null, 'Edited post with contentVersion 1 must have edited indicator');
+        assert.strictEqual(indicator.tagName, 'BUTTON');
+        assert.strictEqual(indicator.getAttribute('data-action'), 'view-revisions');
+        assert.strictEqual(indicator.getAttribute('data-post-id'), POST_A_ID);
+        assert.strictEqual(indicator.getAttribute('title'), 'Xem lịch sử chỉnh sửa');
+        assert.strictEqual(indicator.textContent, 'Đã chỉnh sửa', 'Visible text must be exactly "Đã chỉnh sửa"');
+    });
+
+    test('3. indicator public regardless owner status', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Public edited post',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 2
+        };
+        // Guest viewer
+        const guestCard = CommunityPostCard.create(item, { isAuthenticated: false, currentUserId: null }, mockDoc);
+        const guestIndicator = guestCard.querySelector('.post-edited-indicator');
+        assert.notStrictEqual(guestIndicator, null, 'Guest viewer must see edited indicator');
+        assert.strictEqual(guestIndicator.textContent, 'Đã chỉnh sửa', 'Guest indicator text must be exactly "Đã chỉnh sửa"');
+
+        // Other authenticated user viewer (non-owner)
+        const otherUserCard = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OTHER_USER_ID }, mockDoc);
+        const otherIndicator = otherUserCard.querySelector('.post-edited-indicator');
+        assert.notStrictEqual(otherIndicator, null, 'Non-owner authenticated user must see edited indicator');
+        assert.strictEqual(otherIndicator.textContent, 'Đã chỉnh sửa', 'Other user indicator text must be exactly "Đã chỉnh sửa"');
+    });
+
+    test('4. edit success contentVersion 1 -> indicator added', async () => {
+        global.fetch = () => Promise.resolve({
+            ok: true,
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({
+                id: POST_A_ID,
+                caption: 'Updated caption after edit',
+                contentVersion: 1
+            })
+        });
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Original unedited caption',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 0
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        assert.strictEqual(card.querySelector('.post-edited-indicator'), null, 'Initially no indicator');
+
+        CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
+        const editModal = mockDoc.getElementById('communityEditPostModal');
+        const submitBtn = editModal.querySelector('[data-action="save-edit"]');
+        const textarea = editModal.querySelector('#communityEditCaptionInput');
+        textarea.value = 'Updated caption after edit';
+
+        await CommunityPostCard.handleEditSubmit({ preventDefault: () => {}, target: submitBtn });
+
+        const indicator = card.querySelector('.post-edited-indicator');
+        assert.notStrictEqual(indicator, null, 'Indicator must be dynamically appended on edit success');
+        assert.strictEqual(indicator.getAttribute('data-action'), 'view-revisions');
+        assert.strictEqual(indicator.getAttribute('data-post-id'), POST_A_ID);
+        assert.strictEqual(indicator.textContent, 'Đã chỉnh sửa', 'Dynamically appended indicator text must be exactly "Đã chỉnh sửa"');
+        assert.strictEqual(card.querySelector('.post-caption').textContent, 'Updated caption after edit');
+    });
+
+    test('5. second edit -> no duplicate indicator', async () => {
+        global.fetch = () => Promise.resolve({
+            ok: true,
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({
+                id: POST_A_ID,
+                caption: 'Second edit caption',
+                contentVersion: 2
+            })
+        });
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'First edit caption',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 1
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        assert.strictEqual(card.querySelectorAll('.post-edited-indicator').length, 1, 'Initially 1 indicator');
+
+        CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
+        const editModal = mockDoc.getElementById('communityEditPostModal');
+        const submitBtn = editModal.querySelector('[data-action="save-edit"]');
+        const textarea = editModal.querySelector('#communityEditCaptionInput');
+        textarea.value = 'Second edit caption';
+
+        await CommunityPostCard.handleEditSubmit({ preventDefault: () => {}, target: submitBtn });
+
+        assert.strictEqual(card.querySelectorAll('.post-edited-indicator').length, 1, 'Must never duplicate indicator on later edits');
+        assert.strictEqual(card.querySelector('.post-caption').textContent, 'Second edit caption');
+    });
+
+    test('6. click indicator -> singleton modal opens', () => {
+        global.fetch = () => new Promise(() => {}); // Pending fetch
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Edited post',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 1
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        const indicator = card.querySelector('.post-edited-indicator');
+        indicator.dispatchEvent('click');
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.notStrictEqual(modal, null, 'Singleton revision modal must exist in DOM');
+        assert.strictEqual(modal.hidden, false, 'Modal must be visible');
+        assert.strictEqual(modal.querySelector('#communityRevisionModalTitle').textContent, 'Lịch sử chỉnh sửa');
+        assert.strictEqual(modal.querySelector('#communityRevisionModalSpinner').hidden, false, 'Spinner must be visible while loading');
+    });
+
+    test('7. GET correct revisions endpoint', () => {
+        let requestedUrl = null;
+        let requestedOptions = null;
+        global.fetch = (url, options) => {
+            requestedUrl = url;
+            requestedOptions = options;
+            return new Promise(() => {});
+        };
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Edited post',
+            createdAt: '2026-09-30T10:00:00Z',
+            contentVersion: 1
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        const indicator = card.querySelector('.post-edited-indicator');
+        CommunityPostCard.openRevisionModal(POST_A_ID, indicator, mockDoc);
+
+        assert.strictEqual(requestedUrl, '/api/community/posts/' + POST_A_ID + '/revisions');
+        assert.strictEqual(requestedOptions.method, 'GET');
+        assert.strictEqual(requestedOptions.headers['Accept'], 'application/json');
+    });
+
+    test('8. revisions render in server-provided DESC order', async () => {
+        const mockRevisions = [
+            {
+                revisionNumber: 2,
+                editorUserId: OWNER_ID,
+                previousCaption: 'Caption version 1',
+                caption: 'Caption version 2',
+                editedAt: '2026-10-01T15:00:00Z'
+            },
+            {
+                revisionNumber: 1,
+                editorUserId: OWNER_ID,
+                previousCaption: 'Original caption v0',
+                caption: 'Caption version 1',
+                editedAt: '2026-10-01T10:00:00Z'
+            }
+        ];
+
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify(mockRevisions))
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const items = modal.querySelectorAll('.community-history-item');
+        assert.strictEqual(items.length, 2, 'Must render 2 revision history items');
+
+        // First item = Revision 2 (DESC)
+        const badge0 = items[0].querySelector('.community-history-version-badge');
+        assert.strictEqual(badge0.textContent, 'Phiên bản #2');
+        assert.strictEqual(items[0].querySelectorAll('.community-history-caption-box')[0].textContent, 'Caption version 1');
+        assert.strictEqual(items[0].querySelectorAll('.community-history-caption-box')[1].textContent, 'Caption version 2');
+
+        // Second item = Revision 1
+        const badge1 = items[1].querySelector('.community-history-version-badge');
+        assert.strictEqual(badge1.textContent, 'Phiên bản #1');
+        assert.strictEqual(items[1].querySelectorAll('.community-history-caption-box')[0].textContent, 'Original caption v0');
+        assert.strictEqual(items[1].querySelectorAll('.community-history-caption-box')[1].textContent, 'Caption version 1');
+    });
+
+    test('9. previousCaption/caption rendered via textContent semantics', async () => {
+        const xssCaption = '<script>alert("hack")</script><img src=x onerror=alert(1)>';
+        const xssPrevious = '<b onmouseover=evil()>bold text</b>';
+
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                {
+                    revisionNumber: 1,
+                    previousCaption: xssPrevious,
+                    caption: xssCaption,
+                    editedAt: '2026-10-01T10:00:00Z'
+                }
+            ]))
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const boxes = modal.querySelectorAll('.community-history-caption-box');
+        assert.strictEqual(boxes.length, 2);
+        assert.strictEqual(boxes[0].textContent, xssPrevious, 'Previous caption textContent preserves exact string safely');
+        assert.strictEqual(boxes[1].textContent, xssCaption, 'Current caption textContent preserves exact string safely');
+    });
+
+    test('10. 200 [] success renders empty history message without alert', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('[]')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, true, 'Alert must be hidden on empty array success');
+        const listContainer = modal.querySelector('#communityRevisionList');
+        assert.strictEqual(listContainer.textContent.includes('Chưa có lịch sử chỉnh sửa.'), true);
+    });
+
+    test('11. 200 malformed JSON -> invalid response (not network error)', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('{malformed-json')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('12. 200 JSON object -> invalid response (not empty history)', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify({ revisions: [] }))
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('13. 201 JSON array -> invalid response', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 201,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('[]')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('14. 204 No Content -> invalid response', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('15. 401 Unauthorized -> auth/session message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 401,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('{"message":"Unauthorized"}')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    });
+
+    test('16. 403 Forbidden -> access message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 403,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('{"message":"Forbidden"}')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Bạn không có quyền xem lịch sử chỉnh sửa của bài viết này.');
+    });
+
+    test('17. 404 Not Found -> "Bài viết không còn tồn tại hoặc đã bị xóa."', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 404,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify({ message: 'Post not found' }))
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Bài viết không còn tồn tại hoặc đã bị xóa.');
+        assert.strictEqual(modal.querySelector('#communityRevisionModalSpinner').hidden, true, 'Spinner hidden on 404');
+    });
+
+    test('18. redirected /login -> auth/session message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: true,
+            url: 'https://kiemlai.vn/login?returnTo=/community',
+            headers: { get: () => 'text/html' },
+            text: () => Promise.resolve('<html>Login</html>')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    });
+
+    test('19. redirected /access-denied -> access/session message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: true,
+            url: 'https://kiemlai.vn/access-denied',
+            headers: { get: () => 'text/html' },
+            text: () => Promise.resolve('<html>Access Denied</html>')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+    });
+
+    test('20. 500 Server Error -> server/history-load error', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 500,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve('{"message":"Internal Server Error"}')
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại sau.');
+    });
+
+    test('21. actual fetch rejection -> network message', async () => {
+        global.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, false, 'Alert must be visible');
+        assert.strictEqual(alertDiv.textContent, 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng.');
+        assert.strictEqual(modal.querySelector('#communityRevisionModalSpinner').hidden, true, 'Spinner hidden on network failure');
+    });
+
+    test('22. close while request pending -> late response discarded', async () => {
+        let resolveFetch;
+        global.fetch = () => new Promise(resolve => {
+            resolveFetch = resolve;
+        });
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.strictEqual(modal.hidden, false);
+
+        // User closes modal before response arrives
+        CommunityPostCard.closeRevisionModal(mockDoc);
+        assert.strictEqual(modal.hidden, true);
+
+        // Late response arrives
+        resolveFetch({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 1, caption: 'Late Rev', previousCaption: 'Orig', editedAt: '2026-10-01T10:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.strictEqual(modal.hidden, true, 'Modal remains closed');
+        assert.strictEqual(modal.querySelectorAll('.community-history-item').length, 0, 'Late revisions must be discarded');
+    });
+
+    test('23. A pending -> B opened -> A late response cannot overwrite B', async () => {
+        let resolveFetchA;
+        let resolveFetchB;
+
+        global.fetch = (url) => {
+            if (url.includes(POST_A_ID)) {
+                return new Promise(resolve => { resolveFetchA = resolve; });
+            }
+            if (url.includes(POST_B_ID)) {
+                return new Promise(resolve => { resolveFetchB = resolve; });
+            }
+            return Promise.reject(new Error('Unknown url'));
+        };
+
+        // 1. Open modal for Post A
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+
+        // 2. Open modal for Post B before A finishes
+        CommunityPostCard.openRevisionModal(POST_B_ID, null, mockDoc);
+
+        // 3. Post B resolves first
+        resolveFetchB({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 1, caption: 'Post B Revision', previousCaption: 'Post B Orig', editedAt: '2026-10-01T12:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        let boxes = modal.querySelectorAll('.community-history-caption-box');
+        assert.strictEqual(boxes[1].textContent, 'Post B Revision', 'Modal renders revisions for Post B');
+
+        // 4. Stale Post A response arrives later
+        resolveFetchA({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 1, caption: 'Post A Revision', previousCaption: 'Post A Orig', editedAt: '2026-10-01T10:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        boxes = modal.querySelectorAll('.community-history-caption-box');
+        assert.strictEqual(boxes[1].textContent, 'Post B Revision', 'Stale response for Post A must NOT overwrite Post B revisions');
+    });
+
+    test('24. close/reopen same post -> old response discarded', async () => {
+        let resolveFetchSession1;
+        let resolveFetchSession2;
+        let callCount = 0;
+        global.fetch = () => {
+            callCount++;
+            if (callCount === 1) {
+                return new Promise(r => { resolveFetchSession1 = r; });
+            }
+            return new Promise(r => { resolveFetchSession2 = r; });
+        };
+
+        // Open session 1
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        // Close session 1
+        CommunityPostCard.closeRevisionModal(mockDoc);
+        // Open session 2 for same post
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+
+        // Session 2 resolves
+        resolveFetchSession2({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 2, caption: 'Session 2 Cap', previousCaption: 'Orig', editedAt: '2026-10-01T12:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        let boxes = modal.querySelectorAll('.community-history-caption-box');
+        assert.strictEqual(boxes[1].textContent, 'Session 2 Cap');
+
+        // Session 1 arrives late
+        resolveFetchSession1({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 1, caption: 'Session 1 Stale Cap', previousCaption: 'Orig', editedAt: '2026-10-01T10:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        boxes = modal.querySelectorAll('.community-history-caption-box');
+        assert.strictEqual(boxes[1].textContent, 'Session 2 Cap', 'Late session 1 response must not overwrite session 2');
+    });
+
+    test('25. stale failure responses cannot overwrite current modal state', async () => {
+        let rejectFetchA;
+        let resolveFetchB;
+        global.fetch = (url) => {
+            if (url.includes(POST_A_ID)) {
+                return new Promise((_, reject) => { rejectFetchA = reject; });
+            }
+            if (url.includes(POST_B_ID)) {
+                return new Promise(resolve => { resolveFetchB = resolve; });
+            }
+            return Promise.reject(new Error('Unknown url'));
+        };
+
+        // 1. Open modal for Post A (pending)
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        // 2. Open modal for Post B before A finishes
+        CommunityPostCard.openRevisionModal(POST_B_ID, null, mockDoc);
+
+        // 3. Post B resolves successfully
+        resolveFetchB({
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            text: () => Promise.resolve(JSON.stringify([
+                { revisionNumber: 1, caption: 'Post B Revision', previousCaption: 'Post B Orig', editedAt: '2026-10-01T12:00:00Z' }
+            ]))
+        });
+        await new Promise(resolve => setImmediate(resolve));
+
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        const alertDiv = modal.querySelector('#communityRevisionModalAlert');
+        assert.strictEqual(alertDiv.hidden, true, 'Alert is hidden for successful Post B');
+
+        // 4. Stale Post A rejects / fails late with network error
+        rejectFetchA(new Error('Network error'));
+        await new Promise(resolve => setImmediate(resolve));
+
+        assert.strictEqual(alertDiv.hidden, true, 'Stale failure for Post A must NOT overwrite Post B state with an error');
+    });
+
+    test('26. ESC closes', () => {
+        global.fetch = () => new Promise(() => {});
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.strictEqual(modal.hidden, false);
+
+        mockDoc.dispatchEvent({ type: 'keydown', key: 'Escape' });
+        assert.strictEqual(modal.hidden, true, 'Escape keydown must close revision modal');
+    });
+
+    test('27. backdrop closes', () => {
+        global.fetch = () => new Promise(() => {});
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.strictEqual(modal.hidden, false);
+
+        const backdrop = modal.querySelector('.kl-modal-backdrop');
+        backdrop.dispatchEvent('click');
+        assert.strictEqual(modal.hidden, true, 'Backdrop click must close revision modal');
+    });
+
+    test('28. close button closes', () => {
+        global.fetch = () => new Promise(() => {});
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        const modal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.strictEqual(modal.hidden, false);
+
+        const closeBtn = modal.querySelector('#communityRevisionCloseBtn');
+        closeBtn.dispatchEvent('click');
+        assert.strictEqual(modal.hidden, true, 'Close button click must close revision modal');
+
+        // Also verify footer close button
+        CommunityPostCard.openRevisionModal(POST_A_ID, null, mockDoc);
+        assert.strictEqual(modal.hidden, false);
+        const footerCloseBtn = modal.querySelector('#communityRevisionFooterCloseBtn');
+        footerCloseBtn.dispatchEvent('click');
+        assert.strictEqual(modal.hidden, true, 'Footer close button click must close revision modal');
+    });
+
+    test('29. focus restored to trigger', () => {
+        global.fetch = () => new Promise(() => {});
+
+        let focusCalled = false;
+        const fakeTrigger = mockDoc.createElement('button');
+        fakeTrigger.focus = () => { focusCalled = true; };
+
+        CommunityPostCard.openRevisionModal(POST_A_ID, fakeTrigger, mockDoc);
+        assert.strictEqual(focusCalled, false);
+
+        CommunityPostCard.closeRevisionModal(mockDoc);
+        assert.strictEqual(focusCalled, true, 'Closing revision modal must restore focus to trigger button');
+    });
+});
+
+describe('CommunityPostCard.classifyRevisionResponse Pure Classifier Unit Tests', () => {
+    const classify = CommunityPostCard.classifyRevisionResponse;
+
+    test('1. null response -> invalid response error', () => {
+        const result = classify(null, '');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('2. redirected /login -> auth/session message', () => {
+        const result = classify({
+            redirected: true,
+            url: 'https://kiemlai.vn/login?returnTo=/community',
+            status: 200
+        }, '<html>login</html>');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    });
+
+    test('3. redirected /access-denied -> access/session message', () => {
+        const result = classify({
+            redirected: true,
+            url: 'https://kiemlai.vn/access-denied',
+            status: 200
+        }, '<html>denied</html>');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+    });
+
+    test('4. HTTP 401 -> auth/session message', () => {
+        const result = classify({
+            status: 401,
+            headers: { get: () => 'application/json' }
+        }, '{"message":"Unauthorized"}');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    });
+
+    test('5. HTTP 403 -> access message', () => {
+        const result = classify({
+            status: 403,
+            headers: { get: () => 'application/json' }
+        }, '{"message":"Forbidden"}');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Bạn không có quyền xem lịch sử chỉnh sửa của bài viết này.');
+    });
+
+    test('6. HTTP 404 -> "Bài viết không còn tồn tại hoặc đã bị xóa."', () => {
+        const result = classify({
+            status: 404,
+            headers: { get: () => 'application/json' }
+        }, '{"message":"Not found"}');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Bài viết không còn tồn tại hoặc đã bị xóa.');
+    });
+
+    test('7. HTTP 500 / 503 -> "Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại sau."', () => {
+        const res500 = classify({ status: 500, headers: { get: () => 'application/json' } }, '');
+        assert.strictEqual(res500.success, false);
+        assert.strictEqual(res500.message, 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại sau.');
+
+        const res503 = classify({ status: 503, headers: { get: () => 'application/json' } }, '');
+        assert.strictEqual(res503.success, false);
+        assert.strictEqual(res503.message, 'Không thể tải lịch sử chỉnh sửa. Vui lòng thử lại sau.');
+    });
+
+    test('8. Non-200 2xx (201, 202, 204) -> invalid response message', () => {
+        const res201 = classify({ status: 201, headers: { get: () => 'application/json' } }, '[]');
+        assert.strictEqual(res201.success, false);
+        assert.strictEqual(res201.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+
+        const res204 = classify({ status: 204, headers: { get: () => 'application/json' } }, '');
+        assert.strictEqual(res204.success, false);
+        assert.strictEqual(res204.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('9. HTTP 200 non-JSON content-type -> invalid response message', () => {
+        const result = classify({
+            status: 200,
+            headers: { get: () => 'text/html' }
+        }, '<html>some html</html>');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('10. HTTP 200 malformed JSON -> invalid response message', () => {
+        const result = classify({
+            status: 200,
+            headers: { get: () => 'application/json' }
+        }, '{not-json');
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('11. HTTP 200 JSON object / non-array -> invalid response message', () => {
+        const resObj = classify({
+            status: 200,
+            headers: { get: () => 'application/json' }
+        }, '{"revisions":[]}');
+        assert.strictEqual(resObj.success, false);
+        assert.strictEqual(resObj.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+
+        const resNum = classify({
+            status: 200,
+            headers: { get: () => 'application/json' }
+        }, '123');
+        assert.strictEqual(resNum.success, false);
+        assert.strictEqual(resNum.message, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+    });
+
+    test('12. HTTP 200 valid JSON array [] -> success with empty array', () => {
+        const result = classify({
+            status: 200,
+            headers: { get: () => 'application/json' }
+        }, '[]');
+        assert.strictEqual(result.success, true);
+        assert.deepStrictEqual(result.data, []);
+    });
+
+    test('13. HTTP 200 valid JSON array with items -> success with items', () => {
+        const items = [{ revisionNumber: 1, caption: 'test' }];
+        const result = classify({
+            status: 200,
+            headers: { get: () => 'application/json' }
+        }, JSON.stringify(items));
+        assert.strictEqual(result.success, true);
+        assert.deepStrictEqual(result.data, items);
     });
 });

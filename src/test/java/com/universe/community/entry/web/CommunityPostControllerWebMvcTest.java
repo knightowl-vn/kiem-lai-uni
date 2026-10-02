@@ -6,9 +6,11 @@ import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.application.usecase.GetCommunityPostRevisionsUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
+import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -114,6 +116,9 @@ class CommunityPostControllerWebMvcTest {
 
     @MockBean
     private GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
+
+    @MockBean
+    private GetCommunityPostRevisionsUseCase getCommunityPostRevisionsUseCase;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -833,5 +838,78 @@ class CommunityPostControllerWebMvcTest {
         mockMvc.perform(get("/api/community/posts").param("cursor", "bad-cursor"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Invalid cursor format."));
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts/{postId}/revisions as guest -> 200 OK with ordered revisions list")
+    void guestGetPostRevisions_ShouldReturn200WithRevisionsList() throws Exception {
+        Instant t1 = Instant.parse("2026-10-02T10:00:00Z");
+        Instant t2 = Instant.parse("2026-10-02T11:00:00Z");
+
+        CommunityPostRevisionPublicDTO rev2 = new CommunityPostRevisionPublicDTO(
+                UUID.randomUUID(),
+                POST_ID,
+                2,
+                USER_ID,
+                "Caption v1",
+                "Caption v2",
+                t2
+        );
+        CommunityPostRevisionPublicDTO rev1 = new CommunityPostRevisionPublicDTO(
+                UUID.randomUUID(),
+                POST_ID,
+                1,
+                USER_ID,
+                "Caption v0",
+                "Caption v1",
+                t1
+        );
+
+        when(getCommunityPostRevisionsUseCase.execute(POST_ID)).thenReturn(List.of(rev2, rev1));
+
+        mockMvc.perform(get("/api/community/posts/{postId}/revisions", POST_ID)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", Matchers.hasSize(2)))
+                .andExpect(jsonPath("$[0].revisionNumber").value(2))
+                .andExpect(jsonPath("$[0].previousCaption").value("Caption v1"))
+                .andExpect(jsonPath("$[0].caption").value("Caption v2"))
+                .andExpect(jsonPath("$[0].editedAt").value(t2.toString()))
+                .andExpect(jsonPath("$[1].revisionNumber").value(1))
+                .andExpect(jsonPath("$[1].previousCaption").value("Caption v0"))
+                .andExpect(jsonPath("$[1].caption").value("Caption v1"))
+                .andExpect(jsonPath("$[1].editedAt").value(t1.toString()));
+
+        verify(getCommunityPostRevisionsUseCase).execute(POST_ID);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts/{postId}/revisions for unedited post -> 200 OK with empty array")
+    void guestGetPostRevisions_WhenZeroRevisions_ShouldReturn200EmptyArray() throws Exception {
+        when(getCommunityPostRevisionsUseCase.execute(POST_ID)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/community/posts/{postId}/revisions", POST_ID)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", Matchers.hasSize(0)));
+
+        verify(getCommunityPostRevisionsUseCase).execute(POST_ID);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /api/community/posts/{postId}/revisions for missing post -> 404 Not Found")
+    void guestGetPostRevisions_WhenPostNotFound_ShouldReturn404() throws Exception {
+        when(getCommunityPostRevisionsUseCase.execute(POST_ID))
+                .thenThrow(new CommunityPostNotFoundException(POST_ID));
+
+        mockMvc.perform(get("/api/community/posts/{postId}/revisions", POST_ID)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value(Matchers.containsString(POST_ID.toString())));
+
+        verify(getCommunityPostRevisionsUseCase).execute(POST_ID);
     }
 }

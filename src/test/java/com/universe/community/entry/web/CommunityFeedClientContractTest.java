@@ -150,6 +150,17 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("communityDeletePostModal");
         assertThat(js).contains("response.status === 204");
         assertThat(js).contains("isDeleting");
+
+        // 10. B8.3.3 Public Revision History contract
+        assertThat(js).contains("data-action=\"view-revisions\"");
+        assertThat(js).contains("post-edited-indicator");
+        assertThat(js).contains("Number(item.contentVersion) > 0");
+        assertThat(js).contains("communityRevisionHistoryModal");
+        assertThat(js).contains("'/api/community/posts/' + encodeURIComponent(postId) + '/revisions'");
+        assertThat(js).contains("prevBox.textContent = ");
+        assertThat(js).contains("nextBox.textContent = ");
+        assertThat(js).doesNotContain("prevBox.innerHTML");
+        assertThat(js).doesNotContain("nextBox.innerHTML");
     }
 
     private String read(String relativePath) throws Exception {

@@ -6,6 +6,7 @@ import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCase;
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
+import com.universe.community.application.usecase.GetCommunityPostRevisionsUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
@@ -71,6 +72,9 @@ class CommunityPostControllerTest {
     @Mock
     private GetCommunityFeaturedFeedUseCase getCommunityFeaturedFeedUseCase;
 
+    @Mock
+    private GetCommunityPostRevisionsUseCase getCommunityPostRevisionsUseCase;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -80,7 +84,8 @@ class CommunityPostControllerTest {
                 deleteCommunityPostUseCase,
                 editCommunityPostCaptionUseCase,
                 getCommunityNewestFeedUseCase,
-                getCommunityFeaturedFeedUseCase
+                getCommunityFeaturedFeedUseCase,
+                getCommunityPostRevisionsUseCase
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
