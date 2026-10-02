@@ -120,6 +120,8 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("items", List.of(item)))
                 .andExpect(model().attribute("nextCursor", "next-cursor-token"))
                 .andExpect(model().attribute("hasNext", true))
+                .andExpect(model().attribute("returnTo", "/community"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community\"")))
                 .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
                 .andExpect(content().string(not(containsString("post-actions-dropdown"))))
                 .andExpect(content().string(not(containsString("data-action=\"edit-post\""))));
@@ -209,7 +211,9 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("activeNav", "community"))
                 .andExpect(model().attribute("items", List.of(item)))
                 .andExpect(model().attribute("nextPage", 1))
-                .andExpect(model().attribute("hasNext", true));
+                .andExpect(model().attribute("hasNext", true))
+                .andExpect(model().attribute("returnTo", "/community?feed=FEATURED"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community?feed%3DFEATURED\"")));
 
         verify(getCommunityFeaturedFeedUseCase).execute(0, 20);
     }

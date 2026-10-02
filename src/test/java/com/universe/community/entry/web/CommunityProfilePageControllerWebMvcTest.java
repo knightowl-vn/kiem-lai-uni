@@ -121,6 +121,8 @@ class CommunityProfilePageControllerWebMvcTest {
                 .andExpect(model().attributeExists("profile"))
                 .andExpect(model().attribute("profile", profileDTO))
                 .andExpect(model().attribute("activeNav", "community"))
+                .andExpect(model().attribute("returnTo", "/community/@" + handle))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community/@linh_dao\"")))
                 .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
                 .andExpect(content().string(not(containsString("post-actions-dropdown"))))
                 .andExpect(content().string(not(containsString("data-action=\"edit-post\""))));

@@ -8,22 +8,50 @@
  * - Empty-state and loading-spinner toggling.
  * - Integration with RelativeTime engine for dynamic timestamps.
  * - Global window.CommunityFeed.refreshFeed() hook for composer reload.
+ * - Generation ownership (currentFeedGeneration) preventing mode-switch / composer-refresh async races (B81-02).
+ * - Non-destructive error UI feedback and retry affordance for feed AJAX failures (B81-03).
  */
-(function () {
+(function (root, factory) {
+    'use strict';
+    if (typeof module === 'object' && typeof module.exports === 'object') {
+        let postCard, relativeTime, interactionReactions;
+        try { postCard = require('./community-post-card.js'); } catch (_) {}
+        try { relativeTime = require('../shared/relative-time.js'); } catch (_) {}
+        try { interactionReactions = require('../shared/interaction-reactions.js'); } catch (_) {}
+        module.exports = factory(postCard, relativeTime, interactionReactions);
+    } else {
+        const exports = factory(root.CommunityPostCard, root.RelativeTime, root.InteractionReactions);
+        root.CommunityFeed = exports;
+        if (typeof window !== 'undefined') {
+            window.CommunityFeed = exports;
+        }
+        if (!root.KiemLai) {
+            root.KiemLai = {};
+        }
+        root.KiemLai.CommunityFeed = exports;
+    }
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function (injectedPostCard, injectedRelativeTime, injectedReactions) {
     'use strict';
 
     const PAGE_SIZE = 20;
 
+    let currentDoc = null;
     let currentFeed = 'NEWEST';
     let nextCursor = null;
     let nextPage = null;
     let hasNext = false;
     let isLoading = false;
+    let currentFeedGeneration = 0;
+    let activeLoadingGeneration = 0;
+    let initialized = false;
 
-    document.addEventListener('DOMContentLoaded', initFeed);
+    function initFeed(doc) {
+        currentDoc = doc || (typeof document !== 'undefined' ? document : null);
+        if (!currentDoc) {
+            return;
+        }
 
-    function initFeed() {
-        const feedListEl = document.getElementById('communityFeedList');
+        const feedListEl = currentDoc.getElementById('communityFeedList');
         if (!feedListEl) {
             return;
         }
@@ -36,9 +64,9 @@
         hasNext = feedListEl.getAttribute('data-has-next') === 'true';
 
         // Bind feed sort dropdown
-        const sortContainer = document.getElementById('communityFeedSortDropdown');
-        const sortTrigger = document.getElementById('communityFeedSortTrigger');
-        const sortMenu = document.getElementById('communityFeedSortMenu');
+        const sortContainer = currentDoc.getElementById('communityFeedSortDropdown');
+        const sortTrigger = currentDoc.getElementById('communityFeedSortTrigger');
+        const sortMenu = currentDoc.getElementById('communityFeedSortMenu');
 
         function openFeedSort() {
             if (sortTrigger && sortMenu) {
@@ -61,7 +89,8 @@
             }
         }
 
-        if (sortTrigger) {
+        if (sortTrigger && !sortTrigger._feedBound) {
+            sortTrigger._feedBound = true;
             sortTrigger.addEventListener('click', function (e) {
                 if (e && typeof e.preventDefault === 'function') e.preventDefault();
                 if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
@@ -74,35 +103,40 @@
             });
         }
 
-        if (sortMenu) {
+        if (sortMenu && !sortMenu._feedBound) {
+            sortMenu._feedBound = true;
             const sortItems = sortMenu.querySelectorAll('[data-action="change-feed-sort"]');
             sortItems.forEach(function (btn) {
                 btn.addEventListener('click', function (e) {
                     if (e && typeof e.preventDefault === 'function') e.preventDefault();
                     const feedType = btn.getAttribute('data-feed');
                     closeFeedSort(false);
-                    if (feedType && feedType !== currentFeed && !isLoading) {
+                    if (feedType && feedType !== currentFeed) {
                         switchFeed(feedType);
                     }
                 });
             });
         }
 
-        document.addEventListener('click', function (e) {
-            if (sortContainer && !sortContainer.contains(e.target)) {
-                closeFeedSort(false);
-            }
-        });
+        if (!currentDoc._feedGlobalBound) {
+            currentDoc._feedGlobalBound = true;
+            currentDoc.addEventListener('click', function (e) {
+                if (sortContainer && !sortContainer.contains(e.target)) {
+                    closeFeedSort(false);
+                }
+            });
 
-        document.addEventListener('keydown', function (e) {
-            if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
-                closeFeedSort(true);
-            }
-        });
+            currentDoc.addEventListener('keydown', function (e) {
+                if (e && (e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27)) {
+                    closeFeedSort(true);
+                }
+            });
+        }
 
         // Bind Load More button
-        const loadMoreBtn = document.getElementById('communityLoadMoreBtn');
-        if (loadMoreBtn) {
+        const loadMoreBtn = currentDoc.getElementById('communityLoadMoreBtn');
+        if (loadMoreBtn && !loadMoreBtn._feedBound) {
+            loadMoreBtn._feedBound = true;
             loadMoreBtn.addEventListener('click', function () {
                 if (!isLoading && hasNext) {
                     loadMorePosts();
@@ -110,47 +144,88 @@
             });
         }
 
-        // Expose public API
-        window.CommunityFeed = {
-            refreshFeed: function (feedType) {
-                switchFeed(feedType || currentFeed);
-            },
-            switchFeed: switchFeed,
-            getCurrentFeed: function () {
-                return currentFeed;
-            },
-            init: initFeed
-        };
+        if (typeof window !== 'undefined') {
+            window.CommunityFeed = {
+                refreshFeed: function (feedType) {
+                    switchFeed(feedType || currentFeed);
+                },
+                switchFeed: switchFeed,
+                loadMorePosts: loadMorePosts,
+                getCurrentFeed: function () {
+                    return currentFeed;
+                },
+                getCurrentGeneration: function () {
+                    return currentFeedGeneration;
+                },
+                init: initFeed,
+                resetForTesting: resetForTesting
+            };
+        }
+
+        initialized = true;
     }
 
-    function switchFeed(feedType) {
+    function switchFeed(feedType, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return Promise.resolve(false);
+
+        feedType = feedType || 'NEWEST';
+        currentFeedGeneration++;
+        const gen = currentFeedGeneration;
+
         currentFeed = feedType;
         nextCursor = null;
         nextPage = (feedType === 'FEATURED') ? 0 : null;
         hasNext = false;
 
-        updateFeedSortUi(feedType);
+        updateFeedSortUi(feedType, d);
         updateBrowserUrl(feedType);
+        hideFeedError(d);
 
-        // Clear existing cards
-        const feedListEl = document.getElementById('communityFeedList');
+        // Clear existing cards immediately
+        const feedListEl = d.getElementById('communityFeedList');
         if (feedListEl) {
-            // Keep emptyFeedMessage element, remove article cards
             const articles = feedListEl.querySelectorAll('.community-post-card');
             articles.forEach(function (el) {
                 el.remove();
             });
+            const emptyMsgEl = d.getElementById('emptyFeedMessage');
+            if (emptyMsgEl) {
+                emptyMsgEl.setAttribute('hidden', '');
+            }
         }
 
-        fetchFeedPage(true);
+        return fetchFeedPage(true, gen, d);
     }
 
-    function updateFeedSortUi(feedType) {
-        const sortLabel = document.getElementById('communityFeedSortLabel');
+    function refreshFeed(feedType, doc) {
+        return switchFeed(feedType || currentFeed, doc);
+    }
+
+    function loadMorePosts(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return Promise.resolve(false);
+
+        if (isLoading && activeLoadingGeneration === currentFeedGeneration) {
+            return Promise.resolve(false);
+        }
+        if (!hasNext) {
+            return Promise.resolve(false);
+        }
+
+        hideFeedError(d);
+        return fetchFeedPage(false, currentFeedGeneration, d);
+    }
+
+    function updateFeedSortUi(feedType, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+
+        const sortLabel = d.getElementById('communityFeedSortLabel');
         if (sortLabel) {
             sortLabel.textContent = (feedType === 'FEATURED') ? 'Nổi bật' : 'Mới nhất';
         }
-        const sortMenu = document.getElementById('communityFeedSortMenu');
+        const sortMenu = d.getElementById('communityFeedSortMenu');
         if (sortMenu) {
             const items = sortMenu.querySelectorAll('[data-action="change-feed-sort"]');
             items.forEach(function (btn) {
@@ -167,23 +242,21 @@
         }
     }
 
-    function updateTabUi(feedType) {
-        updateFeedSortUi(feedType);
-    }
-
     function updateBrowserUrl(feedType) {
-        if (window.history && window.history.pushState) {
+        if (typeof window !== 'undefined' && window.history && typeof window.history.pushState === 'function') {
             const newUrl = '/community?feed=' + feedType;
-            window.history.pushState({ feed: feedType }, '', newUrl);
+            try {
+                window.history.pushState({ feed: feedType }, '', newUrl);
+            } catch (_) {}
         }
     }
 
-    function fetchFeedPage(isInitial) {
-        if (isLoading) {
-            return;
-        }
+    function fetchFeedPage(isInitial, gen, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return Promise.resolve(false);
 
-        setLoading(true);
+        activeLoadingGeneration = gen;
+        setLoading(true, d);
 
         let url = '/api/community/posts?feed=' + encodeURIComponent(currentFeed) + '&size=' + PAGE_SIZE;
         if (!isInitial) {
@@ -194,36 +267,60 @@
             }
         }
 
-        fetch(url)
+        const fetchFn = (typeof fetch === 'function') ? fetch : (typeof globalThis !== 'undefined' && globalThis.fetch ? globalThis.fetch : null);
+        if (!fetchFn) {
+            console.error('Fetch API not available');
+            setLoading(false, d);
+            return Promise.resolve(false);
+        }
+
+        return fetchFn(url)
             .then(function (res) {
+                if (gen !== currentFeedGeneration) {
+                    return null;
+                }
                 if (!res.ok) {
                     throw new Error('Không thể tải bài viết');
                 }
                 return res.json();
             })
             .then(function (data) {
-                renderFeedData(data, isInitial);
+                if (!data || gen !== currentFeedGeneration) {
+                    return false;
+                }
+                renderFeedData(data, isInitial, d);
+                return true;
             })
             .catch(function (err) {
+                if (gen !== currentFeedGeneration) {
+                    return false;
+                }
                 console.error('Error fetching feed:', err);
+                showFeedError(d, 'Không thể tải bài viết. Vui lòng thử lại.', function () {
+                    if (gen === currentFeedGeneration) {
+                        fetchFeedPage(isInitial, currentFeedGeneration, d);
+                    }
+                });
+                return false;
             })
             .finally(function () {
-                setLoading(false);
+                if (gen === currentFeedGeneration) {
+                    setLoading(false, d);
+                }
             });
     }
 
-    function loadMorePosts() {
-        fetchFeedPage(false);
-    }
+    function renderFeedData(data, isInitial, doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
 
-    function renderFeedData(data, isInitial) {
-        const feedListEl = document.getElementById('communityFeedList');
-        const emptyMsgEl = document.getElementById('emptyFeedMessage');
-        const loadMoreContainer = document.querySelector('.community-load-more-container');
+        const feedListEl = d.getElementById('communityFeedList');
+        const emptyMsgEl = d.getElementById('emptyFeedMessage');
+        const loadMoreContainer = d.querySelector('.community-load-more-container');
 
-        if (!feedListEl) {
-            return;
-        }
+        if (!feedListEl) return;
+
+        hideFeedError(d);
 
         const items = data.items || [];
         hasNext = !!data.hasNext;
@@ -244,21 +341,27 @@
             emptyMsgEl.setAttribute('hidden', '');
         }
 
+        const postCardModule = (typeof window !== 'undefined' && window.CommunityPostCard) ? window.CommunityPostCard : injectedPostCard;
+        const relTimeModule = (typeof window !== 'undefined' && window.RelativeTime) ? window.RelativeTime : injectedRelativeTime;
+        const reactionsModule = (typeof window !== 'undefined' && window.InteractionReactions) ? window.InteractionReactions : injectedReactions;
+
         items.forEach(function (item) {
-            const card = createPostCardElement(item);
+            const card = createPostCardElement(item, d, postCardModule);
             if (emptyMsgEl) {
                 feedListEl.insertBefore(card, emptyMsgEl);
             } else {
                 feedListEl.appendChild(card);
             }
 
-            // Format relative time if engine available
-            if (window.RelativeTime && typeof window.RelativeTime.formatTree === 'function') {
+            if (relTimeModule && typeof relTimeModule.formatTree === 'function') {
+                relTimeModule.formatTree(card);
+            } else if (typeof window !== 'undefined' && window.RelativeTime && typeof window.RelativeTime.formatTree === 'function') {
                 window.RelativeTime.formatTree(card);
             }
 
-            // Hydrate reaction widget if engine available
-            if (window.InteractionReactions && typeof window.InteractionReactions.hydrate === 'function') {
+            if (reactionsModule && typeof reactionsModule.hydrate === 'function') {
+                reactionsModule.hydrate(card);
+            } else if (typeof window !== 'undefined' && window.InteractionReactions && typeof window.InteractionReactions.hydrate === 'function') {
                 window.InteractionReactions.hydrate(card);
             }
         });
@@ -272,19 +375,84 @@
         }
     }
 
-    function createPostCardElement(item) {
-        if (window.CommunityPostCard && typeof window.CommunityPostCard.create === 'function') {
-            const feedListEl = document.getElementById('communityFeedList');
+    function createPostCardElement(item, doc, postCardModule) {
+        const mod = postCardModule || (typeof window !== 'undefined' ? window.CommunityPostCard : null) || injectedPostCard;
+        if (mod && typeof mod.create === 'function') {
+            const feedListEl = doc.getElementById('communityFeedList');
+            const isAuth = feedListEl ? feedListEl.getAttribute('data-authenticated') === 'true' : false;
+            return mod.create(item, { isAuthenticated: isAuth }, doc);
+        }
+        if (typeof window !== 'undefined' && window.CommunityPostCard && typeof window.CommunityPostCard.create === 'function') {
+            const feedListEl = doc.getElementById('communityFeedList');
             const isAuth = feedListEl ? feedListEl.getAttribute('data-authenticated') === 'true' : false;
             return window.CommunityPostCard.create(item, { isAuthenticated: isAuth });
         }
         throw new Error('CommunityPostCard module is required to render post cards.');
     }
 
-    function setLoading(loading) {
+    function showFeedError(doc, message, retryCallback) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+
+        let errEl = d.getElementById('feedErrorMessage');
+        const feedListEl = d.getElementById('communityFeedList');
+        if (!errEl && feedListEl) {
+            errEl = d.createElement('div');
+            errEl.id = 'feedErrorMessage';
+            errEl.className = 'community-feed-error-card alert alert-warning text-center my-3';
+            errEl.setAttribute('role', 'alert');
+            feedListEl.appendChild(errEl);
+        }
+
+        if (errEl) {
+            errEl.innerHTML = '';
+            const msgSpan = d.createElement('span');
+            msgSpan.className = 'feed-error-text me-2';
+            msgSpan.textContent = message || 'Không thể tải bài viết. Vui lòng thử lại.';
+            errEl.appendChild(msgSpan);
+
+            const retryBtn = d.createElement('button');
+            retryBtn.type = 'button';
+            retryBtn.className = 'btn btn-sm btn-outline-danger feed-retry-btn';
+            retryBtn.setAttribute('data-action', 'retry-feed');
+            retryBtn.textContent = 'Thử lại';
+            retryBtn.addEventListener('click', function () {
+                hideFeedError(d);
+                if (typeof retryCallback === 'function') {
+                    retryCallback();
+                }
+            });
+            errEl.appendChild(retryBtn);
+            errEl.removeAttribute('hidden');
+        }
+
+        const emptyMsgEl = d.getElementById('emptyFeedMessage');
+        if (emptyMsgEl) {
+            emptyMsgEl.setAttribute('hidden', '');
+        }
+
+        const loadMoreBtn = d.getElementById('communityLoadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.setAttribute('hidden', '');
+        }
+    }
+
+    function hideFeedError(doc) {
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+        const errEl = d.getElementById('feedErrorMessage');
+        if (errEl) {
+            errEl.setAttribute('hidden', '');
+        }
+    }
+
+    function setLoading(loading, doc) {
         isLoading = loading;
-        const spinner = document.getElementById('feedLoadingSpinner');
-        const loadMoreBtn = document.getElementById('communityLoadMoreBtn');
+        const d = doc || currentDoc || (typeof document !== 'undefined' ? document : null);
+        if (!d) return;
+
+        const spinner = d.getElementById('feedLoadingSpinner');
+        const loadMoreBtn = d.getElementById('communityLoadMoreBtn');
 
         if (spinner) {
             if (loading) {
@@ -299,7 +467,43 @@
                 loadMoreBtn.setAttribute('hidden', '');
             } else if (hasNext) {
                 loadMoreBtn.removeAttribute('hidden');
+            } else {
+                loadMoreBtn.setAttribute('hidden', '');
             }
         }
     }
-})();
+
+    function resetForTesting() {
+        currentDoc = null;
+        currentFeed = 'NEWEST';
+        nextCursor = null;
+        nextPage = null;
+        hasNext = false;
+        isLoading = false;
+        currentFeedGeneration = 0;
+        activeLoadingGeneration = 0;
+        initialized = false;
+    }
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('DOMContentLoaded', function () {
+            initFeed();
+        });
+    }
+
+    return {
+        init: initFeed,
+        switchFeed: switchFeed,
+        refreshFeed: refreshFeed,
+        loadMorePosts: loadMorePosts,
+        getCurrentFeed: function () { return currentFeed; },
+        getCurrentGeneration: function () { return currentFeedGeneration; },
+        getIsLoading: function () { return isLoading; },
+        getHasNext: function () { return hasNext; },
+        getNextCursor: function () { return nextCursor; },
+        getNextPage: function () { return nextPage; },
+        showFeedError: showFeedError,
+        hideFeedError: hideFeedError,
+        resetForTesting: resetForTesting
+    };
+});

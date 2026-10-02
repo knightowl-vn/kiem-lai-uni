@@ -10,31 +10,119 @@
  * - Error alert handling.
  * - Success callback triggering feed reload on NEWEST tab.
  */
-(function () {
+(function (root, factory) {
+    'use strict';
+    if (typeof module === 'object' && typeof module.exports === 'object') {
+        module.exports = factory();
+    } else {
+        const exports = factory();
+        root.CommunityComposer = exports;
+        if (!root.KiemLai) {
+            root.KiemLai = {};
+        }
+        root.KiemLai.CommunityComposer = exports;
+    }
+})(typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : this, function () {
     'use strict';
 
     const MAX_CAPTION_LENGTH = 2000;
     const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
     const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-    document.addEventListener('DOMContentLoaded', initComposer);
+    let injectedFetch = null;
+    let previewGeneration = 0;
 
-    function initComposer() {
-        const form = document.getElementById('communityComposerForm');
+    function getHeaderValue(headers, name) {
+        if (!headers) return '';
+        if (typeof headers.get === 'function') return headers.get(name) || '';
+        return headers[name] || headers[name.toLowerCase()] || '';
+    }
+
+    async function parseComposerResponse(response) {
+        const isRedirected = Boolean(
+            response.redirected ||
+            (response.url && (response.url.includes('/login') || response.url.includes('/access-denied')))
+        );
+        const urlStr = response.url || '';
+
+        if (isRedirected || urlStr.includes('/login') || urlStr.includes('/access-denied')) {
+            if (urlStr.includes('/login')) {
+                throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            }
+            if (urlStr.includes('/access-denied')) {
+                throw new Error('Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+            }
+            throw new Error('Phiên làm việc đã thay đổi. Vui lòng tải lại trang.');
+        }
+
+        const rawContentType = getHeaderValue(response.headers, 'content-type');
+        const isHtml = rawContentType.toLowerCase().includes('text/html');
+        const isJson = rawContentType
+            ? rawContentType.toLowerCase().includes('application/json')
+            : (response.headers === undefined);
+
+        if (response.status === 201) {
+            if (isHtml || !isJson) {
+                throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            }
+            try {
+                return await response.json();
+            } catch (_) {
+                throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            }
+        }
+
+        // Any other 2xx status (e.g. 200, 204) is NOT accepted as successful create
+        if (response.status >= 200 && response.status < 300) {
+            throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+        }
+
+        if (response.status === 401) {
+            throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
+        if (response.status === 403) {
+            throw new Error('Bạn không có quyền thực hiện hành động này.');
+        }
+
+        if (isJson && !isHtml) {
+            let errJson = null;
+            try {
+                errJson = await response.json();
+            } catch (_) {
+                // Malformed JSON error body: swallow parser error and fall through to generic error
+            }
+            if (errJson && typeof errJson.message === 'string' && errJson.message.trim().length > 0) {
+                throw new Error(errJson.message.trim());
+            }
+        }
+
+        throw new Error('Đã xảy ra lỗi khi đăng bài. Vui lòng thử lại.');
+    }
+
+    function initComposer(options) {
+        const opts = options || {};
+        const doc = opts.document || (typeof document !== 'undefined' ? document : null);
+        if (!doc) return;
+
+        if (opts.fetch) {
+            injectedFetch = opts.fetch;
+        }
+
+        const form = doc.getElementById('communityComposerForm');
         if (!form) {
             return; // Guest user or composer not present
         }
 
-        const captionInput = document.getElementById('composerCaption');
-        const charCountEl = document.getElementById('composerCharCount');
-        const imageInput = document.getElementById('composerImageInput');
-        const addImageBtn = document.getElementById('composerAddImageBtn');
-        const imagePreviewContainer = document.getElementById('composerImagePreview');
-        const imagePreviewImg = document.getElementById('composerImagePreviewImg');
-        const removeImageBtn = document.getElementById('composerRemoveImageBtn');
-        const submitBtn = document.getElementById('composerSubmitBtn');
-        const submitSpinner = document.getElementById('composerSubmitSpinner');
-        const errorAlert = document.getElementById('composerError');
+        const captionInput = doc.getElementById('composerCaption');
+        const charCountEl = doc.getElementById('composerCharCount');
+        const imageInput = doc.getElementById('composerImageInput');
+        const addImageBtn = doc.getElementById('composerAddImageBtn');
+        const imagePreviewContainer = doc.getElementById('composerImagePreview');
+        const imagePreviewImg = doc.getElementById('composerImagePreviewImg');
+        const removeImageBtn = doc.getElementById('composerRemoveImageBtn');
+        const submitBtn = doc.getElementById('composerSubmitBtn');
+        const submitSpinner = doc.getElementById('composerSubmitSpinner');
+        const errorAlert = doc.getElementById('composerError');
 
         let isSubmitting = false;
 
@@ -58,10 +146,11 @@
             });
         }
 
-        // Image selection & preview
+        // Image selection & preview with monotonic generation guard
         if (imageInput) {
             imageInput.addEventListener('change', function () {
                 hideError();
+                const currentGen = ++previewGeneration;
                 const file = imageInput.files && imageInput.files[0];
                 if (!file) {
                     clearImagePreview();
@@ -82,6 +171,9 @@
 
                 const reader = new FileReader();
                 reader.onload = function (e) {
+                    if (currentGen !== previewGeneration) {
+                        return; // Discard stale preview callback
+                    }
                     if (imagePreviewImg && imagePreviewContainer) {
                         imagePreviewImg.src = e.target.result;
                         imagePreviewContainer.removeAttribute('hidden');
@@ -94,6 +186,7 @@
         // Remove attached image
         if (removeImageBtn) {
             removeImageBtn.addEventListener('click', function () {
+                previewGeneration++;
                 clearImageInput();
                 clearImagePreview();
             });
@@ -101,7 +194,9 @@
 
         // Form submission
         form.addEventListener('submit', function (e) {
-            e.preventDefault();
+            if (e && typeof e.preventDefault === 'function') {
+                e.preventDefault();
+            }
             if (isSubmitting) {
                 return;
             }
@@ -111,7 +206,7 @@
             const caption = captionInput ? captionInput.value.trim() : '';
             if (!caption) {
                 showError('Vui lòng nhập nội dung bài viết.');
-                if (captionInput) {
+                if (captionInput && typeof captionInput.focus === 'function') {
                     captionInput.focus();
                 }
                 return;
@@ -122,7 +217,7 @@
                 return;
             }
 
-            const formData = new FormData();
+            const formData = (typeof FormData !== 'undefined') ? new FormData() : { append: () => {} };
             formData.append('caption', caption);
 
             const file = imageInput && imageInput.files && imageInput.files[0];
@@ -143,8 +238,8 @@
 
             // Extract CSRF
             const headers = {};
-            const csrfTokenMeta = document.querySelector('meta[name="_csrf"]');
-            const csrfHeaderMeta = document.querySelector('meta[name="_csrf_header"]');
+            const csrfTokenMeta = (doc && typeof doc.querySelector === 'function') ? doc.querySelector('meta[name="_csrf"]') : document.querySelector('meta[name="_csrf"]');
+            const csrfHeaderMeta = (doc && typeof doc.querySelector === 'function') ? doc.querySelector('meta[name="_csrf_header"]') : document.querySelector('meta[name="_csrf_header"]');
             if (csrfTokenMeta && csrfHeaderMeta) {
                 const headerName = csrfHeaderMeta.getAttribute('content');
                 const token = csrfTokenMeta.getAttribute('content');
@@ -153,40 +248,41 @@
                 }
             }
 
-            fetch('/api/community/posts', {
+            const requestOptions = {
                 method: 'POST',
                 headers: headers,
                 body: formData
-            })
+            };
+            const requestPromise = injectedFetch
+                ? injectedFetch('/api/community/posts', requestOptions)
+                : fetch('/api/community/posts', requestOptions);
+
+            requestPromise
                 .then(function (response) {
-                    if (response.status === 201) {
-                        return response.json();
-                    }
-                    if (response.status === 401) {
-                        throw new Error('Vui lòng đăng nhập để đăng bài.');
-                    }
-                    if (response.status === 400 || response.status === 422) {
-                        return response.json().then(function (data) {
-                            throw new Error(data.message || 'Dữ liệu không hợp lệ.');
-                        }).catch(function (err) {
-                            throw new Error(err.message || 'Dữ liệu không hợp lệ.');
-                        });
-                    }
-                    throw new Error('Đã xảy ra lỗi khi đăng bài. Vui lòng thử lại.');
+                    return parseComposerResponse(response);
                 })
                 .then(function (createdPost) {
-                    // Reset composer
+                    // Reset composer ONLY on verified success
                     resetComposer();
 
                     // Refresh feed on NEWEST tab
-                    if (window.CommunityFeed && typeof window.CommunityFeed.refreshFeed === 'function') {
+                    if (typeof window !== 'undefined' && window.CommunityFeed && typeof window.CommunityFeed.refreshFeed === 'function') {
                         window.CommunityFeed.refreshFeed('NEWEST');
                     } else {
-                        window.location.href = '/community?feed=NEWEST';
+                        const win = typeof globalThis !== 'undefined' ? globalThis : null;
+                        if (win && win.CommunityFeed && typeof win.CommunityFeed.refreshFeed === 'function') {
+                            win.CommunityFeed.refreshFeed('NEWEST');
+                        } else if (win && win.location) {
+                            win.location.href = '/community?feed=NEWEST';
+                        }
                     }
                 })
                 .catch(function (error) {
-                    showError(error.message || 'Không thể tạo bài viết.');
+                    if (error && (error.name === 'TypeError' || error.message === 'Failed to fetch' || (error.message && error.message.toLowerCase().includes('network')))) {
+                        showError('Không thể kết nối đến máy chủ. Vui lòng kiểm tra mạng.');
+                    } else {
+                        showError((error && error.message) ? error.message : 'Không thể tạo bài viết.');
+                    }
                 })
                 .finally(function () {
                     setSubmitting(false);
@@ -230,6 +326,9 @@
         function clearImageInput() {
             if (imageInput) {
                 imageInput.value = '';
+                if (imageInput.files) {
+                    imageInput.files = [];
+                }
             }
         }
 
@@ -243,6 +342,7 @@
         }
 
         function resetComposer() {
+            previewGeneration++;
             if (captionInput) {
                 captionInput.value = '';
                 captionInput.disabled = false;
@@ -255,5 +355,23 @@
             clearImagePreview();
             hideError();
         }
+
+        return {
+            resetComposer: resetComposer,
+            setSubmitting: setSubmitting
+        };
     }
-})();
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('DOMContentLoaded', function () {
+            initComposer();
+        });
+    }
+
+    return {
+        init: initComposer,
+        initComposer: initComposer,
+        parseComposerResponse: parseComposerResponse,
+        getPreviewGeneration: function () { return previewGeneration; }
+    };
+});

@@ -31,6 +31,132 @@
 
     const postStates = new Map(); // postId -> { page, hasNext, isLoading, isLoaded, roots } and `${postId}:${sort}`
     const postCurrentSort = new Map(); // postId -> 'FEATURED' | 'NEWEST'
+    const postMutationEpochs = new Map(); // postId -> number
+    const rootFeedRequestGenerations = new Map(); // `${postId}:${sort}` -> number
+    const threadRequestGenerations = new Map(); // `${postId}:${rootId}` -> number
+
+    function getPostMutationEpoch(postId) {
+        return postMutationEpochs.get(String(postId)) || 0;
+    }
+
+    function bumpPostMutationEpoch(postId) {
+        const next = (postMutationEpochs.get(String(postId)) || 0) + 1;
+        postMutationEpochs.set(String(postId), next);
+        return next;
+    }
+
+    function getRootFeedRequestGeneration(postId, sort) {
+        return rootFeedRequestGenerations.get(String(postId) + ':' + sort) || 0;
+    }
+
+    function bumpRootFeedRequestGeneration(postId, sort) {
+        const key = String(postId) + ':' + sort;
+        const next = (rootFeedRequestGenerations.get(key) || 0) + 1;
+        rootFeedRequestGenerations.set(key, next);
+        return next;
+    }
+
+    function getThreadRequestGeneration(postId, rootId) {
+        return threadRequestGenerations.get(String(postId) + ':' + String(rootId)) || 0;
+    }
+
+    function bumpThreadRequestGeneration(postId, rootId) {
+        const key = String(postId) + ':' + String(rootId);
+        const next = (threadRequestGenerations.get(key) || 0) + 1;
+        threadRequestGenerations.set(key, next);
+        return next;
+    }
+
+    function getHeaderValue(headers, name) {
+        if (!headers) return '';
+        if (typeof headers.get === 'function') return headers.get(name) || '';
+        return headers[name] || headers[name.toLowerCase()] || '';
+    }
+
+    function isValidCreatedCommentPayload(data) {
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            return false;
+        }
+        if (typeof data.commentId !== 'string' || data.commentId.trim().length === 0) {
+            return false;
+        }
+        if (typeof data.updatedCommentCount !== 'number' ||
+            !Number.isInteger(data.updatedCommentCount) ||
+            data.updatedCommentCount < 0) {
+            return false;
+        }
+        return true;
+    }
+
+    async function parseMutationResponse(resp, defaultErrorMsg) {
+        if (!resp) {
+            throw new Error(defaultErrorMsg || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+        }
+
+        const isRedirected = Boolean(
+            resp.redirected ||
+            (resp.url && (resp.url.includes('/login') || resp.url.includes('/access-denied')))
+        );
+        const urlStr = resp.url || '';
+
+        if (isRedirected || urlStr.includes('/login') || urlStr.includes('/access-denied')) {
+            if (urlStr.includes('/login')) {
+                throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+            }
+            throw new Error('Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+        }
+
+        const rawContentType = getHeaderValue(resp.headers, 'content-type');
+        const isHtml = rawContentType.toLowerCase().includes('text/html');
+        const isJson = rawContentType
+            ? rawContentType.toLowerCase().includes('application/json')
+            : (resp.headers === undefined);
+
+        if (resp.status === 201) {
+            if (isHtml || !isJson) {
+                throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            }
+            let payload = null;
+            try {
+                payload = await resp.json();
+            } catch (_) {
+                throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            }
+
+            if (!isValidCreatedCommentPayload(payload)) {
+                throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            }
+
+            return payload;
+        }
+
+        // Any other 2xx status (e.g. 200, 202, 204) is NOT accepted as mutation success
+        if (resp.status >= 200 && resp.status < 300) {
+            throw new Error('Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+        }
+
+        // Error response (4xx / 5xx)
+        if (resp.status === 401) {
+            throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
+        if (resp.status === 403) {
+            throw new Error('Bạn không có quyền thực hiện hành động này.');
+        }
+
+        if (isJson && !isHtml) {
+            let errJson = null;
+            try {
+                errJson = await resp.json();
+            } catch (_) {
+                // Malformed JSON error body: swallow parser error and fall through to generic error
+            }
+            if (errJson && typeof errJson.message === 'string' && errJson.message.trim().length > 0) {
+                throw new Error(errJson.message.trim());
+            }
+        }
+
+        throw new Error(defaultErrorMsg || 'Đã xảy ra lỗi. Vui lòng thử lại.');
+    }
 
     const SORT_MODES = Object.freeze({
         FEATURED: 'FEATURED',
@@ -142,11 +268,15 @@
 
         if (postId) {
             postStates.delete(String(postId) + ':FEATURED');
+            bumpPostMutationEpoch(postId);
         } else {
             for (const key of Array.from(postStates.keys())) {
                 if (key.endsWith(':FEATURED')) {
                     postStates.delete(key);
                 }
+            }
+            for (const pId of Array.from(postCurrentSort.keys())) {
+                bumpPostMutationEpoch(pId);
             }
         }
     }
@@ -180,6 +310,9 @@
 
     function setMobileViewport(value) {
         injectedIsMobile = typeof value === 'boolean' ? value : null;
+        if (injectedIsMobile === false && isDrawerOpen()) {
+            closeCommentsDrawer();
+        }
     }
 
     function getDrawerElements(doc) {
@@ -764,16 +897,30 @@
             return;
         }
 
+        const requestEpoch = getPostMutationEpoch(postId);
+        const requestGen = bumpRootFeedRequestGeneration(postId, sort);
+
         try {
             const resp = await fetchFn('/api/community/posts/' + encodeURIComponent(postId) + '/comments?page=' + page + '&size=10&sort=' + encodeURIComponent(sort), {
                 headers: { 'Accept': 'application/json' }
             });
+
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getRootFeedRequestGeneration(postId, sort)) {
+                return;
+            }
 
             if (!resp.ok) {
                 throw new Error('Failed to load comments: ' + resp.status);
             }
 
             const data = await resp.json();
+
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getRootFeedRequestGeneration(postId, sort)) {
+                return;
+            }
+
             state.page = data.page;
             state.hasNext = data.hasNext;
             state.isLoaded = true;
@@ -783,6 +930,12 @@
                 state.roots = Array.isArray(rawRoots) ? rawRoots : [];
             } else if (Array.isArray(rawRoots)) {
                 state.roots = (state.roots || []).concat(rawRoots);
+            }
+
+            // If user switched sort while request was in-flight, background cache is updated
+            // but DOM and sort controls MUST NOT be mutated by inactive sort!
+            if (sort !== getCurrentSort(postId)) {
+                return;
             }
 
             updateCommentCount(postId, data.commentCount);
@@ -811,6 +964,11 @@
                 });
             }
         } catch (err) {
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getRootFeedRequestGeneration(postId, sort) ||
+                sort !== getCurrentSort(postId)) {
+                return;
+            }
             console.error('Failed to load comments for post ' + postId, err);
             if (page === 0) {
                 const targets = getActiveTargets(postId);
@@ -845,7 +1003,9 @@
                 });
             }
         } finally {
-            state.isLoading = false;
+            if (requestGen === getRootFeedRequestGeneration(postId, sort)) {
+                state.isLoading = false;
+            }
         }
     }
 
@@ -886,16 +1046,29 @@
             return;
         }
 
+        const requestEpoch = getPostMutationEpoch(postId);
+        const requestGen = bumpThreadRequestGeneration(postId, rootId);
+
         try {
             const resp = await fetchFn('/api/community/posts/' + encodeURIComponent(postId) + '/comments/' + encodeURIComponent(rootId) + '/thread', {
                 headers: { 'Accept': 'application/json' }
             });
+
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getThreadRequestGeneration(postId, rootId)) {
+                return;
+            }
 
             if (!resp.ok) {
                 throw new Error('Failed to load thread: ' + resp.status);
             }
 
             const threadData = await resp.json();
+
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getThreadRequestGeneration(postId, rootId)) {
+                return;
+            }
 
             for (const sortMode of [SORT_MODES.FEATURED, SORT_MODES.NEWEST]) {
                 const s = postStates.get(String(postId) + ':' + sortMode);
@@ -927,6 +1100,10 @@
                 btn.disabled = false;
             });
         } catch (err) {
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getThreadRequestGeneration(postId, rootId)) {
+                return;
+            }
             console.error('Failed to load replies for root ' + rootId, err);
             toggleBtns.forEach(btn => {
                 btn.textContent = 'Lỗi tải phản hồi. Thử lại';
@@ -988,19 +1165,16 @@
                 body: JSON.stringify({ body: bodyText })
             });
 
-            if (!resp.ok) {
-                const errJson = await resp.json().catch(() => null);
-                throw new Error(errJson && errJson.message ? errJson.message : 'Không thể đăng bình luận.');
-            }
+            const result = await parseMutationResponse(resp, 'Không thể đăng bình luận.');
 
-            const result = await resp.json();
             const inputs = doc.querySelectorAll('[data-input-root="' + postId + '"]');
             inputs.forEach(inp => { inp.value = ''; });
             const submitBtns = doc.querySelectorAll('[data-action="submit-root-comment"][data-post-id="' + postId + '"]');
             submitBtns.forEach(b => { b.disabled = true; });
             updateCommentCount(postId, result.updatedCommentCount);
 
-            // Invalidate loaded state across sort modes so fresh roots are re-rendered
+            // Invalidate loaded state across sort modes and bump mutation epoch
+            bumpPostMutationEpoch(postId);
             postStates.delete(String(postId) + ':FEATURED');
             postStates.delete(String(postId) + ':NEWEST');
 
@@ -1121,13 +1295,11 @@
                 body: JSON.stringify({ body: bodyText })
             });
 
-            if (!resp.ok) {
-                const errJson = await resp.json().catch(() => null);
-                throw new Error(errJson && errJson.message ? errJson.message : 'Không thể gửi phản hồi.');
-            }
-
-            const result = await resp.json();
+            const result = await parseMutationResponse(resp, 'Không thể gửi phản hồi.');
             updateCommentCount(postId, result.updatedCommentCount);
+
+            // BUMP post mutation epoch
+            bumpPostMutationEpoch(postId);
 
             // Invalidate FEATURED cache since reply count / engagement score changed
             postStates.delete(String(postId) + ':FEATURED');
@@ -1154,13 +1326,26 @@
         const fetchFn = getFetch();
         if (!fetchFn) return;
 
+        const requestEpoch = getPostMutationEpoch(postId);
+        const requestGen = bumpThreadRequestGeneration(postId, rootId);
+
         try {
             const resp = await fetchFn('/api/community/posts/' + encodeURIComponent(postId) + '/comments/' + encodeURIComponent(rootId) + '/thread', {
                 headers: { 'Accept': 'application/json' }
             });
 
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getThreadRequestGeneration(postId, rootId)) {
+                return;
+            }
+
             if (!resp.ok) return;
             const threadData = await resp.json();
+
+            if (requestEpoch !== getPostMutationEpoch(postId) ||
+                requestGen !== getThreadRequestGeneration(postId, rootId)) {
+                return;
+            }
 
             for (const sortMode of [SORT_MODES.FEATURED, SORT_MODES.NEWEST]) {
                 const s = postStates.get(String(postId) + ':' + sortMode);
@@ -1459,6 +1644,16 @@
         }
     }
 
+    let mediaQueryList = null;
+    let mediaQueryHandler = null;
+
+    function handleViewportChange(e) {
+        const isMobile = e ? e.matches : isMobileViewport();
+        if (!isMobile && isDrawerOpen()) {
+            closeCommentsDrawer();
+        }
+    }
+
     function init(options) {
         if (isInitialized && (!options || !options.force)) return;
         const opts = options || {};
@@ -1471,6 +1666,21 @@
             doc.addEventListener('keydown', handleKeydown);
             doc.addEventListener('kiemlai:reaction-updated', handleReactionUpdated);
         }
+
+        if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+            if (!mediaQueryList) {
+                try {
+                    mediaQueryList = window.matchMedia('(max-width: 767.98px)');
+                    mediaQueryHandler = handleViewportChange;
+                    if (typeof mediaQueryList.addEventListener === 'function') {
+                        mediaQueryList.addEventListener('change', mediaQueryHandler);
+                    } else if (typeof mediaQueryList.addListener === 'function') {
+                        mediaQueryList.addListener(mediaQueryHandler);
+                    }
+                } catch (_) {}
+            }
+        }
+
         isInitialized = true;
     }
 
@@ -1478,6 +1688,10 @@
         closeCommentsDrawer();
         postStates.clear();
         postCurrentSort.clear();
+        postMutationEpochs.clear();
+        rootFeedRequestGenerations.clear();
+        threadRequestGenerations.clear();
+
         const doc = getDoc();
         if (doc) {
             doc.removeEventListener('click', handleDelegatedClick);
@@ -1490,6 +1704,19 @@
                 doc.body.classList.remove('has-community-comments-open');
             }
         }
+
+        if (mediaQueryList && mediaQueryHandler) {
+            try {
+                if (typeof mediaQueryList.removeEventListener === 'function') {
+                    mediaQueryList.removeEventListener('change', mediaQueryHandler);
+                } else if (typeof mediaQueryList.removeListener === 'function') {
+                    mediaQueryList.removeListener(mediaQueryHandler);
+                }
+            } catch (_) {}
+            mediaQueryList = null;
+            mediaQueryHandler = null;
+        }
+
         isInitialized = false;
         injectedFetch = null;
         injectedIsMobile = null;
@@ -1526,6 +1753,7 @@
         refreshThread: refreshThread,
         updateCommentCount: updateCommentCount,
         getPostState: getPostState,
+        parseMutationResponse: parseMutationResponse,
         _states: postStates
     };
 });

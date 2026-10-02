@@ -59,6 +59,7 @@ public class CommunityFeedPageController {
             model.addAttribute("nextCursor", response.nextCursor());
             model.addAttribute("nextPage", null);
             model.addAttribute("activeNav", "community");
+            model.addAttribute("returnTo", (feed != null && !feed.isBlank()) ? "/community?feed=" + normalizedFeed : "/community");
             return "community/index";
 
         } else if ("FEATURED".equalsIgnoreCase(normalizedFeed)) {
@@ -75,6 +76,7 @@ public class CommunityFeedPageController {
             model.addAttribute("nextCursor", null);
             model.addAttribute("nextPage", response.hasNext() ? response.page() + 1 : null);
             model.addAttribute("activeNav", "community");
+            model.addAttribute("returnTo", "/community?feed=FEATURED");
             return "community/index";
 
         } else {

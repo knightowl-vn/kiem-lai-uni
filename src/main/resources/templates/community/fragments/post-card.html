@@ -105,7 +105,7 @@
 
 			<!-- Guest: Read-only metric linking to login -->
 			<a sec:authorize="isAnonymous()"
-				th:href="@{/login}"
+				th:href="@{/login(returnTo=${returnTo != null and !#strings.isEmpty(returnTo) ? returnTo : '/community'})}"
 				class="post-metric post-metric--login-link"
 				title="Đăng nhập để thích">
 				<i class="fa-regular fa-thumbs-up me-1" aria-hidden="true"></i>

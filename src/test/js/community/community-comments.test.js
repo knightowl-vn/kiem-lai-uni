@@ -654,7 +654,9 @@ describe('CommunityComments Module Unit Tests', () => {
                 postBody = JSON.parse(opts.body);
                 postHeaders = opts.headers;
                 return {
+                    status: 201,
                     ok: true,
+                    headers: { get: () => 'application/json' },
                     json: async () => ({
                         commentId: 'new-root-999',
                         updatedCommentCount: 7
@@ -706,7 +708,9 @@ describe('CommunityComments Module Unit Tests', () => {
                 postUrl = url;
                 postBody = JSON.parse(opts.body);
                 return {
+                    status: 201,
                     ok: true,
+                    headers: { get: () => 'application/json' },
                     json: async () => ({
                         commentId: 'new-reply-888',
                         updatedCommentCount: 8
@@ -1156,7 +1160,9 @@ describe('Mobile Comments Drawer Contract Tests (MS-07B8.2.2-MOBILE-COMMENTS-UX)
             if (opts && opts.method === 'POST') {
                 postBody = JSON.parse(opts.body);
                 return {
+                    status: 201,
                     ok: true,
+                    headers: { get: () => 'application/json' },
                     json: async () => ({
                         commentId: 'new-root-999',
                         updatedCommentCount: 5
@@ -1689,8 +1695,11 @@ describe('Desktop Inline Comments & Cross-Presentation Contract Tests (MS-07B8.2
                 postBody = JSON.parse(opts.body);
                 currentCount = 7;
                 return {
+                    status: 201,
                     ok: true,
+                    headers: { get: () => 'application/json' },
                     json: async () => ({
+                        commentId: 'new-root',
                         comment: { id: 'new-root', body: postBody.body },
                         updatedCommentCount: currentCount
                     })
@@ -1931,5 +1940,1283 @@ describe('Desktop Inline Comments & Cross-Presentation Contract Tests (MS-07B8.2
         assert.strictEqual(renderedThreads[0].getAttribute('data-thread-id'), 'root-newest-2');
         assert.strictEqual(renderedThreads[1].getAttribute('data-thread-id'), 'root-newest-1');
         assert.strictEqual(CommunityComments._states.has(POST_ID), false, 'Unqualified postId key remains non-existent throughout');
+    });
+});
+
+describe('Community Comments Async Ownership & Response Classification Tests (MS-07B8-RETRO-CORRECTIVE)', () => {
+    let doc;
+    const POST_ID = 'post-async-proof';
+
+    function createDeferred() {
+        let resolve, reject;
+        const promise = new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    }
+
+    beforeEach(() => {
+        doc = new FakeDocument();
+        globalThis.document = doc;
+        globalThis.window = {
+            innerWidth: 1024,
+            scrollY: 0,
+            scrollTo: () => {},
+            matchMedia: () => ({
+                matches: false,
+                addEventListener: () => {},
+                removeEventListener: () => {}
+            }),
+            location: { pathname: '/community', search: '' },
+            CommentPresentation: CommentPresentation,
+            RelativeTime: RelativeTime,
+            InteractionReactions: { hydrate: () => {} }
+        };
+
+        const csrfMeta = doc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'token-abc');
+        doc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = doc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        doc.head.appendChild(csrfHeaderMeta);
+
+        const authMeta = doc.createElement('meta');
+        authMeta.setAttribute('name', '_authenticated');
+        authMeta.setAttribute('content', 'true');
+        doc.head.appendChild(authMeta);
+
+        const article = doc.createElement('article');
+        article.className = 'community-post-card';
+        article.setAttribute('data-post-id', POST_ID);
+
+        const footer = doc.createElement('footer');
+        footer.className = 'post-footer';
+
+        const toggleBtn = doc.createElement('button');
+        toggleBtn.className = 'post-metric post-comment-toggle-btn';
+        toggleBtn.setAttribute('data-action', 'toggle-comments');
+        toggleBtn.setAttribute('data-post-id', POST_ID);
+        toggleBtn.setAttribute('aria-expanded', 'false');
+
+        const countSpan = doc.createElement('span');
+        countSpan.className = 'post-comment-count';
+        countSpan.textContent = '0';
+        toggleBtn.appendChild(countSpan);
+        footer.appendChild(toggleBtn);
+        article.appendChild(footer);
+
+        const commentsContainer = doc.createElement('section');
+        commentsContainer.className = 'post-comments-container';
+        commentsContainer.setAttribute('data-post-comments', POST_ID);
+        commentsContainer.hidden = true;
+        commentsContainer.setAttribute('hidden', '');
+        article.appendChild(commentsContainer);
+
+        doc.body.appendChild(article);
+
+        const drawer = doc.createElement('div');
+        drawer.id = 'communityCommentsDrawer';
+        drawer.hidden = true;
+        drawer.setAttribute('hidden', '');
+        const drawerHeader = doc.createElement('div');
+        drawerHeader.setAttribute('data-drawer-header', '');
+        const closeBtn = doc.createElement('button');
+        closeBtn.setAttribute('data-action', 'close-comments-drawer');
+        drawerHeader.appendChild(closeBtn);
+        drawer.appendChild(drawerHeader);
+        const drawerBody = doc.createElement('div');
+        drawerBody.setAttribute('data-drawer-body', '');
+        drawer.appendChild(drawerBody);
+        const drawerFooter = doc.createElement('div');
+        drawerFooter.setAttribute('data-drawer-footer', '');
+        drawer.appendChild(drawerFooter);
+        doc.body.appendChild(drawer);
+
+        const backdrop = doc.createElement('div');
+        backdrop.id = 'communityCommentsBackdrop';
+        backdrop.hidden = true;
+        backdrop.setAttribute('hidden', '');
+        doc.body.appendChild(backdrop);
+
+        CommunityComments.reset();
+    });
+
+    afterEach(() => {
+        CommunityComments.reset();
+        delete globalThis.document;
+        delete globalThis.window;
+    });
+
+    test('1. NEWEST pending -> FEATURED selected -> NEWEST resolves last', async () => {
+        const dNewest = createDeferred();
+        const dFeatured = createDeferred();
+
+        const mockFetch = async (url) => {
+            if (url.includes('sort=FEATURED')) {
+                return dFeatured.promise;
+            }
+            return dNewest.promise;
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Step 1: Open comments, starts NEWEST
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Step 2: Switch to FEATURED while NEWEST is pending
+        CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(r => setTimeout(r, 10));
+
+        // Step 3: FEATURED resolves first
+        dFeatured.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-featured', body: 'Featured root text' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'FEATURED');
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        assert.ok(listEl);
+        let threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-featured');
+
+        // Step 4: Stale NEWEST resolves last
+        dNewest.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-newest-stale', body: 'Stale newest text' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Assert NEWEST response is discarded: active sort and DOM remain FEATURED
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'FEATURED');
+        threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-featured');
+    });
+
+    test('2. FEATURED pending -> NEWEST selected -> FEATURED resolves last', async () => {
+        const dNewest = createDeferred();
+        const dFeatured = createDeferred();
+
+        const mockFetch = async (url) => {
+            if (url.includes('sort=FEATURED')) {
+                return dFeatured.promise;
+            }
+            return dNewest.promise;
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Open comments first
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Switch to FEATURED
+        CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(r => setTimeout(r, 10));
+
+        // User changes mind and switches back to NEWEST while FEATURED is pending
+        CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(r => setTimeout(r, 10));
+
+        // NEWEST resolves first
+        dNewest.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-newest-fresh', body: 'Fresh newest text' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        assert.ok(listEl);
+        let threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-newest-fresh');
+
+        // FEATURED resolves last
+        dFeatured.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-featured-stale', body: 'Stale featured text' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Active sort and DOM remain NEWEST
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+        threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-newest-fresh');
+    });
+
+    test('3. same-sort old request -> mutation -> new request -> old resolves last', async () => {
+        const dOld = createDeferred();
+        const dFresh = createDeferred();
+        let getCallCount = 0;
+
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        commentId: 'root-mutated',
+                        updatedCommentCount: 5,
+                        comment: { id: 'root-mutated', body: 'Mutated fresh root' }
+                    })
+                };
+            }
+            getCallCount++;
+            if (getCallCount === 1) {
+                return dOld.promise;
+            }
+            return dFresh.promise;
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Trigger initial NEWEST get
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(getCallCount, 1);
+
+        // While initial GET is pending, submit root comment
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'User submitted comment';
+        const submitBtn = doc.querySelector('[data-action="submit-root-comment"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: submitBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Fresh GET is triggered (call count 2)
+        assert.strictEqual(getCallCount, 2);
+
+        // Fresh GET resolves
+        dFresh.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-mutated', body: 'Mutated fresh root' }, replyCount: 0 }],
+                commentCount: 5,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        let threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-mutated');
+
+        // Old initial GET resolves last
+        dOld.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-stale-initial', body: 'Stale initial root' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // DOM remains with fresh mutated root, not overwritten by stale initial GET
+        threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-mutated');
+    });
+
+    test('4. stale page1 after mutation does not append', async () => {
+        const dPage1 = createDeferred();
+        const dFreshPage0 = createDeferred();
+        let pageCall = 0;
+
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        commentId: 'root-new-post',
+                        updatedCommentCount: 10,
+                        comment: { id: 'root-new-post', body: 'Freshly posted root' }
+                    })
+                };
+            }
+            if (url.includes('page=0') && pageCall === 0) {
+                pageCall++;
+                return {
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        roots: [{ root: { id: 'root-page-0', body: 'Page 0 root' }, replyCount: 0 }],
+                        commentCount: 20,
+                        page: 0,
+                        size: 10,
+                        hasNext: true
+                    })
+                };
+            }
+            if (url.includes('page=1')) {
+                return dPage1.promise;
+            }
+            return dFreshPage0.promise;
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Load page 0
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Click load more for page 1
+        const moreBtn = doc.querySelector('[data-action="load-more-comments"][data-post-id="' + POST_ID + '"]');
+        assert.ok(moreBtn);
+        doc.dispatchEvent({ type: 'click', target: moreBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Submit comment while page 1 is in-flight (bumps mutation epoch)
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'Another comment';
+        const submitBtn = doc.querySelector('[data-action="submit-root-comment"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: submitBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Fresh page 0 resolves
+        dFreshPage0.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-new-post', body: 'Freshly posted root' }, replyCount: 0 }],
+                commentCount: 10,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Stale page 1 resolves last
+        dPage1.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-stale-page-1', body: 'Stale page 1 root' }, replyCount: 0 }],
+                commentCount: 20,
+                page: 1,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Assert stale page 1 was NOT appended to DOM
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        const threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-new-post');
+    });
+
+    test('5. thread old GET -> reply -> refreshed GET -> old resolves last', async () => {
+        const dOldThread = createDeferred();
+        const dFreshThread = createDeferred();
+        let threadGetCount = 0;
+
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        commentId: 'reply-fresh-2',
+                        updatedCommentCount: 5,
+                        comment: { id: 'reply-fresh-2', body: 'Fresh reply 2' }
+                    })
+                };
+            }
+            if (url.includes('/comments?') || url.includes('/comments/roots?')) {
+                return {
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        roots: [{ root: { id: 'root-with-replies', body: 'Root with replies' }, replyCount: 1 }],
+                        commentCount: 2,
+                        page: 0,
+                        size: 10,
+                        hasNext: false
+                    })
+                };
+            }
+            if (url.includes('/thread')) {
+                threadGetCount++;
+                if (threadGetCount === 1) {
+                    return dOldThread.promise;
+                }
+                return dFreshThread.promise;
+            }
+            return { ok: true, headers: { get: () => 'application/json' }, json: async () => ({}) };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Load root
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Click "Xem phản hồi" to start thread GET #1
+        const viewRepliesBtn = doc.querySelector('[data-action="toggle-thread"][data-root-id="root-with-replies"]');
+        assert.ok(viewRepliesBtn);
+        doc.dispatchEvent({ type: 'click', target: viewRepliesBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+        assert.strictEqual(threadGetCount, 1);
+
+        // Open reply composer and submit reply
+        CommunityComments.openReplyComposer(POST_ID, 'root-with-replies', 'root-with-replies', 'Root Author');
+        const slot = doc.querySelector('[data-reply-slot="root-with-replies"]');
+        assert.ok(slot);
+        const replyInput = slot.querySelector('.community-reply-composer__input');
+        assert.ok(replyInput);
+        replyInput.value = 'Replying now';
+        const submitReplyPromise = CommunityComments.submitReply(POST_ID, 'root-with-replies', 'root-with-replies');
+        await new Promise(r => setTimeout(r, 15));
+
+        // Thread GET #2 was triggered
+        assert.strictEqual(threadGetCount, 2);
+
+        // Fresh thread GET #2 resolves with the new reply
+        dFreshThread.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                root: { id: 'root-with-replies', body: 'Root with replies' },
+                replies: [
+                    { id: 'reply-1', body: 'Initial reply 1' },
+                    { id: 'reply-fresh-2', body: 'Fresh reply 2' }
+                ]
+            })
+        });
+        await submitReplyPromise;
+        await new Promise(r => setTimeout(r, 20));
+
+        const replyList = doc.querySelector('.community-comment-replies[data-replies-for="root-with-replies"]');
+        assert.ok(replyList);
+        let renderedReplies = replyList.querySelectorAll('.community-comment-reply-container');
+        assert.strictEqual(renderedReplies.length, 2);
+
+        // Stale thread GET #1 resolves last (it only knew about reply-1)
+        dOldThread.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                root: { id: 'root-with-replies', body: 'Root with replies' },
+                replies: [
+                    { id: 'reply-1', body: 'Initial reply 1' }
+                ]
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Fresh reply-2 is preserved, not erased by stale response
+        renderedReplies = replyList.querySelectorAll('.community-comment-reply-container');
+        assert.strictEqual(renderedReplies.length, 2);
+    });
+
+    test('6. reaction invalidation while FEATURED request pending', async () => {
+        const dFeatured = createDeferred();
+        const dNewest = createDeferred();
+
+        const mockFetch = async (url) => {
+            if (url.includes('sort=FEATURED')) return dFeatured.promise;
+            return dNewest.promise;
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Open comments first
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 10));
+
+        // Switch to FEATURED
+        CommunityComments.switchSort(POST_ID, 'FEATURED');
+        await new Promise(r => setTimeout(r, 10));
+
+        // Reaction updated event occurs (bumps mutation epoch, invalidates FEATURED)
+        doc.dispatchEvent({
+            type: 'kiemlai:reaction-updated',
+            detail: { targetType: 'COMMUNITY_POST', targetId: POST_ID }
+        });
+
+        // Switch to NEWEST
+        CommunityComments.switchSort(POST_ID, 'NEWEST');
+        await new Promise(r => setTimeout(r, 10));
+
+        // NEWEST resolves
+        dNewest.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-newest-active', body: 'Newest active' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // Old FEATURED resolves
+        dFeatured.resolve({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({
+                roots: [{ root: { id: 'root-featured-discarded', body: 'Featured discarded' }, replyCount: 0 }],
+                commentCount: 1,
+                page: 0,
+                size: 10,
+                hasNext: false
+            })
+        });
+        await new Promise(r => setTimeout(r, 20));
+
+        // DOM has only NEWEST active root
+        const listEl = doc.querySelector('[data-thread-list="' + POST_ID + '"]');
+        const threads = listEl.querySelectorAll('.community-comment-thread');
+        assert.strictEqual(threads.length, 1);
+        assert.strictEqual(threads[0].getAttribute('data-thread-id'), 'root-newest-active');
+        assert.strictEqual(CommunityComments.getCurrentSort(POST_ID), 'NEWEST');
+    });
+
+    test('7. root mutation /login redirect preserves input and shows login error', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    ok: true,
+                    redirected: true,
+                    url: 'http://localhost:8080/login?returnTo=%2Fcommunity',
+                    headers: { get: () => 'text/html;charset=UTF-8' },
+                    text: async () => '<html>Login page</html>'
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        // Open comments
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'My preserved draft comment';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        // Input value MUST be preserved
+        assert.strictEqual(input.value, 'My preserved draft comment');
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.ok(errorEl.textContent.includes('Phiên đăng nhập đã hết hạn'));
+        assert.strictEqual(errorEl.hidden, false);
+    });
+
+    test('8. root mutation /access-denied redirect preserves input and shows access error', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    ok: true,
+                    redirected: true,
+                    url: 'http://localhost:8080/access-denied',
+                    headers: { get: () => 'text/html;charset=UTF-8' },
+                    text: async () => '<html>Access denied</html>'
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'My preserved draft comment 2';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        assert.strictEqual(input.value, 'My preserved draft comment 2');
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.ok(errorEl.textContent.includes('Yêu cầu không hợp lệ'));
+        assert.strictEqual(errorEl.hidden, false);
+    });
+
+    test('9. root mutation 2xx HTML preserves input and shows invalid server response error', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: { get: () => 'text/html;charset=UTF-8' },
+                    text: async () => '<html>Not JSON</html>'
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'Draft for html test';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        assert.strictEqual(input.value, 'Draft for html test');
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.ok(errorEl.textContent.includes('Phản hồi máy chủ không hợp lệ'));
+        assert.strictEqual(errorEl.hidden, false);
+    });
+
+    test('10. reply mutation /login redirect preserves input and keeps composer open', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    ok: true,
+                    redirected: true,
+                    url: 'http://localhost:8080/login?returnTo=%2Fcommunity',
+                    headers: { get: () => 'text/html' }
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    roots: [{ root: { id: 'root-for-reply-test', body: 'Root item' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        CommunityComments.openReplyComposer(POST_ID, 'root-for-reply-test', 'root-for-reply-test', 'Root Author');
+        const slot = doc.querySelector('[data-reply-slot="root-for-reply-test"]');
+        assert.ok(slot);
+        const replyInput = slot.querySelector('.community-reply-composer__input');
+        assert.ok(replyInput);
+        replyInput.value = 'Preserved reply text';
+        await CommunityComments.submitReply(POST_ID, 'root-for-reply-test', 'root-for-reply-test');
+
+        assert.strictEqual(replyInput.value, 'Preserved reply text');
+        const composerEl = slot.querySelector('.community-reply-composer');
+        assert.ok(composerEl, 'Reply composer must NOT be removed on failure');
+        const errorEl = composerEl.querySelector('.community-comment-composer__error');
+        assert.ok(errorEl);
+        assert.ok(errorEl.textContent.includes('Phiên đăng nhập đã hết hạn'));
+        assert.strictEqual(errorEl.hidden, false);
+    });
+
+    test('11. reply mutation 2xx HTML preserves input and keeps composer open', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: { get: () => 'text/html;charset=UTF-8' }
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    roots: [{ root: { id: 'root-for-reply-html', body: 'Root item' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        CommunityComments.openReplyComposer(POST_ID, 'root-for-reply-html', 'root-for-reply-html', 'Root Author');
+        const slot = doc.querySelector('[data-reply-slot="root-for-reply-html"]');
+        assert.ok(slot);
+        const replyInput = slot.querySelector('.community-reply-composer__input');
+        assert.ok(replyInput);
+        replyInput.value = 'Preserved reply html test';
+        await CommunityComments.submitReply(POST_ID, 'root-for-reply-html', 'root-for-reply-html');
+
+        assert.strictEqual(replyInput.value, 'Preserved reply html test');
+        const composerEl = slot.querySelector('.community-reply-composer');
+        assert.ok(composerEl, 'Reply composer must NOT be removed on HTML failure');
+        const errorEl = composerEl.querySelector('.community-comment-composer__error');
+        assert.ok(errorEl);
+        assert.ok(errorEl.textContent.includes('Phản hồi máy chủ không hợp lệ'));
+        assert.strictEqual(errorEl.hidden, false);
+    });
+
+    test('12. viewport mobile drawer -> desktop transition releases body lock', async () => {
+        const mockFetch = async () => ({
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+        });
+
+        CommunityComments.init({ force: true, isMobile: true, fetch: mockFetch });
+
+        // Open comments in mobile
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        assert.strictEqual(CommunityComments.isDrawerOpen(), true);
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), true);
+
+        // Transition viewport to desktop
+        CommunityComments.setMobileViewport(false);
+
+        // Drawer closed, body scroll lock released
+        assert.strictEqual(CommunityComments.isDrawerOpen(), false);
+        assert.strictEqual(doc.body.classList.contains('has-community-comments-open'), false);
+    });
+
+    test('13. repeated init/reset does not duplicate media-query listener', () => {
+        let addedListeners = 0;
+        let removedListeners = 0;
+
+        const fakeMql = {
+            matches: false,
+            addEventListener: (event, handler) => {
+                if (event === 'change') addedListeners++;
+            },
+            removeEventListener: (event, handler) => {
+                if (event === 'change') removedListeners++;
+            }
+        };
+
+        globalThis.window.matchMedia = (query) => fakeMql;
+
+        CommunityComments.init({ force: true, isMobile: false });
+        assert.strictEqual(addedListeners, 1);
+        assert.strictEqual(removedListeners, 0);
+
+        // Second init without reset should not duplicate listener
+        CommunityComments.init();
+        assert.strictEqual(addedListeners, 1);
+
+        // Reset cleanly removes listener
+        CommunityComments.reset();
+        assert.strictEqual(removedListeners, 1);
+
+        // Re-init adds single listener again
+        CommunityComments.init({ force: true, isMobile: false });
+        assert.strictEqual(addedListeners, 2);
+        assert.strictEqual(removedListeners, 1);
+
+        CommunityComments.reset();
+        assert.strictEqual(removedListeners, 2);
+    });
+
+    test('14. root mutation 500 application/json malformed body shows generic error without raw SyntaxError and preserves input', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 500,
+                    ok: false,
+                    headers: { get: () => 'application/json' },
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON at position 0');
+                    }
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'Preserved root comment on 500 malformed JSON';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        // Input value must be preserved
+        assert.strictEqual(input.value, 'Preserved root comment on 500 malformed JSON');
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.hidden, false);
+        assert.strictEqual(errorEl.textContent, 'Không thể đăng bình luận.');
+        assert.strictEqual(errorEl.textContent.includes('Unexpected'), false);
+        assert.strictEqual(errorEl.textContent.includes('SyntaxError'), false);
+        assert.strictEqual(errorEl.textContent.includes('JSON'), false);
+    });
+
+    test('15. reply mutation 500 application/json malformed body shows generic error without raw SyntaxError and preserves reply composer', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 500,
+                    ok: false,
+                    headers: { get: () => 'application/json' },
+                    json: async () => {
+                        throw new SyntaxError('Unexpected token < in JSON at position 0');
+                    }
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    roots: [{ root: { id: 'root-for-reply-malformed', body: 'Root item' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        CommunityComments.openReplyComposer(POST_ID, 'root-for-reply-malformed', 'root-for-reply-malformed', 'Root Author');
+        const slot = doc.querySelector('[data-reply-slot="root-for-reply-malformed"]');
+        assert.ok(slot);
+        const replyInput = slot.querySelector('.community-reply-composer__input');
+        assert.ok(replyInput);
+        replyInput.value = 'Preserved reply on 500 malformed JSON';
+        await CommunityComments.submitReply(POST_ID, 'root-for-reply-malformed', 'root-for-reply-malformed');
+
+        assert.strictEqual(replyInput.value, 'Preserved reply on 500 malformed JSON');
+        const composerEl = slot.querySelector('.community-reply-composer');
+        assert.ok(composerEl, 'Reply composer must NOT be removed on malformed JSON failure');
+        const errorEl = composerEl.querySelector('.community-comment-composer__error');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.hidden, false);
+        assert.strictEqual(errorEl.textContent, 'Không thể gửi phản hồi.');
+        assert.strictEqual(errorEl.textContent.includes('Unexpected'), false);
+        assert.strictEqual(errorEl.textContent.includes('SyntaxError'), false);
+        assert.strictEqual(errorEl.textContent.includes('JSON'), false);
+    });
+
+    test('16. parseMutationResponse classifier swallows SyntaxError on malformed JSON bodies', async () => {
+        const respMalformed = {
+            status: 500,
+            ok: false,
+            headers: { get: () => 'application/json' },
+            json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); }
+        };
+
+        // Root caller default error
+        await assert.rejects(
+            async () => { await CommunityComments.parseMutationResponse(respMalformed, 'Không thể đăng bình luận.'); },
+            (err) => {
+                assert.strictEqual(err.message, 'Không thể đăng bình luận.');
+                assert.ok(!(err instanceof SyntaxError));
+                return true;
+            }
+        );
+
+        // Reply caller default error
+        await assert.rejects(
+            async () => { await CommunityComments.parseMutationResponse(respMalformed, 'Không thể gửi phản hồi.'); },
+            (err) => {
+                assert.strictEqual(err.message, 'Không thể gửi phản hồi.');
+                assert.ok(!(err instanceof SyntaxError));
+                return true;
+            }
+        );
+
+        // Valid JSON with message is preserved
+        const respWithMessage = {
+            status: 400,
+            ok: false,
+            headers: { get: () => 'application/json' },
+            json: async () => ({ message: 'Bình luận chứa từ ngữ không phù hợp.' })
+        };
+        await assert.rejects(
+            async () => { await CommunityComments.parseMutationResponse(respWithMessage, 'Lỗi mặc định'); },
+            { message: 'Bình luận chứa từ ngữ không phù hợp.' }
+        );
+
+        // Valid JSON without message falls back to default
+        const respNoMessage = {
+            status: 500,
+            ok: false,
+            headers: { get: () => 'application/json' },
+            json: async () => ({})
+        };
+        await assert.rejects(
+            async () => { await CommunityComments.parseMutationResponse(respNoMessage, 'Lỗi mặc định'); },
+            { message: 'Lỗi mặc định' }
+        );
+    });
+
+    test('17. root mutation 200 application/json is rejected, preserves input and does not mutate count or refresh feed', async () => {
+        let refreshCalled = false;
+        const initialCount = 4;
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 200,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        commentId: 'fake-root-200',
+                        updatedCommentCount: 99
+                    })
+                };
+            }
+            if (url.includes('page=0')) {
+                refreshCalled = true;
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: initialCount, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        // Initial fetch happened, reset spy flag
+        refreshCalled = false;
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'Preserved root comment on 200 response';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        // Input value must be preserved
+        assert.strictEqual(input.value, 'Preserved root comment on 200 response');
+
+        // Error message displayed
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.hidden, false);
+        assert.ok(errorEl.textContent.includes('Phản hồi máy chủ không hợp lệ'));
+
+        // Comment count was NOT updated to 99
+        const countSpans = doc.querySelectorAll('.post-comment-count');
+        countSpans.forEach(s => assert.notStrictEqual(s.textContent, '99'));
+
+        // Root feed refresh was NOT triggered as successful mutation
+        assert.strictEqual(refreshCalled, false);
+    });
+
+    test('18. reply mutation 200 application/json is rejected, preserves reply composer/input and does not mutate count', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 200,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({
+                        commentId: 'fake-reply-200',
+                        updatedCommentCount: 99
+                    })
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({
+                    roots: [{ root: { id: 'root-for-reply-200', body: 'Root item' }, replyCount: 0 }],
+                    commentCount: 1,
+                    page: 0,
+                    size: 10,
+                    hasNext: false
+                })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        CommunityComments.openReplyComposer(POST_ID, 'root-for-reply-200', 'root-for-reply-200', 'Root Author');
+        const slot = doc.querySelector('[data-reply-slot="root-for-reply-200"]');
+        assert.ok(slot);
+        const replyInput = slot.querySelector('.community-reply-composer__input');
+        assert.ok(replyInput);
+        replyInput.value = 'Preserved reply on 200 response';
+        await CommunityComments.submitReply(POST_ID, 'root-for-reply-200', 'root-for-reply-200');
+
+        assert.strictEqual(replyInput.value, 'Preserved reply on 200 response');
+        const composerEl = slot.querySelector('.community-reply-composer');
+        assert.ok(composerEl, 'Reply composer must NOT be removed on 200 response failure');
+        const errorEl = composerEl.querySelector('.community-comment-composer__error');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.hidden, false);
+        assert.ok(errorEl.textContent.includes('Phản hồi máy chủ không hợp lệ'));
+
+        // Comment count was NOT updated to 99
+        const countSpans = doc.querySelectorAll('.post-comment-count');
+        countSpans.forEach(s => assert.notStrictEqual(s.textContent, '99'));
+    });
+
+    test('19. root mutation 201 application/json with invalid shape ({}) is rejected and preserves input', async () => {
+        const mockFetch = async (url, opts) => {
+            if (opts && opts.method === 'POST') {
+                return {
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({})
+                };
+            }
+            return {
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ roots: [], commentCount: 0, page: 0, size: 10, hasNext: false })
+            };
+        };
+
+        CommunityComments.init({ force: true, isMobile: false, fetch: mockFetch });
+
+        const toggleBtn = doc.querySelector('[data-action="toggle-comments"][data-post-id="' + POST_ID + '"]');
+        doc.dispatchEvent({ type: 'click', target: toggleBtn, preventDefault: () => {} });
+        await new Promise(r => setTimeout(r, 15));
+
+        const input = doc.querySelector('[data-input-root="' + POST_ID + '"]');
+        input.value = 'Preserved root comment on invalid shape';
+        await CommunityComments.submitRootComment(POST_ID);
+
+        // Input value must be preserved
+        assert.strictEqual(input.value, 'Preserved root comment on invalid shape');
+        const errorEl = doc.querySelector('[data-error-root="' + POST_ID + '"]');
+        assert.ok(errorEl);
+        assert.strictEqual(errorEl.hidden, false);
+        assert.ok(errorEl.textContent.includes('Phản hồi máy chủ không hợp lệ'));
+    });
+
+    test('20. parseMutationResponse classifier rejects 200/202/204, malformed 201 shapes, and accepts canonical 201 shape', async () => {
+        // 200 application/json must be rejected
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 200,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'c1', updatedCommentCount: 1 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 202 application/json must be rejected
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 202,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'c1', updatedCommentCount: 1 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 204 No Content must be rejected
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 204,
+                    ok: true,
+                    headers: { get: () => '' },
+                    json: async () => null
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 with empty object
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({})
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 with blank commentId
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: '', updatedCommentCount: 1 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 missing updatedCommentCount
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'valid-id' })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 missing commentId
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ updatedCommentCount: 10 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 with string updatedCommentCount
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'valid-id', updatedCommentCount: '10' })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 with negative updatedCommentCount
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'valid-id', updatedCommentCount: -1 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 with fractional updatedCommentCount
+        await assert.rejects(
+            async () => {
+                await CommunityComments.parseMutationResponse({
+                    status: 201,
+                    ok: true,
+                    headers: { get: () => 'application/json' },
+                    json: async () => ({ commentId: 'valid-id', updatedCommentCount: 1.5 })
+                });
+            },
+            { message: 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.' }
+        );
+
+        // 201 canonical response passes
+        const canonical = await CommunityComments.parseMutationResponse({
+            status: 201,
+            ok: true,
+            headers: { get: () => 'application/json' },
+            json: async () => ({ commentId: '33333333-3333-3333-3333-333333333333', updatedCommentCount: 5 })
+        });
+        assert.deepStrictEqual(canonical, {
+            commentId: '33333333-3333-3333-3333-333333333333',
+            updatedCommentCount: 5
+        });
     });
 });

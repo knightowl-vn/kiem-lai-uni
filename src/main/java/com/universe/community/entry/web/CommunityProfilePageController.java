@@ -39,6 +39,7 @@ public class CommunityProfilePageController {
 
         model.addAttribute("profile", profileOpt.get());
         model.addAttribute("activeNav", "community");
+        model.addAttribute("returnTo", "/community/@" + publicHandle);
         return "community/profile";
     }
 }
