@@ -629,4 +629,186 @@ describe('CommunityComposer Module Tests (MS-07B8.1 / MS-07B8-RETRO-CORRECTIVE)'
             }
         );
     });
+
+    test('13. browser-safe file input reset: when input.files throws TypeError on array assignment, POST 201 clears composer without false network error', async () => {
+        let postFetchCount = 0;
+        const mockFetch = async () => {
+            postFetchCount++;
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ id: 'post-browser-safe-1', caption: 'Post with strict files setter' })
+            };
+        };
+
+        // Simulate browser HTMLInputElement.files setter throwing TypeError when assigned an Array
+        const mockFileList = [{ name: 'test.jpg', type: 'image/jpeg', size: 1024 }];
+        Object.defineProperty(imageInput, 'files', {
+            configurable: true,
+            get() { return mockFileList; },
+            set(v) {
+                if (!v || v.constructor?.name !== 'FileList') {
+                    throw new TypeError("Failed to set the 'files' property on 'HTMLInputElement': The provided value is not of type 'FileList'.");
+                }
+            }
+        });
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Post with strict files setter';
+        imagePreviewContainer.hidden = false;
+        imagePreviewImg.src = 'data:image/jpeg;base64,abc';
+
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(postFetchCount, 1, 'POST fetch must be called exactly once');
+        assert.strictEqual(captionInput.value, '', 'Caption must be reset');
+        assert.strictEqual(imagePreviewContainer.hidden, true, 'Image preview must be hidden');
+        assert.strictEqual(imagePreviewImg.src, '', 'Image preview src must be cleared');
+        assert.strictEqual(errorAlert.hidden, true, 'Error alert must remain hidden');
+        assert.strictEqual(submitBtn.disabled, false, 'Submit button must be re-enabled');
+        assert.strictEqual(refreshedFeedType, 'NEWEST', 'Feed refresh must be triggered on NEWEST');
+    });
+
+    test('14. canonical POST 201 when CommunityFeed.refreshFeed rejects: composer STILL resets, no composer error shown, fetch called once', async () => {
+        let postFetchCount = 0;
+        let refreshFeedCallCount = 0;
+
+        globalThis.window.CommunityFeed = {
+            refreshFeed: (feed) => {
+                refreshFeedCallCount++;
+                return Promise.reject(new TypeError('Failed to fetch feed'));
+            }
+        };
+
+        const mockFetch = async () => {
+            postFetchCount++;
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ id: 'post-refresh-reject-1', caption: 'Post when feed refresh rejects' })
+            };
+        };
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Post when feed refresh rejects';
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(postFetchCount, 1, 'POST fetch must be called exactly once');
+        assert.strictEqual(refreshFeedCallCount, 1, 'refreshFeed must be called once');
+        assert.strictEqual(captionInput.value, '', 'Composer caption must still be reset');
+        assert.strictEqual(errorAlert.hidden, true, 'Composer error alert must NOT be displayed');
+        assert.strictEqual(errorAlert.textContent, '', 'No network error message in composer');
+        assert.strictEqual(submitBtn.disabled, false, 'Submit button must be unlocked');
+    });
+
+    test('15. canonical POST 201 when CommunityFeed.refreshFeed throws synchronously: composer STILL resets without false failure', async () => {
+        let postFetchCount = 0;
+
+        globalThis.window.CommunityFeed = {
+            refreshFeed: () => {
+                throw new Error('Synchronous DOM error in feed refresh');
+            }
+        };
+
+        const mockFetch = async () => {
+            postFetchCount++;
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ id: 'post-refresh-throw-1', caption: 'Post when feed refresh throws' })
+            };
+        };
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Post when feed refresh throws';
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(postFetchCount, 1, 'POST fetch called once');
+        assert.strictEqual(captionInput.value, '', 'Composer caption must still be reset');
+        assert.strictEqual(errorAlert.hidden, true, 'Composer error alert must NOT be displayed');
+        assert.strictEqual(submitBtn.disabled, false, 'Submit button unlocked');
+    });
+
+    test('16. canonical POST 201 when CommunityFeed.refreshFeed returns false: create remains successful and composer resets', async () => {
+        let postFetchCount = 0;
+        let refreshFeedCallCount = 0;
+
+        globalThis.window.CommunityFeed = {
+            refreshFeed: (feed) => {
+                refreshFeedCallCount++;
+                return Promise.resolve(false);
+            }
+        };
+
+        const mockFetch = async () => {
+            postFetchCount++;
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ id: 'post-refresh-false-1', caption: 'Post when feed refresh returns false' })
+            };
+        };
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Post when feed refresh returns false';
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(postFetchCount, 1, 'POST fetch called once');
+        assert.strictEqual(refreshFeedCallCount, 1, 'refreshFeed called once');
+        assert.strictEqual(captionInput.value, '', 'Composer caption reset');
+        assert.strictEqual(errorAlert.hidden, true, 'Error alert hidden');
+        assert.strictEqual(submitBtn.disabled, false, 'Submit button unlocked');
+    });
+
+    test('17. stale error state: previous visible network error is cleared on retry and subsequent canonical 201', async () => {
+        let fetchAttempt = 0;
+
+        const mockFetch = async () => {
+            fetchAttempt++;
+            if (fetchAttempt === 1) {
+                throw new TypeError('Failed to fetch');
+            }
+            return {
+                status: 201,
+                ok: true,
+                headers: { get: () => 'application/json' },
+                json: async () => ({ id: 'post-retry-success-1', caption: 'Retry draft' })
+            };
+        };
+
+        CommunityComposer.init({ document: doc, fetch: mockFetch });
+
+        captionInput.value = 'Retry draft';
+
+        // Attempt 1: Network failure
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(fetchAttempt, 1);
+        assert.strictEqual(errorAlert.hidden, false, 'Error alert shown on attempt 1');
+        assert.ok(errorAlert.textContent.includes('Không thể kết nối đến máy chủ'));
+        assert.strictEqual(captionInput.value, 'Retry draft', 'Draft preserved after network failure');
+
+        // Attempt 2: Success
+        form.dispatchEvent({ type: 'submit', defaultPrevented: false });
+        await new Promise(r => setTimeout(r, 20));
+
+        assert.strictEqual(fetchAttempt, 2);
+        assert.strictEqual(errorAlert.hidden, true, 'Error alert hidden on attempt 2 success');
+        assert.strictEqual(errorAlert.textContent, '', 'Error alert text cleared');
+        assert.strictEqual(captionInput.value, '', 'Draft cleared on attempt 2 success');
+        assert.strictEqual(refreshedFeedType, 'NEWEST', 'Feed refreshed on attempt 2 success');
+    });
 });

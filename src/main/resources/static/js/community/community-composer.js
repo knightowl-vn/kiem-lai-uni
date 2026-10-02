@@ -262,19 +262,36 @@
                     return parseComposerResponse(response);
                 })
                 .then(function (createdPost) {
-                    // Reset composer ONLY on verified success
-                    resetComposer();
+                    // Canonical 201 create success committed: reset composer and clear errors
+                    try {
+                        resetComposer();
+                    } catch (resetErr) {
+                        console.error('Composer reset error:', resetErr);
+                    }
 
-                    // Refresh feed on NEWEST tab
-                    if (typeof window !== 'undefined' && window.CommunityFeed && typeof window.CommunityFeed.refreshFeed === 'function') {
-                        window.CommunityFeed.refreshFeed('NEWEST');
-                    } else {
-                        const win = typeof globalThis !== 'undefined' ? globalThis : null;
-                        if (win && win.CommunityFeed && typeof win.CommunityFeed.refreshFeed === 'function') {
-                            win.CommunityFeed.refreshFeed('NEWEST');
-                        } else if (win && win.location) {
-                            win.location.href = '/community?feed=NEWEST';
+                    // Refresh feed on NEWEST tab as an independent post-success concern
+                    try {
+                        const feedModule = (typeof window !== 'undefined' && window.CommunityFeed)
+                            ? window.CommunityFeed
+                            : ((typeof globalThis !== 'undefined' && globalThis.CommunityFeed) ? globalThis.CommunityFeed : null);
+
+                        if (feedModule && typeof feedModule.refreshFeed === 'function') {
+                            const refreshResult = feedModule.refreshFeed('NEWEST');
+                            if (refreshResult && typeof refreshResult.catch === 'function') {
+                                refreshResult.catch(function (err) {
+                                    // Feed refresh failure handled by feed error UI, never composer
+                                    console.error('Post-success feed refresh error:', err);
+                                });
+                            }
+                        } else {
+                            const win = (typeof window !== 'undefined') ? window : ((typeof globalThis !== 'undefined') ? globalThis : null);
+                            if (win && win.location) {
+                                win.location.href = '/community?feed=NEWEST';
+                            }
                         }
+                    } catch (postSuccessError) {
+                        // Presentation/feed error must NEVER invalidate post creation
+                        console.error('Post-success presentation error:', postSuccessError);
                     }
                 })
                 .catch(function (error) {
@@ -326,9 +343,11 @@
         function clearImageInput() {
             if (imageInput) {
                 imageInput.value = '';
-                if (imageInput.files) {
-                    imageInput.files = [];
-                }
+                try {
+                    if (Array.isArray(imageInput.files)) {
+                        imageInput.files = [];
+                    }
+                } catch (_) {}
             }
         }
 
