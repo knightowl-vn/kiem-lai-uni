@@ -92,16 +92,23 @@ public class CommunityPostController {
             @RequestParam(value = "feed", required = false) String feed,
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "page", required = false) Integer page,
-            @RequestParam(value = "size", required = false) Integer size
+            @RequestParam(value = "size", required = false) Integer size,
+            HttpServletRequest request
     ) {
         String normalizedFeed = (feed == null || feed.isBlank()) ? "NEWEST" : feed.trim();
+
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
 
         if ("NEWEST".equalsIgnoreCase(normalizedFeed)) {
             if (page != null) {
                 throw new CommunityPostValidationException("Page pagination is only supported for FEATURED feed.");
             }
             int requestedSize = (size != null) ? size : 20;
-            CommunityNewestFeedResponseDTO response = getCommunityNewestFeedUseCase.execute(cursor, requestedSize);
+            CommunityNewestFeedResponseDTO response = (viewerUserId != null)
+                    ? getCommunityNewestFeedUseCase.execute(cursor, requestedSize, viewerUserId)
+                    : getCommunityNewestFeedUseCase.execute(cursor, requestedSize);
             return ResponseEntity.ok(response);
         } else if ("FEATURED".equalsIgnoreCase(normalizedFeed)) {
             if (cursor != null && !cursor.isBlank()) {
@@ -109,7 +116,9 @@ public class CommunityPostController {
             }
             int requestedPage = (page != null) ? page : 0;
             int requestedSize = (size != null) ? size : 20;
-            CommunityFeaturedFeedResponseDTO response = getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize);
+            CommunityFeaturedFeedResponseDTO response = (viewerUserId != null)
+                    ? getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize, viewerUserId)
+                    : getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize);
             return ResponseEntity.ok(response);
         } else {
             throw new CommunityPostValidationException("Unsupported feed selector: " + feed);

@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Use case to retrieve an author's public profile composition including the first page of their Community posts.
@@ -29,6 +30,10 @@ public class GetCommunityPublicProfileUseCase {
     }
 
     public Optional<CommunityAuthorProfileDTO> execute(String publicHandle) {
+        return execute(publicHandle, null);
+    }
+
+    public Optional<CommunityAuthorProfileDTO> execute(String publicHandle, UUID viewerUserId) {
         if (publicHandle == null || publicHandle.isBlank()) {
             return Optional.empty();
         }
@@ -41,11 +46,18 @@ public class GetCommunityPublicProfileUseCase {
         CommunityAuthorProfileDetails author = authorOpt.get();
 
         // Fetch first page of authored posts (cursor = null, size = default 20)
-        CommunityNewestFeedResponseDTO postsFeed = getCommunityAuthorPostsUseCase.execute(
-                author.userId(),
-                null,
-                GetCommunityAuthorPostsUseCase.DEFAULT_SIZE
-        );
+        CommunityNewestFeedResponseDTO postsFeed = (viewerUserId != null)
+                ? getCommunityAuthorPostsUseCase.execute(
+                        author.userId(),
+                        null,
+                        GetCommunityAuthorPostsUseCase.DEFAULT_SIZE,
+                        viewerUserId
+                )
+                : getCommunityAuthorPostsUseCase.execute(
+                        author.userId(),
+                        null,
+                        GetCommunityAuthorPostsUseCase.DEFAULT_SIZE
+                );
 
         return Optional.of(new CommunityAuthorProfileDTO(
                 author.publicHandle(),

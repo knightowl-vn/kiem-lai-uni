@@ -26,6 +26,7 @@ import com.universe.shared.security.AuthenticatedEmailResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -647,6 +648,7 @@ class CommunityPostControllerWebMvcTest {
                 .andExpect(jsonPath("$.items[0].reactionCount").value(5))
                 .andExpect(jsonPath("$.items[0].commentCount").value(2))
                 .andExpect(jsonPath("$.items[0].engagementScore").value(7))
+                .andExpect(jsonPath("$.items[0].currentUserReaction").value(Matchers.nullValue()))
                 .andExpect(jsonPath("$.nextCursor").value("next-cursor"))
                 .andExpect(jsonPath("$.hasNext").value(true));
 
@@ -657,19 +659,27 @@ class CommunityPostControllerWebMvcTest {
     @WithMockUser
     @DisplayName("GET /api/community/posts as authenticated user -> 200 OK")
     void shouldAllowAuthenticatedUserToReadFeed() throws Exception {
+        UUID postId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T10:00:00Z");
+        CommunityPostFeedItemDTO reactedItem = new CommunityPostFeedItemDTO(
+                postId, USER_ID, "Author", "author", null, "Caption",
+                null, null, 0,
+                1L, 0L, 1L, now, now, "LIKE"
+        );
         CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
-                List.of(), null, 20, false
+                List.of(reactedItem), null, 20, false
         );
 
-        when(getCommunityNewestFeedUseCase.execute(null, 20)).thenReturn(responseDTO);
+        when(getCommunityNewestFeedUseCase.execute(null, 20, USER_ID)).thenReturn(responseDTO);
 
         mockMvc.perform(get("/api/community/posts")
                         .with(authenticatedIdentity(USER_ID)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.items").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].currentUserReaction").value("LIKE"))
                 .andExpect(jsonPath("$.hasNext").value(false));
 
-        verify(getCommunityNewestFeedUseCase).execute(null, 20);
+        verify(getCommunityNewestFeedUseCase).execute(null, 20, USER_ID);
     }
 
     @Test

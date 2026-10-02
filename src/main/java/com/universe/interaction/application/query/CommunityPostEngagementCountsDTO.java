@@ -9,9 +9,14 @@ import java.util.UUID;
 public record CommunityPostEngagementCountsDTO(
         UUID postId,
         long reactionCount,
-        long commentCount
+        long commentCount,
+        String currentUserReaction
 ) {
     public CommunityPostEngagementCountsDTO {
         Objects.requireNonNull(postId, "Post ID cannot be null.");
+    }
+
+    public CommunityPostEngagementCountsDTO(UUID postId, long reactionCount, long commentCount) {
+        this(postId, reactionCount, commentCount, null);
     }
 }

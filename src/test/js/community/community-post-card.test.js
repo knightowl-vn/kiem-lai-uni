@@ -158,8 +158,14 @@ class FakeElement {
     }
     querySelectorAll(selector) {
         const res = [];
-        findAll(this, selector, res);
+        for (const child of this.childNodes || []) {
+            findAll(child, selector, res);
+        }
         return res;
+    }
+
+    matches(selector) {
+        return matches(this, selector);
     }
 
     closest(selector) {
@@ -220,6 +226,9 @@ class FakeDocument {
             this.listeners[type].forEach(fn => fn(evtObj));
         }
     }
+    matches(sel) {
+        return matches(this, sel);
+    }
 }
 
 function matches(el, sel) {
@@ -254,6 +263,12 @@ function matches(el, sel) {
                 if (!el.hasAttribute(attrName)) return false;
             }
             remaining = remaining.slice(attrMatch[0].length);
+        } else if (remaining.startsWith(':not(')) {
+            const notEnd = remaining.indexOf(')');
+            if (notEnd === -1) return false;
+            const innerSel = remaining.slice(5, notEnd);
+            if (matches(el, innerSel)) return false;
+            remaining = remaining.slice(notEnd + 1);
         } else {
             return false;
         }
@@ -1443,5 +1458,82 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
         assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
         assert.strictEqual(cardA.querySelector('.post-caption').textContent, 'Original Post A Caption', 'Card caption must NOT be mutated');
         assert.strictEqual(CommunityPostCard.isSubmitting(), false, 'isSubmitting state released');
+    });
+
+    test('34. Authenticated dynamic card with currentUserReaction sets data-reaction-current attribute on widget', () => {
+        const item = {
+            id: 'post-with-like-1',
+            authorUserId: 'author-1',
+            caption: 'Post with Like',
+            createdAt: '2026-09-30T10:00:00Z',
+            reactionCount: 1,
+            currentUserReaction: 'LIKE'
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: 'user-1' }, mockDoc);
+        const widget = card.querySelector('.kl-reaction-widget');
+        assert.ok(widget, 'Reaction widget must exist for authenticated user');
+        assert.strictEqual(widget.getAttribute('data-reaction-target-type'), 'COMMUNITY_POST');
+        assert.strictEqual(widget.getAttribute('data-reaction-target-id'), 'post-with-like-1');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'LIKE', 'data-reaction-current must be LIKE');
+    });
+
+    test('35. Authenticated dynamic card without currentUserReaction does not set data-reaction-current attribute', () => {
+        const item = {
+            id: 'post-no-reaction-2',
+            authorUserId: 'author-2',
+            caption: 'Post without reaction',
+            createdAt: '2026-09-30T10:00:00Z',
+            reactionCount: 0,
+            currentUserReaction: null
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: 'user-1' }, mockDoc);
+        const widget = card.querySelector('.kl-reaction-widget');
+        assert.ok(widget, 'Reaction widget must exist for authenticated user');
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), null, 'data-reaction-current must not be set');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '0');
+    });
+
+    test('36. Guest dynamic card renders login link without reaction widget', () => {
+        const item = {
+            id: 'post-guest-3',
+            authorUserId: 'author-3',
+            caption: 'Guest post',
+            createdAt: '2026-09-30T10:00:00Z',
+            reactionCount: 3,
+            currentUserReaction: null
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: false }, mockDoc);
+        const widget = card.querySelector('.kl-reaction-widget');
+        assert.strictEqual(widget, null, 'Reaction widget must NOT be rendered for guest');
+        const loginLink = card.querySelector('.post-metric--login-link');
+        assert.ok(loginLink, 'Login link must be rendered for guest');
+        assert.ok(loginLink.textContent.includes('3'), 'Guest count should be 3');
+    });
+
+    test('37. InteractionReactions.hydrate hydrates card with currentUserReaction="LIKE" to active trigger without click', () => {
+        const InteractionReactions = require(path.join(__dirname, '../../../main/resources/static/js/shared/interaction-reactions.js'));
+        const item = {
+            id: 'post-hydrate-4',
+            authorUserId: 'author-4',
+            caption: 'Post to hydrate',
+            createdAt: '2026-09-30T10:00:00Z',
+            reactionCount: 1,
+            currentUserReaction: 'LIKE'
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: 'user-1' }, mockDoc);
+        const widget = card.querySelector('.kl-reaction-widget');
+        assert.ok(widget);
+        assert.strictEqual(widget.getAttribute('data-reaction-current'), 'LIKE');
+
+        // Hydrate widget using InteractionReactions
+        InteractionReactions.hydrate(widget, mockDoc);
+
+        const trigger = widget.querySelector('[data-reaction-trigger]');
+        assert.ok(trigger, 'Trigger button must be rendered by hydrate');
+        assert.strictEqual(trigger.classList.contains('has-reaction'), true, 'Trigger must have has-reaction class immediately');
+        assert.strictEqual(trigger.classList.contains('is-like'), true, 'Trigger must have is-like class immediately');
+        assert.ok(trigger.getAttribute('aria-label').includes('Đã thích'), 'Aria-label must indicate already liked without requiring a click');
+        assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
     });
 });

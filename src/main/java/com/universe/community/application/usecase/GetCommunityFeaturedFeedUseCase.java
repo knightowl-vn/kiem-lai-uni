@@ -58,6 +58,10 @@ public class GetCommunityFeaturedFeedUseCase {
     }
 
     public CommunityFeaturedFeedResponseDTO execute(Integer requestedPage, Integer requestedSize) {
+        return execute(requestedPage, requestedSize, null);
+    }
+
+    public CommunityFeaturedFeedResponseDTO execute(Integer requestedPage, Integer requestedSize, UUID viewerUserId) {
         int page = (requestedPage != null) ? requestedPage : DEFAULT_PAGE;
         if (page < MIN_PAGE) {
             throw new CommunityPostValidationException("Page cannot be negative: " + page);
@@ -125,11 +129,21 @@ public class GetCommunityFeaturedFeedUseCase {
         Map<UUID, CommunityPostPublicDTO> postMap = hydratedPosts.stream()
                 .collect(Collectors.toMap(CommunityPostPublicDTO::id, p -> p, (p1, p2) -> p1));
 
+        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> winningViewerMetrics =
+                (viewerUserId != null && !winningIds.isEmpty())
+                        ? engagementMetricsPort.getEngagementMetricsForPosts(winningIds, viewerUserId)
+                        : null;
+
         // Assemble DTOs preserving exact computed ranking order
         List<CommunityPostFeedItemDTO> feedItems = new ArrayList<>(winningCandidates.size());
         for (ScoredCandidate candidate : winningCandidates) {
             CommunityPostPublicDTO post = postMap.get(candidate.postId());
             if (post != null) {
+                String userReaction = null;
+                if (winningViewerMetrics != null && winningViewerMetrics.containsKey(candidate.postId())) {
+                    userReaction = winningViewerMetrics.get(candidate.postId()).currentUserReaction();
+                }
+
                 feedItems.add(new CommunityPostFeedItemDTO(
                         post.id(),
                         post.authorUserId(),
@@ -144,7 +158,8 @@ public class GetCommunityFeaturedFeedUseCase {
                         candidate.commentCount(),
                         candidate.engagementScore(),
                         post.createdAt(),
-                        post.updatedAt()
+                        post.updatedAt(),
+                        userReaction
                 ));
             }
         }

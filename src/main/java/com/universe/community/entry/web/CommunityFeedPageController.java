@@ -4,6 +4,9 @@ import com.universe.community.application.usecase.GetCommunityFeaturedFeedUseCas
 import com.universe.community.application.usecase.GetCommunityNewestFeedUseCase;
 import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * SSR Page controller for rendering the main Community feed page at {@code /community}.
@@ -42,16 +46,23 @@ public class CommunityFeedPageController {
             @RequestParam(value = "cursor", required = false) String cursor,
             @RequestParam(value = "page", required = false) Integer page,
             @RequestParam(value = "size", required = false) Integer size,
+            HttpServletRequest request,
             Model model
     ) {
         String normalizedFeed = (feed == null || feed.isBlank()) ? "NEWEST" : feed.trim();
+
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
 
         if ("NEWEST".equalsIgnoreCase(normalizedFeed)) {
             if (page != null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Page pagination is only supported for FEATURED feed.");
             }
             int requestedSize = (size != null) ? size : 20;
-            CommunityNewestFeedResponseDTO response = getCommunityNewestFeedUseCase.execute(cursor, requestedSize);
+            CommunityNewestFeedResponseDTO response = (viewerUserId != null)
+                    ? getCommunityNewestFeedUseCase.execute(cursor, requestedSize, viewerUserId)
+                    : getCommunityNewestFeedUseCase.execute(cursor, requestedSize);
 
             model.addAttribute("selectedFeed", "NEWEST");
             model.addAttribute("items", response.items());
@@ -68,7 +79,9 @@ public class CommunityFeedPageController {
             }
             int requestedPage = (page != null) ? page : 0;
             int requestedSize = (size != null) ? size : 20;
-            CommunityFeaturedFeedResponseDTO response = getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize);
+            CommunityFeaturedFeedResponseDTO response = (viewerUserId != null)
+                    ? getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize, viewerUserId)
+                    : getCommunityFeaturedFeedUseCase.execute(requestedPage, requestedSize);
 
             model.addAttribute("selectedFeed", "FEATURED");
             model.addAttribute("items", response.items());

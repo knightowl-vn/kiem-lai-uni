@@ -47,6 +47,10 @@ public class GetCommunityAuthorPostsUseCase {
     }
 
     public CommunityNewestFeedResponseDTO execute(UUID authorUserId, String rawCursor, Integer requestedSize) {
+        return execute(authorUserId, rawCursor, requestedSize, null);
+    }
+
+    public CommunityNewestFeedResponseDTO execute(UUID authorUserId, String rawCursor, Integer requestedSize, UUID viewerUserId) {
         if (authorUserId == null) {
             throw new CommunityPostValidationException("Author user ID cannot be null.");
         }
@@ -76,7 +80,9 @@ public class GetCommunityAuthorPostsUseCase {
 
         List<UUID> postIds = pagePosts.stream().map(CommunityPostPublicDTO::id).toList();
         Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> metricsMap =
-                engagementMetricsPort.getEngagementMetricsForPosts(postIds);
+                (viewerUserId != null)
+                        ? engagementMetricsPort.getEngagementMetricsForPosts(postIds, viewerUserId)
+                        : engagementMetricsPort.getEngagementMetricsForPosts(postIds);
 
         List<CommunityPostFeedItemDTO> feedItems = new ArrayList<>(pagePosts.size());
         for (CommunityPostPublicDTO post : pagePosts) {
@@ -102,7 +108,8 @@ public class GetCommunityAuthorPostsUseCase {
                     commentCount,
                     engagementScore,
                     post.createdAt(),
-                    post.updatedAt()
+                    post.updatedAt(),
+                    metrics.currentUserReaction()
             ));
         }
 

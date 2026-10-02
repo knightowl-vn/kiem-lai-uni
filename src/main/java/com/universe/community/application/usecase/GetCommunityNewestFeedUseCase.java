@@ -47,6 +47,10 @@ public class GetCommunityNewestFeedUseCase {
     }
 
     public CommunityNewestFeedResponseDTO execute(String rawCursor, Integer requestedSize) {
+        return execute(rawCursor, requestedSize, null);
+    }
+
+    public CommunityNewestFeedResponseDTO execute(String rawCursor, Integer requestedSize, UUID viewerUserId) {
         int size = (requestedSize != null) ? requestedSize : DEFAULT_SIZE;
         if (size < MIN_SIZE || size > MAX_SIZE) {
             throw new CommunityPostValidationException("Size must be between " + MIN_SIZE + " and " + MAX_SIZE + ".");
@@ -71,7 +75,9 @@ public class GetCommunityNewestFeedUseCase {
 
         List<UUID> postIds = pagePosts.stream().map(CommunityPostPublicDTO::id).toList();
         Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> metricsMap =
-                engagementMetricsPort.getEngagementMetricsForPosts(postIds);
+                (viewerUserId != null)
+                        ? engagementMetricsPort.getEngagementMetricsForPosts(postIds, viewerUserId)
+                        : engagementMetricsPort.getEngagementMetricsForPosts(postIds);
 
         List<CommunityPostFeedItemDTO> feedItems = new ArrayList<>(pagePosts.size());
         for (CommunityPostPublicDTO post : pagePosts) {
@@ -97,7 +103,8 @@ public class GetCommunityNewestFeedUseCase {
                     commentCount,
                     engagementScore,
                     post.createdAt(),
-                    post.updatedAt()
+                    post.updatedAt(),
+                    metrics.currentUserReaction()
             ));
         }
 

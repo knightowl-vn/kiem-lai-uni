@@ -3,6 +3,9 @@ package com.universe.community.entry.web;
 import com.universe.community.application.usecase.GetCommunityPublicProfilePostsUseCase;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.domain.exception.CommunityPostValidationException;
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityAccessor;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Public REST controller for paginating Community author profile posts at {@code /api/community/profiles/{publicHandle}/posts}.
@@ -41,10 +45,16 @@ public class CommunityProfileApiController {
     public ResponseEntity<CommunityNewestFeedResponseDTO> getAuthorPosts(
             @PathVariable("publicHandle") String publicHandle,
             @RequestParam(value = "cursor", required = false) String cursor,
-            @RequestParam(value = "size", required = false) Integer size
+            @RequestParam(value = "size", required = false) Integer size,
+            HttpServletRequest request
     ) {
-        Optional<CommunityNewestFeedResponseDTO> responseOpt =
-                getCommunityPublicProfilePostsUseCase.execute(publicHandle, cursor, size);
+        UUID viewerUserId = AuthenticatedRequestIdentityAccessor.find(request)
+                .map(AuthenticatedRequestIdentity::userId)
+                .orElse(null);
+
+        Optional<CommunityNewestFeedResponseDTO> responseOpt = (viewerUserId != null)
+                ? getCommunityPublicProfilePostsUseCase.execute(publicHandle, cursor, size, viewerUserId)
+                : getCommunityPublicProfilePostsUseCase.execute(publicHandle, cursor, size);
 
         if (responseOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();

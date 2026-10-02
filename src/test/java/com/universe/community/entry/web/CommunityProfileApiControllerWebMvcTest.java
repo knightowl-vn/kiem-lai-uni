@@ -32,6 +32,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.universe.identity.application.security.AuthenticatedRequestIdentity;
+import com.universe.identity.domain.UserRole;
+import com.universe.identity.domain.UserStatus;
+import com.universe.identity.infrastructure.security.AuthenticatedRequestIdentityTestSupport;
+import org.hamcrest.Matchers;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -117,6 +124,7 @@ class CommunityProfileApiControllerWebMvcTest {
                 .andExpect(jsonPath("$.items[0].reactionCount").value(15))
                 .andExpect(jsonPath("$.items[0].commentCount").value(3))
                 .andExpect(jsonPath("$.items[0].engagementScore").value(18))
+                .andExpect(jsonPath("$.items[0].currentUserReaction").value(Matchers.nullValue()))
                 .andExpect(jsonPath("$.nextCursor").value("next-cur"))
                 .andExpect(jsonPath("$.hasNext").value(true))
                 .andExpect(jsonPath("$.size").value(20));
@@ -194,5 +202,55 @@ class CommunityProfileApiControllerWebMvcTest {
                         .param("size", "100"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Size must be between 1 and 50."));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/community/profiles/{publicHandle}/posts as authenticated viewer -> 200 OK with currentUserReaction")
+    void shouldReturnCurrentUserReactionForAuthenticatedViewer() throws Exception {
+        String handle = "linh_dao";
+        UUID postId = UUID.randomUUID();
+        UUID authorId = UUID.randomUUID();
+        UUID viewerId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-30T12:00:00Z");
+
+        CommunityPostFeedItemDTO item = new CommunityPostFeedItemDTO(
+                postId, authorId, "Linh Đạo", "linh_dao", null, "Tác phẩm mới",
+                null, null, 0,
+                15L, 3L, 18L, now, now, "LIKE"
+        );
+        CommunityNewestFeedResponseDTO responseDTO = new CommunityNewestFeedResponseDTO(
+                List.of(item), "next-cur", 20, true
+        );
+
+        when(getCommunityPublicProfilePostsUseCase.execute(eq(handle), eq(null), eq(null), eq(viewerId)))
+                .thenReturn(Optional.of(responseDTO));
+
+        mockMvc.perform(get("/api/community/profiles/{publicHandle}/posts", handle)
+                        .with(authenticatedIdentity(viewerId)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.items[0].id").value(postId.toString()))
+                .andExpect(jsonPath("$.items[0].reactionCount").value(15))
+                .andExpect(jsonPath("$.items[0].currentUserReaction").value("LIKE"))
+                .andExpect(jsonPath("$.nextCursor").value("next-cur"))
+                .andExpect(jsonPath("$.hasNext").value(true));
+
+        verify(getCommunityPublicProfilePostsUseCase).execute(handle, null, null, viewerId);
+    }
+
+    private RequestPostProcessor authenticatedIdentity(UUID userId) {
+        AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
+                userId,
+                "viewer@universe.com",
+                "Viewer User",
+                "https://cdn.example.com/avatar.jpg",
+                UserStatus.ACTIVE,
+                UserRole.USER
+        );
+        return request -> {
+            AuthenticatedRequestIdentityTestSupport.attach(request, identity);
+            return request;
+        };
     }
 }

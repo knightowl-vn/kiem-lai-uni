@@ -123,6 +123,9 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("returnTo", "/community"))
                 .andExpect(content().string(containsString("href=\"/login?returnTo=/community\"")))
                 .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
+                .andExpect(content().string(not(containsString("data-reaction-current"))))
+                .andExpect(content().string(not(containsString("kl-reaction-widget"))))
+                .andExpect(content().string(containsString("post-metric--login-link")))
                 .andExpect(content().string(not(containsString("post-actions-dropdown"))))
                 .andExpect(content().string(not(containsString("data-action=\"edit-post\""))));
 
@@ -154,7 +157,7 @@ class CommunityFeedPageControllerWebMvcTest {
         CommunityPostFeedItemDTO ownerItem = new CommunityPostFeedItemDTO(
                 ownerPostId, currentUserId, "Đạo Hữu", "dao_huu", null, "Owner caption",
                 null, null, 0,
-                1L, 0L, 1L, now, now
+                1L, 0L, 1L, now, now, "LIKE"
         );
         UUID otherPostId = UUID.randomUUID();
         CommunityPostFeedItemDTO otherItem = new CommunityPostFeedItemDTO(
@@ -178,6 +181,7 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("hasNext", false))
                 .andExpect(content().string(containsString("<meta name=\"current-user-id\" content=\"" + currentUserId + "\">")))
                 .andExpect(content().string(containsString("data-current-user-id=\"" + currentUserId + "\"")))
+                .andExpect(content().string(containsString("data-reaction-current=\"LIKE\"")))
                 .andExpect(content().string(containsString("data-action=\"edit-post\" data-post-id=\"" + ownerPostId + "\"")))
                 .andExpect(content().string(containsString("Chỉnh sửa bài viết")))
                 .andExpect(content().string(not(containsString("data-action=\"edit-post\" data-post-id=\"" + otherPostId + "\""))));

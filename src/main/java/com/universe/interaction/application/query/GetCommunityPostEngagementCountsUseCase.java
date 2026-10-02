@@ -5,6 +5,7 @@ import com.universe.interaction.application.ports.CommunityPostEngagementQueryPo
 import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.domain.CommentTargetType;
 import com.universe.interaction.domain.reaction.ReactionTargetType;
+import com.universe.interaction.domain.reaction.ReactionType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +35,11 @@ public class GetCommunityPostEngagementCountsUseCase implements CommunityPostEng
 
     @Override
     public Map<UUID, CommunityPostEngagementCountsDTO> getEngagementCountsForPosts(Collection<UUID> postIds) {
+        return getEngagementCountsForPosts(postIds, null);
+    }
+
+    @Override
+    public Map<UUID, CommunityPostEngagementCountsDTO> getEngagementCountsForPosts(Collection<UUID> postIds, UUID viewerUserId) {
         if (postIds == null || postIds.isEmpty()) {
             return Map.of();
         }
@@ -46,13 +52,18 @@ public class GetCommunityPostEngagementCountsUseCase implements CommunityPostEng
                 CommentTargetType.COMMUNITY_POST,
                 postIds
         );
+        Map<UUID, ReactionType> userReactions = (viewerUserId != null)
+                ? reactionRepositoryPort.findUserReactionsForTargetIds(viewerUserId, ReactionTargetType.COMMUNITY_POST, postIds)
+                : Map.of();
 
         Map<UUID, CommunityPostEngagementCountsDTO> result = new HashMap<>();
         for (UUID postId : postIds) {
             if (postId != null) {
                 long reactions = reactionCounts.getOrDefault(postId, 0L);
                 long comments = commentCounts.getOrDefault(postId, 0L);
-                result.put(postId, new CommunityPostEngagementCountsDTO(postId, reactions, comments));
+                ReactionType userReaction = userReactions.get(postId);
+                String reactionStr = (userReaction != null) ? userReaction.name() : null;
+                result.put(postId, new CommunityPostEngagementCountsDTO(postId, reactions, comments, reactionStr));
             }
         }
 

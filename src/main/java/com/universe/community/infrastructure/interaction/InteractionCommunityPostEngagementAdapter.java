@@ -30,13 +30,13 @@ public class InteractionCommunityPostEngagementAdapter implements CommunityPostE
     }
 
     @Override
-    public Map<UUID, PostEngagementMetrics> getEngagementMetricsForPosts(Collection<UUID> postIds) {
+    public Map<UUID, PostEngagementMetrics> getEngagementMetricsForPosts(Collection<UUID> postIds, UUID viewerUserId) {
         if (postIds == null || postIds.isEmpty()) {
             return Map.of();
         }
 
         Map<UUID, CommunityPostEngagementCountsDTO> countsMap =
-                communityPostEngagementQueryPort.getEngagementCountsForPosts(postIds);
+                communityPostEngagementQueryPort.getEngagementCountsForPosts(postIds, viewerUserId);
 
         Map<UUID, PostEngagementMetrics> result = new HashMap<>();
         if (countsMap != null) {
@@ -46,7 +46,8 @@ public class InteractionCommunityPostEngagementAdapter implements CommunityPostE
                             entry.getKey(),
                             new PostEngagementMetrics(
                                     entry.getValue().reactionCount(),
-                                    entry.getValue().commentCount()
+                                    entry.getValue().commentCount(),
+                                    entry.getValue().currentUserReaction()
                             )
                     );
                 }
@@ -54,5 +55,10 @@ public class InteractionCommunityPostEngagementAdapter implements CommunityPostE
         }
 
         return result;
+    }
+
+    @Override
+    public Map<UUID, PostEngagementMetrics> getEngagementMetricsForPosts(Collection<UUID> postIds) {
+        return getEngagementMetricsForPosts(postIds, null);
     }
 }

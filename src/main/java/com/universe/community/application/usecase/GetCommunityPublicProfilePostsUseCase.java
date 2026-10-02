@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Use case to retrieve paginated Community posts for a public author profile.
@@ -28,6 +29,10 @@ public class GetCommunityPublicProfilePostsUseCase {
     }
 
     public Optional<CommunityNewestFeedResponseDTO> execute(String publicHandle, String cursor, Integer requestedSize) {
+        return execute(publicHandle, cursor, requestedSize, null);
+    }
+
+    public Optional<CommunityNewestFeedResponseDTO> execute(String publicHandle, String cursor, Integer requestedSize, UUID viewerUserId) {
         if (publicHandle == null || publicHandle.isBlank()) {
             return Optional.empty();
         }
@@ -39,11 +44,18 @@ public class GetCommunityPublicProfilePostsUseCase {
 
         CommunityAuthorProfileDetails author = authorOpt.get();
 
-        CommunityNewestFeedResponseDTO postsFeed = getCommunityAuthorPostsUseCase.execute(
-                author.userId(),
-                cursor,
-                requestedSize
-        );
+        CommunityNewestFeedResponseDTO postsFeed = (viewerUserId != null)
+                ? getCommunityAuthorPostsUseCase.execute(
+                        author.userId(),
+                        cursor,
+                        requestedSize,
+                        viewerUserId
+                )
+                : getCommunityAuthorPostsUseCase.execute(
+                        author.userId(),
+                        cursor,
+                        requestedSize
+                );
 
         return Optional.of(postsFeed);
     }

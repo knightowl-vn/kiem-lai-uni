@@ -91,7 +91,7 @@ class CommunityProfileCompositionIntegrationTest {
     static class TestMetricsConfig {
         @Bean
         public CommunityPostEngagementMetricsPort engagementMetricsPort() {
-            return postIds -> Map.of();
+            return (postIds, viewerUserId) -> Map.of();
         }
     }
 

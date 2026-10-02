@@ -252,6 +252,9 @@
             reactionWidget.setAttribute('data-reaction-target-type', 'COMMUNITY_POST');
             reactionWidget.setAttribute('data-reaction-target-id', String(item.id));
             reactionWidget.setAttribute('data-reaction-total', String(item.reactionCount || 0));
+            if (item.currentUserReaction) {
+                reactionWidget.setAttribute('data-reaction-current', String(item.currentUserReaction));
+            }
             footer.appendChild(reactionWidget);
         } else {
             // Guest: Read-only thumbs-up metric linking to login

@@ -47,7 +47,7 @@ class InteractionCommunityPostEngagementAdapterTest {
         UUID p1 = UUID.randomUUID();
         UUID p2 = UUID.randomUUID();
 
-        when(interactionQueryPort.getEngagementCountsForPosts(List.of(p1, p2))).thenReturn(Map.of(
+        when(interactionQueryPort.getEngagementCountsForPosts(List.of(p1, p2), null)).thenReturn(Map.of(
                 p1, new CommunityPostEngagementCountsDTO(p1, 15L, 4L),
                 p2, new CommunityPostEngagementCountsDTO(p2, 0L, 2L)
         ));
@@ -62,6 +62,84 @@ class InteractionCommunityPostEngagementAdapterTest {
         assertThat(metrics.get(p2).reactionCount()).isEqualTo(0L);
         assertThat(metrics.get(p2).commentCount()).isEqualTo(2L);
 
-        verify(interactionQueryPort).getEngagementCountsForPosts(List.of(p1, p2));
+        verify(interactionQueryPort).getEngagementCountsForPosts(List.of(p1, p2), null);
+    }
+
+    @Test
+    @DisplayName("Should delegate to 2-arg Interaction port when viewerUserId is provided")
+    void shouldDelegateWithViewerUserId() {
+        UUID p1 = UUID.randomUUID();
+        UUID viewerUserId = UUID.randomUUID();
+
+        when(interactionQueryPort.getEngagementCountsForPosts(List.of(p1), viewerUserId)).thenReturn(Map.of(
+                p1, new CommunityPostEngagementCountsDTO(p1, 7L, 3L, "LIKE")
+        ));
+
+        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> metrics =
+                adapter.getEngagementMetricsForPosts(List.of(p1), viewerUserId);
+
+        assertThat(metrics).hasSize(1);
+        assertThat(metrics.get(p1).reactionCount()).isEqualTo(7L);
+        assertThat(metrics.get(p1).commentCount()).isEqualTo(3L);
+        assertThat(metrics.get(p1).currentUserReaction()).isEqualTo("LIKE");
+
+        verify(interactionQueryPort).getEngagementCountsForPosts(List.of(p1), viewerUserId);
+    }
+
+    @Test
+    @DisplayName("Should pass null viewerUserId to authoritative 2-arg port method when viewerUserId is null")
+    void shouldPassNullViewerUserIdToAuthoritativePort() {
+        UUID p1 = UUID.randomUUID();
+
+        when(interactionQueryPort.getEngagementCountsForPosts(List.of(p1), null)).thenReturn(Map.of(
+                p1, new CommunityPostEngagementCountsDTO(p1, 2L, 0L)
+        ));
+
+        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> metrics =
+                adapter.getEngagementMetricsForPosts(List.of(p1), null);
+
+        assertThat(metrics).hasSize(1);
+        assertThat(metrics.get(p1).reactionCount()).isEqualTo(2L);
+        assertThat(metrics.get(p1).currentUserReaction()).isNull();
+
+        verify(interactionQueryPort).getEngagementCountsForPosts(List.of(p1), null);
+    }
+
+    @Test
+    @DisplayName("CommunityPostEngagementMetricsPort default method delegates to 2-arg method with null viewerUserId")
+    void metricsPortDefaultMethodDelegatesWithNullViewer() {
+        UUID postId = UUID.randomUUID();
+        CommunityPostEngagementMetricsPort.PostEngagementMetrics expected =
+                new CommunityPostEngagementMetricsPort.PostEngagementMetrics(10L, 2L, null);
+
+        CommunityPostEngagementMetricsPort customPort = (postIds, viewerUserId) -> {
+            assertThat(viewerUserId).isNull();
+            return Map.of(postId, expected);
+        };
+
+        Map<UUID, CommunityPostEngagementMetricsPort.PostEngagementMetrics> result =
+                customPort.getEngagementMetricsForPosts(List.of(postId));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(postId)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("CommunityPostEngagementQueryPort default method delegates to 2-arg method with null viewerUserId")
+    void queryPortDefaultMethodDelegatesWithNullViewer() {
+        UUID postId = UUID.randomUUID();
+        CommunityPostEngagementCountsDTO expected =
+                new CommunityPostEngagementCountsDTO(postId, 5L, 1L, null);
+
+        CommunityPostEngagementQueryPort customPort = (postIds, viewerUserId) -> {
+            assertThat(viewerUserId).isNull();
+            return Map.of(postId, expected);
+        };
+
+        Map<UUID, CommunityPostEngagementCountsDTO> result =
+                customPort.getEngagementCountsForPosts(List.of(postId));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(postId)).isEqualTo(expected);
     }
 }
