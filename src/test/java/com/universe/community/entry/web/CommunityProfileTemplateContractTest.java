@@ -52,8 +52,10 @@ class CommunityProfileTemplateContractTest {
         // Zero th:utext
         assertThat(template).doesNotContain("th:utext");
 
-        // Preserves empty authored-feed state
-        assertThat(template).contains("th:if=\"${profile.posts.items.isEmpty()}\"");
+        // Preserves empty authored-feed state in DOM for dynamic delete reveal
+        assertThat(template).contains("class=\"empty-feed-card\"");
+        assertThat(template).contains("th:hidden=\"${!profile.posts.items.isEmpty()}\"");
+        assertThat(template).doesNotContain("th:if=\"${profile.posts.items.isEmpty()}\"");
         assertThat(template).contains("Chưa có bài viết nào từ tác giả này.");
     }
 

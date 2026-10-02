@@ -46,9 +46,11 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("submitSpinner.removeAttribute('hidden')");
         assertThat(js).contains("submitSpinner.setAttribute('hidden', '')");
 
-        // 6. Feed refresh on success
-        assertThat(js).contains("window.CommunityFeed.refreshFeed('NEWEST')");
+        // 6. Feed refresh on success & canonical 201 commit boundary
+        assertThat(js).contains("refreshFeed('NEWEST')");
         assertThat(js).contains("resetComposer()");
+        assertThat(js).contains("response.status === 201");
+        assertThat(js).contains("clearImageInput()");
 
         // 7. XSS-safe textContent for error rendering
         assertThat(js).contains("errorAlert.textContent = msg");
@@ -108,12 +110,15 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("article.setAttribute('data-post-id', item.id)");
         assertThat(js).contains("article.setAttribute('data-author-id', item.authorUserId)");
 
-        // 3. XSS-safe textContent for all user-supplied data (zero innerHTML)
+        // 3. XSS-safe textContent for all user-supplied data
         assertThat(js).contains("captionP.textContent = item.caption");
         assertThat(js).contains("authorNameLink.textContent = displayName");
         assertThat(js).contains("authorNameSpan.textContent = displayName");
         assertThat(js).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
-        assertThat(js).doesNotContain("innerHTML");
+        assertThat(js).doesNotContain("captionP.innerHTML");
+        assertThat(js).doesNotContain("authorNameLink.innerHTML");
+        assertThat(js).doesNotContain("authorNameSpan.innerHTML");
+        assertThat(js).doesNotContain("handleSpan.innerHTML");
 
         // 4. Author avatar fallback and handle linking
         assertThat(js).contains("defaultAvatar = '/images/default_avatar.jpg'");
@@ -138,6 +143,13 @@ class CommunityFeedClientContractTest {
 
         // 8. Comment count metric
         assertThat(js).contains("commentCountSpan.textContent = item.commentCount || 0");
+
+        // 9. B8.3.2 Owner Actions contract: Edit + Delete, confirmation modal, strict 204, in-flight guard
+        assertThat(js).contains("data-action=\"edit-post\"");
+        assertThat(js).contains("data-action=\"delete-post\"");
+        assertThat(js).contains("communityDeletePostModal");
+        assertThat(js).contains("response.status === 204");
+        assertThat(js).contains("isDeleting");
     }
 
     private String read(String relativePath) throws Exception {

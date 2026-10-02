@@ -60,7 +60,7 @@ class CommunityFeedTemplateContractTest {
 
         assertThat(template).contains("sec:authorize=\"isAnonymous()\"");
         assertThat(template).contains("class=\"community-guest-card\"");
-        assertThat(template).contains("th:href=\"@{/login}\"");
+        assertThat(template).contains("th:href=\"@{/login(returnTo=${returnTo != null and !#strings.isEmpty(returnTo) ? returnTo : '/community'})}\"");
         assertThat(template).contains("th:href=\"@{/register}\"");
     }
 
@@ -185,8 +185,17 @@ class CommunityFeedTemplateContractTest {
         assertThat(postCardJs).contains("captionP.textContent = item.caption");
         assertThat(postCardJs).contains("authorNameLink.textContent = displayName");
         assertThat(postCardJs).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
-        assertThat(postCardJs).doesNotContain("innerHTML");
+        assertThat(postCardJs).doesNotContain("captionP.innerHTML");
+        assertThat(postCardJs).doesNotContain("authorNameLink.innerHTML");
+        assertThat(postCardJs).doesNotContain("authorNameSpan.innerHTML");
+        assertThat(postCardJs).doesNotContain("handleSpan.innerHTML");
         assertThat(postCardJs).contains("COMMUNITY_POST");
+
+        // B8.3.2 Owner Actions contract: Edit + Delete, delete modal, strict 204
+        assertThat(postCardJs).contains("data-action=\"edit-post\"");
+        assertThat(postCardJs).contains("data-action=\"delete-post\"");
+        assertThat(postCardJs).contains("communityDeletePostModal");
+        assertThat(postCardJs).contains("response.status === 204");
     }
 
     private String read(String relativePath) throws Exception {
