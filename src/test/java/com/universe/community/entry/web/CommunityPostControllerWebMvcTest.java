@@ -438,6 +438,18 @@ class CommunityPostControllerWebMvcTest {
                 .andExpect(jsonPath("$.message").value("Community post not found: " + POST_ID));
     }
 
+    @Test
+    @WithMockUser
+    @DisplayName("DELETE /api/community/posts/{postId} without CSRF -> rejected by Spring Security (redirected to /access-denied)")
+    void shouldRejectDeleteWhenCsrfMissingInSlice() throws Exception {
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(authenticatedIdentity(USER_ID)))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/access-denied"));
+
+        verify(deleteCommunityPostUseCase, never()).execute(any(), any());
+    }
+
     // =========================================================================
     // PATCH /api/community/posts/{postId} Slice Tests
     // =========================================================================

@@ -81,6 +81,14 @@
 						<i class="fa-regular fa-pen-to-square me-2" aria-hidden="true"></i>
 						<span>Chỉnh sửa bài viết</span>
 					</button>
+					<button type="button"
+						class="post-actions-item post-actions-item--danger text-danger"
+						role="menuitem"
+						data-action="delete-post"
+						th:attr="data-post-id=${item.id}">
+						<i class="fa-regular fa-trash-can me-2" aria-hidden="true"></i>
+						<span>Xóa bài viết</span>
+					</button>
 				</div>
 			</div>
 		</header>

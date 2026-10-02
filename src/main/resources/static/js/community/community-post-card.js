@@ -35,6 +35,11 @@
     let activeOriginalCaption = null;
     let isSubmitting = false;
 
+    let currentDeleteSessionId = 0;
+    let activeDeletePostId = null;
+    let activeDeleteCardEl = null;
+    let isDeleting = false;
+
     function resolveCurrentUserId(doc) {
         if (!doc) return null;
         const metaUser = doc.querySelector('meta[name="current-user-id"]');
@@ -213,6 +218,24 @@
             editBtn.appendChild(editSpan);
 
             actionsMenu.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'post-actions-item post-actions-item--danger text-danger';
+            deleteBtn.setAttribute('role', 'menuitem');
+            deleteBtn.setAttribute('data-action', 'delete-post');
+            deleteBtn.setAttribute('data-post-id', String(item.id));
+
+            const deleteIcon = document.createElement('i');
+            deleteIcon.className = 'fa-regular fa-trash-can me-2';
+            deleteIcon.setAttribute('aria-hidden', 'true');
+            deleteBtn.appendChild(deleteIcon);
+
+            const deleteSpan = document.createElement('span');
+            deleteSpan.textContent = 'Xóa bài viết';
+            deleteBtn.appendChild(deleteSpan);
+
+            actionsMenu.appendChild(deleteBtn);
             actionsDropdown.appendChild(actionsMenu);
             header.appendChild(actionsDropdown);
         }
@@ -754,6 +777,359 @@
         }
     }
 
+    function getOrCreateDeleteModal(doc) {
+        const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
+        if (!targetDoc) return null;
+        let modal = targetDoc.getElementById('communityDeletePostModal');
+        if (modal) return modal;
+
+        modal = targetDoc.createElement('div');
+        modal.id = 'communityDeletePostModal';
+        modal.className = 'kl-modal';
+        modal.hidden = true;
+        modal.setAttribute('role', 'dialog');
+        modal.setAttribute('aria-modal', 'true');
+        modal.setAttribute('aria-labelledby', 'communityDeleteModalTitle');
+
+        const backdrop = targetDoc.createElement('div');
+        backdrop.className = 'kl-modal-backdrop';
+        backdrop.setAttribute('data-action', 'close-delete-modal');
+        modal.appendChild(backdrop);
+
+        const dialog = targetDoc.createElement('div');
+        dialog.className = 'kl-modal-dialog';
+
+        const content = targetDoc.createElement('div');
+        content.className = 'kl-modal-content';
+
+        // Header
+        const header = targetDoc.createElement('div');
+        header.className = 'kl-modal-header';
+
+        const title = targetDoc.createElement('h3');
+        title.id = 'communityDeleteModalTitle';
+        title.className = 'kl-modal-title';
+        title.textContent = 'Xóa bài viết';
+        header.appendChild(title);
+
+        const closeBtn = targetDoc.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.id = 'communityDeleteCloseBtn';
+        closeBtn.className = 'kl-modal-close';
+        closeBtn.setAttribute('data-action', 'close-delete-modal');
+        closeBtn.setAttribute('aria-label', 'Đóng');
+        closeBtn.innerHTML = '&times;';
+        header.appendChild(closeBtn);
+
+        content.appendChild(header);
+
+        // Body
+        const body = targetDoc.createElement('div');
+        body.className = 'kl-modal-body';
+
+        const warningP = targetDoc.createElement('p');
+        warningP.className = 'community-delete-warning';
+        warningP.textContent = 'Bạn có chắc chắn muốn xóa bài viết này không? Bài viết và toàn bộ bình luận, cảm xúc liên quan sẽ bị xóa vĩnh viễn và không thể khôi phục.';
+        body.appendChild(warningP);
+
+        const alertDiv = targetDoc.createElement('div');
+        alertDiv.id = 'communityDeleteModalAlert';
+        alertDiv.className = 'alert alert-danger mb-0 mt-3';
+        alertDiv.setAttribute('role', 'alert');
+        alertDiv.hidden = true;
+        body.appendChild(alertDiv);
+
+        content.appendChild(body);
+
+        // Footer
+        const footer = targetDoc.createElement('div');
+        footer.className = 'kl-modal-footer';
+
+        const cancelBtn = targetDoc.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.id = 'communityDeleteCancelBtn';
+        cancelBtn.className = 'btn btn-secondary';
+        cancelBtn.setAttribute('data-action', 'cancel-delete');
+        cancelBtn.textContent = 'Hủy';
+        footer.appendChild(cancelBtn);
+
+        const confirmBtn = targetDoc.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.id = 'communityDeleteConfirmBtn';
+        confirmBtn.className = 'btn btn-danger community-delete-confirm-btn';
+        confirmBtn.setAttribute('data-action', 'confirm-delete');
+
+        const confirmText = targetDoc.createElement('span');
+        confirmText.id = 'communityDeleteConfirmText';
+        confirmText.textContent = 'Xóa vĩnh viễn';
+        confirmBtn.appendChild(confirmText);
+
+        const spinner = targetDoc.createElement('span');
+        spinner.id = 'communityDeleteConfirmSpinner';
+        spinner.className = 'spinner-border spinner-border-sm ms-1';
+        spinner.setAttribute('role', 'status');
+        spinner.hidden = true;
+        confirmBtn.appendChild(spinner);
+
+        footer.appendChild(confirmBtn);
+        content.appendChild(footer);
+        dialog.appendChild(content);
+        modal.appendChild(dialog);
+
+        if (targetDoc.body) {
+            targetDoc.body.appendChild(modal);
+        }
+        return modal;
+    }
+
+    function setDeletingState(modal, deleting) {
+        isDeleting = deleting;
+        if (!modal) return;
+        const confirmBtn = modal.querySelector('#communityDeleteConfirmBtn') || modal.querySelector('[data-action="confirm-delete"]');
+        const spinner = modal.querySelector('#communityDeleteConfirmSpinner');
+        const cancelBtn = modal.querySelector('#communityDeleteCancelBtn') || modal.querySelector('[data-action="cancel-delete"]');
+        const closeBtn = modal.querySelector('#communityDeleteCloseBtn') || modal.querySelector('.kl-modal-close');
+
+        if (confirmBtn) confirmBtn.disabled = deleting;
+        if (spinner) spinner.hidden = !deleting;
+        if (cancelBtn) cancelBtn.disabled = deleting;
+        if (closeBtn) closeBtn.disabled = deleting;
+    }
+
+    function openDeleteModal(postId, cardEl, doc) {
+        if (isDeleting) {
+            return false;
+        }
+
+        const targetDoc = doc || (cardEl ? cardEl.ownerDocument : (typeof document !== 'undefined' ? document : null));
+        if (!targetDoc) return false;
+
+        currentDeleteSessionId++;
+
+        const modal = getOrCreateDeleteModal(targetDoc);
+        activeDeletePostId = postId;
+        activeDeleteCardEl = cardEl;
+
+        const alertDiv = modal ? modal.querySelector('#communityDeleteModalAlert') : null;
+        if (alertDiv) {
+            alertDiv.textContent = '';
+            alertDiv.hidden = true;
+        }
+
+        setDeletingState(modal, false);
+        if (modal) {
+            modal.hidden = false;
+        }
+        closeAllPostMenus(targetDoc);
+
+        const confirmBtn = modal ? modal.querySelector('#communityDeleteConfirmBtn') : null;
+        if (confirmBtn && typeof confirmBtn.focus === 'function') {
+            confirmBtn.focus();
+        }
+        return true;
+    }
+
+    function closeDeleteModal(doc) {
+        if (isDeleting) {
+            return false;
+        }
+
+        const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
+        const modal = targetDoc ? targetDoc.getElementById('communityDeletePostModal') : null;
+        if (modal) {
+            modal.hidden = true;
+            const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+            if (alertDiv) {
+                alertDiv.textContent = '';
+                alertDiv.hidden = true;
+            }
+            setDeletingState(modal, false);
+        }
+        currentDeleteSessionId++;
+        activeDeletePostId = null;
+        activeDeleteCardEl = null;
+        isDeleting = false;
+        return true;
+    }
+
+    async function handleDeleteSubmit(event) {
+        if (event && typeof event.preventDefault === 'function') {
+            event.preventDefault();
+        }
+        const doc = (event && event.target && event.target.ownerDocument) ? event.target.ownerDocument : (typeof document !== 'undefined' ? document : null);
+        if (!doc) return;
+        const modal = doc.getElementById('communityDeletePostModal');
+        if (!modal || !activeDeletePostId || isDeleting) return;
+
+        const submittedSessionId = currentDeleteSessionId;
+        const submittedPostId = activeDeletePostId;
+        const submittedCardEl = activeDeleteCardEl;
+
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        setDeletingState(modal, true);
+        if (alertDiv) {
+            alertDiv.textContent = '';
+            alertDiv.hidden = true;
+        }
+
+        // Read CSRF meta
+        const csrfTokenMeta = doc.querySelector('meta[name="_csrf"]');
+        const csrfHeaderMeta = doc.querySelector('meta[name="_csrf_header"]');
+        const csrfToken = csrfTokenMeta ? csrfTokenMeta.getAttribute('content') : null;
+        const csrfHeader = csrfHeaderMeta ? csrfHeaderMeta.getAttribute('content') : null;
+
+        const headers = {};
+        if (csrfToken && csrfHeader) {
+            headers[csrfHeader] = csrfToken;
+        }
+
+        try {
+            const fetchFn = (typeof globalThis !== 'undefined' && globalThis.fetch)
+                ? globalThis.fetch.bind(globalThis)
+                : (typeof window !== 'undefined' && window.fetch)
+                    ? window.fetch.bind(window)
+                    : null;
+
+            if (!fetchFn) {
+                throw new Error('fetch is not available');
+            }
+
+            const response = await fetchFn('/api/community/posts/' + encodeURIComponent(submittedPostId), {
+                method: 'DELETE',
+                headers: headers
+            });
+
+            // Discard stale response if delete session was closed or switched
+            if (submittedSessionId !== currentDeleteSessionId) {
+                return;
+            }
+
+            // 1. Explicit redirect handling (e.g. Spring Security 302 -> /login or /access-denied)
+            const isRedirected = Boolean(
+                response.redirected ||
+                (response.url && (response.url.includes('/login') || response.url.includes('/access-denied')))
+            );
+            const urlStr = response.url || '';
+
+            if (isRedirected || urlStr.includes('/login') || urlStr.includes('/access-denied')) {
+                let redirectMsg = 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.';
+                if (urlStr.includes('/login')) {
+                    redirectMsg = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+                } else if (urlStr.includes('/access-denied')) {
+                    redirectMsg = 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.';
+                }
+                if (alertDiv) {
+                    alertDiv.textContent = redirectMsg;
+                    alertDiv.hidden = false;
+                }
+                setDeletingState(modal, false);
+                return;
+            }
+
+            // 2. Strict 204 No Content verification (200, 201, 202 are NOT success)
+            if (response.status === 204) {
+                if (submittedSessionId !== currentDeleteSessionId) {
+                    return;
+                }
+
+                // Remove all matching cards from DOM (handles multiple cards of same post if present)
+                const matchingCards = doc.querySelectorAll('.community-post-card[data-post-id="' + submittedPostId + '"]');
+                if (matchingCards.length > 0) {
+                    matchingCards.forEach(function (card) {
+                        card.remove();
+                    });
+                } else if (submittedCardEl && submittedCardEl.parentNode) {
+                    submittedCardEl.remove();
+                }
+
+                // Update Feed empty state if on feed page
+                const feedList = doc.getElementById('communityFeedList');
+                if (feedList) {
+                    const remainingFeedCards = feedList.querySelectorAll('.community-post-card');
+                    if (remainingFeedCards.length === 0) {
+                        const emptyFeedMsg = doc.getElementById('emptyFeedMessage') || feedList.querySelector('.empty-feed-card');
+                        if (emptyFeedMsg) {
+                            emptyFeedMsg.hidden = false;
+                        }
+                    }
+                }
+
+                // Update Profile empty state if on profile page
+                const profileContainer = doc.querySelector('.community-profile-container');
+                if (profileContainer) {
+                    const remainingProfileCards = profileContainer.querySelectorAll('.community-post-card');
+                    if (remainingProfileCards.length === 0) {
+                        const emptyProfileMsg = profileContainer.querySelector('.empty-feed-card');
+                        if (emptyProfileMsg) {
+                            emptyProfileMsg.hidden = false;
+                        }
+                    }
+                }
+
+                setDeletingState(modal, false);
+                closeDeleteModal(doc);
+            } else {
+                // Non-204 Failure classification
+                let errorMsg = 'Không thể xóa bài viết. Vui lòng thử lại.';
+
+                if (response.status === 401) {
+                    errorMsg = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+                } else if (response.status === 403) {
+                    errorMsg = 'Bạn không có quyền xóa bài viết này.';
+                } else if (response.status === 404) {
+                    errorMsg = 'Bài viết không tồn tại hoặc đã bị xóa.';
+                } else if (response.status >= 200 && response.status < 300) {
+                    // Unexpected 2xx (200, 201, 202) is invalid server response for DELETE
+                    errorMsg = 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.';
+                } else {
+                    let contentType = '';
+                    if (response.headers) {
+                        if (typeof response.headers.get === 'function') {
+                            contentType = response.headers.get('content-type') || response.headers.get('Content-Type') || '';
+                        } else if (typeof response.headers === 'object') {
+                            contentType = response.headers['content-type'] || response.headers['Content-Type'] || '';
+                        }
+                    }
+                    const isJson = contentType.includes('application/json');
+
+                    if (isJson) {
+                        try {
+                            const errData = await response.json();
+                            if (errData && typeof errData === 'object' && typeof errData.message === 'string' && errData.message.trim().length > 0) {
+                                errorMsg = errData.message;
+                            }
+                        } catch (_) {
+                            // Malformed JSON: do not expose SyntaxError; retain generic error message
+                            errorMsg = 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.';
+                        }
+                    } else {
+                        // Arbitrary HTML or unexpected non-JSON response
+                        errorMsg = 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.';
+                    }
+                }
+
+                if (submittedSessionId !== currentDeleteSessionId) {
+                    return;
+                }
+
+                if (alertDiv) {
+                    alertDiv.textContent = errorMsg;
+                    alertDiv.hidden = false;
+                }
+                setDeletingState(modal, false);
+            }
+        } catch (err) {
+            if (submittedSessionId !== currentDeleteSessionId) {
+                return;
+            }
+            if (alertDiv) {
+                alertDiv.textContent = 'Lỗi kết nối máy chủ. Vui lòng thử lại.';
+                alertDiv.hidden = false;
+            }
+            setDeletingState(modal, false);
+        }
+    }
+
     function initDelegation(doc) {
         const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
         if (!targetDoc || targetDoc._communityDelegationInitialized) return;
@@ -777,7 +1153,7 @@
             if (editBtn) {
                 e.preventDefault();
                 e.stopPropagation();
-                if (isSubmitting) return;
+                if (isSubmitting || isDeleting) return;
                 const cardEl = editBtn.closest('.community-post-card');
                 const postId = editBtn.getAttribute('data-post-id') || (cardEl ? cardEl.getAttribute('data-post-id') : null);
                 if (postId && cardEl) {
@@ -786,7 +1162,21 @@
                 return;
             }
 
-            // 3. Close edit modal click
+            // 3. Delete post item click
+            const deleteBtn = target.closest ? target.closest('[data-action="delete-post"]') : null;
+            if (deleteBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (isDeleting || isSubmitting) return;
+                const cardEl = deleteBtn.closest('.community-post-card');
+                const postId = deleteBtn.getAttribute('data-post-id') || (cardEl ? cardEl.getAttribute('data-post-id') : null);
+                if (postId && cardEl) {
+                    openDeleteModal(postId, cardEl, targetDoc);
+                }
+                return;
+            }
+
+            // 4. Close edit modal click
             const closeBtn = target.closest ? target.closest('[data-action="close-edit-modal"]') : null;
             if (closeBtn) {
                 e.preventDefault();
@@ -795,7 +1185,24 @@
                 return;
             }
 
-            // 4. Outside clicks close open dropdown menus
+            // 5. Close delete modal click
+            const closeDeleteBtn = target.closest ? target.closest('[data-action="close-delete-modal"], [data-action="cancel-delete"]') : null;
+            if (closeDeleteBtn) {
+                e.preventDefault();
+                if (isDeleting) return;
+                closeDeleteModal(targetDoc);
+                return;
+            }
+
+            // 6. Confirm delete click
+            const confirmDeleteBtn = target.closest ? target.closest('[data-action="confirm-delete"]') : null;
+            if (confirmDeleteBtn) {
+                e.preventDefault();
+                handleDeleteSubmit(e);
+                return;
+            }
+
+            // 7. Outside clicks close open dropdown menus
             if (!target.closest || !target.closest('.post-actions-dropdown')) {
                 closeAllPostMenus(targetDoc);
             }
@@ -803,6 +1210,12 @@
 
         targetDoc.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' || e.keyCode === 27) {
+                const deleteModal = targetDoc.getElementById('communityDeletePostModal');
+                if (deleteModal && !deleteModal.hidden) {
+                    if (isDeleting) return;
+                    closeDeleteModal(targetDoc);
+                    return;
+                }
                 if (isSubmitting) return;
                 const modal = targetDoc.getElementById('communityEditPostModal');
                 if (modal && !modal.hidden) {
@@ -829,16 +1242,26 @@
         resolveCurrentUserId: resolveCurrentUserId,
         openEditModal: openEditModal,
         closeEditModal: closeEditModal,
+        openDeleteModal: openDeleteModal,
+        closeDeleteModal: closeDeleteModal,
         closeAllPostMenus: closeAllPostMenus,
         togglePostMenu: togglePostMenu,
         getOrCreateEditModal: getOrCreateEditModal,
+        getOrCreateDeleteModal: getOrCreateDeleteModal,
         handleEditSubmit: handleEditSubmit,
+        handleDeleteSubmit: handleDeleteSubmit,
         initDelegation: initDelegation,
         getCurrentEditSessionId: function () {
             return currentEditSessionId;
         },
         isSubmitting: function () {
             return isSubmitting;
+        },
+        getCurrentDeleteSessionId: function () {
+            return currentDeleteSessionId;
+        },
+        isDeleting: function () {
+            return isDeleting;
         }
     };
 });

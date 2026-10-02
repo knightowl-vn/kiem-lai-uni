@@ -65,7 +65,7 @@
 				</th:block>
 			</div>
 
-			<div th:if="${profile.posts.items.isEmpty()}" class="empty-feed-card">
+			<div class="empty-feed-card" th:hidden="${!profile.posts.items.isEmpty()}">
 				<i class="fa-regular fa-comments empty-feed-icon" aria-hidden="true"></i>
 				<p class="empty-feed-text">Chưa có bài viết nào từ tác giả này.</p>
 			</div>

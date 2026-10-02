@@ -128,6 +128,12 @@ class FakeElement {
         return child;
     }
 
+    remove() {
+        if (this.parentNode) {
+            this.parentNode.removeChild(this);
+        }
+    }
+
     focus() {}
 
     addEventListener(event, fn) {
@@ -140,16 +146,24 @@ class FakeElement {
     }
     dispatchEvent(event) {
         const type = typeof event === 'string' ? event : event.type;
-        const evtObj = typeof event === 'string' ? { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} } : event;
+        const evtObj = typeof event === 'string' ? { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; } } : event;
         if (!evtObj.target) evtObj.target = this;
+        if (typeof evtObj.preventDefault !== 'function') {
+            evtObj.preventDefault = function () { this.defaultPrevented = true; };
+        }
+        if (typeof evtObj.stopPropagation !== 'function') {
+            evtObj.stopPropagation = function () { this.propagationStopped = true; };
+        }
         if (this.listeners[type]) {
             this.listeners[type].forEach(fn => fn(evtObj));
         }
         // Bubble to parent if not stopped
-        if (this.parentNode) {
-            this.parentNode.dispatchEvent(evtObj);
-        } else if (this.ownerDocument && this.ownerDocument !== this) {
-            this.ownerDocument.dispatchEvent(evtObj);
+        if (!evtObj.propagationStopped) {
+            if (this.parentNode) {
+                this.parentNode.dispatchEvent(evtObj);
+            } else if (this.ownerDocument && this.ownerDocument !== this) {
+                this.ownerDocument.dispatchEvent(evtObj);
+            }
         }
     }
 
@@ -221,7 +235,14 @@ class FakeDocument {
     }
     dispatchEvent(event) {
         const type = typeof event === 'string' ? event : event.type;
-        const evtObj = typeof event === 'string' ? { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() {} } : event;
+        const evtObj = typeof event === 'string' ? { type, target: this, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; } } : event;
+        if (!evtObj.target) evtObj.target = this;
+        if (typeof evtObj.preventDefault !== 'function') {
+            evtObj.preventDefault = function () { this.defaultPrevented = true; };
+        }
+        if (typeof evtObj.stopPropagation !== 'function') {
+            evtObj.stopPropagation = function () { this.propagationStopped = true; };
+        }
         if (this.listeners[type]) {
             this.listeners[type].forEach(fn => fn(evtObj));
         }
@@ -233,6 +254,9 @@ class FakeDocument {
 
 function matches(el, sel) {
     if (!el || !el.tagName || !sel) return false;
+    if (sel.includes(',')) {
+        return sel.split(',').some(part => matches(el, part.trim()));
+    }
     let remaining = sel;
 
     const tagMatch = remaining.match(/^([a-zA-Z0-9_-]+)/);
@@ -336,6 +360,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
         global.document = originalDoc;
         global.fetch = originalFetch;
         CommunityPostCard.closeEditModal(mockDoc);
+        CommunityPostCard.closeDeleteModal(mockDoc);
     });
 
     test('1. owner card renders action trigger', () => {
@@ -1535,5 +1560,623 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
         assert.strictEqual(trigger.classList.contains('is-like'), true, 'Trigger must have is-like class immediately');
         assert.ok(trigger.getAttribute('aria-label').includes('Đã thích'), 'Aria-label must indicate already liked without requiring a click');
         assert.strictEqual(widget.getAttribute('data-reaction-total'), '1');
+    });
+});
+
+describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
+
+    const OWNER_ID = '11111111-1111-1111-1111-111111111111';
+    const OTHER_USER_ID = '99999999-9999-9999-9999-999999999999';
+    const POST_A_ID = 'aaaa1111-1111-1111-1111-111111111111';
+    const POST_B_ID = 'bbbb2222-2222-2222-2222-222222222222';
+
+    let originalDoc;
+    let originalFetch;
+    let mockDoc;
+
+    beforeEach(() => {
+        originalDoc = global.document;
+        originalFetch = global.fetch;
+
+        mockDoc = new FakeDocument();
+        global.document = mockDoc;
+
+        // Default CSRF meta
+        const csrfMeta = mockDoc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-xyz');
+        mockDoc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = mockDoc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        mockDoc.head.appendChild(csrfHeaderMeta);
+
+        // Default current user meta
+        const userMeta = mockDoc.createElement('meta');
+        userMeta.setAttribute('name', 'current-user-id');
+        userMeta.setAttribute('content', OWNER_ID);
+        mockDoc.head.appendChild(userMeta);
+
+        CommunityPostCard.initDelegation(mockDoc);
+    });
+
+    afterEach(() => {
+        global.document = originalDoc;
+        global.fetch = originalFetch;
+        CommunityPostCard.closeEditModal(mockDoc);
+        CommunityPostCard.closeDeleteModal(mockDoc);
+    });
+
+    test('1. Owner card renders both Edit and Delete actions in post actions menu', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Owner post caption',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: true,
+            currentUserId: OWNER_ID
+        }, mockDoc);
+
+        const editBtn = card.querySelector('[data-action="edit-post"]');
+        assert.ok(editBtn, 'Edit action button must exist for owner');
+
+        const deleteBtn = card.querySelector('[data-action="delete-post"]');
+        assert.ok(deleteBtn, 'Delete action button must exist for owner');
+        assert.strictEqual(deleteBtn.getAttribute('data-post-id'), POST_A_ID);
+        assert.ok(deleteBtn.classList.contains('post-actions-item--danger'), 'Must have danger styling class');
+        assert.ok(deleteBtn.classList.contains('text-danger'), 'Must have text-danger class');
+        assert.ok(deleteBtn.textContent.includes('Xóa bài viết'), 'Must have correct Vietnamese label');
+    });
+
+    test('2. Non-owner card does not render actions dropdown, edit, or delete buttons', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Other user post',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: true,
+            currentUserId: OTHER_USER_ID
+        }, mockDoc);
+
+        const dropdown = card.querySelector('.post-actions-dropdown');
+        assert.strictEqual(dropdown, null, 'Non-owner must not have actions dropdown');
+        assert.strictEqual(card.querySelector('[data-action="delete-post"]'), null);
+        assert.strictEqual(card.querySelector('[data-action="edit-post"]'), null);
+    });
+
+    test('3. Guest card does not render actions dropdown, edit, or delete buttons', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Guest viewed post',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: false
+        }, mockDoc);
+
+        const dropdown = card.querySelector('.post-actions-dropdown');
+        assert.strictEqual(dropdown, null, 'Guest must not have actions dropdown');
+        assert.strictEqual(card.querySelector('[data-action="delete-post"]'), null);
+        assert.strictEqual(card.querySelector('[data-action="edit-post"]'), null);
+    });
+
+    test('4. Clicking Delete action opens delete confirmation modal (singleton)', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Post A',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        const deleteBtn = card.querySelector('[data-action="delete-post"]');
+        deleteBtn.dispatchEvent({ type: 'click', target: deleteBtn });
+
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        assert.ok(modal, 'Delete modal must exist in DOM');
+        assert.strictEqual(modal.hidden, false, 'Delete modal must be visible');
+
+        const warning = modal.querySelector('.community-delete-warning');
+        assert.ok(warning, 'Warning text must exist');
+        assert.ok(warning.textContent.includes('Bài viết và toàn bộ bình luận, cảm xúc liên quan sẽ bị xóa vĩnh viễn'));
+
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        assert.ok(alertDiv, 'Alert div must exist');
+        assert.strictEqual(alertDiv.hidden, true, 'Alert div must be initially hidden');
+
+        // Singleton check
+        const modal2 = CommunityPostCard.getOrCreateDeleteModal(mockDoc);
+        assert.strictEqual(modal, modal2, 'Must return the same singleton modal instance');
+    });
+
+    test('5. Clicking Cancel button closes delete modal without network request', () => {
+        let fetchCalled = false;
+        global.fetch = () => { fetchCalled = true; return Promise.resolve(); };
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        assert.strictEqual(modal.hidden, false);
+
+        const cancelBtn = modal.querySelector('[data-action="cancel-delete"]');
+        cancelBtn.dispatchEvent({ type: 'click', target: cancelBtn });
+
+        assert.strictEqual(modal.hidden, true, 'Modal must be hidden after cancel');
+        assert.strictEqual(fetchCalled, false, 'Fetch must never be called on cancel');
+    });
+
+    test('6. Clicking modal backdrop closes delete modal without network request', () => {
+        let fetchCalled = false;
+        global.fetch = () => { fetchCalled = true; return Promise.resolve(); };
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        assert.strictEqual(modal.hidden, false);
+
+        const backdrop = modal.querySelector('.kl-modal-backdrop');
+        backdrop.dispatchEvent({ type: 'click', target: backdrop });
+
+        assert.strictEqual(modal.hidden, true, 'Modal must be hidden after backdrop click');
+        assert.strictEqual(fetchCalled, false, 'Fetch must not be called');
+    });
+
+    test('7. Pressing Escape key closes delete modal when open and not deleting', () => {
+        let fetchCalled = false;
+        global.fetch = () => { fetchCalled = true; return Promise.resolve(); };
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        assert.strictEqual(modal.hidden, false);
+
+        mockDoc.dispatchEvent({ type: 'keydown', key: 'Escape' });
+
+        assert.strictEqual(modal.hidden, true, 'Modal must be hidden after Escape');
+        assert.strictEqual(fetchCalled, false, 'Fetch must not be called');
+    });
+
+    test('8. Opening modal for Post B after Post A updates active delete post cleanly', async () => {
+        let requestedUrl = null;
+        global.fetch = (url) => {
+            requestedUrl = url;
+            return Promise.resolve({
+                status: 204,
+                redirected: false,
+                headers: { get: () => 'application/json' }
+            });
+        };
+
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(cardA);
+        mockDoc.body.appendChild(cardB);
+
+        // Open A then open B
+        CommunityPostCard.openDeleteModal(POST_A_ID, cardA, mockDoc);
+        CommunityPostCard.openDeleteModal(POST_B_ID, cardB, mockDoc);
+
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(requestedUrl, '/api/community/posts/' + POST_B_ID, 'Must delete Post B, not Post A');
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_B_ID + '"]'), null, 'Post B must be removed');
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Post A must remain untouched');
+    });
+
+    test('9. Confirm delete sends DELETE request with CSRF token and header', async () => {
+        let recordedUrl = null;
+        let recordedOptions = null;
+        global.fetch = (url, options) => {
+            recordedUrl = url;
+            recordedOptions = options;
+            return Promise.resolve({
+                status: 204,
+                redirected: false,
+                headers: { get: () => 'application/json' }
+            });
+        };
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(recordedUrl, '/api/community/posts/' + POST_A_ID);
+        assert.strictEqual(recordedOptions.method, 'DELETE');
+        assert.strictEqual(recordedOptions.headers['X-CSRF-TOKEN'], 'test-csrf-token-xyz');
+    });
+
+    test('10. Strict 204 No Content response removes target card from DOM and preserves unrelated cards', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const cardA = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        const cardB = CommunityPostCard.create({ id: POST_B_ID, authorUserId: OWNER_ID, caption: 'Post B' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(cardA);
+        mockDoc.body.appendChild(cardB);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, cardA, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), null, 'Post A card must be removed');
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_B_ID + '"]'), 'Post B card must be preserved');
+        assert.strictEqual(modal.hidden, true, 'Modal must close on 204');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false, 'isDeleting state must be false');
+    });
+
+    test('11. Strict 204 response on final feed card unhides emptyFeedMessage', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const feedList = mockDoc.createElement('div');
+        feedList.id = 'communityFeedList';
+        mockDoc.body.appendChild(feedList);
+
+        const emptyFeedMsg = mockDoc.createElement('div');
+        emptyFeedMsg.id = 'emptyFeedMessage';
+        emptyFeedMsg.hidden = true;
+        mockDoc.body.appendChild(emptyFeedMsg);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Only Post' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        feedList.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(feedList.querySelector('.community-post-card'), null, 'Feed card must be removed');
+        assert.strictEqual(emptyFeedMsg.hidden, false, 'emptyFeedMessage must be unhidden when no cards remain');
+    });
+
+    test('12. Strict 204 response on final profile card unhides empty-feed-card in community-profile-container', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const profileContainer = mockDoc.createElement('div');
+        profileContainer.className = 'community-profile-container';
+        mockDoc.body.appendChild(profileContainer);
+
+        const emptyCard = mockDoc.createElement('div');
+        emptyCard.className = 'empty-feed-card';
+        emptyCard.hidden = true;
+        profileContainer.appendChild(emptyCard);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Only Profile Post' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        profileContainer.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(profileContainer.querySelector('.community-post-card'), null, 'Profile card must be removed');
+        assert.strictEqual(emptyCard.hidden, false, 'empty-feed-card must be unhidden');
+    });
+
+    test('13. Non-204 responses (200, 201, 202) are rejected as invalid server response and keep card in DOM', async () => {
+        for (const statusCode of [200, 201, 202]) {
+            global.fetch = () => Promise.resolve({
+                status: statusCode,
+                redirected: false,
+                headers: { get: () => 'application/json' },
+                json: () => Promise.resolve({ message: 'Unexpected success' })
+            });
+
+            const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+            mockDoc.body.appendChild(card);
+
+            CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+            const modal = mockDoc.getElementById('communityDeletePostModal');
+            const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+            const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+            await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+            assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), `Post must not be removed on status ${statusCode}`);
+            assert.strictEqual(modal.hidden, false, `Modal must remain open on status ${statusCode}`);
+            assert.strictEqual(alertDiv.hidden, false);
+            assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+            assert.strictEqual(CommunityPostCard.isDeleting(), false);
+
+            CommunityPostCard.closeDeleteModal(mockDoc);
+            card.remove();
+        }
+    });
+
+    test('14. Server 401 response displays session expired message and keeps card in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 401,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({ message: 'Unauthorized' })
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('15. Server 403 response displays unauthorized message and keeps card in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 403,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({ message: 'Forbidden' })
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Bạn không có quyền xóa bài viết này.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('16. Server 404 response displays not found / already deleted message and keeps card in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 404,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({ message: 'Not found' })
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Bài viết không tồn tại hoặc đã bị xóa.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('17. Redirect to /login shows session expired message and keeps card in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: true,
+            url: 'http://localhost:8080/login',
+            headers: { get: () => 'text/html' }
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('18. Redirect to /access-denied shows access denied / expired message and keeps card in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 200,
+            redirected: true,
+            url: 'http://localhost:8080/access-denied',
+            headers: { get: () => 'text/html' }
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Yêu cầu không hợp lệ hoặc phiên làm việc đã hết hạn. Vui lòng tải lại trang.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('19. Error response with JSON message displays server error message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 400,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({ message: 'Custom server rejection reason.' })
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Custom server rejection reason.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('20. Error response with malformed JSON does not throw SyntaxError and displays fallback message', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 500,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.reject(new SyntaxError('Unexpected token < in JSON at position 0'))
+        });
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Phản hồi máy chủ không hợp lệ. Vui lòng thử lại.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+    });
+
+    test('21. Network error (fetch rejects) displays connection error and re-enables buttons', async () => {
+        global.fetch = () => Promise.reject(new Error('Network connection failed'));
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain in DOM');
+        assert.strictEqual(modal.hidden, false);
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Lỗi kết nối máy chủ. Vui lòng thử lại.');
+        assert.strictEqual(CommunityPostCard.isDeleting(), false);
+        assert.strictEqual(confirmBtn.disabled, false, 'Confirm button must be re-enabled');
+    });
+
+    test('22. In-flight double-click guard prevents concurrent delete requests', async () => {
+        let fetchCallCount = 0;
+        let resolveFetch;
+        const fetchPromise = new Promise(resolve => { resolveFetch = resolve; });
+
+        global.fetch = () => {
+            fetchCallCount++;
+            return fetchPromise;
+        };
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post A' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        // First click
+        const firstSubmit = CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+        assert.strictEqual(fetchCallCount, 1, 'First click initiates fetch');
+        assert.strictEqual(CommunityPostCard.isDeleting(), true, 'isDeleting state is active');
+        assert.strictEqual(confirmBtn.disabled, true, 'Confirm button is disabled during in-flight');
+
+        // Second click while in-flight
+        const secondSubmit = CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+        assert.strictEqual(fetchCallCount, 1, 'Second click must be ignored by in-flight guard');
+
+        // Close/Cancel attempt while in-flight
+        const cancelResult = CommunityPostCard.closeDeleteModal(mockDoc);
+        assert.strictEqual(cancelResult, false, 'closeDeleteModal must reject while deleting');
+        assert.strictEqual(modal.hidden, false, 'Modal must remain open during in-flight deletion');
+
+        // Resolve fetch
+        resolveFetch({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+        await firstSubmit;
+        await secondSubmit;
+
+        assert.strictEqual(fetchCallCount, 1, 'Total fetch calls must remain exactly 1');
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), null, 'Card removed after resolution');
+        assert.strictEqual(modal.hidden, true, 'Modal closed after resolution');
+    });
+
+    test('23. Strict 204 removes all matching cards if duplicate card elements exist in DOM', async () => {
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const card1 = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Card 1' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        const card2 = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Card 2 duplicate' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card1);
+        mockDoc.body.appendChild(card2);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card1, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(mockDoc.querySelectorAll('.community-post-card[data-post-id="' + POST_A_ID + '"]').length, 0, 'All matching cards must be removed');
     });
 });
