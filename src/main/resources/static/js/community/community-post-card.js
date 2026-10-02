@@ -259,11 +259,12 @@
 
         article.appendChild(header);
 
-        // Caption (XSS-safe via textContent)
-        const captionP = document.createElement('p');
-        captionP.className = 'post-caption';
-        captionP.textContent = item.caption;
-        article.appendChild(captionP);
+        // Caption (Permalink Affordance, XSS-safe via textContent)
+        const captionLink = document.createElement('a');
+        captionLink.className = 'post-caption';
+        captionLink.href = '/community/posts/' + encodeURIComponent(item.id);
+        captionLink.textContent = item.caption;
+        article.appendChild(captionLink);
 
         // Image attachment
         if (item.imageUrl && item.imageUrl.trim().length > 0) {
@@ -1075,6 +1076,17 @@
                     });
                 } else if (submittedCardEl && submittedCardEl.parentNode) {
                     submittedCardEl.remove();
+                }
+
+                // Check permalink container: redirect to /community after canonical 204
+                const permalinkContainer = doc.querySelector('.community-permalink-container');
+                if (permalinkContainer) {
+                    setDeletingState(modal, false);
+                    closeDeleteModal(doc);
+                    if (typeof window !== 'undefined' && window.location) {
+                        window.location.href = '/community';
+                    }
+                    return;
                 }
 
                 // Update Feed empty state if on feed page

@@ -111,11 +111,11 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("article.setAttribute('data-author-id', item.authorUserId)");
 
         // 3. XSS-safe textContent for all user-supplied data
-        assertThat(js).contains("captionP.textContent = item.caption");
+        assertThat(js).contains("captionLink.textContent = item.caption");
         assertThat(js).contains("authorNameLink.textContent = displayName");
         assertThat(js).contains("authorNameSpan.textContent = displayName");
         assertThat(js).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
-        assertThat(js).doesNotContain("captionP.innerHTML");
+        assertThat(js).doesNotContain("captionLink.innerHTML");
         assertThat(js).doesNotContain("authorNameLink.innerHTML");
         assertThat(js).doesNotContain("authorNameSpan.innerHTML");
         assertThat(js).doesNotContain("handleSpan.innerHTML");
@@ -125,11 +125,14 @@ class CommunityFeedClientContractTest {
         assertThat(js).contains("this.src = defaultAvatar");
         assertThat(js).contains("'/community/@' + encodeURIComponent(item.authorPublicHandle)");
 
-        // 5. Relative-time formatting (never raw ISO assignment)
+        // 5. Relative-time formatting and caption permalink affordance
         assertThat(js).contains("timeEl.setAttribute('data-relative-time', '')");
         assertThat(js).contains("timeEl.setAttribute('datetime', item.createdAt)");
         assertThat(js).contains("window.RelativeTime.format(item.createdAt)");
         assertThat(js).doesNotContain("timeEl.textContent = item.createdAt");
+        assertThat(js).doesNotContain("post-time-link");
+        assertThat(js).contains("captionLink.className = 'post-caption'");
+        assertThat(js).contains("captionLink.href = '/community/posts/' + encodeURIComponent(item.id)");
 
         // 6. Reaction widget contracts
         assertThat(js).contains("reactionWidget.setAttribute('data-reaction-widget', '')");

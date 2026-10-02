@@ -3059,3 +3059,259 @@ describe('CommunityPostCard.classifyRevisionResponse Pure Classifier Unit Tests'
         assert.deepStrictEqual(result.data, items);
     });
 });
+
+describe('CommunityPostCard Permalink & Timestamp Parity Matrix (MS-07B8.3.4)', () => {
+    let mockDoc;
+    const POST_A_ID = '550e8400-e29b-41d4-a716-446655440001';
+    const OWNER_ID = '550e8400-e29b-41d4-a716-446655440099';
+
+    beforeEach(() => {
+        mockDoc = new FakeDocument();
+        global.document = mockDoc;
+        const csrfMeta = mockDoc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-xyz');
+        mockDoc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = mockDoc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        mockDoc.head.appendChild(csrfHeaderMeta);
+
+        global.window = {
+            location: {
+                pathname: '/community/posts/' + POST_A_ID,
+                search: '',
+                href: 'http://localhost/community/posts/' + POST_A_ID
+            },
+            RelativeTime: {
+                format: (d) => '5 phút trước'
+            }
+        };
+    });
+
+    test('1. Dynamic card renders plain time element and caption as permalink anchor', () => {
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            authorDisplayName: 'Tiêu Viêm',
+            authorPublicHandle: 'tieu_viem',
+            caption: 'Đấu khí đại lục',
+            createdAt: '2026-10-02T10:00:00Z',
+            contentVersion: 0
+        }, { isAuthenticated: false }, mockDoc);
+
+        const timeLink = card.querySelector('.post-time-link');
+        assert.strictEqual(timeLink, null, 'Must NOT contain .post-time-link');
+        const timeEl = card.querySelector('.post-time');
+        assert.ok(timeEl, 'Must contain plain .post-time');
+        assert.strictEqual(timeEl.parentNode.className, 'post-meta', 'post-time is direct child of post-meta');
+        assert.strictEqual(timeEl.getAttribute('datetime'), '2026-10-02T10:00:00Z');
+        assert.strictEqual(timeEl.hasAttribute('data-relative-time'), true);
+        assert.strictEqual(timeEl.textContent, '5 phút trước');
+
+        // 2. Caption must be an anchor to /community/posts/{item.id}
+        const captionLink = card.querySelector('.post-caption');
+        assert.ok(captionLink, 'Must contain .post-caption');
+        assert.strictEqual(captionLink.tagName.toLowerCase(), 'a', 'Caption must be an anchor');
+        assert.strictEqual(captionLink.href, '/community/posts/' + POST_A_ID);
+        assert.strictEqual(captionLink.textContent, 'Đấu khí đại lục');
+
+        // 3. Whole card must NOT have a click handler
+        assert.strictEqual(Boolean(card.onclick), false, 'Card must not have an onclick handler');
+    });
+
+    test('2. Delete success on normal feed: card removed, NO redirect to /community', async () => {
+        global.window.location.href = 'http://localhost/community';
+        global.window.location.pathname = '/community';
+
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const feedList = mockDoc.createElement('div');
+        feedList.id = 'communityFeedList';
+        mockDoc.body.appendChild(feedList);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post on feed' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        feedList.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), null, 'Card must be removed');
+        assert.strictEqual(global.window.location.href, 'http://localhost/community', 'Must NOT redirect on feed page');
+    });
+
+    test('3. Delete success on profile page: card removed, NO redirect to /community', async () => {
+        global.window.location.href = 'http://localhost/community/@tieu_viem';
+        global.window.location.pathname = '/community/@tieu_viem';
+
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const profileContainer = mockDoc.createElement('main');
+        profileContainer.className = 'community-profile-container';
+        mockDoc.body.appendChild(profileContainer);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post on profile' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        profileContainer.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), null, 'Card must be removed');
+        assert.strictEqual(global.window.location.href, 'http://localhost/community/@tieu_viem', 'Must NOT redirect on profile page');
+    });
+
+    test('4. Delete success in .community-permalink-container: redirects to /community after 204', async () => {
+        global.window.location.href = 'http://localhost/community/posts/' + POST_A_ID;
+        global.window.location.pathname = '/community/posts/' + POST_A_ID;
+
+        global.fetch = () => Promise.resolve({
+            status: 204,
+            redirected: false,
+            headers: { get: () => 'application/json' }
+        });
+
+        const permalinkContainer = mockDoc.createElement('main');
+        permalinkContainer.className = 'community-permalink-container';
+        mockDoc.body.appendChild(permalinkContainer);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post on permalink' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        permalinkContainer.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.strictEqual(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), null, 'Card must be removed');
+        assert.strictEqual(global.window.location.href, '/community', 'Must redirect to /community upon 204 on permalink');
+    });
+
+    test('5. Failed delete on permalink: NO redirect to /community and error is displayed', async () => {
+        global.window.location.href = 'http://localhost/community/posts/' + POST_A_ID;
+        global.window.location.pathname = '/community/posts/' + POST_A_ID;
+
+        global.fetch = () => Promise.resolve({
+            status: 500,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({ message: 'Internal Server Error' })
+        });
+
+        const permalinkContainer = mockDoc.createElement('main');
+        permalinkContainer.className = 'community-permalink-container';
+        mockDoc.body.appendChild(permalinkContainer);
+
+        const card = CommunityPostCard.create({ id: POST_A_ID, authorUserId: OWNER_ID, caption: 'Post on permalink' }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        permalinkContainer.appendChild(card);
+
+        CommunityPostCard.openDeleteModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityDeletePostModal');
+        const confirmBtn = modal.querySelector('[data-action="confirm-delete"]');
+
+        await CommunityPostCard.handleDeleteSubmit({ preventDefault: () => {}, target: confirmBtn });
+
+        assert.ok(mockDoc.querySelector('[data-post-id="' + POST_A_ID + '"]'), 'Card must remain on error');
+        assert.strictEqual(global.window.location.href, 'http://localhost/community/posts/' + POST_A_ID, 'Must NOT redirect on failure');
+        const alertDiv = modal.querySelector('#communityDeleteModalAlert');
+        assert.strictEqual(alertDiv.hidden, false);
+        assert.strictEqual(alertDiv.textContent, 'Internal Server Error');
+    });
+
+    test('6. Edit modal and revision modal operate cleanly without feed/profile containers', () => {
+        const permalinkContainer = mockDoc.createElement('main');
+        permalinkContainer.className = 'community-permalink-container';
+        mockDoc.body.appendChild(permalinkContainer);
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Original Caption',
+            contentVersion: 1
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        permalinkContainer.appendChild(card);
+
+        // Edit modal
+        CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
+        const editModal = mockDoc.getElementById('communityEditPostModal');
+        assert.ok(editModal, 'Edit modal must exist');
+        assert.strictEqual(editModal.hidden, false, 'Edit modal must be open');
+        CommunityPostCard.closeEditModal(mockDoc);
+        assert.strictEqual(editModal.hidden, true, 'Edit modal must close');
+
+        // Revision modal
+        CommunityPostCard.openRevisionModal(POST_A_ID, card, mockDoc);
+        const revModal = mockDoc.getElementById('communityRevisionHistoryModal');
+        assert.ok(revModal, 'Revision modal must exist');
+        assert.strictEqual(revModal.hidden, false, 'Revision modal must be open');
+        CommunityPostCard.closeRevisionModal(mockDoc);
+        assert.strictEqual(revModal.hidden, true, 'Revision modal must close');
+    });
+
+    test('7. Caption edit success updates text while strictly preserving permalink anchor and href', async () => {
+        const initialCaption = 'Bản dịch gốc ban đầu';
+        const updatedCaption = 'Bản dịch cập nhật mới nhất';
+
+        const card = CommunityPostCard.create({
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            authorDisplayName: 'Tiêu Viêm',
+            authorPublicHandle: 'tieu_viem',
+            caption: initialCaption,
+            createdAt: '2026-10-02T10:00:00Z',
+            contentVersion: 0
+        }, { isAuthenticated: true, currentUserId: OWNER_ID }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        // Verify initial anchor
+        const initialCaptionEl = card.querySelector('.post-caption');
+        assert.ok(initialCaptionEl, 'Initial caption element must exist');
+        assert.strictEqual(initialCaptionEl.tagName.toLowerCase(), 'a', 'Initial caption must be an anchor');
+        assert.strictEqual(initialCaptionEl.getAttribute('href') || initialCaptionEl.href, '/community/posts/' + POST_A_ID);
+        assert.strictEqual(initialCaptionEl.textContent, initialCaption);
+
+        // Open edit modal
+        CommunityPostCard.openEditModal(POST_A_ID, card, mockDoc);
+        const modal = mockDoc.getElementById('communityEditPostModal');
+        const textarea = modal.querySelector('#communityEditCaptionInput');
+        textarea.value = updatedCaption;
+
+        // Mock PATCH response
+        global.fetch = () => Promise.resolve({
+            ok: true,
+            status: 200,
+            redirected: false,
+            headers: { get: () => 'application/json' },
+            json: () => Promise.resolve({
+                id: POST_A_ID,
+                caption: updatedCaption,
+                contentVersion: 1
+            })
+        });
+
+        const submitBtn = modal.querySelector('[data-action="save-edit"]');
+        await CommunityPostCard.handleEditSubmit({ preventDefault: () => {}, target: submitBtn });
+
+        // Verify caption after edit success
+        const postEditCaptionEl = card.querySelector('.post-caption');
+        assert.ok(postEditCaptionEl, 'Caption element must still exist after edit');
+        assert.strictEqual(postEditCaptionEl.tagName.toLowerCase(), 'a', 'Caption must remain an anchor element');
+        assert.strictEqual(postEditCaptionEl.getAttribute('href') || postEditCaptionEl.href, '/community/posts/' + POST_A_ID, 'Anchor href must be strictly preserved');
+        assert.strictEqual(postEditCaptionEl.textContent, updatedCaption, 'Caption text must be updated');
+    });
+});

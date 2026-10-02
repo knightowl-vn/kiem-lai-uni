@@ -149,6 +149,11 @@ class CommunityFeedTemplateContractTest {
         assertThat(fragment).contains("Đã chỉnh sửa");
         assertThat(fragment).doesNotContain("• Đã chỉnh sửa");
 
+        // B8.3.4 Caption permalink affordance & Plain timestamp contract
+        assertThat(fragment).contains("<a th:href=\"@{'/community/posts/' + ${item.id}}\" class=\"post-caption\" th:text=\"${item.caption}\">");
+        assertThat(fragment).contains("<time class=\"post-time\"");
+        assertThat(fragment).doesNotContain("post-time-link");
+
         // Load more container
         assertThat(template).contains("id=\"communityLoadMoreBtn\"");
         assertThat(template).contains("id=\"feedLoadingSpinner\"");
@@ -189,10 +194,10 @@ class CommunityFeedTemplateContractTest {
         assertThat(feedJs).contains("/api/community/posts?feed=");
 
         // Post Card JS uses textContent for all user-supplied data
-        assertThat(postCardJs).contains("captionP.textContent = item.caption");
+        assertThat(postCardJs).contains("captionLink.textContent = item.caption");
         assertThat(postCardJs).contains("authorNameLink.textContent = displayName");
         assertThat(postCardJs).contains("handleSpan.textContent = '@' + item.authorPublicHandle");
-        assertThat(postCardJs).doesNotContain("captionP.innerHTML");
+        assertThat(postCardJs).doesNotContain("captionLink.innerHTML");
         assertThat(postCardJs).doesNotContain("authorNameLink.innerHTML");
         assertThat(postCardJs).doesNotContain("authorNameSpan.innerHTML");
         assertThat(postCardJs).doesNotContain("handleSpan.innerHTML");
@@ -213,6 +218,13 @@ class CommunityFeedTemplateContractTest {
         assertThat(postCardJs).contains("nextBox.textContent = ");
         assertThat(postCardJs).doesNotContain("prevBox.innerHTML");
         assertThat(postCardJs).doesNotContain("nextBox.innerHTML");
+
+        // B8.3.4 Caption permalink & Permalink delete redirect contract
+        assertThat(postCardJs).contains("captionLink.className = 'post-caption'");
+        assertThat(postCardJs).contains("captionLink.href = '/community/posts/' + encodeURIComponent(item.id)");
+        assertThat(postCardJs).doesNotContain("post-time-link");
+        assertThat(postCardJs).contains("community-permalink-container");
+        assertThat(postCardJs).contains("window.location.href = '/community'");
     }
 
     private String read(String relativePath) throws Exception {

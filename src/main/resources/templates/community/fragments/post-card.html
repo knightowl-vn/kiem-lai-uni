@@ -105,8 +105,8 @@
 			</div>
 		</header>
 
-		<!-- Post Caption (Escaped via th:text) -->
-		<p class="post-caption" th:text="${item.caption}">Nội dung bài viết</p>
+		<!-- Post Caption (Permalink Affordance, Escaped via th:text) -->
+		<a th:href="@{'/community/posts/' + ${item.id}}" class="post-caption" th:text="${item.caption}">Nội dung bài viết</a>
 
 		<!-- Attached Image -->
 		<div th:if="${item.imageUrl != null and !item.imageUrl.isBlank()}" class="post-image-container">

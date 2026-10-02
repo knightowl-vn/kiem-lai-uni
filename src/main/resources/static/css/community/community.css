@@ -248,12 +248,29 @@
 }
 
 .post-caption {
+    display: block;
     font-size: 0.9375rem;
     line-height: 1.6;
     color: var(--text-primary);
+    text-decoration: none;
     white-space: pre-wrap;
     word-break: break-word;
     margin-bottom: 0.75rem;
+    transition: opacity 0.15s ease;
+}
+
+.post-caption:hover {
+    color: var(--text-primary);
+    text-decoration: none;
+    opacity: 0.88;
+}
+
+.post-caption:focus-visible {
+    color: var(--text-primary);
+    text-decoration: none;
+    outline: 2px solid var(--accent-color, #4f46e5);
+    outline-offset: 2px;
+    border-radius: 4px;
 }
 
 .post-image-container {
@@ -936,4 +953,19 @@
     line-height: 1.45;
     max-height: 180px;
     overflow-y: auto;
+}
+
+/* ==========================================================================
+   MS-07B8.3.4 — Public Post Permalink Layout & Timestamp Link
+   ========================================================================== */
+
+.community-permalink-container {
+    max-width: 680px;
+    margin: 1.5rem auto 3rem;
+    padding: 0 1rem;
+}
+
+.community-permalink-content {
+    display: flex;
+    flex-direction: column;
 }
