@@ -101,7 +101,7 @@
 			<div class="guest-card-content">
 				<p class="guest-card-text">Đăng nhập để chia sẻ bài viết và tham gia thảo luận cùng các đạo hữu.</p>
 				<div class="guest-card-actions">
-					<a th:href="@{/login}" class="btn btn-primary btn-sm">Đăng nhập</a>
+					<a th:href="@{/login(returnTo=${returnTo != null and !#strings.isEmpty(returnTo) ? returnTo : '/community'})}" class="btn btn-primary btn-sm">Đăng nhập</a>
 					<a th:href="@{/register}" class="btn btn-outline-secondary btn-sm ms-2">Đăng ký</a>
 				</div>
 			</div>

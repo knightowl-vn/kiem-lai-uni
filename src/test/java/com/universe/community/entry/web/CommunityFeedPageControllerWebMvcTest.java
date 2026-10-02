@@ -121,7 +121,10 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("nextCursor", "next-cursor-token"))
                 .andExpect(model().attribute("hasNext", true))
                 .andExpect(model().attribute("returnTo", "/community"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community\" class=\"btn btn-primary btn-sm\">Đăng nhập</a>")))
+                .andExpect(content().string(containsString("href=\"/register\" class=\"btn btn-outline-secondary btn-sm ms-2\">Đăng ký</a>")))
                 .andExpect(content().string(containsString("href=\"/login?returnTo=/community\"")))
+                .andExpect(content().string(not(containsString("href=\"/login\" class=\"btn btn-primary btn-sm\""))))
                 .andExpect(content().string(not(containsString("name=\"current-user-id\""))))
                 .andExpect(content().string(not(containsString("data-reaction-current"))))
                 .andExpect(content().string(not(containsString("kl-reaction-widget"))))
@@ -217,6 +220,9 @@ class CommunityFeedPageControllerWebMvcTest {
                 .andExpect(model().attribute("nextPage", 1))
                 .andExpect(model().attribute("hasNext", true))
                 .andExpect(model().attribute("returnTo", "/community?feed=FEATURED"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community?feed%3DFEATURED\" class=\"btn btn-primary btn-sm\">Đăng nhập</a>")))
+                .andExpect(content().string(containsString("href=\"/register\" class=\"btn btn-outline-secondary btn-sm ms-2\">Đăng ký</a>")))
+                .andExpect(content().string(not(containsString("href=\"/login\" class=\"btn btn-primary btn-sm\""))))
                 .andExpect(content().string(containsString("href=\"/login?returnTo=/community?feed%3DFEATURED\"")));
 
         verify(getCommunityFeaturedFeedUseCase).execute(0, 20);
@@ -327,6 +333,46 @@ class CommunityFeedPageControllerWebMvcTest {
         mockMvc.perform(get("/community").param("feed", "   "))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("selectedFeed", "NEWEST"));
+
+        verify(getCommunityNewestFeedUseCase).execute(null, 20);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /community as guest with empty feed -> page-level guest CTA still renders returnTo=/community with zero post cards")
+    void shouldRenderPageLevelGuestCtaWithReturnToEvenWhenFeedIsEmpty() throws Exception {
+        CommunityNewestFeedResponseDTO emptyFeed = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(emptyFeed);
+
+        mockMvc.perform(get("/community"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("community/index"))
+                .andExpect(model().attribute("returnTo", "/community"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community\" class=\"btn btn-primary btn-sm\">Đăng nhập</a>")))
+                .andExpect(content().string(containsString("href=\"/register\" class=\"btn btn-outline-secondary btn-sm ms-2\">Đăng ký</a>")))
+                .andExpect(content().string(not(containsString("href=\"/login\" class=\"btn btn-primary btn-sm\""))))
+                .andExpect(content().string(not(containsString("post-metric--login-link"))));
+
+        verify(getCommunityNewestFeedUseCase).execute(null, 20);
+    }
+
+    @Test
+    @WithAnonymousUser
+    @DisplayName("GET /community?feed=NEWEST as guest -> page-level guest CTA renders returnTo=/community?feed%3DNEWEST")
+    void shouldRenderPageLevelGuestCtaWithExplicitNewestFeedQueryParam() throws Exception {
+        CommunityNewestFeedResponseDTO newestFeed = new CommunityNewestFeedResponseDTO(
+                List.of(), null, 20, false
+        );
+        when(getCommunityNewestFeedUseCase.execute(eq(null), eq(20))).thenReturn(newestFeed);
+
+        mockMvc.perform(get("/community").param("feed", "NEWEST"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("community/index"))
+                .andExpect(model().attribute("returnTo", "/community?feed=NEWEST"))
+                .andExpect(content().string(containsString("href=\"/login?returnTo=/community?feed%3DNEWEST\" class=\"btn btn-primary btn-sm\">Đăng nhập</a>")))
+                .andExpect(content().string(containsString("href=\"/register\" class=\"btn btn-outline-secondary btn-sm ms-2\">Đăng ký</a>")));
 
         verify(getCommunityNewestFeedUseCase).execute(null, 20);
     }
