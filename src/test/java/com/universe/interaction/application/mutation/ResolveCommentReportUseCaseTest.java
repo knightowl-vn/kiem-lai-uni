@@ -100,6 +100,7 @@ class ResolveCommentReportUseCaseTest {
                 ReportReason.SPAM,
                 "Spam comment text",
                 "Offending comment body",
+                null,
                 REPORT_CREATED_AT
         );
     }
@@ -113,6 +114,7 @@ class ResolveCommentReportUseCaseTest {
                 ReportReason.HARASSMENT,
                 "Harassing post caption",
                 "Offending post caption",
+                null,
                 REPORT_CREATED_AT
         );
     }

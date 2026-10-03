@@ -31,6 +31,7 @@ public final class InteractionReport {
     private final ReportReason reason;
     private final String description;
     private final String reportedContentSnapshot;
+    private final UUID evidenceMediaAssetId;
     private ReportStatus status;
     private final Instant createdAt;
     private UUID resolvedByUserId;
@@ -46,6 +47,7 @@ public final class InteractionReport {
             ReportReason reason,
             String description,
             String reportedContentSnapshot,
+            UUID evidenceMediaAssetId,
             ReportStatus status,
             Instant createdAt,
             UUID resolvedByUserId,
@@ -58,6 +60,7 @@ public final class InteractionReport {
         this.targetId = Objects.requireNonNull(targetId, "Target ID cannot be null.");
         this.reporterUserId = Objects.requireNonNull(reporterUserId, "Reporter user ID cannot be null.");
         this.reason = Objects.requireNonNull(reason, "Report reason cannot be null.");
+        this.evidenceMediaAssetId = evidenceMediaAssetId;
 
         if (reportedContentSnapshot == null) {
             throw new IllegalArgumentException("Reported content snapshot cannot be null.");
@@ -134,7 +137,7 @@ public final class InteractionReport {
     }
 
     /**
-     * Factory method to create a new generic PENDING report.
+     * Canonical factory method to create a new PENDING report carrying explicit evidenceMediaAssetId.
      */
     public static InteractionReport createPending(
             UUID id,
@@ -144,6 +147,7 @@ public final class InteractionReport {
             ReportReason reason,
             String description,
             String reportedContentSnapshot,
+            UUID evidenceMediaAssetId,
             Instant createdAt
     ) {
         return new InteractionReport(
@@ -154,6 +158,7 @@ public final class InteractionReport {
                 reason,
                 description,
                 reportedContentSnapshot,
+                evidenceMediaAssetId,
                 ReportStatus.PENDING,
                 createdAt,
                 null,
@@ -164,31 +169,7 @@ public final class InteractionReport {
     }
 
     /**
-     * Legacy factory method to create a new PENDING report targeting a comment.
-     */
-    public static InteractionReport createPending(
-            UUID id,
-            UUID commentId,
-            UUID reporterUserId,
-            ReportReason reason,
-            String description,
-            String reportedBodySnapshot,
-            Instant createdAt
-    ) {
-        return createPending(
-                id,
-                ReportTargetType.COMMENT,
-                commentId,
-                reporterUserId,
-                reason,
-                description,
-                reportedBodySnapshot,
-                createdAt
-        );
-    }
-
-    /**
-     * Reconstitutes an existing report from persistence with all fields.
+     * Canonical reconstitution factory method from persistence carrying explicit evidenceMediaAssetId.
      */
     public static InteractionReport reconstitute(
             UUID id,
@@ -198,6 +179,7 @@ public final class InteractionReport {
             ReportReason reason,
             String description,
             String reportedContentSnapshot,
+            UUID evidenceMediaAssetId,
             ReportStatus status,
             Instant createdAt,
             UUID resolvedByUserId,
@@ -213,6 +195,7 @@ public final class InteractionReport {
                 reason,
                 description,
                 reportedContentSnapshot,
+                evidenceMediaAssetId,
                 status,
                 createdAt,
                 resolvedByUserId,
@@ -222,72 +205,6 @@ public final class InteractionReport {
         );
     }
 
-    /**
-     * Reconstitutes an existing report from persistence without targetDeletedAt.
-     */
-    public static InteractionReport reconstitute(
-            UUID id,
-            ReportTargetType targetType,
-            UUID targetId,
-            UUID reporterUserId,
-            ReportReason reason,
-            String description,
-            String reportedContentSnapshot,
-            ReportStatus status,
-            Instant createdAt,
-            UUID resolvedByUserId,
-            Instant resolvedAt,
-            ReportModerationAction moderationAction
-    ) {
-        return reconstitute(
-                id,
-                targetType,
-                targetId,
-                reporterUserId,
-                reason,
-                description,
-                reportedContentSnapshot,
-                status,
-                createdAt,
-                resolvedByUserId,
-                resolvedAt,
-                moderationAction,
-                null
-        );
-    }
-
-    /**
-     * Backward-compatible reconstitute overload for comment reports.
-     */
-    public static InteractionReport reconstitute(
-            UUID id,
-            UUID commentId,
-            UUID reporterUserId,
-            ReportReason reason,
-            String description,
-            String reportedBodySnapshot,
-            ReportStatus status,
-            Instant createdAt,
-            UUID resolvedByUserId,
-            Instant resolvedAt,
-            ReportModerationAction moderationAction
-    ) {
-        return reconstitute(
-                id,
-                ReportTargetType.COMMENT,
-                commentId,
-                reporterUserId,
-                reason,
-                description,
-                reportedBodySnapshot,
-                status,
-                createdAt,
-                resolvedByUserId,
-                resolvedAt,
-                moderationAction,
-                null
-        );
-    }
 
     /**
      * Resolves the report with action taken (comment deleted by moderation).
@@ -409,6 +326,10 @@ public final class InteractionReport {
         return targetDeletedAt;
     }
 
+    public UUID getEvidenceMediaAssetId() {
+        return evidenceMediaAssetId;
+    }
+
     public boolean isPending() {
         return status.isPending();
     }
@@ -440,6 +361,7 @@ public final class InteractionReport {
                 ", reason=" + reason +
                 ", description='" + (description != null ? "[PROTECTED]" : "null") + '\'' +
                 ", reportedContentSnapshot='" + (reportedContentSnapshot != null ? "[PROTECTED]" : "null") + '\'' +
+                ", evidenceMediaAssetId=" + evidenceMediaAssetId +
                 ", status=" + status +
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId=" + resolvedByUserId +

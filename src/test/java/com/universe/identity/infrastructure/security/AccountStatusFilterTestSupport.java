@@ -26,8 +26,9 @@ public final class AccountStatusFilterTestSupport {
         return new AuthenticatedRequestIdentity(
                 UUID.fromString(user.getId()),
                 user.getEmail(),
-                user.getDisplayName() == null ? "Test User" : user.getDisplayName(),
+                user.getDisplayName(),
                 user.getAvatarUrl(),
+                user.getPublicHandle(),
                 UserStatus.valueOf(user.getStatus()),
                 user.getRole()
         );

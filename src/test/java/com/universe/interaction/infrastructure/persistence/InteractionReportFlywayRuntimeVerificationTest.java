@@ -14,6 +14,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,6 +95,7 @@ class InteractionReportFlywayRuntimeVerificationTest {
                 "reason",
                 "description",
                 "content_snapshot",
+                "evidence_media_asset_id",
                 "status",
                 "moderation_action",
                 "created_at",
@@ -528,5 +530,85 @@ class InteractionReportFlywayRuntimeVerificationTest {
                         "VALUES (?, 'COMMENT', ?, ?, 'SPAM', NULL, 'Snapshot', 'RESOLVED_NO_ACTION', 'DELETE_COMMENT', ?, ?, ?)",
                 invalidNoActionDeleteId.toString(), commentId.toString(), reporter4.toString(), Timestamp.from(now), resolverId.toString(), Timestamp.from(later)
         )).hasMessageContaining("chk_interaction_reports_moderation_action");
+    }
+
+    @Test
+    @DisplayName("13. Migration V79 verification: evidence_media_asset_id column and persistence semantics")
+    void shouldVerifyMigrationV79AndEvidenceMediaAssetIdPersistence() {
+        Flyway flyway = Flyway.configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/migration")
+                .load();
+
+        MigrationInfo[] info = flyway.info().all();
+        MigrationInfo v79Info = null;
+        for (MigrationInfo mi : info) {
+            if ("79".equals(mi.getVersion().getVersion())) {
+                v79Info = mi;
+                break;
+            }
+        }
+        assertThat(v79Info).isNotNull();
+        assertThat(v79Info.getState()).isEqualTo(MigrationState.SUCCESS);
+        assertThat(v79Info.getDescription()).isEqualTo("add report evidence media asset");
+
+        // Verify column definition: CHAR(36) NULL
+        Map<String, Object> colMeta = jdbc.queryForMap(
+                "SELECT column_name, data_type, character_maximum_length, is_nullable " +
+                        "FROM information_schema.columns WHERE table_schema = ? AND table_name = 'interaction_reports' AND column_name = 'evidence_media_asset_id'",
+                DB_NAME
+        );
+        assertThat(colMeta.get("column_name")).isEqualTo("evidence_media_asset_id");
+        assertThat(colMeta.get("data_type")).isEqualTo("char");
+        assertThat(((Number) colMeta.get("character_maximum_length")).intValue()).isEqualTo(36);
+        assertThat(colMeta.get("is_nullable")).isEqualTo("YES");
+
+        // A. Caption-only Community post report -> evidence_media_asset_id is NULL
+        UUID captionPostId = UUID.randomUUID();
+        UUID reporter1 = UUID.randomUUID();
+        UUID reportId1 = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        jdbc.update(
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, evidence_media_asset_id, status, created_at) " +
+                        "VALUES (?, 'COMMUNITY_POST', ?, ?, 'SPAM', 'Caption only spam', 'Caption snapshot text', NULL, 'PENDING', ?)",
+                reportId1.toString(), captionPostId.toString(), reporter1.toString(), Timestamp.from(now)
+        );
+
+        Map<String, Object> row1 = jdbc.queryForMap(
+                "SELECT target_type, target_id, evidence_media_asset_id, status, pending_slot FROM interaction_reports WHERE id = ?",
+                reportId1.toString()
+        );
+        assertThat(row1.get("target_type")).isEqualTo("COMMUNITY_POST");
+        assertThat(row1.get("evidence_media_asset_id")).isNull();
+        assertThat(row1.get("pending_slot")).isEqualTo(1);
+
+        // B. Community post report with image -> evidence_media_asset_id stores the post's image UUID
+        UUID imagePostId = UUID.randomUUID();
+        UUID imageMediaId = UUID.randomUUID();
+        UUID reporter2 = UUID.randomUUID();
+        UUID reportId2 = UUID.randomUUID();
+
+        jdbc.update(
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, evidence_media_asset_id, status, created_at) " +
+                        "VALUES (?, 'COMMUNITY_POST', ?, ?, 'HARASSMENT', 'Harassing post with image', 'Image post caption', ?, 'PENDING', ?)",
+                reportId2.toString(), imagePostId.toString(), reporter2.toString(), imageMediaId.toString(), Timestamp.from(now)
+        );
+
+        Map<String, Object> row2 = jdbc.queryForMap(
+                "SELECT target_type, target_id, evidence_media_asset_id, status, pending_slot FROM interaction_reports WHERE id = ?",
+                reportId2.toString()
+        );
+        assertThat(row2.get("target_type")).isEqualTo("COMMUNITY_POST");
+        assertThat(row2.get("evidence_media_asset_id")).isEqualTo(imageMediaId.toString());
+        assertThat(row2.get("pending_slot")).isEqualTo(1);
+
+        // C. Duplicate pending constraint: same user reporting the same COMMUNITY_POST twice while PENDING is rejected
+        UUID duplicateReportId = UUID.randomUUID();
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO interaction_reports (id, target_type, target_id, reporter_user_id, reason, description, content_snapshot, evidence_media_asset_id, status, created_at) " +
+                        "VALUES (?, 'COMMUNITY_POST', ?, ?, 'OTHER', 'Duplicate attempt', 'Caption snapshot text', NULL, 'PENDING', ?)",
+                duplicateReportId.toString(), captionPostId.toString(), reporter1.toString(), Timestamp.from(now)
+        )).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 }

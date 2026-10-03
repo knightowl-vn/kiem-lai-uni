@@ -125,6 +125,40 @@ class SubmitInteractionReportUseCaseTest {
         }
 
         @Test
+        @DisplayName("Successfully reports an eligible community post with attached image and captures evidenceMediaAssetId")
+        void shouldSuccessfullyReportCommunityPostWithImageEvidence() {
+            UUID imageAssetId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+            when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMUNITY_POST, POST_ID, REPORTER_ID))
+                    .thenReturn(false);
+            when(communityPostMutationPort.lockExistingPostForInteraction(POST_ID))
+                    .thenReturn(Optional.of(new CommunityPostInteractionMutationPort.CommunityPostLockedView(
+                            POST_ID, AUTHOR_ID, "Post with image", imageAssetId
+                    )));
+            when(idGeneratorPort.generate()).thenReturn(REPORT_ID);
+            when(clockPort.now()).thenReturn(NOW);
+            when(reportRepositoryPort.save(any(InteractionReport.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
+
+            SubmitInteractionReportCommand command = new SubmitInteractionReportCommand(
+                    ReportTargetType.COMMUNITY_POST,
+                    POST_ID,
+                    REPORTER_ID,
+                    ReportReason.HARASSMENT,
+                    "Harassment with image"
+            );
+
+            InteractionReport report = useCase.execute(command);
+
+            assertThat(report).isNotNull();
+            assertThat(report.getEvidenceMediaAssetId()).isEqualTo(imageAssetId);
+            assertThat(report.getReportedContentSnapshot()).isEqualTo("Post with image");
+
+            ArgumentCaptor<InteractionReport> captor = ArgumentCaptor.forClass(InteractionReport.class);
+            verify(reportRepositoryPort).save(captor.capture());
+            assertThat(captor.getValue().getEvidenceMediaAssetId()).isEqualTo(imageAssetId);
+        }
+
+        @Test
         @DisplayName("Rejects reporting a missing community post")
         void shouldRejectReportingMissingCommunityPost() {
             when(reportRepositoryPort.existsPendingByTargetAndReporter(ReportTargetType.COMMUNITY_POST, POST_ID, REPORTER_ID))

@@ -76,6 +76,7 @@ class UserWikiContributionControllerTest {
                         USER_EMAIL,
                         "Contributor User",
                         null,
+                        "contributor_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )

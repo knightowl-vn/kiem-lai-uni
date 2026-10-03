@@ -115,6 +115,7 @@ class ReaderChapterPageControllerTest {
                 USER_EMAIL,
                 "Reader User",
                 null,
+                "reader_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

@@ -68,7 +68,8 @@ public class CommunityPostPersistenceAdapter implements CommunityPostRepositoryP
                 .map(entity -> new CommunityPostLockedView(
                         UUID.fromString(entity.getId()),
                         UUID.fromString(entity.getAuthorUserId()),
-                        entity.getCaption()
+                        entity.getCaption(),
+                        entity.getImageMediaAssetId() != null ? UUID.fromString(entity.getImageMediaAssetId()) : null
                 ));
     }
 

@@ -42,6 +42,12 @@
 			th:attr="aria-current=${activeNav == 'wiki' ? 'page' : null}"
 			th:href="@{/wiki}"> Wiki </a>
 
+		<!-- Liên kết Cộng đồng -->
+		<a class="navbar-community-link"
+			th:classappend="${activeNav == 'community'} ? ' active' : ''"
+			th:attr="aria-current=${activeNav == 'community' ? 'page' : null}"
+			th:href="@{/community}"> Cộng đồng </a>
+
 		<!-- Tìm kiếm nhanh điều hướng -->
 		<div class="navbar-wiki-search" id="navbarWikiSearch">
 
@@ -214,6 +220,10 @@
 	                            ? currentUser.displayName
 	                            : 'Người dùng'}">
 								Người dùng </strong> <span
+								th:if="${currentUser != null and currentUser.publicHandle != null and !currentUser.publicHandle.isBlank()}"
+								class="profile-dropdown-handle"
+								th:text="'@' + ${currentUser.publicHandle}">
+								@handle </span> <span
 								th:text="${currentUser != null
 	                            and currentUser.email != null
 	                            ? currentUser.email
@@ -225,6 +235,9 @@
 						<div class="profile-dropdown-divider"></div>
 
 						<a th:href="@{/profile}" class="profile-dropdown-item"> Xem hồ sơ </a>
+						<a th:if="${currentUser != null and currentUser.publicHandle != null and !currentUser.publicHandle.isBlank()}"
+							th:href="@{'/community/@' + ${currentUser.publicHandle}}"
+							class="profile-dropdown-item"> Trang cá nhân công khai </a>
 						<a th:href="@{/novel/history}" class="profile-dropdown-item"> Novel của tôi </a>
 						<a th:href="@{/wiki/saved}" class="profile-dropdown-item"> Wiki của tôi </a>
 						<a th:href="@{/comments/my}" class="profile-dropdown-item"> Bình luận của tôi </a>

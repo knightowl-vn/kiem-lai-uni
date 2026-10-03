@@ -136,6 +136,7 @@ class CommunityPostCommentControllerWebMvcTest {
                 "user@universe.local",
                 "Community Member",
                 null,
+                "community_member",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

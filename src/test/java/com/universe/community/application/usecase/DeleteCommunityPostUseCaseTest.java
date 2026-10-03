@@ -1,9 +1,11 @@
 package com.universe.community.application.usecase;
 
 import com.universe.community.application.port.out.CommunityPostInteractionCleanupPort;
+import com.universe.community.application.port.out.CommunityPostReportQueryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
+import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.time.ClockPort;
@@ -45,6 +47,9 @@ class DeleteCommunityPostUseCaseTest {
     private CommunityPostInteractionCleanupPort interactionCleanupPort;
 
     @Mock
+    private CommunityPostReportQueryPort reportQueryPort;
+
+    @Mock
     private MediaContract mediaContract;
 
     @Mock
@@ -57,6 +62,7 @@ class DeleteCommunityPostUseCaseTest {
         useCase = new DeleteCommunityPostUseCase(
                 postRepositoryPort,
                 interactionCleanupPort,
+                reportQueryPort,
                 mediaContract,
                 clockPort
         );
@@ -65,13 +71,15 @@ class DeleteCommunityPostUseCaseTest {
     @Test
     @DisplayName("Constructor null checks")
     void shouldRejectNullConstructorArguments() {
-        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(null, interactionCleanupPort, mediaContract, clockPort))
+        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(null, interactionCleanupPort, reportQueryPort, mediaContract, clockPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, null, mediaContract, clockPort))
+        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, null, reportQueryPort, mediaContract, clockPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, interactionCleanupPort, null, clockPort))
+        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, interactionCleanupPort, null, mediaContract, clockPort))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, interactionCleanupPort, mediaContract, null))
+        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, interactionCleanupPort, reportQueryPort, null, clockPort))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> new DeleteCommunityPostUseCase(postRepositoryPort, interactionCleanupPort, reportQueryPort, mediaContract, null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -109,6 +117,22 @@ class DeleteCommunityPostUseCaseTest {
 
         assertThatThrownBy(() -> useCase.execute(STRANGER_ID, POST_ID))
                 .isInstanceOf(CommunityPostUnauthorizedException.class);
+
+        verify(interactionCleanupPort, never()).cleanupCommunityPostInteractions(any(), any());
+        verify(mediaContract, never()).delete(any());
+        verify(postRepositoryPort, never()).deleteById(any());
+    }
+
+    @Test
+    @DisplayName("Anti-evasion barrier: Post with pending abuse reports cannot be deleted -> throws CommunityPostPendingReportConflictException, 0 side effects")
+    void shouldRejectDeletionWhenPostHasPendingReports() {
+        CommunityPost post = CommunityPost.create(POST_ID, AUTHOR_ID, "Reported post", IMAGE_ASSET_ID, NOW);
+        when(postRepositoryPort.findByIdForUpdate(POST_ID)).thenReturn(Optional.of(post));
+        when(reportQueryPort.hasPendingReports(POST_ID)).thenReturn(true);
+
+        assertThatThrownBy(() -> useCase.execute(AUTHOR_ID, POST_ID))
+                .isInstanceOf(CommunityPostPendingReportConflictException.class)
+                .hasMessageContaining(POST_ID.toString());
 
         verify(interactionCleanupPort, never()).cleanupCommunityPostInteractions(any(), any());
         verify(mediaContract, never()).delete(any());

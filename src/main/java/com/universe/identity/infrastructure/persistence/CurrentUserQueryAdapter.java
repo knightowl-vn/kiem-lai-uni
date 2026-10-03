@@ -62,6 +62,7 @@ public class CurrentUserQueryAdapter
                 entity.getEmail(),
                 entity.getDisplayName(),
                 entity.getAvatarUrl(),
+                entity.getPublicHandle(),
                 entity.getBio(),
                 entity.getStatus(),
                 role,

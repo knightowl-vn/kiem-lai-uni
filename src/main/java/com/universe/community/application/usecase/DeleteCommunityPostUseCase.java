@@ -1,9 +1,11 @@
 package com.universe.community.application.usecase;
 
 import com.universe.community.application.port.out.CommunityPostInteractionCleanupPort;
+import com.universe.community.application.port.out.CommunityPostReportQueryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
+import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.media.contracts.interfaces.MediaContract;
 import com.universe.shared.time.ClockPort;
@@ -24,12 +26,14 @@ public class DeleteCommunityPostUseCase {
 
     private final CommunityPostRepositoryPort communityPostRepositoryPort;
     private final CommunityPostInteractionCleanupPort interactionCleanupPort;
+    private final CommunityPostReportQueryPort reportQueryPort;
     private final MediaContract mediaContract;
     private final ClockPort clockPort;
 
     public DeleteCommunityPostUseCase(
             CommunityPostRepositoryPort communityPostRepositoryPort,
             CommunityPostInteractionCleanupPort interactionCleanupPort,
+            CommunityPostReportQueryPort reportQueryPort,
             MediaContract mediaContract,
             ClockPort clockPort
     ) {
@@ -40,6 +44,10 @@ public class DeleteCommunityPostUseCase {
         this.interactionCleanupPort = Objects.requireNonNull(
                 interactionCleanupPort,
                 "CommunityPostInteractionCleanupPort cannot be null."
+        );
+        this.reportQueryPort = Objects.requireNonNull(
+                reportQueryPort,
+                "CommunityPostReportQueryPort cannot be null."
         );
         this.mediaContract = Objects.requireNonNull(
                 mediaContract,
@@ -71,17 +79,22 @@ public class DeleteCommunityPostUseCase {
             throw new CommunityPostUnauthorizedException(actorUserId, postId);
         }
 
+        // 3. Anti-evasion barrier: Prevent deletion if pending abuse reports exist
+        if (reportQueryPort.hasPendingReports(postId)) {
+            throw new CommunityPostPendingReportConflictException(postId);
+        }
+
         Instant now = clockPort.now();
 
-        // 3. Under the same deletion barrier / post lock: invoke Interaction cleanup
+        // 4. Under the same deletion barrier / post lock: invoke Interaction cleanup
         interactionCleanupPort.cleanupCommunityPostInteractions(postId, now);
 
-        // 4. If imageMediaAssetId != null: transition Media metadata to DELETED
+        // 5. If imageMediaAssetId != null: transition Media metadata to DELETED
         if (post.getImageMediaAssetId() != null) {
             mediaContract.delete(post.getImageMediaAssetId());
         }
 
-        // 5. Delete Community post (foreign key CASCADE deletes revisions)
+        // 6. Delete Community post (foreign key CASCADE deletes revisions)
         communityPostRepositoryPort.deleteById(postId);
     }
 }

@@ -415,7 +415,7 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
         assert.strictEqual(editItem.textContent.trim(), 'Chỉnh sửa bài viết');
     });
 
-    test('2. non-owner card does not render action trigger', () => {
+    test('2. non-owner authenticated card renders report action trigger and menu', () => {
         const item = {
             id: POST_A_ID,
             authorUserId: OTHER_USER_ID,
@@ -429,9 +429,12 @@ describe('CommunityPostCard Frontend Test Matrix (MS-07B8.3.1 Section 15)', () =
         });
 
         const trigger = card.querySelector('[data-action="toggle-post-menu"]');
-        assert.strictEqual(trigger, null, 'Non-owner card must NOT render action trigger');
+        assert.ok(trigger, 'Non-owner authenticated card renders action trigger for reporting');
         const menu = card.querySelector('.post-actions-menu');
-        assert.strictEqual(menu, null, 'Non-owner card must NOT render post actions menu');
+        assert.ok(menu, 'Non-owner authenticated card renders post actions menu for reporting');
+        assert.ok(card.querySelector('[data-action="report-post"]'), 'Non-owner card has report action');
+        assert.strictEqual(card.querySelector('[data-action="edit-post"]'), null, 'Non-owner card must not have edit action');
+        assert.strictEqual(card.querySelector('[data-action="delete-post"]'), null, 'Non-owner card must not have delete action');
     });
 
     test('3. guest card does not render action trigger', () => {
@@ -1656,7 +1659,7 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
         assert.ok(deleteBtn.textContent.includes('Xóa bài viết'), 'Must have correct Vietnamese label');
     });
 
-    test('2. Non-owner card does not render actions dropdown, edit, or delete buttons', () => {
+    test('2. Non-owner authenticated card renders actions dropdown with report button, but not edit or delete', () => {
         const item = {
             id: POST_A_ID,
             authorUserId: OWNER_ID,
@@ -1669,7 +1672,8 @@ describe('CommunityPostCard Owner Delete UX Test Matrix (MS-07B8.3.2)', () => {
         }, mockDoc);
 
         const dropdown = card.querySelector('.post-actions-dropdown');
-        assert.strictEqual(dropdown, null, 'Non-owner must not have actions dropdown');
+        assert.ok(dropdown, 'Non-owner authenticated user must have actions dropdown');
+        assert.ok(card.querySelector('[data-action="report-post"]'), 'Non-owner must have report button');
         assert.strictEqual(card.querySelector('[data-action="delete-post"]'), null);
         assert.strictEqual(card.querySelector('[data-action="edit-post"]'), null);
     });
@@ -3313,5 +3317,114 @@ describe('CommunityPostCard Permalink & Timestamp Parity Matrix (MS-07B8.3.4)', 
         assert.strictEqual(postEditCaptionEl.tagName.toLowerCase(), 'a', 'Caption must remain an anchor element');
         assert.strictEqual(postEditCaptionEl.getAttribute('href') || postEditCaptionEl.href, '/community/posts/' + POST_A_ID, 'Anchor href must be strictly preserved');
         assert.strictEqual(postEditCaptionEl.textContent, updatedCaption, 'Caption text must be updated');
+    });
+});
+
+describe('CommunityPostCard Post Report UX Test Matrix (MS-07B8.5.1)', () => {
+    const OWNER_ID = '11111111-1111-1111-1111-111111111111';
+    const OTHER_USER_ID = '99999999-9999-9999-9999-999999999999';
+    const POST_A_ID = 'aaaa1111-1111-1111-1111-111111111111';
+
+    let mockDoc;
+
+    beforeEach(() => {
+        mockDoc = new FakeDocument();
+        const csrfMeta = mockDoc.createElement('meta');
+        csrfMeta.setAttribute('name', '_csrf');
+        csrfMeta.setAttribute('content', 'test-csrf-token-xyz');
+        mockDoc.head.appendChild(csrfMeta);
+
+        const csrfHeaderMeta = mockDoc.createElement('meta');
+        csrfHeaderMeta.setAttribute('name', '_csrf_header');
+        csrfHeaderMeta.setAttribute('content', 'X-CSRF-TOKEN');
+        mockDoc.head.appendChild(csrfHeaderMeta);
+
+        const userMeta = mockDoc.createElement('meta');
+        userMeta.setAttribute('name', 'current-user-id');
+        userMeta.setAttribute('content', OTHER_USER_ID);
+        mockDoc.head.appendChild(userMeta);
+
+        CommunityPostCard.initDelegation(mockDoc);
+    });
+
+    test('1. Authenticated non-owner clicking Báo cáo bài viết delegates to CommentReportModal.open with correct parameters', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Reportable post',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: true,
+            currentUserId: OTHER_USER_ID
+        }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        const openCalls = [];
+        CommunityPostCard.setReportModalImplementation({
+            open: (params) => {
+                openCalls.push(params);
+                return true;
+            }
+        });
+
+        const reportBtn = card.querySelector('[data-action="report-post"]');
+        assert.ok(reportBtn, 'Report button must be rendered on non-owner card');
+
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(openCalls.length, 1, 'Report modal open must be called once');
+        const params = openCalls[0];
+        assert.strictEqual(params.commentId, POST_A_ID);
+        assert.strictEqual(params.submitUrl, '/api/community/posts/' + POST_A_ID + '/reports');
+        assert.strictEqual(params.contextLabel, 'bài viết');
+        assert.strictEqual(params.triggerEl, reportBtn);
+    });
+
+    test('2. Unavailable or null report modal fails safely without throwing', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Reportable post',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: true,
+            currentUserId: OTHER_USER_ID
+        }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        CommunityPostCard.setReportModalImplementation(null);
+
+        const reportBtn = card.querySelector('[data-action="report-post"]');
+        assert.doesNotThrow(() => {
+            reportBtn.dispatchEvent({ type: 'click' });
+        });
+    });
+
+    test('3. Clicking report button closes open action menus', () => {
+        const item = {
+            id: POST_A_ID,
+            authorUserId: OWNER_ID,
+            caption: 'Reportable post',
+            createdAt: '2026-09-30T10:00:00Z'
+        };
+        const card = CommunityPostCard.create(item, {
+            isAuthenticated: true,
+            currentUserId: OTHER_USER_ID
+        }, mockDoc);
+        mockDoc.body.appendChild(card);
+
+        const menu = card.querySelector('.post-actions-menu');
+        menu.hidden = false;
+
+        CommunityPostCard.setReportModalImplementation({
+            open: () => true
+        });
+
+        const reportBtn = card.querySelector('[data-action="report-post"]');
+        reportBtn.dispatchEvent({ type: 'click' });
+
+        assert.strictEqual(menu.hidden, true, 'Menu must be closed after clicking report');
     });
 });

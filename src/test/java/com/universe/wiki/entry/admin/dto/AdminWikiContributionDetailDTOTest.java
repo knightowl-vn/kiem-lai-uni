@@ -100,7 +100,7 @@ class AdminWikiContributionDetailDTOTest {
     }
 
     private AuthenticatedRequestIdentity identity(UUID userId, UserRole role, UserStatus status) {
-        return new AuthenticatedRequestIdentity(userId, "user@universe.local", "Test User", null, status, role);
+        return new AuthenticatedRequestIdentity(userId, "user@universe.local", "Test User", null, "test_user", status, role);
     }
 
     @Nested

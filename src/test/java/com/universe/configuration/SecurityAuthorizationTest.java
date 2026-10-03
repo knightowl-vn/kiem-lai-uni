@@ -593,6 +593,7 @@ class SecurityAuthorizationTest {
                 "reader@universe.local",
                 "Reader",
                 null,
+                "reader_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -608,6 +609,7 @@ class SecurityAuthorizationTest {
                 role == UserRole.SUPER_ADMIN ? "superadmin@universe.local" : "admin@universe.local",
                 role == UserRole.SUPER_ADMIN ? "SuperAdmin" : "Admin",
                 null,
+                role == UserRole.SUPER_ADMIN ? "superadmin_user" : "admin_user",
                 UserStatus.ACTIVE,
                 role
         );

@@ -81,6 +81,7 @@ class NotificationApiControllerTest {
                     USER_EMAIL,
                     "Test User",
                     null,
+                    "test_user",
                     UserStatus.ACTIVE,
                     UserRole.USER
             );

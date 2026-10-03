@@ -44,6 +44,7 @@ class AuthenticatedRequestIdentityAccessorTest {
                 "reader@universe.local",
                 "Reader",
                 null,
+                "reader_one",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

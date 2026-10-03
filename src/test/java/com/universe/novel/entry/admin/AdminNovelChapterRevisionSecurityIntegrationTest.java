@@ -105,12 +105,16 @@ class AdminNovelChapterRevisionSecurityIntegrationTest {
         UserJpaEntity adminEntity = new UserJpaEntity();
         adminEntity.setId(ADMIN_ID.toString());
         adminEntity.setEmail(ADMIN_EMAIL);
+        adminEntity.setDisplayName("Admin User");
+        adminEntity.setPublicHandle("admin_user");
         adminEntity.setStatus("ACTIVE");
         adminEntity.setRole(UserRole.ADMIN);
 
         UserJpaEntity regularUserEntity = new UserJpaEntity();
         regularUserEntity.setId(UUID.randomUUID().toString());
         regularUserEntity.setEmail("user@universe.local");
+        regularUserEntity.setDisplayName("User One");
+        regularUserEntity.setPublicHandle("user_one");
         regularUserEntity.setStatus("ACTIVE");
         regularUserEntity.setRole(UserRole.USER);
 

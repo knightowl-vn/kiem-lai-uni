@@ -30,6 +30,7 @@ import com.universe.interaction.application.mutation.SubmitCommentReportUseCase;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.application.ports.CommentRevisionSlice;
 import com.universe.interaction.application.query.CommentReadItem;
 import com.universe.interaction.application.query.CommentReadSlice;
@@ -218,6 +219,7 @@ class NovelChapterCommentControllerTest {
                 "reader@universe.local",
                 "Reader User",
                 null,
+                "reader_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -2218,11 +2220,13 @@ class NovelChapterCommentControllerTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.SPAM,
                 "Spam comment description",
                 "Authoritative body snapshot",
+                null,
                 NOW
         );
 
@@ -2268,11 +2272,13 @@ class NovelChapterCommentControllerTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.HARASSMENT,
                 "Valid description",
                 "Real server snapshot",
+                null,
                 NOW
         );
 

@@ -100,6 +100,7 @@ class SavedWikiArticleControllerTest {
                         USER_EMAIL,
                         "Reader User",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )
@@ -116,6 +117,7 @@ class SavedWikiArticleControllerTest {
                             USER_EMAIL,
                             "Reader User",
                             null,
+                            "reader_user",
                             UserStatus.ACTIVE,
                             UserRole.USER
                     )

@@ -83,6 +83,7 @@ class PublicInteractionReactionControllerTest {
                             "user@universe.local",
                             "Active User",
                             null,
+                            "active_user",
                             UserStatus.ACTIVE,
                             UserRole.USER
                     )

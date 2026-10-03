@@ -245,6 +245,7 @@ class CommunityProfileApiControllerWebMvcTest {
                 "viewer@universe.com",
                 "Viewer User",
                 "https://cdn.example.com/avatar.jpg",
+                "viewer_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

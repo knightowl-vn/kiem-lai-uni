@@ -447,6 +447,10 @@ html[data-theme="dark"] .modal-content .btn-close, html[data-bs-theme="dark"] .m
 					<h1 class="h3 profile-name" th:text="${user.displayName}">Tên
 						người dùng</h1>
 
+					<div th:if="${user.publicHandle != null and !user.publicHandle.isBlank()}"
+						class="profile-handle-text mb-1 text-muted"
+						th:text="'@' + ${user.publicHandle}">@handle</div>
+
 					<p class="profile-email" th:text="${user.email}">
 						email@example.com</p>
 				</div>
@@ -458,6 +462,22 @@ html[data-theme="dark"] .modal-content .btn-close, html[data-bs-theme="dark"] .m
 					th:text="${errorMessage}">Có lỗi xảy ra</div>
 
 				<div class="mt-4">
+
+					<!-- Handle công khai -->
+					<div class="profile-info-row" th:if="${user.publicHandle != null and !user.publicHandle.isBlank()}">
+
+						<div class="profile-label">Handle công khai</div>
+
+						<div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+							<div class="profile-value" th:text="'@' + ${user.publicHandle}">@handle</div>
+
+							<a th:href="@{'/community/@' + ${user.publicHandle}}"
+								class="btn btn-outline-secondary btn-sm">
+								Xem trang cá nhân công khai
+							</a>
+						</div>
+
+					</div>
 
 					<!-- Tên hiển thị -->
 					<div class="profile-info-row">

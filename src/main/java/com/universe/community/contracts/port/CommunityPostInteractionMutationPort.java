@@ -33,6 +33,11 @@ public interface CommunityPostInteractionMutationPort {
     record CommunityPostLockedView(
             UUID postId,
             UUID authorUserId,
-            String caption
-    ) {}
+            String caption,
+            UUID imageMediaAssetId
+    ) {
+        public CommunityPostLockedView(UUID postId, UUID authorUserId, String caption) {
+            this(postId, authorUserId, caption, null);
+        }
+    }
 }

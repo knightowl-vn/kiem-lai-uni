@@ -150,6 +150,7 @@ class CommunityProfilePageControllerWebMvcTest {
                 "user@universe.com",
                 "Tiên Nghịch",
                 "https://cdn.example.com/me.png",
+                "tien_nghich",
                 "Bio",
                 "ACTIVE",
                 "USER",
@@ -225,6 +226,7 @@ class CommunityProfilePageControllerWebMvcTest {
                 "user@universe.com",
                 "Tiên Nghịch",
                 "https://cdn.example.com/me.png",
+                "tien_nghich",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

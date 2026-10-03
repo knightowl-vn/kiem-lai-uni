@@ -41,6 +41,7 @@ public class InteractionReportPersistenceMapper {
                 domain.getReason().name(),
                 domain.getDescription(),
                 domain.getReportedContentSnapshot(),
+                domain.getEvidenceMediaAssetId() != null ? domain.getEvidenceMediaAssetId().toString() : null,
                 domain.getStatus().name(),
                 domain.getCreatedAt(),
                 domain.getResolvedByUserId() != null ? domain.getResolvedByUserId().toString() : null,
@@ -68,6 +69,9 @@ public class InteractionReportPersistenceMapper {
                 ? parseUuid(entity.getResolvedByUserId(), "ResolvedBy user ID")
                 : null;
         ReportModerationAction moderationAction = parseModerationAction(entity.getModerationAction());
+        UUID evidenceMediaAssetId = entity.getEvidenceMediaAssetId() != null
+                ? parseUuid(entity.getEvidenceMediaAssetId(), "Evidence media asset ID")
+                : null;
 
         return InteractionReport.reconstitute(
                 id,
@@ -77,6 +81,7 @@ public class InteractionReportPersistenceMapper {
                 reason,
                 entity.getDescription(),
                 entity.getContentSnapshot(),
+                evidenceMediaAssetId,
                 status,
                 entity.getCreatedAt(),
                 resolvedByUserId,

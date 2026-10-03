@@ -166,6 +166,24 @@ public class InteractionReportPersistenceAdapter implements InteractionReportRep
     }
 
     @Override
+    public boolean existsPendingByTarget(
+            com.universe.interaction.domain.report.ReportTargetType targetType,
+            UUID targetId
+    ) {
+        if (targetType == null) {
+            throw new IllegalArgumentException("ReportTargetType cannot be null.");
+        }
+        if (targetId == null) {
+            throw new IllegalArgumentException("Target ID cannot be null.");
+        }
+        return repository.existsByTargetTypeAndTargetIdAndStatus(
+                targetType.name(),
+                targetId.toString(),
+                ReportStatus.PENDING.name()
+        );
+    }
+
+    @Override
     public boolean existsPendingByCommentIdAndReporterUserId(UUID commentId, UUID reporterUserId) {
         return existsPendingByTargetAndReporter(
                 com.universe.interaction.domain.report.ReportTargetType.COMMENT,

@@ -651,6 +651,7 @@ class PublicWikiControllerTest {
                         "reader@universe.local",
                         "Reader",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )
@@ -761,6 +762,7 @@ class PublicWikiControllerTest {
                         "reader@universe.local",
                         "Reader",
                         null,
+                        "reader_user",
                         UserStatus.ACTIVE,
                         UserRole.USER
                 )

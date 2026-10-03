@@ -55,6 +55,7 @@ class CurrentUserAdviceTest {
                 EMAIL,
                 "Reader",
                 "/media/avatar",
+                "reader_handle",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -73,6 +74,7 @@ class CurrentUserAdviceTest {
         assertThat(view.email()).isEqualTo(EMAIL);
         assertThat(view.displayName()).isEqualTo("Reader");
         assertThat(view.avatarUrl()).isEqualTo("/media/avatar");
+        assertThat(view.publicHandle()).isEqualTo("reader_handle");
         assertThat(view.status()).isEqualTo("ACTIVE");
         assertThat(view.role()).isEqualTo("USER");
         assertThat(view.bio()).isNull();
@@ -101,6 +103,7 @@ class CurrentUserAdviceTest {
                 EMAIL,
                 "Reader",
                 null,
+                "reader_handle",
                 "profile bio",
                 "ACTIVE",
                 "USER",

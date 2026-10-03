@@ -70,8 +70,8 @@ public class SubmitInteractionReportUseCase {
         }
 
         // 2. Validate target and capture snapshot based on target type
-        String contentSnapshot = switch (command.targetType()) {
-            case COMMENT -> validateAndSnapshotComment(command.targetId(), command.reporterUserId());
+        TargetSnapshot snapshot = switch (command.targetType()) {
+            case COMMENT -> new TargetSnapshot(validateAndSnapshotComment(command.targetId(), command.reporterUserId()), null);
             case COMMUNITY_POST -> validateAndSnapshotCommunityPost(command.targetId(), command.reporterUserId());
         };
 
@@ -86,7 +86,8 @@ public class SubmitInteractionReportUseCase {
                 command.reporterUserId(),
                 command.reason(),
                 command.description(),
-                contentSnapshot,
+                snapshot.contentSnapshot(),
+                snapshot.evidenceMediaAssetId(),
                 createdAt
         );
 
@@ -174,7 +175,7 @@ public class SubmitInteractionReportUseCase {
         return reportedComment.getBody();
     }
 
-    private String validateAndSnapshotCommunityPost(UUID postId, UUID reporterUserId) {
+    private TargetSnapshot validateAndSnapshotCommunityPost(UUID postId, UUID reporterUserId) {
         CommunityPostInteractionMutationPort.CommunityPostLockedView post = communityPostMutationPort
                 .lockExistingPostForInteraction(postId)
                 .orElseThrow(() -> new CommentTargetNotEligibleException(CommentTarget.communityPost(postId)));
@@ -184,7 +185,9 @@ public class SubmitInteractionReportUseCase {
             throw new SelfReportNotAllowedException(ReportTargetType.COMMUNITY_POST, postId, reporterUserId);
         }
 
-        // Content snapshot using locked caption
-        return post.caption();
+        // Content snapshot using locked caption and media asset ID
+        return new TargetSnapshot(post.caption(), post.imageMediaAssetId());
     }
+
+    private record TargetSnapshot(String contentSnapshot, UUID evidenceMediaAssetId) {}
 }

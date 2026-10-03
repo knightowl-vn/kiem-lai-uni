@@ -65,6 +65,15 @@ public interface InteractionReportRepositoryPort {
     boolean existsPendingByTargetAndReporter(ReportTargetType targetType, UUID targetId, UUID reporterUserId);
 
     /**
+     * Checks whether any active PENDING report exists for the given target.
+     *
+     * @param targetType the target type
+     * @param targetId the target ID
+     * @return true if at least one PENDING report exists for this target
+     */
+    boolean existsPendingByTarget(ReportTargetType targetType, UUID targetId);
+
+    /**
      * Backward-compatible alias checking whether a PENDING report exists for a comment and reporter.
      */
     default boolean existsPendingByCommentIdAndReporterUserId(UUID commentId, UUID reporterUserId) {

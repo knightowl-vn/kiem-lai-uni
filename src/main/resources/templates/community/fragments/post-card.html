@@ -103,6 +103,31 @@
 					</button>
 				</div>
 			</div>
+
+			<!-- Post Actions Dropdown (Non-owner Authenticated: Report) -->
+			<div sec:authorize="isAuthenticated()"
+				th:if="${currentUser != null and item.authorUserId != null and currentUser.id != item.authorUserId.toString()}"
+				class="post-actions-dropdown">
+				<button type="button"
+					class="post-actions-trigger"
+					data-action="toggle-post-menu"
+					aria-haspopup="menu"
+					aria-expanded="false"
+					aria-label="Tùy chọn bài viết"
+					title="Tùy chọn">
+					<i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
+				</button>
+				<div class="post-actions-menu" role="menu" hidden>
+					<button type="button"
+						class="post-actions-item text-danger"
+						role="menuitem"
+						data-action="report-post"
+						th:attr="data-post-id=${item.id}">
+						<i class="fa-regular fa-flag me-2" aria-hidden="true"></i>
+						<span>Báo cáo bài viết</span>
+					</button>
+				</div>
+			</div>
 		</header>
 
 		<!-- Post Caption (Permalink Affordance, Escaped via th:text) -->

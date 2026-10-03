@@ -137,6 +137,7 @@ class CommunityPostControllerWebMvcTest {
                 "author@universe.com",
                 "Author User",
                 "https://cdn.example.com/avatar.jpg",
+                "author_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

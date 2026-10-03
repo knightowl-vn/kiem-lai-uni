@@ -43,6 +43,7 @@ public class AuthenticatedRequestIdentityQueryAdapter
                 projection.getNormalizedEmail(),
                 projection.getDisplayName(),
                 projection.getAvatarUrl(),
+                projection.getPublicHandle(),
                 UserStatus.valueOf(projection.getStatus().toUpperCase(Locale.ROOT)),
                 projection.getRole()
         );

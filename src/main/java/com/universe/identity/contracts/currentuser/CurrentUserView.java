@@ -7,6 +7,7 @@ public record CurrentUserView(
         String email,
         String displayName,
         String avatarUrl,
+        String publicHandle,
         String bio,
         String status,
         String role,

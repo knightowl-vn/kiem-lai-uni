@@ -74,6 +74,13 @@ public class InteractionReportJpaEntity {
     private String contentSnapshot;
 
     @Column(
+            name = "evidence_media_asset_id",
+            length = 36,
+            columnDefinition = "CHAR(36)"
+    )
+    private String evidenceMediaAssetId;
+
+    @Column(
             name = "status",
             nullable = false,
             length = 40
@@ -120,6 +127,7 @@ public class InteractionReportJpaEntity {
             String reason,
             String description,
             String contentSnapshot,
+            String evidenceMediaAssetId,
             String status,
             Instant createdAt,
             String resolvedByUserId,
@@ -134,12 +142,46 @@ public class InteractionReportJpaEntity {
         this.reason = reason;
         this.description = description;
         this.contentSnapshot = contentSnapshot;
+        this.evidenceMediaAssetId = evidenceMediaAssetId;
         this.status = status;
         this.createdAt = createdAt;
         this.resolvedByUserId = resolvedByUserId;
         this.resolvedAt = resolvedAt;
         this.moderationAction = moderationAction;
         this.targetDeletedAt = targetDeletedAt;
+    }
+
+    public InteractionReportJpaEntity(
+            String id,
+            String targetType,
+            String targetId,
+            String reporterUserId,
+            String reason,
+            String description,
+            String contentSnapshot,
+            String status,
+            Instant createdAt,
+            String resolvedByUserId,
+            Instant resolvedAt,
+            String moderationAction,
+            Instant targetDeletedAt
+    ) {
+        this(
+                id,
+                targetType,
+                targetId,
+                reporterUserId,
+                reason,
+                description,
+                contentSnapshot,
+                null,
+                status,
+                createdAt,
+                resolvedByUserId,
+                resolvedAt,
+                moderationAction,
+                targetDeletedAt
+        );
     }
 
     public String getId() {
@@ -196,6 +238,14 @@ public class InteractionReportJpaEntity {
 
     public void setContentSnapshot(String contentSnapshot) {
         this.contentSnapshot = contentSnapshot;
+    }
+
+    public String getEvidenceMediaAssetId() {
+        return evidenceMediaAssetId;
+    }
+
+    public void setEvidenceMediaAssetId(String evidenceMediaAssetId) {
+        this.evidenceMediaAssetId = evidenceMediaAssetId;
     }
 
     public String getStatus() {
@@ -269,6 +319,7 @@ public class InteractionReportJpaEntity {
                 ", reason='" + reason + '\'' +
                 ", description='" + (description != null ? "[PROTECTED]" : "null") + '\'' +
                 ", contentSnapshot='" + (contentSnapshot != null ? "[PROTECTED]" : "null") + '\'' +
+                ", evidenceMediaAssetId='" + evidenceMediaAssetId + '\'' +
                 ", status='" + status + '\'' +
                 ", createdAt=" + createdAt +
                 ", resolvedByUserId='" + resolvedByUserId + '\'' +

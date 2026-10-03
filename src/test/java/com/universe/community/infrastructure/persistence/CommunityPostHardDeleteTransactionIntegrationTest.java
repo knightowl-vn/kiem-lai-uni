@@ -9,6 +9,7 @@ import com.universe.community.domain.CommunityPostRevision;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.infrastructure.interaction.InteractionCommunityPostCleanupAdapter;
+import com.universe.community.infrastructure.interaction.InteractionCommunityPostReportQueryAdapter;
 import com.universe.interaction.application.mutation.CleanupCommunityPostInteractionsUseCase;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
@@ -18,11 +19,14 @@ import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.application.ports.ReactionTargetEligibilityPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.interaction.domain.reaction.Reaction;
 import com.universe.interaction.domain.reaction.ReactionTarget;
 import com.universe.interaction.domain.reaction.ReactionType;
 import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
+import com.universe.interaction.domain.report.ReportStatus;
 import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
@@ -128,6 +132,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         DeleteMediaAssetUseCase.class,
         CleanupCommunityPostInteractionsUseCase.class,
         InteractionCommunityPostCleanupAdapter.class,
+        InteractionCommunityPostReportQueryAdapter.class,
         DeleteCommunityPostUseCase.class,
         UuidGeneratorAdapter.class,
         SystemClockAdapter.class,
@@ -529,7 +534,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
         );
         tx.executeWithoutResult(s -> reactionPersistenceAdapter.save(commentReaction));
 
-        InteractionReport postReport = InteractionReport.createPending(
+        InteractionReport postReport = InteractionReport.reconstitute(
                 UUID.randomUUID(),
                 ReportTargetType.COMMUNITY_POST,
                 postId,
@@ -537,7 +542,13 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 ReportReason.SPAM,
                 "Spam post",
                 "Caption-only post to delete",
-                Instant.now()
+                null,
+                ReportStatus.RESOLVED_NO_ACTION,
+                Instant.now(),
+                UUID.randomUUID(),
+                Instant.now(),
+                ReportModerationAction.NO_ACTION,
+                null
         );
         tx.executeWithoutResult(s -> interactionReportPersistenceAdapter.save(postReport));
 
@@ -549,6 +560,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 ReportReason.HARASSMENT,
                 "Offensive comment",
                 "Root comment on post",
+                null,
                 Instant.now()
         );
         tx.executeWithoutResult(s -> interactionReportPersistenceAdapter.save(commentReport));
@@ -878,7 +890,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
         );
         tx.executeWithoutResult(s -> reactionPersistenceAdapter.save(commentReaction));
 
-        InteractionReport postReport = InteractionReport.createPending(
+        InteractionReport postReport = InteractionReport.reconstitute(
                 UUID.randomUUID(),
                 ReportTargetType.COMMUNITY_POST,
                 postId,
@@ -886,7 +898,13 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 ReportReason.SPAM,
                 "Spam post report",
                 "Post to test repeated delete",
-                Instant.now()
+                null,
+                ReportStatus.RESOLVED_NO_ACTION,
+                Instant.now(),
+                UUID.randomUUID(),
+                Instant.now(),
+                ReportModerationAction.NO_ACTION,
+                null
         );
         tx.executeWithoutResult(s -> interactionReportPersistenceAdapter.save(postReport));
 
@@ -898,6 +916,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 ReportReason.HARASSMENT,
                 "Harassment comment report",
                 "Root comment for repeated delete test",
+                null,
                 Instant.now()
         );
         tx.executeWithoutResult(s -> interactionReportPersistenceAdapter.save(commentReport));
@@ -960,5 +979,38 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
                 commentReport.getId().toString()
         );
         assertThat(commentReportRow2.get("target_deleted_at")).isEqualTo(originalCommentDeletedAt);
+    }
+
+    @Test
+    @DisplayName("Anti-evasion barrier: Post with pending abuse report cannot be deleted -> throws CommunityPostPendingReportConflictException and post is preserved")
+    void deletePost_withPendingPostReport_throwsPendingReportConflictException() {
+        UUID authorId = UUID.randomUUID();
+        UUID reporter = UUID.randomUUID();
+        UUID postId = seedCommunityPost(authorId, "Post under pending investigation", null);
+
+        InteractionReport pendingReport = InteractionReport.createPending(
+                UUID.randomUUID(),
+                ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporter,
+                ReportReason.HARASSMENT,
+                "Investigating harassment",
+                "Post under pending investigation",
+                null,
+                Instant.now()
+        );
+        tx.executeWithoutResult(s -> interactionReportPersistenceAdapter.save(pendingReport));
+
+        assertThatThrownBy(() -> deleteCommunityPostUseCase.execute(authorId, postId))
+                .isInstanceOf(CommunityPostPendingReportConflictException.class)
+                .hasMessageContaining(postId.toString());
+
+        // Verify post still exists in DB
+        int count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_posts WHERE id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(count).isEqualTo(1);
     }
 }

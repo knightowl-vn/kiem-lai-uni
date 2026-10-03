@@ -145,6 +145,7 @@ class CommunityFeedPageControllerWebMvcTest {
                 "user@universe.com",
                 "Đạo Hữu",
                 "https://cdn.example.com/me.png",
+                "dao_huu",
                 "Bio",
                 "ACTIVE",
                 "USER",

@@ -630,8 +630,8 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
     }
 
     @Test
-    @DisplayName("K. Direct COMMUNITY_POST report projection: report target is COMMUNITY_POST, content context target is null")
-    void shouldProjectCommunityPostReportWithSeparatedTargetAndNullContentContext() {
+    @DisplayName("K. Admin queue isolation: COMMUNITY_POST reports do not leak into the comment report queue")
+    void shouldNotReturnCommunityPostReportsInCommentReportQueue() {
         UUID postId = UUID.randomUUID();
         UUID reportId = UUID.randomUUID();
         UUID reporterUserId = UUID.randomUUID();
@@ -647,16 +647,7 @@ class InteractionReportQueuePersistenceAdapterIntegrationTest {
                 ReportQueueLifecycleScope.PENDING, null, null, InteractionReportQueueSort.NEWEST, 0, 10
         ));
 
-        assertThat(page.totalElements()).isEqualTo(1);
-        InteractionReportQueueItem item = page.items().get(0);
-
-        assertThat(item.reportId()).isEqualTo(reportId);
-        assertThat(item.reportTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
-        assertThat(item.reportTargetId()).isEqualTo(postId);
-        assertThat(item.reportedContentSnapshot()).isEqualTo("Caption snapshot");
-        assertThat(item.contentTargetType()).isNull();
-        assertThat(item.contentTargetId()).isNull();
-        assertThat(item.commentAuthorUserId()).isNull();
-        assertThat(item.commentStatus()).isNull();
+        assertThat(page.totalElements()).isZero();
+        assertThat(page.items()).isEmpty();
     }
 }

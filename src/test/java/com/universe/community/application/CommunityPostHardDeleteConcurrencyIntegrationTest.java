@@ -9,7 +9,9 @@ import com.universe.community.application.usecase.EditCommunityPostCaptionUseCas
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
+import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.infrastructure.interaction.InteractionCommunityPostCleanupAdapter;
+import com.universe.community.infrastructure.interaction.InteractionCommunityPostReportQueryAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceMapper;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceAdapter;
@@ -18,6 +20,8 @@ import com.universe.interaction.application.exceptions.CommentTargetNotEligibleE
 import com.universe.interaction.application.mutation.CleanupCommunityPostInteractionsUseCase;
 import com.universe.interaction.application.mutation.CreateRootCommentCommand;
 import com.universe.interaction.application.mutation.CreateRootCommentUseCase;
+import com.universe.interaction.application.mutation.SubmitInteractionReportCommand;
+import com.universe.interaction.application.mutation.SubmitInteractionReportUseCase;
 import com.universe.interaction.application.ports.CommentRepositoryPort;
 import com.universe.interaction.application.ports.CommentRevisionRepositoryPort;
 import com.universe.interaction.application.ports.CommentTargetEligibilityPort;
@@ -26,6 +30,9 @@ import com.universe.interaction.application.ports.ReactionRepositoryPort;
 import com.universe.interaction.application.ports.ReactionTargetEligibilityPort;
 import com.universe.interaction.domain.Comment;
 import com.universe.interaction.domain.CommentTarget;
+import com.universe.interaction.domain.report.InteractionReport;
+import com.universe.interaction.domain.report.ReportReason;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceAdapter;
 import com.universe.interaction.infrastructure.persistence.CommentPersistenceMapper;
 import com.universe.interaction.infrastructure.persistence.CommentRevisionPersistenceAdapter;
@@ -130,9 +137,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         DeleteMediaAssetUseCase.class,
         CleanupCommunityPostInteractionsUseCase.class,
         InteractionCommunityPostCleanupAdapter.class,
+        InteractionCommunityPostReportQueryAdapter.class,
         DeleteCommunityPostUseCase.class,
         EditCommunityPostCaptionUseCase.class,
         CreateRootCommentUseCase.class,
+        SubmitInteractionReportUseCase.class,
         UuidGeneratorAdapter.class,
         CommunityPostHardDeleteConcurrencyIntegrationTest.TestConfig.class
 })
@@ -310,6 +319,9 @@ class CommunityPostHardDeleteConcurrencyIntegrationTest {
 
     @Autowired
     private CreateRootCommentUseCase createRootCommentUseCase;
+
+    @Autowired
+    private SubmitInteractionReportUseCase submitInteractionReportUseCase;
 
     @Autowired
     private CommunityPostPersistenceAdapter postAdapter;
@@ -608,5 +620,179 @@ class CommunityPostHardDeleteConcurrencyIntegrationTest {
                 postId.toString()
         );
         assertThat(commentCount).isZero();
+    }
+
+    // =========================================================================
+    // SCENARIO 4: Report Submission Wins Post Lock First vs Delete (Anti-Evasion Barrier)
+    // =========================================================================
+
+    @Test
+    @DisplayName("Scenario 4: Report submission acquires post lock first -> delete is blocked -> report commits -> delete unblocks and throws CommunityPostPendingReportConflictException")
+    void testScenario4_reportWinsPostLockFirst_deleteThrowsConflict() throws Exception {
+        UUID authorId = UUID.randomUUID();
+        UUID reporterId = UUID.randomUUID();
+        UUID postId = createCommunityPost(authorId, "Post to report then delete");
+
+        CountDownLatch reportLockedLatch = new CountDownLatch(1);
+        CountDownLatch reportContinueLatch = new CountDownLatch(1);
+
+        // Pause report submission while holding post lock
+        testSyncHook.setOnClockNow(() -> {
+            reportLockedLatch.countDown();
+            try {
+                reportContinueLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+
+        // Thread 1: Reporter starts and acquires post lock
+        Future<TaskResult<InteractionReport>> fReporter = executor.submit(() -> {
+            try {
+                InteractionReport report = submitInteractionReportUseCase.execute(new SubmitInteractionReportCommand(
+                        ReportTargetType.COMMUNITY_POST,
+                        postId,
+                        reporterId,
+                        ReportReason.SPAM,
+                        null
+                ));
+                return new TaskResult<>(report, null);
+            } catch (Throwable t) {
+                return new TaskResult<>(null, t);
+            }
+        });
+
+        // Ensure reporter holds post lock
+        assertThat(reportLockedLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Thread 2: Deleter attempts to acquire post lock
+        Future<TaskResult<Void>> fDeleter = executor.submit(() -> {
+            try {
+                deleteCommunityPostUseCase.execute(authorId, postId);
+                return new TaskResult<>(null, null);
+            } catch (Throwable t) {
+                return new TaskResult<>(null, t);
+            }
+        });
+
+        // Prove deleter is BLOCKED by reporter's post lock
+        assertThatThrownBy(() -> fDeleter.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        // Release reporter to commit pending report
+        reportContinueLatch.countDown();
+
+        TaskResult<InteractionReport> rReporter = fReporter.get(5, TimeUnit.SECONDS);
+        TaskResult<Void> rDeleter = fDeleter.get(5, TimeUnit.SECONDS);
+
+        assertThat(rReporter.isSuccess()).isTrue();
+        assertThat(rDeleter.isFailure()).isTrue();
+        assertThat(isOrCausedBy(rDeleter.error(), CommunityPostPendingReportConflictException.class)).isTrue();
+
+        // Post is preserved because delete was blocked by anti-evasion barrier
+        int postCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_posts WHERE id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(postCount).isEqualTo(1);
+
+        // Pending report is recorded
+        int reportCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM interaction_reports WHERE target_type = 'COMMUNITY_POST' AND target_id = ? AND status = 'PENDING'",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(reportCount).isEqualTo(1);
+    }
+
+    // =========================================================================
+    // SCENARIO 5: Delete Wins Post Lock First vs Report Submission
+    // =========================================================================
+
+    @Test
+    @DisplayName("Scenario 5: Delete acquires post lock first -> report submission is blocked -> post deleted -> report fails closed with CommentTargetNotEligibleException")
+    void testScenario5_deleteWinsPostLockFirst_reportFailsClosed() throws Exception {
+        UUID authorId = UUID.randomUUID();
+        UUID reporterId = UUID.randomUUID();
+        UUID postId = createCommunityPost(authorId, "Post to delete before report");
+
+        CountDownLatch deleterLockedLatch = new CountDownLatch(1);
+        CountDownLatch deleterContinueLatch = new CountDownLatch(1);
+        CountDownLatch reporterAttemptingLockLatch = new CountDownLatch(1);
+
+        testSyncHook.setOnAttemptingPostLock(reporterAttemptingLockLatch::countDown);
+
+        // Thread 1: Deleter starts and acquires post lock
+        Future<TaskResult<Void>> fDeleter = executor.submit(() -> {
+            try {
+                tx.executeWithoutResult(s -> {
+                    CommunityPost post = postAdapter.findByIdForUpdate(postId)
+                            .orElseThrow(() -> new IllegalStateException("Post disappeared"));
+                    deleterLockedLatch.countDown();
+                    try {
+                        deleterContinueLatch.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    deleteCommunityPostUseCase.execute(authorId, post.getId());
+                });
+                return new TaskResult<>(null, null);
+            } catch (Throwable t) {
+                return new TaskResult<>(null, t);
+            }
+        });
+
+        // Ensure deleter holds post lock
+        assertThat(deleterLockedLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Thread 2: Reporter attempts to submit report
+        Future<TaskResult<InteractionReport>> fReporter = executor.submit(() -> {
+            try {
+                InteractionReport report = submitInteractionReportUseCase.execute(new SubmitInteractionReportCommand(
+                        ReportTargetType.COMMUNITY_POST,
+                        postId,
+                        reporterId,
+                        ReportReason.HARASSMENT,
+                        null
+                ));
+                return new TaskResult<>(report, null);
+            } catch (Throwable t) {
+                return new TaskResult<>(null, t);
+            }
+        });
+
+        // Ensure reporter reached lock gate
+        assertThat(reporterAttemptingLockLatch.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Prove reporter is BLOCKED by deleter's post lock
+        assertThatThrownBy(() -> fReporter.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        // Release deleter
+        deleterContinueLatch.countDown();
+
+        TaskResult<Void> rDeleter = fDeleter.get(5, TimeUnit.SECONDS);
+        TaskResult<InteractionReport> rReporter = fReporter.get(5, TimeUnit.SECONDS);
+
+        assertThat(rDeleter.isSuccess()).isTrue();
+        assertThat(rReporter.isFailure()).isTrue();
+        assertThat(isOrCausedBy(rReporter.error(), CommentTargetNotEligibleException.class)).isTrue();
+
+        // Post is deleted
+        int postCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM community_posts WHERE id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(postCount).isZero();
+
+        // No reports created
+        int reportCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM interaction_reports WHERE target_type = 'COMMUNITY_POST' AND target_id = ?",
+                Integer.class,
+                postId.toString()
+        );
+        assertThat(reportCount).isZero();
     }
 }

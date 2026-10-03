@@ -4,6 +4,7 @@ import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportModerationAction;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,11 +32,13 @@ class InteractionReportPersistenceMapperTest {
     void shouldRoundTripPendingReport() {
         InteractionReport domain = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 "Link spam in comment",
                 snapshot,
+                null,
                 createdAt
         );
 
@@ -75,16 +78,19 @@ class InteractionReportPersistenceMapperTest {
     void shouldRoundTripResolvedActionTakenReport() {
         InteractionReport domain = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.OTHER,
                 "Explicit rule violation",
                 snapshot,
+                null,
                 ReportStatus.RESOLVED_ACTION_TAKEN,
                 createdAt,
                 resolverUserId,
                 resolvedAt,
-                ReportModerationAction.DELETE_COMMENT
+                ReportModerationAction.DELETE_COMMENT,
+                null
         );
 
         InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
@@ -108,16 +114,19 @@ class InteractionReportPersistenceMapperTest {
     void shouldRoundTripResolvedNoActionReport() {
         InteractionReport domain = InteractionReport.reconstitute(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 "Report dismissed without action",
                 snapshot,
+                null,
                 ReportStatus.RESOLVED_NO_ACTION,
                 createdAt,
                 resolverUserId,
                 resolvedAt,
-                ReportModerationAction.NO_ACTION
+                ReportModerationAction.NO_ACTION,
+                null
         );
 
         InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
@@ -141,11 +150,13 @@ class InteractionReportPersistenceMapperTest {
     void shouldRoundTripNullDescriptionAcrossDomainAndJpa() {
         InteractionReport domain = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 commentId,
                 reporterUserId,
                 ReportReason.SPAM,
                 null,
                 snapshot,
+                null,
                 createdAt
         );
         assertThat(domain.getDescription()).isNull();
@@ -243,12 +254,13 @@ class InteractionReportPersistenceMapperTest {
         UUID postId = UUID.randomUUID();
         InteractionReport domain = InteractionReport.createPending(
                 reportId,
-                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                ReportTargetType.COMMUNITY_POST,
                 postId,
                 reporterUserId,
                 ReportReason.HARASSMENT,
                 "Inappropriate post caption",
                 "Post caption snapshot",
+                null,
                 createdAt
         );
 
@@ -265,5 +277,40 @@ class InteractionReportPersistenceMapperTest {
         assertThat(reconstituted.getTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
         assertThat(reconstituted.getTargetId()).isEqualTo(postId);
         assertThat(reconstituted.getReportedContentSnapshot()).isEqualTo("Post caption snapshot");
+        assertThat(reconstituted.getEvidenceMediaAssetId()).isNull();
+    }
+
+    @Test
+    @DisplayName("Maps COMMUNITY_POST target report with evidenceMediaAssetId to JPA entity and back")
+    void shouldRoundTripCommunityPostReportWithEvidenceMediaAssetId() {
+        UUID postId = UUID.randomUUID();
+        UUID mediaAssetId = UUID.randomUUID();
+        InteractionReport domain = InteractionReport.createPending(
+                reportId,
+                com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST,
+                postId,
+                reporterUserId,
+                ReportReason.HARASSMENT,
+                "Inappropriate image caption",
+                "Post caption snapshot",
+                mediaAssetId,
+                createdAt
+        );
+
+        InteractionReportJpaEntity entity = mapper.toJpaEntity(domain);
+
+        assertThat(entity.getId()).isEqualTo(reportId.toString());
+        assertThat(entity.getTargetType()).isEqualTo("COMMUNITY_POST");
+        assertThat(entity.getTargetId()).isEqualTo(postId.toString());
+        assertThat(entity.getContentSnapshot()).isEqualTo("Post caption snapshot");
+        assertThat(entity.getEvidenceMediaAssetId()).isEqualTo(mediaAssetId.toString());
+
+        InteractionReport reconstituted = mapper.toDomain(entity);
+
+        assertThat(reconstituted.getId()).isEqualTo(domain.getId());
+        assertThat(reconstituted.getTargetType()).isEqualTo(com.universe.interaction.domain.report.ReportTargetType.COMMUNITY_POST);
+        assertThat(reconstituted.getTargetId()).isEqualTo(postId);
+        assertThat(reconstituted.getReportedContentSnapshot()).isEqualTo("Post caption snapshot");
+        assertThat(reconstituted.getEvidenceMediaAssetId()).isEqualTo(mediaAssetId);
     }
 }

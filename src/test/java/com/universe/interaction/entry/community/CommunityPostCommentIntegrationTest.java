@@ -153,6 +153,7 @@ class CommunityPostCommentIntegrationTest {
                 USER_EMAIL,
                 "Community Author",
                 null,
+                "comm_author",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );

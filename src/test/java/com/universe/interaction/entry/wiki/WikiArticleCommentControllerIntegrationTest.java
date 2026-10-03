@@ -33,6 +33,7 @@ import com.universe.interaction.domain.CommentSortMode;
 import com.universe.interaction.domain.report.InteractionReport;
 import com.universe.interaction.domain.report.ReportReason;
 import com.universe.interaction.domain.report.ReportStatus;
+import com.universe.interaction.domain.report.ReportTargetType;
 import com.universe.interaction.domain.CommentRevision;
 import com.universe.interaction.domain.CommentTarget;
 import com.universe.interaction.entry.dto.CommentAuthorDTO;
@@ -162,6 +163,7 @@ class WikiArticleCommentControllerIntegrationTest {
                 "scholar@universe.local",
                 "Scholar User",
                 null,
+                "scholar_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -746,11 +748,13 @@ class WikiArticleCommentControllerIntegrationTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.SPAM,
                 "Spam comment on wiki",
                 "Authoritative wiki comment body snapshot",
+                null,
                 NOW
         );
 
@@ -798,11 +802,13 @@ class WikiArticleCommentControllerIntegrationTest {
         UUID reportId = UUID.randomUUID();
         InteractionReport report = InteractionReport.createPending(
                 reportId,
+                ReportTargetType.COMMENT,
                 ROOT_COMMENT_ID,
                 USER_1_ID,
                 ReportReason.HARASSMENT,
                 "Valid description",
                 "Real server snapshot",
+                null,
                 NOW
         );
 

@@ -12,6 +12,8 @@ public interface AuthenticatedRequestIdentityProjection {
 
     String getAvatarUrl();
 
+    String getPublicHandle();
+
     String getStatus();
 
     UserRole getRole();

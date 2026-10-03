@@ -116,12 +116,13 @@ class CommunityPostPermalinkPageControllerWebMvcTest {
         );
     }
 
-    private RequestPostProcessor authenticatedIdentity(UUID userId, String email, String displayName) {
+    private RequestPostProcessor authenticatedIdentity(UUID userId, String email, String displayName, String publicHandle) {
         AuthenticatedRequestIdentity identity = new AuthenticatedRequestIdentity(
                 userId,
                 email,
                 displayName,
                 "https://cdn.example.com/avatar.png",
+                publicHandle,
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -160,6 +161,7 @@ class CommunityPostPermalinkPageControllerWebMvcTest {
                 "viewer@example.com",
                 "Hàn Lập",
                 "https://cdn.example.com/avatar.png",
+                "han_lap",
                 "Bio",
                 "ACTIVE",
                 "USER",
@@ -174,7 +176,7 @@ class CommunityPostPermalinkPageControllerWebMvcTest {
                 .thenReturn(Optional.of(samplePost("LIKE")));
 
         mockMvc.perform(get("/community/posts/{postId}", POST_ID)
-                        .with(authenticatedIdentity(VIEWER_ID, "viewer@example.com", "Hàn Lập")))
+                        .with(authenticatedIdentity(VIEWER_ID, "viewer@example.com", "Hàn Lập", "han_lap")))
                 .andExpect(status().isOk())
                 .andExpect(view().name("community/post"))
                 .andExpect(model().attributeExists("item"))
@@ -196,6 +198,7 @@ class CommunityPostPermalinkPageControllerWebMvcTest {
                 "author@example.com",
                 "Tiêu Viêm",
                 "https://cdn.example.com/avatar.png",
+                "tieu_viem",
                 "Bio",
                 "ACTIVE",
                 "USER",
@@ -210,7 +213,7 @@ class CommunityPostPermalinkPageControllerWebMvcTest {
                 .thenReturn(Optional.of(samplePost(null)));
 
         mockMvc.perform(get("/community/posts/{postId}", POST_ID)
-                        .with(authenticatedIdentity(AUTHOR_ID, "author@example.com", "Tiêu Viêm")))
+                        .with(authenticatedIdentity(AUTHOR_ID, "author@example.com", "Tiêu Viêm", "tieu_viem")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("post-actions-dropdown")))
                 .andExpect(content().string(containsString("data-action=\"edit-post\" data-post-id=\"" + POST_ID + "\"")))

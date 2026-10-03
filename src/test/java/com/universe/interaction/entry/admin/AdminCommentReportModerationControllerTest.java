@@ -60,6 +60,7 @@ class AdminCommentReportModerationControllerTest {
                 "admin@universe.local",
                 "Moderator Admin",
                 null,
+                "moderator_admin",
                 UserStatus.ACTIVE,
                 UserRole.ADMIN
         );

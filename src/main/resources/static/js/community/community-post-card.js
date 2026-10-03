@@ -255,6 +255,49 @@
             actionsMenu.appendChild(deleteBtn);
             actionsDropdown.appendChild(actionsMenu);
             header.appendChild(actionsDropdown);
+        } else if (isAuthenticated) {
+            const actionsDropdown = document.createElement('div');
+            actionsDropdown.className = 'post-actions-dropdown';
+
+            const triggerBtn = document.createElement('button');
+            triggerBtn.type = 'button';
+            triggerBtn.className = 'post-actions-trigger';
+            triggerBtn.setAttribute('data-action', 'toggle-post-menu');
+            triggerBtn.setAttribute('aria-haspopup', 'menu');
+            triggerBtn.setAttribute('aria-expanded', 'false');
+            triggerBtn.setAttribute('aria-label', 'Tùy chọn bài viết');
+            triggerBtn.title = 'Tùy chọn';
+
+            const triggerIcon = document.createElement('i');
+            triggerIcon.className = 'fa-solid fa-ellipsis';
+            triggerIcon.setAttribute('aria-hidden', 'true');
+            triggerBtn.appendChild(triggerIcon);
+            actionsDropdown.appendChild(triggerBtn);
+
+            const actionsMenu = document.createElement('div');
+            actionsMenu.className = 'post-actions-menu';
+            actionsMenu.setAttribute('role', 'menu');
+            actionsMenu.hidden = true;
+
+            const reportBtn = document.createElement('button');
+            reportBtn.type = 'button';
+            reportBtn.className = 'post-actions-item text-danger';
+            reportBtn.setAttribute('role', 'menuitem');
+            reportBtn.setAttribute('data-action', 'report-post');
+            reportBtn.setAttribute('data-post-id', String(item.id));
+
+            const reportIcon = document.createElement('i');
+            reportIcon.className = 'fa-regular fa-flag me-2';
+            reportIcon.setAttribute('aria-hidden', 'true');
+            reportBtn.appendChild(reportIcon);
+
+            const reportSpan = document.createElement('span');
+            reportSpan.textContent = 'Báo cáo bài viết';
+            reportBtn.appendChild(reportSpan);
+
+            actionsMenu.appendChild(reportBtn);
+            actionsDropdown.appendChild(actionsMenu);
+            header.appendChild(actionsDropdown);
         }
 
         article.appendChild(header);
@@ -1562,6 +1605,43 @@
         return true;
     }
 
+    let customReportModal = null;
+
+    function setReportModalImplementation(impl) {
+        customReportModal = impl;
+    }
+
+    function resolveReportModal(doc) {
+        if (customReportModal) {
+            return customReportModal;
+        }
+        if (typeof window !== 'undefined') {
+            if (window.CommentReportModal) return window.CommentReportModal;
+            if (window.KiemLai && window.KiemLai.CommentReportModal) return window.KiemLai.CommentReportModal;
+        }
+        if (typeof globalThis !== 'undefined') {
+            if (globalThis.CommentReportModal) return globalThis.CommentReportModal;
+            if (globalThis.KiemLai && globalThis.KiemLai.CommentReportModal) return globalThis.KiemLai.CommentReportModal;
+        }
+        return null;
+    }
+
+    function openReportModal(postId, triggerEl, doc) {
+        if (!postId) return false;
+        const modal = resolveReportModal(doc);
+        if (!modal || typeof modal.open !== 'function') {
+            return false;
+        }
+        const submitUrl = '/api/community/posts/' + encodeURIComponent(postId) + '/reports';
+        return modal.open({
+            commentId: String(postId),
+            submitUrl: submitUrl,
+            contextLabel: 'bài viết',
+            triggerEl: triggerEl || null,
+            doc: doc || (typeof document !== 'undefined' ? document : null)
+        });
+    }
+
     function initDelegation(doc) {
         const targetDoc = doc || (typeof document !== 'undefined' ? document : null);
         if (!targetDoc || targetDoc._communityDelegationInitialized) return;
@@ -1604,6 +1684,20 @@
                 const postId = deleteBtn.getAttribute('data-post-id') || (cardEl ? cardEl.getAttribute('data-post-id') : null);
                 if (postId && cardEl) {
                     openDeleteModal(postId, cardEl, targetDoc);
+                }
+                return;
+            }
+
+            // 3b. Report post item click
+            const reportBtn = target.closest ? target.closest('[data-action="report-post"]') : null;
+            if (reportBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeAllPostMenus(targetDoc);
+                const cardEl = reportBtn.closest('.community-post-card');
+                const postId = reportBtn.getAttribute('data-post-id') || (cardEl ? cardEl.getAttribute('data-post-id') : null);
+                if (postId) {
+                    openReportModal(postId, reportBtn, targetDoc);
                 }
                 return;
             }
@@ -1730,6 +1824,9 @@
         isFetchingRevisions: function () {
             return isFetchingRevisions;
         },
-        classifyRevisionResponse: classifyRevisionResponse
+        classifyRevisionResponse: classifyRevisionResponse,
+        openReportModal: openReportModal,
+        resolveReportModal: resolveReportModal,
+        setReportModalImplementation: setReportModalImplementation
     };
 });

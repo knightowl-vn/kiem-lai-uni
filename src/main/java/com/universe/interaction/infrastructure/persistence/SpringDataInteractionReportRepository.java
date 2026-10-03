@@ -60,6 +60,15 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
     );
 
     /**
+     * Checks if a report exists for a specific target type, target ID, and status.
+     */
+    boolean existsByTargetTypeAndTargetIdAndStatus(
+            String targetType,
+            String targetId,
+            String status
+    );
+
+    /**
      * Retrieves a page of pending report queue rows sorted deterministically newest first (created_at DESC, id DESC).
      */
     @Query(
@@ -84,26 +93,20 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
                         c.status AS commentStatus
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status = 'PENDING'
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     ORDER BY r.created_at DESC, r.id DESC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status = 'PENDING'
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     """,
             nativeQuery = true
     )
@@ -138,26 +141,20 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
                         c.status AS commentStatus
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status = 'PENDING'
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     ORDER BY r.created_at ASC, r.id ASC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status = 'PENDING'
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status = 'PENDING'
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     """,
             nativeQuery = true
     )
@@ -192,26 +189,20 @@ public interface SpringDataInteractionReportRepository extends JpaRepository<Int
                         c.status AS commentStatus
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     ORDER BY r.resolved_at DESC, r.id DESC
                     """,
             countQuery = """
                     SELECT COUNT(*)
                     FROM interaction_reports r
                     LEFT JOIN interaction_comments c ON c.id = r.target_id AND r.target_type = 'COMMENT'
-                    WHERE r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
+                    WHERE r.target_type = 'COMMENT'
+                      AND r.status IN ('RESOLVED_ACTION_TAKEN', 'RESOLVED_NO_ACTION')
                       AND (:reason IS NULL OR r.reason = :reason)
-                      AND (
-                          :targetType IS NULL
-                          OR (r.target_type = 'COMMENT' AND c.target_type = :targetType)
-                          OR (r.target_type = 'COMMUNITY_POST' AND :targetType = 'COMMUNITY_POST')
-                      )
+                      AND (:targetType IS NULL OR c.target_type = :targetType)
                     """,
             nativeQuery = true
     )

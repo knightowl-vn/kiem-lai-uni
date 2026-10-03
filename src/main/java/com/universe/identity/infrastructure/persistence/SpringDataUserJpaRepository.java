@@ -30,6 +30,7 @@ public interface SpringDataUserJpaRepository
                 user.email AS normalizedEmail,
                 user.displayName AS displayName,
                 user.avatarUrl AS avatarUrl,
+                user.publicHandle AS publicHandle,
                 user.status AS status,
                 user.role AS role
             FROM UserJpaEntity user

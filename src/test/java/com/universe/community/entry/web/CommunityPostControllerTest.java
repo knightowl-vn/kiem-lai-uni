@@ -12,6 +12,7 @@ import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
+import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.domain.exception.CommunityPostValidationException;
 import com.universe.identity.application.security.AuthenticatedRequestIdentity;
@@ -96,6 +97,7 @@ class CommunityPostControllerTest {
                 "author@universe.com",
                 "Author User",
                 "https://cdn.example.com/avatar.jpg",
+                "author_user",
                 UserStatus.ACTIVE,
                 UserRole.USER
         );
@@ -386,6 +388,21 @@ class CommunityPostControllerTest {
                         }))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.message").value("Database lock error"));
+    }
+
+    @Test
+    @DisplayName("DELETE /api/community/posts/{postId} with pending reports returns 409 Conflict")
+    void shouldReturnConflictWhenPostHasPendingReports() throws Exception {
+        doThrow(new CommunityPostPendingReportConflictException(POST_ID))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(POST_ID.toString())));
     }
 
     @Test
