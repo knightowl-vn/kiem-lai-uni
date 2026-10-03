@@ -11,6 +11,8 @@ import com.universe.community.contracts.dto.CommunityFeaturedFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
+import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -126,7 +128,7 @@ class CommunityPostControllerTest {
         String caption = "This is a caption-only post";
         UUID postId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
 
         when(createCommunityPostWithImageUseCase.execute(
                 eq(USER_ID),
@@ -159,7 +161,7 @@ class CommunityPostControllerTest {
         UUID postId = UUID.randomUUID();
         UUID imageAssetId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, CommunityPostStatus.PUBLISHED, createdAt);
 
         MockMultipartFile imagePart = new MockMultipartFile(
                 "image",
@@ -406,6 +408,21 @@ class CommunityPostControllerTest {
     }
 
     @Test
+    @DisplayName("DELETE /api/community/posts/{postId} when post is hidden returns 403 Forbidden")
+    void shouldReturnForbiddenWhenPostIsHidden() throws Exception {
+        doThrow(new CommunityPostHiddenDeleteForbiddenException(POST_ID))
+                .when(deleteCommunityPostUseCase).execute(USER_ID, POST_ID);
+
+        mockMvc.perform(delete("/api/community/posts/{postId}", POST_ID)
+                        .with(request -> {
+                            AuthenticatedRequestIdentityTestSupport.attach(request, createActiveUserIdentity());
+                            return request;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("hidden by moderation")));
+    }
+
+    @Test
     @DisplayName("DELETE /api/community/posts/{postId} repeated delete: first -> 204, second -> 404")
     void shouldHandleRepeatedDeleteInController() throws Exception {
         doNothing()
@@ -451,7 +468,7 @@ class CommunityPostControllerTest {
         String newCaption = "Updated post caption text";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
         Instant updatedAt = Instant.parse("2026-09-30T11:00:00Z");
-        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, 1, createdAt, updatedAt);
+        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, CommunityPostStatus.PUBLISHED, 1, createdAt, updatedAt);
 
         when(editCommunityPostCaptionUseCase.execute(eq(new EditCommunityPostCaptionCommand(POST_ID, USER_ID, newCaption))))
                 .thenReturn(post);
@@ -479,7 +496,7 @@ class CommunityPostControllerTest {
     void shouldReturnOkOnNoOpEdit() throws Exception {
         String caption = "Same caption unchanged";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, createdAt);
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
 
         when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
                 .thenReturn(post);

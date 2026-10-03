@@ -2,6 +2,7 @@ package com.universe.community.application.usecase;
 
 import com.universe.community.application.command.CreateCommunityPostCommand;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.media.contracts.interfaces.MediaContract;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,7 +45,7 @@ class CreateCommunityPostWithImageUseCaseTest {
         Instant now = Instant.now();
         UUID postId = UUID.randomUUID();
 
-        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, null, now);
+        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, null, CommunityPostStatus.PUBLISHED, now);
         when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenReturn(expectedPost);
 
         CommunityPost actualPost = orchestrator.execute(
@@ -81,7 +82,7 @@ class CreateCommunityPostWithImageUseCaseTest {
         when(imageUploadUseCase.uploadImage(any(InputStream.class), eq((long) imageData.length), eq("image/jpeg"), eq("test.jpg")))
                 .thenReturn(assetId);
 
-        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, assetId, now);
+        CommunityPost expectedPost = CommunityPost.create(postId, actorUserId, caption, assetId, CommunityPostStatus.PUBLISHED, now);
         when(createCommunityPostUseCase.execute(any(CreateCommunityPostCommand.class))).thenReturn(expectedPost);
 
         CommunityPost actualPost = orchestrator.execute(

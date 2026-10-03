@@ -3,6 +3,7 @@ package com.universe.interaction.application;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceMapper;
 import com.universe.community.infrastructure.persistence.CommunityPostRevisionPersistenceMapper;
@@ -300,7 +301,7 @@ class CommunityPostInteractionCleanupConcurrencyIntegrationTest {
     private UUID createCommunityPost(UUID authorId, String caption) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now();
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now);
         tx.executeWithoutResult(s -> postRepositoryPort.save(post));
         return postId;
     }

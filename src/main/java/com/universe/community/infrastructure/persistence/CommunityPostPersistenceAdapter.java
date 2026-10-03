@@ -65,6 +65,7 @@ public class CommunityPostPersistenceAdapter implements CommunityPostRepositoryP
             throw new IllegalArgumentException("Post ID cannot be null.");
         }
         return postRepository.findByIdForUpdate(postId.toString())
+                .filter(entity -> "PUBLISHED".equals(entity.getStatus()))
                 .map(entity -> new CommunityPostLockedView(
                         UUID.fromString(entity.getId()),
                         UUID.fromString(entity.getAuthorUserId()),

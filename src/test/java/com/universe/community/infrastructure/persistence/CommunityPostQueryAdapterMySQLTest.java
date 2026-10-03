@@ -5,6 +5,7 @@ import com.universe.community.contracts.dto.CommunityPostRankingCandidateDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
 import com.universe.community.domain.CommunityPostRevision;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,14 +72,14 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should query public post projection DTO by ID")
+    @DisplayName("Should query public post projection DTO by ID for PUBLISHED post")
     void shouldFindPublicPostById() {
         UUID postId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
         UUID mediaAssetId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Public post caption", mediaAssetId, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Public post caption", mediaAssetId, CommunityPostStatus.PUBLISHED, now);
         persistenceAdapter.save(post);
 
         Optional<CommunityPostPublicDTO> dtoOpt = queryAdapter.findPublicPostById(postId);
@@ -97,7 +98,30 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should query public revision history ordered newest-first (DESC)")
+    @DisplayName("findPublicPostById should return empty for non-PUBLISHED posts (PENDING_REVIEW, HIDDEN, REJECTED)")
+    void shouldReturnEmptyForNonPublishedPostById() {
+        CommunityPostStatus[] nonPublishedStatuses = {
+                CommunityPostStatus.PENDING_REVIEW,
+                CommunityPostStatus.HIDDEN,
+                CommunityPostStatus.REJECTED
+        };
+
+        for (CommunityPostStatus status : nonPublishedStatuses) {
+            UUID postId = UUID.randomUUID();
+            UUID authorId = UUID.randomUUID();
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+            CommunityPost post = CommunityPost.create(postId, authorId, "Post " + status, null, status, now);
+            persistenceAdapter.save(post);
+
+            assertThat(queryAdapter.findPublicPostById(postId))
+                    .as("findPublicPostById for status %s", status)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("Should query public revision history ordered newest-first (DESC) for PUBLISHED post")
     void shouldFindPublicRevisionHistory() {
         UUID postId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -105,7 +129,7 @@ class CommunityPostQueryAdapterMySQLTest {
         Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
         Instant t2 = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "v0", null, t0);
+        CommunityPost post = CommunityPost.create(postId, authorId, "v0", null, CommunityPostStatus.PUBLISHED, t0);
         persistenceAdapter.save(post);
 
         // Initially no revisions
@@ -119,30 +143,39 @@ class CommunityPostQueryAdapterMySQLTest {
 
         List<CommunityPostRevisionPublicDTO> history = queryAdapter.findPublicRevisionHistory(postId);
         assertThat(history).hasSize(2);
+        assertThat(history.get(0).revisionNumber()).isEqualTo(2);
+        assertThat(history.get(0).caption()).isEqualTo("v2");
+        assertThat(history.get(0).previousCaption()).isEqualTo("v1");
+        assertThat(history.get(0).editedAt()).isEqualTo(t2);
 
-        // First item must be rev2 (revisionNumber 2) - Newest First (DESC)
-        CommunityPostRevisionPublicDTO rev2 = history.get(0);
-        assertThat(rev2.id()).isEqualTo(rev2Id);
-        assertThat(rev2.postId()).isEqualTo(postId);
-        assertThat(rev2.revisionNumber()).isEqualTo(2);
-        assertThat(rev2.editorUserId()).isEqualTo(authorId);
-        assertThat(rev2.previousCaption()).isEqualTo("v1");
-        assertThat(rev2.caption()).isEqualTo("v2");
-        assertThat(rev2.editedAt()).isEqualTo(t2);
-
-        // Second item must be rev1 (revisionNumber 1)
-        CommunityPostRevisionPublicDTO rev1 = history.get(1);
-        assertThat(rev1.id()).isEqualTo(rev1Id);
-        assertThat(rev1.postId()).isEqualTo(postId);
-        assertThat(rev1.revisionNumber()).isEqualTo(1);
-        assertThat(rev1.editorUserId()).isEqualTo(authorId);
-        assertThat(rev1.previousCaption()).isEqualTo("v0");
-        assertThat(rev1.caption()).isEqualTo("v1");
-        assertThat(rev1.editedAt()).isEqualTo(t1);
+        assertThat(history.get(1).revisionNumber()).isEqualTo(1);
+        assertThat(history.get(1).caption()).isEqualTo("v1");
+        assertThat(history.get(1).previousCaption()).isEqualTo("v0");
+        assertThat(history.get(1).editedAt()).isEqualTo(t1);
     }
 
     @Test
-    @DisplayName("Should query newest posts using keyset pagination with canonical DB id DESC tie-break on same createdAt")
+    @DisplayName("findPublicRevisionHistory should return empty for non-PUBLISHED posts (PENDING_REVIEW, HIDDEN, REJECTED) even if revisions exist")
+    void shouldReturnEmptyRevisionHistoryForNonPublishedPost() {
+        UUID authorId = UUID.randomUUID();
+        Instant t0 = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+        Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
+
+        for (CommunityPostStatus status : List.of(CommunityPostStatus.PENDING_REVIEW, CommunityPostStatus.HIDDEN, CommunityPostStatus.REJECTED)) {
+            UUID postId = UUID.randomUUID();
+            CommunityPost post = CommunityPost.create(postId, authorId, "Post " + status, null, status, t0);
+            persistenceAdapter.save(post);
+
+            revisionAdapter.save(new CommunityPostRevision(UUID.randomUUID(), postId, 1, authorId, "v0", "Post " + status, t1));
+
+            assertThat(queryAdapter.findPublicRevisionHistory(postId))
+                    .as("findPublicRevisionHistory for %s post", status)
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("Should query newest posts using keyset pagination with canonical tie-break and only return PUBLISHED")
     void shouldQueryNewestPostsKeysetWithTieBreak() {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
@@ -157,12 +190,15 @@ class CommunityPostQueryAdapterMySQLTest {
         UUID id2A = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"); // shared t2, lower id
         UUID id4 = UUID.fromString("44444444-4444-4444-4444-444444444444");
         UUID id5 = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID idHidden = UUID.fromString("99999999-9999-9999-9999-999999999999");
 
-        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1 (t3)", null, t3));
-        persistenceAdapter.save(CommunityPost.create(id2B, authorId, "Post 2B (t2, id=b...)", null, t2));
-        persistenceAdapter.save(CommunityPost.create(id2A, authorId, "Post 2A (t2, id=a...)", null, t2));
-        persistenceAdapter.save(CommunityPost.create(id4, authorId, "Post 4 (t1)", null, t1));
-        persistenceAdapter.save(CommunityPost.create(id5, authorId, "Post 5 (t0)", null, t0));
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1 (t3)", null, CommunityPostStatus.PUBLISHED, t3));
+        persistenceAdapter.save(CommunityPost.create(id2B, authorId, "Post 2B (t2, id=b...)", null, CommunityPostStatus.PUBLISHED, t2));
+        persistenceAdapter.save(CommunityPost.create(id2A, authorId, "Post 2A (t2, id=a...)", null, CommunityPostStatus.PUBLISHED, t2));
+        persistenceAdapter.save(CommunityPost.create(id4, authorId, "Post 4 (t1)", null, CommunityPostStatus.PUBLISHED, t1));
+        persistenceAdapter.save(CommunityPost.create(id5, authorId, "Post 5 (t0)", null, CommunityPostStatus.PUBLISHED, t0));
+        // Hidden post at t3 must not be returned in feed
+        persistenceAdapter.save(CommunityPost.create(idHidden, authorId, "Hidden post", null, CommunityPostStatus.HIDDEN, t3));
 
         // --- Page 1 (limit 2) ---
         List<CommunityPostPublicDTO> page1 = queryAdapter.findNewestPostsKeyset(null, null, 2);
@@ -174,7 +210,7 @@ class CommunityPostQueryAdapterMySQLTest {
         CommunityPostPublicDTO lastOfPage1 = page1.get(1);
         List<CommunityPostPublicDTO> page2 = queryAdapter.findNewestPostsKeyset(lastOfPage1.createdAt(), lastOfPage1.id(), 2);
         assertThat(page2).hasSize(2);
-        assertThat(page2.get(0).id()).isEqualTo(id2A); // id2A with same t2 comes strictly after id2B
+        assertThat(page2.get(0).id()).isEqualTo(id2A);
         assertThat(page2.get(1).id()).isEqualTo(id4);
 
         // --- Page 3 (limit 2, cursor = last item of page 2: t1, id4) ---
@@ -188,7 +224,7 @@ class CommunityPostQueryAdapterMySQLTest {
         List<CommunityPostPublicDTO> page4 = queryAdapter.findNewestPostsKeyset(lastOfPage3.createdAt(), lastOfPage3.id(), 2);
         assertThat(page4).isEmpty();
 
-        // Verify total traversal: exactly 5 items, no duplicates, no omissions
+        // Verify total traversal: exactly 5 items, zero duplicates, no hidden post
         List<UUID> fullSequence = List.of(
                 page1.get(0).id(), page1.get(1).id(),
                 page2.get(0).id(), page2.get(1).id(),
@@ -198,18 +234,21 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should find all lightweight ranking candidates from MySQL")
+    @DisplayName("Should find all lightweight ranking candidates from MySQL strictly for PUBLISHED posts")
     void shouldFindAllRankingCandidates() {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         Instant t1 = now.minus(10, ChronoUnit.MINUTES);
         Instant t2 = now.minus(5, ChronoUnit.MINUTES);
+        Instant t3 = now.minus(2, ChronoUnit.MINUTES);
 
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        UUID idPending = UUID.randomUUID();
 
-        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, t1));
-        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, t2));
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, CommunityPostStatus.PUBLISHED, t1));
+        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, CommunityPostStatus.PUBLISHED, t2));
+        persistenceAdapter.save(CommunityPost.create(idPending, authorId, "Pending Post", null, CommunityPostStatus.PENDING_REVIEW, t3));
 
         List<CommunityPostRankingCandidateDTO> candidates = queryAdapter.findAllRankingCandidates();
         assertThat(candidates).hasSize(2);
@@ -220,19 +259,21 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should find public posts by IDs in bulk and omit nonexistent IDs")
+    @DisplayName("Should find public posts by IDs in bulk and strictly filter out non-PUBLISHED posts")
     void shouldFindPublicPostsByIds() {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
         UUID id1 = UUID.randomUUID();
         UUID id2 = UUID.randomUUID();
+        UUID idHidden = UUID.randomUUID();
         UUID missingId = UUID.randomUUID();
 
-        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, now));
-        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, now));
+        persistenceAdapter.save(CommunityPost.create(id1, authorId, "Post 1", null, CommunityPostStatus.PUBLISHED, now));
+        persistenceAdapter.save(CommunityPost.create(id2, authorId, "Post 2", null, CommunityPostStatus.PUBLISHED, now));
+        persistenceAdapter.save(CommunityPost.create(idHidden, authorId, "Hidden post", null, CommunityPostStatus.HIDDEN, now));
 
-        List<CommunityPostPublicDTO> list = queryAdapter.findPublicPostsByIds(List.of(id1, id2, missingId));
+        List<CommunityPostPublicDTO> list = queryAdapter.findPublicPostsByIds(List.of(id1, id2, idHidden, missingId));
         assertThat(list).hasSize(2);
         assertThat(list).extracting(CommunityPostPublicDTO::id).containsExactlyInAnyOrder(id1, id2);
         assertThat(list).extracting(CommunityPostPublicDTO::caption).containsExactlyInAnyOrder("Post 1", "Post 2");
@@ -242,7 +283,7 @@ class CommunityPostQueryAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should query authored posts using keyset pagination with author isolation and canonical tie-break")
+    @DisplayName("Should query authored posts using keyset pagination with author isolation, tie-break and only PUBLISHED posts")
     void shouldQueryAuthoredPostsKeysetWithAuthorIsolationAndTieBreak() {
         UUID authorA = UUID.randomUUID();
         UUID authorB = UUID.randomUUID();
@@ -259,19 +300,21 @@ class CommunityPostQueryAdapterMySQLTest {
         UUID aId2A = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"); // shared t2, lower id
         UUID aId4 = UUID.fromString("44444444-4444-4444-4444-444444444444");
         UUID aId5 = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID aIdHidden = UUID.fromString("77777777-7777-7777-7777-777777777777");
 
-        // Author A posts
-        persistenceAdapter.save(CommunityPost.create(aId1, authorA, "A - Post 1 (t3)", null, t3));
-        persistenceAdapter.save(CommunityPost.create(aId2B, authorA, "A - Post 2B (t2, id=b...)", null, t2));
-        persistenceAdapter.save(CommunityPost.create(aId2A, authorA, "A - Post 2A (t2, id=a...)", null, t2));
-        persistenceAdapter.save(CommunityPost.create(aId4, authorA, "A - Post 4 (t1)", null, t1));
-        persistenceAdapter.save(CommunityPost.create(aId5, authorA, "A - Post 5 (t0)", null, t0));
+        // Author A posts (including one HIDDEN post that must be excluded)
+        persistenceAdapter.save(CommunityPost.create(aId1, authorA, "A - Post 1 (t3)", null, CommunityPostStatus.PUBLISHED, t3));
+        persistenceAdapter.save(CommunityPost.create(aId2B, authorA, "A - Post 2B (t2, id=b...)", null, CommunityPostStatus.PUBLISHED, t2));
+        persistenceAdapter.save(CommunityPost.create(aId2A, authorA, "A - Post 2A (t2, id=a...)", null, CommunityPostStatus.PUBLISHED, t2));
+        persistenceAdapter.save(CommunityPost.create(aId4, authorA, "A - Post 4 (t1)", null, CommunityPostStatus.PUBLISHED, t1));
+        persistenceAdapter.save(CommunityPost.create(aId5, authorA, "A - Post 5 (t0)", null, CommunityPostStatus.PUBLISHED, t0));
+        persistenceAdapter.save(CommunityPost.create(aIdHidden, authorA, "A - Hidden post", null, CommunityPostStatus.HIDDEN, t3));
 
         // Author B posts (interleaved timestamps)
         UUID bId1 = UUID.randomUUID();
         UUID bId2 = UUID.randomUUID();
-        persistenceAdapter.save(CommunityPost.create(bId1, authorB, "B - Post 1 (t3)", null, t3));
-        persistenceAdapter.save(CommunityPost.create(bId2, authorB, "B - Post 2 (t1)", null, t1));
+        persistenceAdapter.save(CommunityPost.create(bId1, authorB, "B - Post 1 (t3)", null, CommunityPostStatus.PUBLISHED, t3));
+        persistenceAdapter.save(CommunityPost.create(bId2, authorB, "B - Post 2 (t1)", null, CommunityPostStatus.PUBLISHED, t1));
 
         // --- Author A: Page 1 (limit 2) ---
         List<CommunityPostPublicDTO> aPage1 = queryAdapter.findAuthoredPostsKeyset(authorA, null, null, 2);
@@ -302,7 +345,7 @@ class CommunityPostQueryAdapterMySQLTest {
         List<CommunityPostPublicDTO> aPage4 = queryAdapter.findAuthoredPostsKeyset(authorA, lastOfPage3.createdAt(), lastOfPage3.id(), 2);
         assertThat(aPage4).isEmpty();
 
-        // Verify total traversal for Author A: exactly 5 items, zero from Author B
+        // Verify total traversal for Author A: exactly 5 items, zero from Author B, zero hidden
         List<UUID> fullSequenceA = List.of(
                 aPage1.get(0).id(), aPage1.get(1).id(),
                 aPage2.get(0).id(), aPage2.get(1).id(),

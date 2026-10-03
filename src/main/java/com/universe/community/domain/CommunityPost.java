@@ -16,9 +16,11 @@ import java.util.UUID;
  *   <li>Immutable scalar author user ID ({@code authorUserId});</li>
  *   <li>Caption is trimmed, non-blank, and maximum 2,000 characters;</li>
  *   <li>Optional image media asset ID ({@code imageMediaAssetId}) is strictly immutable after creation;</li>
+ *   <li>Canonical moderation lifecycle status ({@code status}): PUBLISHED, PENDING_REVIEW, HIDDEN, REJECTED;</li>
+ *   <li>Editing caption is strictly allowed only when status is PUBLISHED;</li>
+ *   <li>Editing caption with identical normalized text is an idempotent no-op;</li>
  *   <li>{@code contentVersion} begins at 0 and increments monotonically upon each effective caption edit;</li>
  *   <li>{@code createdAt} is immutable; {@code updatedAt} tracks the latest state transition timestamp;</li>
- *   <li>Editing caption with identical normalized text is an idempotent no-op;</li>
  *   <li>Zero framework or ORM dependencies (pure Java domain).</li>
  * </ul>
  */
@@ -30,6 +32,7 @@ public final class CommunityPost {
     private final UUID authorUserId;
     private String caption;
     private final UUID imageMediaAssetId;
+    private CommunityPostStatus status;
     private int contentVersion;
     private final Instant createdAt;
     private Instant updatedAt;
@@ -39,6 +42,7 @@ public final class CommunityPost {
             UUID authorUserId,
             String caption,
             UUID imageMediaAssetId,
+            CommunityPostStatus status,
             int contentVersion,
             Instant createdAt,
             Instant updatedAt
@@ -47,6 +51,7 @@ public final class CommunityPost {
         this.authorUserId = Objects.requireNonNull(authorUserId, "Author user ID cannot be null.");
         this.caption = validateCaption(caption);
         this.imageMediaAssetId = imageMediaAssetId;
+        this.status = Objects.requireNonNull(status, "Status cannot be null.");
 
         if (contentVersion < 0) {
             throw new CommunityPostValidationException("Content version cannot be negative: " + contentVersion);
@@ -69,10 +74,12 @@ public final class CommunityPost {
             UUID authorUserId,
             String caption,
             UUID imageMediaAssetId,
+            CommunityPostStatus status,
             Instant createdAt
     ) {
         Objects.requireNonNull(id, "Post ID cannot be null.");
         Objects.requireNonNull(authorUserId, "Author user ID cannot be null.");
+        Objects.requireNonNull(status, "Status cannot be null.");
         Objects.requireNonNull(createdAt, "CreatedAt timestamp cannot be null.");
         String validatedCaption = validateCaption(caption);
 
@@ -81,6 +88,7 @@ public final class CommunityPost {
                 authorUserId,
                 validatedCaption,
                 imageMediaAssetId,
+                status,
                 0,
                 createdAt,
                 createdAt
@@ -95,6 +103,7 @@ public final class CommunityPost {
             UUID authorUserId,
             String caption,
             UUID imageMediaAssetId,
+            CommunityPostStatus status,
             int contentVersion,
             Instant createdAt,
             Instant updatedAt
@@ -104,6 +113,7 @@ public final class CommunityPost {
                 authorUserId,
                 caption,
                 imageMediaAssetId,
+                status,
                 contentVersion,
                 createdAt,
                 updatedAt
@@ -112,6 +122,7 @@ public final class CommunityPost {
 
     /**
      * Edits the caption of this post.
+     * Only PUBLISHED posts can be edited.
      *
      * @param actorUserId the user attempting the edit
      * @param newCaption the updated caption content
@@ -125,6 +136,10 @@ public final class CommunityPost {
     ) {
         if (actorUserId == null || !this.authorUserId.equals(actorUserId)) {
             throw new CommunityPostUnauthorizedException(actorUserId, this.id);
+        }
+
+        if (this.status != CommunityPostStatus.PUBLISHED) {
+            throw new CommunityPostValidationException("Only PUBLISHED posts can be edited. Current status: " + this.status);
         }
 
         String validatedNewCaption = validateCaption(newCaption);
@@ -142,6 +157,90 @@ public final class CommunityPost {
         this.contentVersion++;
         this.updatedAt = editedAt;
         return true;
+    }
+
+    /**
+     * Transitions a post from PENDING_REVIEW to PUBLISHED.
+     *
+     * @param transitionAt the timestamp of approval
+     */
+    public void approve(Instant transitionAt) {
+        if (this.status != CommunityPostStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("Cannot approve post with status: " + this.status);
+        }
+        Objects.requireNonNull(transitionAt, "Transition timestamp cannot be null.");
+        if (transitionAt.isBefore(this.updatedAt)) {
+            throw new CommunityPostValidationException("Transition timestamp cannot be before the last updated timestamp.");
+        }
+        this.status = CommunityPostStatus.PUBLISHED;
+        this.updatedAt = transitionAt;
+    }
+
+    public void approve() {
+        approve(Instant.now());
+    }
+
+    /**
+     * Transitions a post from PENDING_REVIEW to REJECTED.
+     *
+     * @param transitionAt the timestamp of rejection
+     */
+    public void reject(Instant transitionAt) {
+        if (this.status != CommunityPostStatus.PENDING_REVIEW) {
+            throw new IllegalStateException("Cannot reject post with status: " + this.status);
+        }
+        Objects.requireNonNull(transitionAt, "Transition timestamp cannot be null.");
+        if (transitionAt.isBefore(this.updatedAt)) {
+            throw new CommunityPostValidationException("Transition timestamp cannot be before the last updated timestamp.");
+        }
+        this.status = CommunityPostStatus.REJECTED;
+        this.updatedAt = transitionAt;
+    }
+
+    public void reject() {
+        reject(Instant.now());
+    }
+
+    /**
+     * Transitions a post from PUBLISHED to HIDDEN.
+     *
+     * @param transitionAt the timestamp of hiding
+     */
+    public void hide(Instant transitionAt) {
+        if (this.status != CommunityPostStatus.PUBLISHED) {
+            throw new IllegalStateException("Cannot hide post with status: " + this.status);
+        }
+        Objects.requireNonNull(transitionAt, "Transition timestamp cannot be null.");
+        if (transitionAt.isBefore(this.updatedAt)) {
+            throw new CommunityPostValidationException("Transition timestamp cannot be before the last updated timestamp.");
+        }
+        this.status = CommunityPostStatus.HIDDEN;
+        this.updatedAt = transitionAt;
+    }
+
+    public void hide() {
+        hide(Instant.now());
+    }
+
+    /**
+     * Transitions a post from HIDDEN to PUBLISHED.
+     *
+     * @param transitionAt the timestamp of restoration
+     */
+    public void restore(Instant transitionAt) {
+        if (this.status != CommunityPostStatus.HIDDEN) {
+            throw new IllegalStateException("Cannot restore post with status: " + this.status);
+        }
+        Objects.requireNonNull(transitionAt, "Transition timestamp cannot be null.");
+        if (transitionAt.isBefore(this.updatedAt)) {
+            throw new CommunityPostValidationException("Transition timestamp cannot be before the last updated timestamp.");
+        }
+        this.status = CommunityPostStatus.PUBLISHED;
+        this.updatedAt = transitionAt;
+    }
+
+    public void restore() {
+        restore(Instant.now());
     }
 
     private static String validateCaption(String rawCaption) {
@@ -176,6 +275,10 @@ public final class CommunityPost {
         return imageMediaAssetId;
     }
 
+    public CommunityPostStatus getStatus() {
+        return status;
+    }
+
     public int getContentVersion() {
         return contentVersion;
     }
@@ -208,6 +311,7 @@ public final class CommunityPost {
                 ", authorUserId=" + authorUserId +
                 ", caption='" + (caption != null && caption.length() > 30 ? caption.substring(0, 30) + "..." : caption) + '\'' +
                 ", imageMediaAssetId=" + imageMediaAssetId +
+                ", status=" + status +
                 ", contentVersion=" + contentVersion +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +

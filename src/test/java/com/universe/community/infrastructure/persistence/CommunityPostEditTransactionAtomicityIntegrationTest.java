@@ -4,6 +4,7 @@ import com.universe.community.application.command.EditCommunityPostCaptionComman
 import com.universe.community.application.port.out.CommunityPostRevisionRepositoryPort;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.CommunityPostRevision;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.id.UuidGeneratorAdapter;
@@ -152,7 +153,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
         UUID authorId = UUID.randomUUID();
         Instant createdAt = Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt);
         postAdapter.save(post);
 
         EditCommunityPostCaptionCommand command = new EditCommunityPostCaptionCommand(
@@ -200,7 +201,7 @@ class CommunityPostEditTransactionAtomicityIntegrationTest {
         UUID authorId = UUID.randomUUID();
         Instant createdAt = Instant.now().minus(10, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Original caption", null, CommunityPostStatus.PUBLISHED, createdAt);
         postAdapter.save(post);
 
         EditCommunityPostCaptionCommand command = new EditCommunityPostCaptionCommand(

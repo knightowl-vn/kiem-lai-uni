@@ -5,6 +5,7 @@ import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.application.port.out.CommunityPostRevisionRepositoryPort;
 import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.CommunityPostRevision;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -434,7 +435,7 @@ class CommunityPostHardDeleteTransactionIntegrationTest {
     private UUID seedCommunityPost(UUID authorId, String caption, UUID imageMediaAssetId) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now().minus(1, ChronoUnit.HOURS);
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, imageMediaAssetId, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, imageMediaAssetId, CommunityPostStatus.PUBLISHED, now);
         tx.executeWithoutResult(s -> postAdapter.save(post));
         return postId;
     }

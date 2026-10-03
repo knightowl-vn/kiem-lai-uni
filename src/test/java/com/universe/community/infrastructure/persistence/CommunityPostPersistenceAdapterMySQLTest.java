@@ -1,6 +1,7 @@
 package com.universe.community.infrastructure.persistence;
 
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.test.TestDatabaseSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,19 +40,21 @@ import static org.assertj.core.api.Assertions.assertThat;
         CommunityPostPersistenceMapper.class,
         CommunityPostRevisionPersistenceMapper.class
 })
-@DisplayName("CommunityPost JPA Persistence Adapter Integration Tests")
 class CommunityPostPersistenceAdapterMySQLTest {
 
     @DynamicPropertySource
-    static void configureDataSource(DynamicPropertyRegistry registry) {
+    static void configureProperties(DynamicPropertyRegistry registry) {
         TestDatabaseSupport.configureDynamicProperties(registry);
     }
 
     @Autowired
-    private JdbcTemplate jdbcTemplate;
+    private CommunityPostPersistenceAdapter adapter;
 
     @Autowired
-    private CommunityPostPersistenceAdapter adapter;
+    private SpringDataCommunityPostJpaRepository postRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
     private PlatformTransactionManager transactionManager;
@@ -61,21 +64,22 @@ class CommunityPostPersistenceAdapterMySQLTest {
     @BeforeEach
     void setUp() {
         transactionTemplate = new TransactionTemplate(transactionManager);
-        cleanData();
+        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0;");
+        jdbcTemplate.execute("TRUNCATE TABLE community_post_revisions;");
+        jdbcTemplate.execute("TRUNCATE TABLE community_posts;");
+        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1;");
     }
 
     @AfterEach
     void tearDown() {
-        cleanData();
-    }
-
-    private void cleanData() {
-        jdbcTemplate.execute("DELETE FROM community_post_revisions");
-        jdbcTemplate.execute("DELETE FROM community_posts");
+        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 0;");
+        jdbcTemplate.execute("TRUNCATE TABLE community_post_revisions;");
+        jdbcTemplate.execute("TRUNCATE TABLE community_posts;");
+        jdbcTemplate.execute("SET FOREIGN_KEY_CHECKS = 1;");
     }
 
     @Test
-    @DisplayName("Should persist and rehydrate CommunityPost with all fields")
+    @DisplayName("Should persist and rehydrate CommunityPost with image attachment")
     void shouldPersistAndRehydratePostWithImage() {
         UUID postId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
@@ -87,6 +91,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
                 authorId,
                 "Caption with media",
                 mediaAssetId,
+                CommunityPostStatus.PUBLISHED,
                 now
         );
 
@@ -96,19 +101,21 @@ class CommunityPostPersistenceAdapterMySQLTest {
         assertThat(saved.getAuthorUserId()).isEqualTo(authorId);
         assertThat(saved.getCaption()).isEqualTo("Caption with media");
         assertThat(saved.getImageMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(saved.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
         assertThat(saved.getContentVersion()).isEqualTo(0);
         assertThat(saved.getCreatedAt()).isEqualTo(now);
         assertThat(saved.getUpdatedAt()).isEqualTo(now);
 
         // Verify DB row directly
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT id, author_user_id, caption, image_media_asset_id, content_version, created_at, updated_at FROM community_posts WHERE id = ?",
+                "SELECT id, author_user_id, caption, image_media_asset_id, status, content_version, created_at, updated_at FROM community_posts WHERE id = ?",
                 postId.toString()
         );
         assertThat(row.get("id")).isEqualTo(postId.toString());
         assertThat(row.get("author_user_id")).isEqualTo(authorId.toString());
         assertThat(row.get("caption")).isEqualTo("Caption with media");
         assertThat(row.get("image_media_asset_id")).isEqualTo(mediaAssetId.toString());
+        assertThat(row.get("status")).isEqualTo("PUBLISHED");
         assertThat(((Number) row.get("content_version")).intValue()).isEqualTo(0);
 
         // Find by ID through adapter
@@ -119,6 +126,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
         assertThat(found.getAuthorUserId()).isEqualTo(authorId);
         assertThat(found.getCaption()).isEqualTo("Caption with media");
         assertThat(found.getImageMediaAssetId()).isEqualTo(mediaAssetId);
+        assertThat(found.getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
         assertThat(found.getContentVersion()).isEqualTo(0);
     }
 
@@ -134,20 +142,54 @@ class CommunityPostPersistenceAdapterMySQLTest {
                 authorId,
                 "Text only caption",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 now
         );
 
         adapter.save(post);
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT image_media_asset_id FROM community_posts WHERE id = ?",
+                "SELECT image_media_asset_id, status FROM community_posts WHERE id = ?",
                 postId.toString()
         );
         assertThat(row.get("image_media_asset_id")).isNull();
+        assertThat(row.get("status")).isEqualTo("PUBLISHED");
 
         Optional<CommunityPost> foundOpt = adapter.findById(postId);
         assertThat(foundOpt).isPresent();
         assertThat(foundOpt.get().getImageMediaAssetId()).isNull();
+        assertThat(foundOpt.get().getStatus()).isEqualTo(CommunityPostStatus.PUBLISHED);
+    }
+
+    @Test
+    @DisplayName("Should persist and rehydrate CommunityPost in each canonical status")
+    void shouldPersistAndRehydrateInAllStatuses() {
+        for (CommunityPostStatus status : CommunityPostStatus.values()) {
+            UUID postId = UUID.randomUUID();
+            UUID authorId = UUID.randomUUID();
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+            CommunityPost post = CommunityPost.create(
+                    postId,
+                    authorId,
+                    "Post with status " + status,
+                    null,
+                    status,
+                    now
+            );
+            adapter.save(post);
+
+            Optional<CommunityPost> foundOpt = adapter.findById(postId);
+            assertThat(foundOpt).isPresent();
+            assertThat(foundOpt.get().getStatus()).isEqualTo(status);
+
+            String dbStatus = jdbcTemplate.queryForObject(
+                    "SELECT status FROM community_posts WHERE id = ?",
+                    String.class,
+                    postId.toString()
+            );
+            assertThat(dbStatus).isEqualTo(status.name());
+        }
     }
 
     @Test
@@ -158,7 +200,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
         Instant createdAt = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
         Instant editedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, createdAt);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Initial", null, CommunityPostStatus.PUBLISHED, createdAt);
         adapter.save(post);
 
         post.editCaption(authorId, "Updated text", editedAt);
@@ -181,7 +223,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Lock test", null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Lock test", null, CommunityPostStatus.PUBLISHED, now);
         adapter.save(post);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -210,13 +252,13 @@ class CommunityPostPersistenceAdapterMySQLTest {
     }
 
     @Test
-    @DisplayName("Should acquire lock via lockExistingPostForInteraction inside active transaction")
+    @DisplayName("Should acquire lock via lockExistingPostForInteraction inside active transaction for PUBLISHED post")
     void shouldAcquireLockExistingPostForInteractionInsideTransaction() {
         UUID postId = UUID.randomUUID();
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Locked view test", null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Locked view test", null, CommunityPostStatus.PUBLISHED, now);
         adapter.save(post);
 
         transactionTemplate.executeWithoutResult(status -> {
@@ -229,6 +271,30 @@ class CommunityPostPersistenceAdapterMySQLTest {
     }
 
     @Test
+    @DisplayName("lockExistingPostForInteraction should return empty for non-PUBLISHED posts (PENDING_REVIEW, HIDDEN, REJECTED)")
+    void shouldReturnEmptyFromLockExistingPostForInteractionWhenNonPublished() {
+        CommunityPostStatus[] nonPublishedStatuses = {
+                CommunityPostStatus.PENDING_REVIEW,
+                CommunityPostStatus.HIDDEN,
+                CommunityPostStatus.REJECTED
+        };
+
+        for (CommunityPostStatus status : nonPublishedStatuses) {
+            UUID postId = UUID.randomUUID();
+            UUID authorId = UUID.randomUUID();
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+
+            CommunityPost post = CommunityPost.create(postId, authorId, "Non published: " + status, null, status, now);
+            adapter.save(post);
+
+            transactionTemplate.executeWithoutResult(s -> {
+                var lockedViewOpt = adapter.lockExistingPostForInteraction(postId);
+                assertThat(lockedViewOpt).as("lockExistingPostForInteraction for status %s", status).isEmpty();
+            });
+        }
+    }
+
+    @Test
     @DisplayName("Should verify existsById and deleteById")
     void shouldVerifyExistsAndDelete() {
         UUID postId = UUID.randomUUID();
@@ -237,7 +303,7 @@ class CommunityPostPersistenceAdapterMySQLTest {
 
         assertThat(adapter.existsById(postId)).isFalse();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "To be deleted", null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "To be deleted", null, CommunityPostStatus.PUBLISHED, now);
         adapter.save(post);
 
         assertThat(adapter.existsById(postId)).isTrue();

@@ -12,6 +12,7 @@ import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.contracts.dto.CommunityPostFeedItemDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
 import com.universe.community.domain.exception.CommunityPostValidationException;
@@ -187,7 +188,7 @@ class CommunityPostControllerWebMvcTest {
         String caption = "Caption-only post via Spring slice";
         UUID postId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
 
         when(createCommunityPostWithImageUseCase.execute(
                 eq(USER_ID),
@@ -219,7 +220,7 @@ class CommunityPostControllerWebMvcTest {
         UUID postId = UUID.randomUUID();
         UUID imageAssetId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, createdAt);
+        CommunityPost post = CommunityPost.create(postId, USER_ID, caption, imageAssetId, CommunityPostStatus.PUBLISHED, createdAt);
 
         MockMultipartFile imagePart = new MockMultipartFile(
                 "image",
@@ -467,7 +468,7 @@ class CommunityPostControllerWebMvcTest {
         String newCaption = "Updated caption through WebMvc slice";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
         Instant updatedAt = Instant.parse("2026-09-30T11:00:00Z");
-        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, 1, createdAt, updatedAt);
+        CommunityPost post = CommunityPost.rehydrate(POST_ID, USER_ID, newCaption, null, CommunityPostStatus.PUBLISHED, 1, createdAt, updatedAt);
 
         when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class))).thenReturn(post);
 
@@ -495,7 +496,7 @@ class CommunityPostControllerWebMvcTest {
     void shouldSendRawCaptionToUseCaseWithoutClientNormalization() throws Exception {
         String rawCaption = "  Raw caption with leading and trailing spaces  ";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, "Raw caption with leading and trailing spaces", null, createdAt);
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, "Raw caption with leading and trailing spaces", null, CommunityPostStatus.PUBLISHED, createdAt);
 
         when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class))).thenReturn(post);
 
@@ -623,7 +624,7 @@ class CommunityPostControllerWebMvcTest {
     void shouldReturnOkOnNoOpEditInSlice() throws Exception {
         String caption = "Identical normalized caption";
         Instant createdAt = Instant.parse("2026-09-30T10:00:00Z");
-        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, createdAt);
+        CommunityPost post = CommunityPost.create(POST_ID, USER_ID, caption, null, CommunityPostStatus.PUBLISHED, createdAt);
 
         when(editCommunityPostCaptionUseCase.execute(any(EditCommunityPostCaptionCommand.class)))
                 .thenReturn(post);

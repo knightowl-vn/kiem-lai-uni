@@ -50,6 +50,14 @@ public class CommunityPostJpaEntity {
     private String imageMediaAssetId;
 
     @Column(
+            name = "status",
+            nullable = false,
+            length = 32,
+            columnDefinition = "VARCHAR(32)"
+    )
+    private String status;
+
+    @Column(
             name = "content_version",
             nullable = false
     )
@@ -75,6 +83,7 @@ public class CommunityPostJpaEntity {
             String authorUserId,
             String caption,
             String imageMediaAssetId,
+            String status,
             int contentVersion,
             Instant createdAt,
             Instant updatedAt
@@ -83,6 +92,7 @@ public class CommunityPostJpaEntity {
         this.authorUserId = authorUserId;
         this.caption = caption;
         this.imageMediaAssetId = imageMediaAssetId;
+        this.status = status;
         this.contentVersion = contentVersion;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
@@ -118,6 +128,14 @@ public class CommunityPostJpaEntity {
 
     public void setImageMediaAssetId(String imageMediaAssetId) {
         this.imageMediaAssetId = imageMediaAssetId;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public int getContentVersion() {
@@ -164,6 +182,7 @@ public class CommunityPostJpaEntity {
                 ", authorUserId='" + authorUserId + '\'' +
                 ", caption='" + (caption != null && caption.length() > 30 ? caption.substring(0, 30) + "..." : caption) + '\'' +
                 ", imageMediaAssetId='" + imageMediaAssetId + '\'' +
+                ", status='" + status + '\'' +
                 ", contentVersion=" + contentVersion +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +

@@ -45,13 +45,16 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
         if (postId == null) {
             throw new IllegalArgumentException("Post ID cannot be null.");
         }
-        return postRepository.findById(postId.toString()).map(postMapper::toPublicDTO);
+        return postRepository.findByIdAndStatus(postId.toString(), "PUBLISHED").map(postMapper::toPublicDTO);
     }
 
     @Override
     public List<CommunityPostRevisionPublicDTO> findPublicRevisionHistory(UUID postId) {
         if (postId == null) {
             throw new IllegalArgumentException("Post ID cannot be null.");
+        }
+        if (!postRepository.existsByIdAndStatus(postId.toString(), "PUBLISHED")) {
+            return List.of();
         }
         return revisionRepository.findByPostIdOrderByRevisionNumberDesc(postId.toString()).stream()
                 .map(revisionMapper::toPublicDTO)
@@ -140,7 +143,7 @@ public class CommunityPostQueryAdapter implements CommunityPostQueryPort {
             return List.of();
         }
         List<String> idStrings = postIds.stream().map(UUID::toString).toList();
-        return postRepository.findByIdIn(idStrings).stream()
+        return postRepository.findByIdInAndStatus(idStrings, "PUBLISHED").stream()
                 .map(postMapper::toPublicDTO)
                 .toList();
     }

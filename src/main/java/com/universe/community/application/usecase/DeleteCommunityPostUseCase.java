@@ -4,6 +4,8 @@ import com.universe.community.application.port.out.CommunityPostInteractionClean
 import com.universe.community.application.port.out.CommunityPostReportQueryPort;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
+import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -79,7 +81,12 @@ public class DeleteCommunityPostUseCase {
             throw new CommunityPostUnauthorizedException(actorUserId, postId);
         }
 
-        // 3. Anti-evasion barrier: Prevent deletion if pending abuse reports exist
+        // 3. Moderation barrier: HIDDEN posts cannot be deleted by anyone
+        if (post.getStatus() == CommunityPostStatus.HIDDEN) {
+            throw new CommunityPostHiddenDeleteForbiddenException(postId);
+        }
+
+        // 4. Anti-evasion barrier: Prevent deletion if pending abuse reports exist
         if (reportQueryPort.hasPendingReports(postId)) {
             throw new CommunityPostPendingReportConflictException(postId);
         }

@@ -131,6 +131,25 @@ class SetReactionUseCaseTest {
     }
 
     @Test
+    @DisplayName("Should reject and throw ReactionTargetNotEligibleException when COMMUNITY_POST does not exist under lock")
+    void shouldRejectWhenCommunityPostDoesNotExistUnderLock() {
+        UUID userId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        ReactionTarget target = ReactionTarget.communityPost(postId);
+
+        when(communityPostMutationPort.lockExistingPostForInteraction(postId)).thenReturn(Optional.empty());
+
+        SetReactionCommand command = new SetReactionCommand(userId, target, ReactionType.LIKE);
+
+        assertThatThrownBy(() -> useCase.execute(command))
+                .isInstanceOf(ReactionTargetNotEligibleException.class)
+                .satisfies(ex -> assertThat(((ReactionTargetNotEligibleException) ex).getTarget()).isEqualTo(target));
+
+        verify(communityPostMutationPort).lockExistingPostForInteraction(postId);
+        verify(reactionRepositoryPort, never()).save(any());
+    }
+
+    @Test
     @DisplayName("Should lock comment with pessimistic lock when target is COMMENT")
     void shouldLockCommentWhenTargetIsComment() {
         UUID userId = UUID.randomUUID();

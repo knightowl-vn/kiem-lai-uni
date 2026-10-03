@@ -2,6 +2,7 @@ package com.universe.community.application.mapper;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,7 @@ class CommunityPostDTOMapperTest {
         UUID imageId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         Instant now = Instant.now();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post caption", imageId, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post caption", imageId, CommunityPostStatus.PUBLISHED, now);
         CommunityPostPublicDTO dto = CommunityPostDTOMapper.toPublicDTO(post);
 
         assertThat(dto.id()).isEqualTo(postId);
@@ -41,7 +42,7 @@ class CommunityPostDTOMapperTest {
         UUID authorId = UUID.randomUUID();
         Instant now = Instant.now();
 
-        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post without image", null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, "Domain post without image", null, CommunityPostStatus.PUBLISHED, now);
         CommunityPostPublicDTO dto = CommunityPostDTOMapper.toPublicDTO(post);
 
         assertThat(dto.id()).isEqualTo(postId);

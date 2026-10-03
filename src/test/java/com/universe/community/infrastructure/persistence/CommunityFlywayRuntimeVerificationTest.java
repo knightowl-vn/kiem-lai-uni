@@ -206,8 +206,8 @@ class CommunityFlywayRuntimeVerificationTest {
         Instant now = Instant.now();
 
         jdbc.update(
-                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, created_at, updated_at) " +
-                        "VALUES (?, ?, 'Test caption', NULL, 1, ?, ?)",
+                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, status, created_at, updated_at) " +
+                        "VALUES (?, ?, 'Test caption', NULL, 1, 'PUBLISHED', ?, ?)",
                 postId.toString(),
                 authorId.toString(),
                 Timestamp.from(now),
@@ -241,8 +241,8 @@ class CommunityFlywayRuntimeVerificationTest {
 
         // 1. Caption length > 2000 should be rejected by DB constraint
         assertThatThrownBy(() -> jdbc.update(
-                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, created_at, updated_at) " +
-                        "VALUES (?, ?, ?, NULL, 0, ?, ?)",
+                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, status, created_at, updated_at) " +
+                        "VALUES (?, ?, ?, NULL, 0, 'PUBLISHED', ?, ?)",
                 UUID.randomUUID().toString(),
                 authorId.toString(),
                 "x".repeat(2001),
@@ -252,8 +252,8 @@ class CommunityFlywayRuntimeVerificationTest {
 
         // 2. Insert valid post
         jdbc.update(
-                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, created_at, updated_at) " +
-                        "VALUES (?, ?, 'Valid caption', NULL, 0, ?, ?)",
+                "INSERT INTO community_posts (id, author_user_id, caption, image_media_asset_id, content_version, status, created_at, updated_at) " +
+                        "VALUES (?, ?, 'Valid caption', NULL, 0, 'PUBLISHED', ?, ?)",
                 postId.toString(),
                 authorId.toString(),
                 Timestamp.from(now),

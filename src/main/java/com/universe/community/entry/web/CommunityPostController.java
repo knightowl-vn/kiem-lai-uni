@@ -14,6 +14,7 @@ import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.contracts.dto.CommunityPostRevisionPublicDTO;
 import com.universe.community.contracts.dto.EditCommunityPostCaptionRequestDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.exception.CommunityPostHiddenDeleteForbiddenException;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.domain.exception.CommunityPostUnauthorizedException;
@@ -287,6 +288,12 @@ public class CommunityPostController {
     public ResponseEntity<Map<String, String>> handleUnauthorizedException(CommunityPostUnauthorizedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Unauthorized"));
+    }
+
+    @ExceptionHandler(CommunityPostHiddenDeleteForbiddenException.class)
+    public ResponseEntity<Map<String, String>> handleHiddenDeleteForbiddenException(CommunityPostHiddenDeleteForbiddenException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "Post is hidden by moderation"));
     }
 
     @ExceptionHandler(CommunityPostPendingReportConflictException.class)

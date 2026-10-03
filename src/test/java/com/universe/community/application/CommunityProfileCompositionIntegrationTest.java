@@ -10,6 +10,7 @@ import com.universe.community.application.usecase.GetCommunityPublicProfileUseCa
 import com.universe.community.contracts.dto.CommunityAuthorProfileDTO;
 import com.universe.community.contracts.dto.CommunityNewestFeedResponseDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.infrastructure.identity.IdentityCommunityAuthorProfileAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceAdapter;
 import com.universe.community.infrastructure.persistence.CommunityPostPersistenceMapper;
@@ -158,6 +159,7 @@ class CommunityProfileCompositionIntegrationTest {
                 AUTHOR_1_ID,
                 "Post 1 - Oldest",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 baseTime.minus(2, ChronoUnit.HOURS)
         );
         CommunityPost post2 = CommunityPost.create(
@@ -165,6 +167,7 @@ class CommunityProfileCompositionIntegrationTest {
                 AUTHOR_1_ID,
                 "Post 2 - Newest",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 baseTime.minus(1, ChronoUnit.HOURS)
         );
 
@@ -174,6 +177,7 @@ class CommunityProfileCompositionIntegrationTest {
                 AUTHOR_2_ID,
                 "Other author post",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 baseTime
         );
 
@@ -220,6 +224,7 @@ class CommunityProfileCompositionIntegrationTest {
                 AUTHOR_1_ID,
                 "First",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 baseTime.minus(2, ChronoUnit.HOURS)
         );
         CommunityPost post2 = CommunityPost.create(
@@ -227,6 +232,7 @@ class CommunityProfileCompositionIntegrationTest {
                 AUTHOR_1_ID,
                 "Second",
                 null,
+                CommunityPostStatus.PUBLISHED,
                 baseTime.minus(1, ChronoUnit.HOURS)
         );
 

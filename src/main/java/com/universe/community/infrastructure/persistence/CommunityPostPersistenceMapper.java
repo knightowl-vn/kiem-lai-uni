@@ -2,6 +2,7 @@ package com.universe.community.infrastructure.persistence;
 
 import com.universe.community.contracts.dto.CommunityPostPublicDTO;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -27,6 +28,7 @@ public class CommunityPostPersistenceMapper {
                 domain.getAuthorUserId().toString(),
                 domain.getCaption(),
                 domain.getImageMediaAssetId() != null ? domain.getImageMediaAssetId().toString() : null,
+                domain.getStatus().name(),
                 domain.getContentVersion(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt()
@@ -46,12 +48,14 @@ public class CommunityPostPersistenceMapper {
         UUID imageMediaAssetId = entity.getImageMediaAssetId() != null
                 ? parseUuid(entity.getImageMediaAssetId(), "Image media asset ID")
                 : null;
+        CommunityPostStatus status = parseStatus(entity.getStatus());
 
         return CommunityPost.rehydrate(
                 id,
                 authorUserId,
                 entity.getCaption(),
                 imageMediaAssetId,
+                status,
                 entity.getContentVersion(),
                 entity.getCreatedAt(),
                 entity.getUpdatedAt()
@@ -100,6 +104,17 @@ public class CommunityPostPersistenceMapper {
                 domain.getCreatedAt(),
                 domain.getUpdatedAt()
         );
+    }
+
+    private CommunityPostStatus parseStatus(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("Post status in database cannot be null or blank.");
+        }
+        try {
+            return CommunityPostStatus.valueOf(raw.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException("Post status in database has invalid status value: " + raw, ex);
+        }
     }
 
     private UUID parseUuid(String raw, String fieldName) {

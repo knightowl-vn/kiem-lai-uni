@@ -8,6 +8,7 @@ import com.universe.community.application.usecase.DeleteCommunityPostUseCase;
 import com.universe.community.application.usecase.EditCommunityPostCaptionUseCase;
 import com.universe.community.contracts.port.CommunityPostInteractionMutationPort;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.community.domain.exception.CommunityPostNotFoundException;
 import com.universe.community.domain.exception.CommunityPostPendingReportConflictException;
 import com.universe.community.infrastructure.interaction.InteractionCommunityPostCleanupAdapter;
@@ -386,7 +387,7 @@ class CommunityPostHardDeleteConcurrencyIntegrationTest {
     private UUID createCommunityPost(UUID authorId, String caption) {
         UUID postId = UUID.randomUUID();
         Instant now = Instant.now();
-        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, now);
+        CommunityPost post = CommunityPost.create(postId, authorId, caption, null, CommunityPostStatus.PUBLISHED, now);
         tx.executeWithoutResult(s -> postAdapter.save(post));
         return postId;
     }

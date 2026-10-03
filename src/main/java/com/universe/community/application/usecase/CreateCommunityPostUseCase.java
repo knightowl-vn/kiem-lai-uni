@@ -3,6 +3,7 @@ package com.universe.community.application.usecase;
 import com.universe.community.application.command.CreateCommunityPostCommand;
 import com.universe.community.application.port.out.CommunityPostRepositoryPort;
 import com.universe.community.domain.CommunityPost;
+import com.universe.community.domain.CommunityPostStatus;
 import com.universe.shared.id.IdGeneratorPort;
 import com.universe.shared.time.ClockPort;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,7 @@ public class CreateCommunityPostUseCase {
                 command.actorUserId(),
                 command.caption(),
                 command.imageMediaAssetId(),
+                CommunityPostStatus.PUBLISHED,
                 createdAt
         );
 
